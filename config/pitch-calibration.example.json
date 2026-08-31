@@ -1,0 +1,19 @@
+{
+  "method": "four or more matched fixed-camera points",
+  "pitch_dimensions_metres": {
+    "length": 105,
+    "width": 68
+  },
+  "image_points": [
+    [320, 900],
+    [3520, 900],
+    [2550, 260],
+    [1290, 260]
+  ],
+  "pitch_points_metres": [
+    [0, 0],
+    [105, 0],
+    [105, 68],
+    [0, 68]
+  ]
+}

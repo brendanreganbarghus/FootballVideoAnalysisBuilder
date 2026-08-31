@@ -1,0 +1,49 @@
+# Local development
+.idea/
+.junie/
+.pytest_cache/
+**/__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.env
+.env.*
+!.env.example
+
+# Downloaded datasets and local outputs
+data/
+pano/
+output/
+output_*/
+
+# Model weights and optimized exports
+models/
+*.pt
+*.onnx
+*.engine
+
+# Source and generated media archives
+*.mp4
+*.webm
+*.avi
+*.mkv
+*.tgz
+*.tar.gz
+*.zip
+*.log
+
+# Restricted Alfheim data and generated analysis artifacts
+benchmarks/alfheim/generated/
+benchmarks/alfheim/window-555/*.csv
+benchmarks/alfheim/window-555/*.json
+benchmarks/alfheim/window-555/*.txt
+benchmarks/alfheim/window-555/analytics-cache*/
+benchmarks/alfheim/window-555/analytics-data*/
+benchmarks/alfheim/window-555/detections-smoke/
+benchmarks/alfheim/window-555/football-model-smoke/
+benchmarks/alfheim/window-555/oracle-ball-probe/
+
+# Reproducible benchmark and presentation outputs
+benchmarks/soccertrack-*/
+docs/*.pdf
+docs/*.pptx

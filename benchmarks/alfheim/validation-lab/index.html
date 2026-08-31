@@ -1,0 +1,399 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Alfheim Validation Lab</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: Inter, system-ui, sans-serif;
+      background: #0d1117;
+      color: #f0f6fc;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #0d1117; }
+    button, a { font: inherit; }
+    a { color: #58a6ff; }
+    header {
+      padding: 22px clamp(18px, 4vw, 48px);
+      border-bottom: 1px solid #30363d;
+      background: #161b22;
+    }
+    header h1 { margin: 0 0 6px; }
+    header p { margin: 0; color: #8b949e; }
+    nav { display: flex; gap: 10px; margin-top: 16px; }
+    nav a {
+      padding: 8px 12px;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      text-decoration: none;
+    }
+    nav a[aria-current="page"] {
+      border-color: #58a6ff;
+      background: #1f6feb33;
+      color: #f0f6fc;
+    }
+    main {
+      display: grid;
+      grid-template-columns: minmax(320px, 440px) minmax(600px, 1fr);
+      gap: 18px;
+      max-width: 1800px;
+      margin: auto;
+      padding: 20px;
+    }
+    .card {
+      border: 1px solid #30363d;
+      border-radius: 12px;
+      background: #161b22;
+    }
+    .suite { padding: 16px; }
+    .suite h2, .workspace h2 { margin: 0 0 8px; }
+    .muted { color: #8b949e; }
+    .phase-tabs {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 8px;
+      margin: 16px 0;
+    }
+    .phase-tab {
+      padding: 10px;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      background: #0d1117;
+      color: #8b949e;
+      text-align: left;
+    }
+    .phase-tab.active {
+      border-color: #56d364;
+      color: #f0f6fc;
+    }
+    .thresholds {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+    .threshold {
+      padding: 10px;
+      border-radius: 8px;
+      background: #0d1117;
+    }
+    .threshold strong { display: block; font-size: 1.15rem; }
+    .test-list { display: grid; gap: 9px; }
+    .test-card {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 8px;
+      padding: 11px;
+      border: 1px solid #30363d;
+      border-radius: 9px;
+      background: #0d1117;
+    }
+    .test-card.selected { border-color: #58a6ff; }
+    .test-title { font-weight: 750; }
+    .test-meta { color: #8b949e; font-size: .82rem; margin-top: 3px; }
+    .test-actions { display: flex; align-items: center; gap: 6px; }
+    button {
+      cursor: pointer;
+      border: 1px solid #484f58;
+      border-radius: 7px;
+      padding: 7px 10px;
+      background: #21262d;
+      color: #f0f6fc;
+    }
+    button:hover { border-color: #8b949e; }
+    button:disabled { cursor: not-allowed; opacity: .55; }
+    .status {
+      display: inline-block;
+      margin-top: 7px;
+      padding: 3px 7px;
+      border-radius: 999px;
+      background: #30363d;
+      color: #b1bac4;
+      font-size: .75rem;
+      font-weight: 700;
+    }
+    .status.pass { background: #23863655; color: #7ee787; }
+    .status.fail { background: #da363355; color: #ff7b72; }
+    .status.locked { background: #1f6feb55; color: #79c0ff; }
+    .suite-result {
+      margin-top: 14px;
+      padding: 12px;
+      border: 1px solid #30363d;
+      border-radius: 9px;
+      background: #0d1117;
+    }
+    .workspace { overflow: hidden; }
+    .workspace-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      padding: 14px 16px;
+      border-bottom: 1px solid #30363d;
+    }
+    .workspace-actions { display: flex; gap: 8px; }
+    iframe {
+      display: block;
+      width: 100%;
+      height: calc(100vh - 165px);
+      min-height: 740px;
+      border: 0;
+      background: #0d1117;
+    }
+    @media (max-width: 1050px) {
+      main { grid-template-columns: 1fr; }
+      iframe { height: 900px; }
+    }
+  </style>
+</head>
+<body>
+<header>
+  <h1>Alfheim Validation Lab</h1>
+  <p>Fixed blind benchmark suites. Manual references are locked before AI runs.</p>
+  <nav aria-label="Analytics labs">
+    <a href="../window-555/manual-review/">Match Lab playground</a>
+    <a href="./" aria-current="page">Validation Lab</a>
+  </nav>
+</header>
+<main>
+  <aside class="card suite">
+    <h2>Benchmark suite</h2>
+    <p class="muted">Run tests in order. Finish and lock the manual reference before processing AI.</p>
+    <div class="phase-tabs" aria-label="Statistic suites">
+      <button class="phase-tab active">Passes + turnovers<br><small>Active · 5 tests</small></button>
+      <button class="phase-tab" disabled>Shots on/off target<br><small>Next suite</small></button>
+    </div>
+    <div class="thresholds">
+      <div class="threshold"><strong>≥ 90%</strong><span class="muted">Overall F1</span></div>
+      <div class="threshold"><strong>≥ 80%</strong><span class="muted">Each reel</span></div>
+    </div>
+    <div class="test-list" id="test-list"></div>
+    <div class="suite-result" id="suite-result">
+      <strong>Suite pending</strong>
+      <div class="muted">Complete all five tests to calculate the release result.</div>
+    </div>
+  </aside>
+  <section class="card workspace">
+    <div class="workspace-head">
+      <div>
+        <h2 id="workspace-title">Test 1 · 03:00–04:00</h2>
+        <div class="muted" id="workspace-status">Manual reference not locked</div>
+      </div>
+      <div class="workspace-actions">
+        <button id="lock-reference">Lock manual reference</button>
+        <a id="open-full" href="#" target="_blank">Open full page</a>
+      </div>
+    </div>
+    <iframe id="test-frame" title="Selected validation test"></iframe>
+  </section>
+</main>
+<script>
+  const suite = {
+    id: "passes-turnovers-v41",
+    metrics: ["completed_pass", "turnover"],
+    overallThreshold: 0.9,
+    reelThreshold: 0.8,
+    tests: [
+      {id: "test-1", label: "Test 1", start: 180, cacheKey: "segment-0060-020"},
+      {id: "test-2", label: "Test 2", start: 540, cacheKey: "segment-0180-020"},
+      {id: "test-3", label: "Test 3", start: 900, cacheKey: "segment-0300-020"},
+      {id: "test-4", label: "Test 4", start: 1260, cacheKey: "segment-0420-020"},
+      {id: "test-5", label: "Test 5", start: 2100, cacheKey: "segment-0700-020"}
+    ]
+  };
+  const list = document.getElementById("test-list");
+  const frame = document.getElementById("test-frame");
+  const lockButton = document.getElementById("lock-reference");
+  let selected = suite.tests[0];
+  let results = new Map();
+
+  function clock(seconds) {
+    const minutes = Math.floor(seconds / 60);
+    return `${String(minutes).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
+  }
+
+  function manualStorageKey(test) {
+    return `alfheim-${test.start}-60-manual-events-v1`;
+  }
+
+  function referenceStorageKey(test) {
+    return `alfheim-validation-${suite.id}-${test.id}-reference`;
+  }
+
+  function testUrl(test) {
+    return `../window-555/manual-review/?start=${test.start}&duration=60&prepare=1&v=41&validation=1&test=${test.id}`;
+  }
+
+  function readManual(test) {
+    return JSON.parse(localStorage.getItem(manualStorageKey(test)) || "[]");
+  }
+
+  function readReference(test) {
+    const value = localStorage.getItem(referenceStorageKey(test));
+    return value ? JSON.parse(value) : null;
+  }
+
+  function predictionType(type) {
+    return {
+      pass_candidate: "completed_pass",
+      restart_pass_candidate: "completed_pass",
+      turnover_candidate: "turnover"
+    }[type] || null;
+  }
+
+  function compare(reference, predictions) {
+    const manual = reference.events.filter(event => suite.metrics.includes(event.event_type));
+    const ai = predictions
+      .map(event => ({
+        team: event.team,
+        event_type: predictionType(event.event_type),
+        seconds: event.completion_seconds ?? event.clip_seconds
+      }))
+      .filter(event => suite.metrics.includes(event.event_type));
+    const used = new Set();
+    let matches = 0;
+    for (const event of manual) {
+      let best = -1;
+      let difference = Infinity;
+      ai.forEach((candidate, index) => {
+        const delta = Math.abs(candidate.seconds - event.clip_seconds);
+        if (
+          !used.has(index) &&
+          candidate.team === event.team &&
+          candidate.event_type === event.event_type &&
+          delta <= 1 &&
+          delta < difference
+        ) {
+          best = index;
+          difference = delta;
+        }
+      });
+      if (best >= 0) {
+        used.add(best);
+        matches += 1;
+      }
+    }
+    const f1 = manual.length + ai.length ? 2 * matches / (manual.length + ai.length) : 0;
+    return {manual: manual.length, ai: ai.length, matches, f1};
+  }
+
+  async function loadResult(test) {
+    const reference = readReference(test);
+    if (!reference) return {state: "manual", manual: readManual(test).length};
+    try {
+      const response = await fetch(`/api/alfheim/status?cache_key=${test.cacheKey}`, {cache: "no-store"});
+      const status = await response.json();
+      if (!response.ok || status.state !== "ready") {
+        return {state: "locked", manual: reference.events.length, aiState: status.state};
+      }
+      const eventsResponse = await fetch(status.events_url, {cache: "no-store"});
+      const predictions = await eventsResponse.json();
+      const comparison = compare(reference, predictions);
+      return {
+        state: comparison.f1 >= suite.reelThreshold ? "pass" : "fail",
+        ...comparison
+      };
+    } catch (error) {
+      return {state: "locked", manual: reference.events.length, error: error.message};
+    }
+  }
+
+  function renderTests() {
+    list.innerHTML = suite.tests.map(test => {
+      const result = results.get(test.id) || {state: "loading"};
+      const selectedClass = test.id === selected.id ? " selected" : "";
+      const statusText = {
+        loading: "Checking…",
+        manual: `${result.manual || 0} manual events · not locked`,
+        locked: `${result.manual} events locked · AI ${result.aiState || "pending"}`,
+        pass: `PASS · ${(result.f1 * 100).toFixed(1)}% F1`,
+        fail: `FAIL · ${(result.f1 * 100).toFixed(1)}% F1`
+      }[result.state];
+      return `
+        <article class="test-card${selectedClass}">
+          <div>
+            <div class="test-title">${test.label} · ${clock(test.start)}–${clock(test.start + 60)}</div>
+            <div class="test-meta">${test.cacheKey}</div>
+            <span class="status ${result.state}">${statusText}</span>
+          </div>
+          <div class="test-actions">
+            <button data-open-test="${test.id}">Open</button>
+          </div>
+        </article>`;
+    }).join("");
+    document.querySelectorAll("[data-open-test]").forEach(button => {
+      button.addEventListener("click", () => selectTest(button.dataset.openTest));
+    });
+  }
+
+  function renderWorkspace() {
+    const reference = readReference(selected);
+    document.getElementById("workspace-title").textContent =
+      `${selected.label} · ${clock(selected.start)}–${clock(selected.start + 60)}`;
+    document.getElementById("workspace-status").textContent = reference
+      ? `${reference.events.length} manual events locked`
+      : `${readManual(selected).length} manual events · lock before AI`;
+    lockButton.disabled = Boolean(reference);
+    lockButton.textContent = reference ? "Manual reference locked" : "Lock manual reference";
+    document.getElementById("open-full").href = testUrl(selected);
+  }
+
+  function renderSuiteResult() {
+    const completed = suite.tests
+      .map(test => results.get(test.id))
+      .filter(result => result && ["pass", "fail"].includes(result.state));
+    const container = document.getElementById("suite-result");
+    if (completed.length !== suite.tests.length) {
+      container.innerHTML = `<strong>Suite pending · ${completed.length}/5 evaluated</strong>
+        <div class="muted">Tests remain isolated and must be completed in order.</div>`;
+      return;
+    }
+    const matches = completed.reduce((sum, result) => sum + result.matches, 0);
+    const total = completed.reduce((sum, result) => sum + result.manual + result.ai, 0);
+    const overall = total ? 2 * matches / total : 0;
+    const passed = overall >= suite.overallThreshold &&
+      completed.every(result => result.f1 >= suite.reelThreshold);
+    container.innerHTML = `<strong>${passed ? "SUITE PASS" : "SUITE FAIL"} · ${(overall * 100).toFixed(1)}% F1</strong>
+      <div class="muted">Overall ≥ 90% and every reel ≥ 80% required.</div>`;
+  }
+
+  function selectTest(id) {
+    selected = suite.tests.find(test => test.id === id);
+    frame.src = testUrl(selected);
+    renderTests();
+    renderWorkspace();
+  }
+
+  lockButton.addEventListener("click", () => {
+    const events = readManual(selected);
+    if (!events.length && !confirm("Lock an empty manual reference for this test?")) return;
+    localStorage.setItem(referenceStorageKey(selected), JSON.stringify({
+      schema_version: 1,
+      suite: suite.id,
+      test: selected.id,
+      source_start_seconds: selected.start,
+      duration_seconds: 60,
+      locked_at: new Date().toISOString(),
+      events
+    }));
+    refresh();
+  });
+
+  async function refresh() {
+    await Promise.all(suite.tests.map(async test => {
+      results.set(test.id, await loadResult(test));
+    }));
+    renderTests();
+    renderWorkspace();
+    renderSuiteResult();
+  }
+
+  renderTests();
+  selectTest(selected.id);
+  refresh();
+  setInterval(refresh, 3000);
+</script>
+</body>
+</html>

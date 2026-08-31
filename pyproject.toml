@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "football-video-poc"
+version = "0.1.0"
+description = "Wide-area football video detection, tracking, and action-candidate POC"
+requires-python = ">=3.10"
+dependencies = [
+    "lap>=0.5.12",
+    "numpy>=2.0",
+    "opencv-python>=4.10",
+    "ultralytics>=8.3",
+]
+
+[project.optional-dependencies]
+dataset = ["gdown>=5.2", "imageio-ffmpeg>=0.6"]
+docs = ["python-pptx>=1.0"]
+test = ["pytest>=8.0"]
+
+[project.scripts]
+football-poc = "football_poc.cli:main"
+soccertrack-poc = "football_poc.soccertrack_cli:main"
+soccertrack-benchmark = "football_poc.benchmark_cli:main"
+soccertrack-ball-track = "football_poc.ball_tracking_cli:main"
+soccertrack-player-track = "football_poc.player_tracking_cli:main"
+soccertrack-possession = "football_poc.possession_cli:main"
+soccertrack-aggregate = "football_poc.aggregate_cli:main"
+soccertrack-chunk-simulator = "football_poc.chunk_simulator_cli:main"
+football-demo = "football_poc.demo_cli:main"
+football-pilot-metrics = "football_poc.pilot_metrics_cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

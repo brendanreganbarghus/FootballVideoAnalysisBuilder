@@ -1,0 +1,229 @@
+{
+  "manifest": "D:\\Projects\\Xebia\\FootballVideoAnalysisBuilder\\benchmarks\\soccertrack-117093-window-3.json",
+  "batch_events": "D:\\Projects\\Xebia\\FootballVideoAnalysisBuilder\\benchmarks\\soccertrack-117093-window-3-fused\\predicted-events.json",
+  "configuration": {
+    "manifest": "D:\\Projects\\Xebia\\FootballVideoAnalysisBuilder\\benchmarks\\soccertrack-117093-window-3.json",
+    "batch_events": "D:\\Projects\\Xebia\\FootballVideoAnalysisBuilder\\benchmarks\\soccertrack-117093-window-3-fused\\predicted-events.json",
+    "chunk_seconds": 30.0,
+    "overlap_seconds": 2.0,
+    "processing_seconds_per_chunk": 30.0
+  },
+  "state_checkpoint": "D:\\Projects\\Xebia\\FootballVideoAnalysisBuilder\\benchmarks\\chunk-validation\\window-3-30-state.json",
+  "complete": true,
+  "chunks": [
+    {
+      "index": 0,
+      "start_seconds": 0.0,
+      "end_seconds": 30.0,
+      "arrival_seconds": 30.0,
+      "processing_started_seconds": 30.0,
+      "processing_completed_seconds": 60.0,
+      "queue_wait_seconds": 0.0,
+      "incoming_events": 10,
+      "new_events": 10,
+      "duplicates_suppressed": 0,
+      "state_out": {
+        "accepted_event_count": 10,
+        "finalized_through_seconds": 28.0,
+        "provisional_event_counts": {
+          "pass_candidate": 6,
+          "shot_candidate": 2,
+          "turnover_candidate": 2
+        }
+      }
+    },
+    {
+      "index": 1,
+      "start_seconds": 28.0,
+      "end_seconds": 58.0,
+      "arrival_seconds": 58.0,
+      "processing_started_seconds": 60.0,
+      "processing_completed_seconds": 90.0,
+      "queue_wait_seconds": 2.0,
+      "incoming_events": 7,
+      "new_events": 5,
+      "duplicates_suppressed": 2,
+      "state_out": {
+        "accepted_event_count": 15,
+        "finalized_through_seconds": 56.0,
+        "provisional_event_counts": {
+          "pass_candidate": 8,
+          "shot_candidate": 3,
+          "turnover_candidate": 4
+        }
+      }
+    },
+    {
+      "index": 2,
+      "start_seconds": 56.0,
+      "end_seconds": 60.0,
+      "arrival_seconds": 60.0,
+      "processing_started_seconds": 90.0,
+      "processing_completed_seconds": 94.0,
+      "queue_wait_seconds": 30.0,
+      "incoming_events": 1,
+      "new_events": 0,
+      "duplicates_suppressed": 1,
+      "state_out": {
+        "accepted_event_count": 15,
+        "finalized_through_seconds": 60.0,
+        "provisional_event_counts": {
+          "pass_candidate": 8,
+          "shot_candidate": 3,
+          "turnover_candidate": 4
+        }
+      }
+    }
+  ],
+  "final_events": [
+    {
+      "event_type": "shot_candidate",
+      "clip_seconds": 6.76,
+      "team": "blue",
+      "from_player_track_id": 11,
+      "to_player_track_id": null,
+      "confidence": 0.9326,
+      "details": "Ball speed 579.11 pixels/second toward right goal."
+    },
+    {
+      "event_type": "pass_candidate",
+      "clip_seconds": 20.08,
+      "team": "blue",
+      "from_player_track_id": 120,
+      "to_player_track_id": 79,
+      "confidence": 0.75,
+      "details": "Control transferred after 1.04s and 4.19 player-heights of ball travel."
+    },
+    {
+      "event_type": "pass_candidate",
+      "clip_seconds": 21.44,
+      "team": "blue",
+      "from_player_track_id": 79,
+      "to_player_track_id": 102,
+      "confidence": 0.75,
+      "details": "Control transferred after 0.64s and 3.84 player-heights of ball travel."
+    },
+    {
+      "event_type": "turnover_candidate",
+      "clip_seconds": 24.48,
+      "team": "blue",
+      "from_player_track_id": 196,
+      "to_player_track_id": 124,
+      "confidence": 0.7,
+      "details": "Control transferred after 0.48s and 4.68 player-heights of ball travel."
+    },
+    {
+      "event_type": "turnover_candidate",
+      "clip_seconds": 25.12,
+      "team": "white",
+      "from_player_track_id": 124,
+      "to_player_track_id": 191,
+      "confidence": 0.614,
+      "details": "Control transferred after 0.24s and 2.28 player-heights of ball travel."
+    },
+    {
+      "event_type": "pass_candidate",
+      "clip_seconds": 25.44,
+      "team": "blue",
+      "from_player_track_id": 191,
+      "to_player_track_id": 166,
+      "confidence": 0.7,
+      "details": "Control transferred after 0.16s and 3.78 player-heights of ball travel."
+    },
+    {
+      "event_type": "pass_candidate",
+      "clip_seconds": 25.76,
+      "team": "blue",
+      "from_player_track_id": 166,
+      "to_player_track_id": 159,
+      "confidence": 0.7,
+      "details": "Control transferred after 2.32s and 10.83 player-heights of ball travel."
+    },
+    {
+      "event_type": "shot_candidate",
+      "clip_seconds": 25.8,
+      "team": "blue",
+      "from_player_track_id": 166,
+      "to_player_track_id": null,
+      "confidence": 0.95,
+      "details": "Ball speed 1205.95 pixels/second toward right goal."
+    },
+    {
+      "event_type": "pass_candidate",
+      "clip_seconds": 28.16,
+      "team": "blue",
+      "from_player_track_id": 159,
+      "to_player_track_id": 210,
+      "confidence": 0.7,
+      "details": "Control transferred after 0.72s and 26.80 player-heights of ball travel."
+    },
+    {
+      "event_type": "pass_candidate",
+      "clip_seconds": 29.76,
+      "team": "blue",
+      "from_player_track_id": 210,
+      "to_player_track_id": 248,
+      "confidence": 0.7,
+      "details": "Control transferred after 0.40s and 19.27 player-heights of ball travel."
+    },
+    {
+      "event_type": "shot_candidate",
+      "clip_seconds": 36.44,
+      "team": null,
+      "from_player_track_id": null,
+      "to_player_track_id": null,
+      "confidence": 0.8076,
+      "details": "Ball speed 429.10 pixels/second toward right goal."
+    },
+    {
+      "event_type": "pass_candidate",
+      "clip_seconds": 50.32,
+      "team": "white",
+      "from_player_track_id": 254,
+      "to_player_track_id": 411,
+      "confidence": 0.75,
+      "details": "Control transferred after 2.00s and 3.84 player-heights of ball travel."
+    },
+    {
+      "event_type": "turnover_candidate",
+      "clip_seconds": 53.36,
+      "team": "white",
+      "from_player_track_id": 411,
+      "to_player_track_id": 297,
+      "confidence": 0.7,
+      "details": "Control transferred after 0.88s and 9.06 player-heights of ball travel."
+    },
+    {
+      "event_type": "turnover_candidate",
+      "clip_seconds": 54.32,
+      "team": "blue",
+      "from_player_track_id": 297,
+      "to_player_track_id": 439,
+      "confidence": 0.7,
+      "details": "Control transferred after 1.52s and 6.98 player-heights of ball travel."
+    },
+    {
+      "event_type": "pass_candidate",
+      "clip_seconds": 56.56,
+      "team": "white",
+      "from_player_track_id": 439,
+      "to_player_track_id": 489,
+      "confidence": 0.75,
+      "details": "Control transferred after 2.00s and 3.58 player-heights of ball travel."
+    }
+  ],
+  "validation": {
+    "valid": true,
+    "expected_events": 15,
+    "final_events": 15,
+    "duplicates_suppressed": 3,
+    "missing_event_keys": [],
+    "unexpected_event_keys": []
+  },
+  "latency": {
+    "match_duration_seconds": 60.0,
+    "pipeline_completed_seconds": 94.0,
+    "finish_delay_seconds": 34.0,
+    "keeps_up_with_stream": false
+  }
+}

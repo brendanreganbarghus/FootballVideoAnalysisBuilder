@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI Football Analytics POC</title>
+  <style>
+    :root { color-scheme: dark; --blue:#39a0ff; --green:#56d364;
+      --orange:#ffb454; --panel:#161b22; --muted:#8b949e; }
+    * { box-sizing:border-box; }
+    body { margin:0; font:16px/1.5 system-ui,sans-serif;
+      background:#0d1117; color:#f0f6fc; }
+    header, main { max-width:1200px; margin:auto; padding:28px; }
+    header { padding-bottom:12px; }
+    h1 { margin:0; font-size:2.25rem; }
+    h2 { margin-top:38px; }
+    .muted { color:var(--muted); }
+    .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr));
+      gap:14px; }
+    .team-scoreboard { display:grid; grid-template-columns:repeat(2,minmax(260px,1fr));
+      gap:14px; }
+    .team-card { padding:18px; background:var(--panel); border:2px solid;
+      border-radius:10px; }
+    .team-card.blue { border-color:var(--blue); }
+    .team-card.white { border-color:#f0f6fc; }
+    .team-stats { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; }
+    .team-stat strong { display:block; font-size:2rem; color:var(--green); }
+    .card, .stage, table { background:var(--panel); border:1px solid #30363d;
+      border-radius:10px; }
+    .card { padding:18px; }
+    .metric { font-size:2rem; font-weight:700; color:var(--green); }
+    .pipeline { display:flex; gap:9px; align-items:stretch; overflow-x:auto; }
+    .stage { min-width:145px; padding:14px; }
+    .arrow { align-self:center; color:var(--blue); font-size:1.5rem; }
+    video { width:100%; border-radius:10px; background:#000; }
+    .comparison-image { width:100%; margin-top:18px; border-radius:10px;
+      border:1px solid #30363d; }
+    .video-wrap { position:relative; }
+    .video-label { position:absolute; top:12px; left:12px; z-index:1;
+      padding:7px 10px; border-radius:6px; background:#0d1117dd;
+      border:1px solid var(--blue); font-weight:700; pointer-events:none; }
+    table { width:100%; border-collapse:collapse; overflow:hidden; }
+    th, td { padding:9px 12px; border-bottom:1px solid #30363d; text-align:left; }
+    th { color:var(--muted); }
+    .timeline { position:relative; height:88px; background:var(--panel);
+      border:1px solid #30363d; border-radius:10px; }
+    .event { position:absolute; top:16px; width:8px; height:55px;
+      background:var(--blue); border-radius:4px; }
+    .event.shot_candidate { background:var(--orange); }
+    .event.turnover_candidate { background:#d2a8ff; }
+    tr.processed { background:#132a1a; }
+    .live-status { padding:12px 0; color:var(--muted); }
+    progress { width:100%; height:12px; accent-color:var(--green); }
+    code { color:#a5d6ff; }
+    @media (max-width:650px) {
+      .team-scoreboard { grid-template-columns:1fr; }
+    }
+  </style>
+</head>
+<body>
+<header>
+  <h1>AI Football Analytics POC</h1>
+  <p class="muted">Fixed panoramic video to incremental amateur-club statistics</p>
+</header>
+<main>
+  <section class="cards">
+    <article class="card"><div class="muted">Pass candidates</div><div class="metric">8</div><div>Not action-labelled</div></article><article class="card"><div class="muted">Shot candidates</div><div class="metric">0</div><div>Not action-labelled</div></article><article class="card"><div class="muted">Accuracy score</div><div class="metric">N/A</div><div>Manual review required</div></article>
+    <article class="card"><div class="muted">Chunk replay</div><div class="metric">PASS</div><div>0 duplicates suppressed</div></article>
+  </section>
+
+  <h2>How the algorithm fits together</h2>
+  <section class="pipeline">
+    <article class="stage"><strong>1. Ingest</strong><div class="muted">Timestamped panoramic chunks with overlap</div></article>
+    <div class="arrow">-&gt;</div>
+    <article class="stage"><strong>2. Tiled detection</strong><div class="muted">Detector finds players; dataset labels supply the ball path</div></article>
+    <div class="arrow">-&gt;</div>
+    <article class="stage"><strong>3. Tracking</strong><div class="muted">Link identities and interpolate short ball gaps</div></article>
+    <div class="arrow">-&gt;</div>
+    <article class="stage"><strong>4. Teams</strong><div class="muted">Classify red, black and officials</div></article>
+    <div class="arrow">-&gt;</div>
+    <article class="stage"><strong>5. Events</strong><div class="muted">Possession transfers, pass candidates and turnovers</div></article>
+    <div class="arrow">-&gt;</div>
+    <article class="stage"><strong>6. Report</strong><div class="muted">Provisional chunk stats and final reviewed totals</div></article>
+  </section>
+
+  <h2>Annotated benchmark</h2>
+  <div class="video-wrap">
+    <div class="video-label">Alfheim 60-second red-versus-black analysis</div>
+    <video id="demo-video" controls preload="metadata"
+      src="tracking-verification.webm"></video>
+  </div>
+  <div id="video-status" class="live-status">Loading annotated video...</div>
+
+  <h2>Live detected-event replay</h2>
+  <section class="cards">
+    <article class="card"><div class="muted">Processed chunk</div><div class="metric" id="live-chunk">0</div><div>Updates during playback</div></article>
+    <article class="card"><div class="muted">Detected events</div><div class="metric" id="live-events">0</div><div>Synchronized to video</div></article>
+  </section>
+  <section class="team-scoreboard">
+    <article class="team-card" style="border-color:#ff4d4d"><h3>Red team</h3><div class="team-stats"><div class="team-stat"><strong id="live-red-passes">0</strong><span>Completed pass candidates</span></div><div class="team-stat"><strong id="live-red-shots">0</strong><span>Shot candidates</span></div><div class="team-stat"><strong id="live-red-turnovers">0</strong><span>Turnovers lost</span></div></div></article>
+<article class="team-card" style="border-color:#6e7681"><h3>Black team</h3><div class="team-stats"><div class="team-stat"><strong id="live-black-passes">0</strong><span>Completed pass candidates</span></div><div class="team-stat"><strong id="live-black-shots">0</strong><span>Shot candidates</span></div><div class="team-stat"><strong id="live-black-turnovers">0</strong><span>Turnovers lost</span></div></div></article>
+  </section>
+  <div id="live-status" class="live-status">Press play to begin chunk replay.</div>
+  <progress id="live-progress" max="60" value="0"></progress>
+
+  <h2>Incremental event timeline</h2>
+  <div class="timeline"><span class="event turnover_candidate" style="left:0.00%" title="turnover_candidate at 0.00s"></span>
+<span class="event pass_candidate" style="left:3.67%" title="pass_candidate at 2.20s"></span>
+<span class="event turnover_candidate" style="left:9.00%" title="turnover_candidate at 5.40s"></span>
+<span class="event pass_candidate" style="left:14.33%" title="pass_candidate at 8.60s"></span>
+<span class="event turnover_candidate" style="left:20.47%" title="turnover_candidate at 12.28s"></span>
+<span class="event restart_pass_candidate" style="left:24.73%" title="restart_pass_candidate at 14.84s"></span>
+<span class="event pass_candidate" style="left:36.67%" title="pass_candidate at 22.00s"></span>
+<span class="event turnover_candidate" style="left:46.67%" title="turnover_candidate at 28.00s"></span>
+<span class="event pass_candidate" style="left:52.00%" title="pass_candidate at 31.20s"></span>
+<span class="event pass_candidate" style="left:58.33%" title="pass_candidate at 35.00s"></span>
+<span class="event pass_candidate" style="left:63.33%" title="pass_candidate at 38.00s"></span>
+<span class="event pass_candidate" style="left:69.33%" title="pass_candidate at 41.60s"></span>
+<span class="event pass_candidate" style="left:77.67%" title="pass_candidate at 46.60s"></span>
+<span class="event turnover_candidate" style="left:86.33%" title="turnover_candidate at 51.80s"></span></div>
+  <p class="muted">Timeline colours: blue pass, orange shot, purple turnover. Scale: 60 seconds.</p>
+
+  <h2>Live-style chunk replay</h2>
+  <table>
+    <thead><tr><th>Chunk</th><th>Range</th><th>New</th><th>Duplicates</th>
+      <th>Provisional total</th><th>Queue wait</th></tr></thead>
+    <tbody><tr data-chunk="0"><td>1</td><td>0-20s</td><td>6</td><td>0</td><td>6</td><td>0.0s</td></tr>
+<tr data-chunk="1"><td>2</td><td>18-38s</td><td>4</td><td>0</td><td>10</td><td>2.0s</td></tr>
+<tr data-chunk="2"><td>3</td><td>36-56s</td><td>4</td><td>0</td><td>14</td><td>4.0s</td></tr>
+<tr data-chunk="3"><td>4</td><td>54-60s</td><td>0</td><td>0</td><td>14</td><td>20.0s</td></tr></tbody>
+  </table>
+
+  <h2>Detected events in the demo window</h2>
+  <table>
+    <thead><tr><th>Time</th><th>Type</th><th>Team</th>
+      <th>Confidence</th></tr></thead>
+    <tbody><tr><td>0.00s</td><td>turnover_candidate</td><td>black</td><td>0.65</td></tr>
+<tr><td>2.20s</td><td>pass_candidate</td><td>red</td><td>0.90</td></tr>
+<tr><td>5.40s</td><td>turnover_candidate</td><td>red</td><td>0.90</td></tr>
+<tr><td>8.60s</td><td>pass_candidate</td><td>black</td><td>0.90</td></tr>
+<tr><td>12.28s</td><td>turnover_candidate</td><td>black</td><td>0.63</td></tr>
+<tr><td>14.84s</td><td>restart_pass_candidate</td><td>red</td><td>0.55</td></tr>
+<tr><td>22.00s</td><td>pass_candidate</td><td>red</td><td>0.90</td></tr>
+<tr><td>28.00s</td><td>turnover_candidate</td><td>red</td><td>0.90</td></tr>
+<tr><td>31.20s</td><td>pass_candidate</td><td>black</td><td>0.62</td></tr>
+<tr><td>35.00s</td><td>pass_candidate</td><td>black</td><td>0.66</td></tr>
+<tr><td>38.00s</td><td>pass_candidate</td><td>black</td><td>0.76</td></tr>
+<tr><td>41.60s</td><td>pass_candidate</td><td>black</td><td>0.76</td></tr>
+<tr><td>46.60s</td><td>pass_candidate</td><td>black</td><td>0.90</td></tr>
+<tr><td>51.80s</td><td>turnover_candidate</td><td>black</td><td>0.75</td></tr></tbody>
+  </table>
+
+  <h2>What the benchmark currently says</h2>
+  <p>This clip does not include pass or shot action labels, so the candidate totals cannot be presented as accuracy results. Dataset ball coordinates are used to isolate player/team/pass logic.</p>
+  <p class="muted">This is a precision-first technical POC. It is not a
+    production accuracy claim. This diagnostic isolates player/team/pass logic by using the labelled ball path. Candidate events still require manual video review.</p>
+  
+  <h2>Manual receiver-touch comparison</h2>
+  <p><strong>7 of
+    14</strong> manual events matched by
+    completion time, team, and event type within
+    1.0s.
+    <strong>4</strong>
+    additional events are likely matches within the
+    3.0s manual-review
+    tolerance.</p>
+  <table>
+    <thead><tr><th>Team</th><th>Event</th><th>Manual</th>
+      <th>AI</th><th>Exact matches</th></tr></thead>
+    <tbody><tr><td>Red</td><td>Completed pass</td><td>3</td><td>2</td><td>1</td></tr>
+<tr><td>Red</td><td>Turnover</td><td>2</td><td>2</td><td>0</td></tr>
+<tr><td>Black</td><td>Completed pass</td><td>6</td><td>6</td><td>4</td></tr>
+<tr><td>Black</td><td>Turnover</td><td>3</td><td>3</td><td>2</td></tr></tbody>
+  </table>
+  <img class="comparison-image" src="..\analytics-data\manual-event-crops.jpg" alt="Ball-centred manual event review crops">
+  <p class="muted">Red circles show the supplied ball location. “Wrong class”
+    means the AI saw a nearby transfer but assigned the wrong team or event
+    type; “missed” means no nearby transfer was produced.</p>
+
+
+  <h2>Demo runbook</h2>
+  <ol>
+    <li>Show the original panoramic camera view and explain fixed-camera input.</li>
+    <li>Play the annotated video to show player teams and ball trajectory.</li>
+    <li>Walk left-to-right through the six pipeline stages.</li>
+    <li>Show provisional totals changing after each overlapping chunk.</li>
+    <li>Finish with measured results, limitations, and the four-camera roadmap.</li>
+  </ol>
+</main>
+<script>
+  const chunks = [{"index": 0, "start_seconds": 0.0, "end_seconds": 20.0, "arrival_seconds": 20.0, "processing_started_seconds": 20.0, "processing_completed_seconds": 40.0, "queue_wait_seconds": 0.0, "incoming_events": 6, "new_events": 6, "duplicates_suppressed": 0, "state_out": {"accepted_event_count": 6, "finalized_through_seconds": 18.0, "provisional_event_counts": {"pass_candidate": 2, "restart_pass_candidate": 1, "turnover_candidate": 3}}}, {"index": 1, "start_seconds": 18.0, "end_seconds": 38.0, "arrival_seconds": 38.0, "processing_started_seconds": 40.0, "processing_completed_seconds": 60.0, "queue_wait_seconds": 2.0, "incoming_events": 4, "new_events": 4, "duplicates_suppressed": 0, "state_out": {"accepted_event_count": 10, "finalized_through_seconds": 36.0, "provisional_event_counts": {"pass_candidate": 5, "restart_pass_candidate": 1, "turnover_candidate": 4}}}, {"index": 2, "start_seconds": 36.0, "end_seconds": 56.0, "arrival_seconds": 56.0, "processing_started_seconds": 60.0, "processing_completed_seconds": 80.0, "queue_wait_seconds": 4.0, "incoming_events": 4, "new_events": 4, "duplicates_suppressed": 0, "state_out": {"accepted_event_count": 14, "finalized_through_seconds": 54.0, "provisional_event_counts": {"pass_candidate": 8, "restart_pass_candidate": 1, "turnover_candidate": 5}}}, {"index": 3, "start_seconds": 54.0, "end_seconds": 60.0, "arrival_seconds": 60.0, "processing_started_seconds": 80.0, "processing_completed_seconds": 86.0, "queue_wait_seconds": 20.0, "incoming_events": 0, "new_events": 0, "duplicates_suppressed": 0, "state_out": {"accepted_event_count": 14, "finalized_through_seconds": 60.0, "provisional_event_counts": {"pass_candidate": 8, "restart_pass_candidate": 1, "turnover_candidate": 5}}}];
+  const events = [{"event_type": "turnover_candidate", "clip_seconds": 0.0, "team": "black", "from_player_track_id": null, "to_player_track_id": 8, "confidence": 0.65, "details": "Chunk inherited black possession; first detected controlled touch belongs to red.", "completion_seconds": 1.8}, {"event_type": "pass_candidate", "clip_seconds": 2.2, "team": "red", "from_player_track_id": 8, "to_player_track_id": 16, "confidence": 0.9, "details": "Ball release at 660.68 pixels/second followed by red control after 0.20s.", "completion_seconds": 2.4}, {"event_type": "turnover_candidate", "clip_seconds": 5.4, "team": "red", "from_player_track_id": 6, "to_player_track_id": 38, "confidence": 0.9, "details": "Ball release at 685.42 pixels/second followed by black control after 0.80s.", "completion_seconds": 6.2}, {"event_type": "pass_candidate", "clip_seconds": 8.6, "team": "black", "from_player_track_id": 38, "to_player_track_id": 67, "confidence": 0.9, "details": "Ball release at 966.90 pixels/second followed by black control after 1.00s.", "completion_seconds": 9.6}, {"event_type": "turnover_candidate", "clip_seconds": 12.28, "team": "black", "from_player_track_id": 67, "to_player_track_id": null, "confidence": 0.626, "details": "Ball remained outside the calibrated pitch for 2.52s after black control.", "completion_seconds": 12.28}, {"event_type": "restart_pass_candidate", "clip_seconds": 14.84, "team": "red", "from_player_track_id": null, "to_player_track_id": 101, "confidence": 0.55, "details": "After black put the ball outside, play resumed and the opposing red team made the first detected controlled touch. Restart taker is not visible.", "completion_seconds": 21.4}, {"event_type": "pass_candidate", "clip_seconds": 22.0, "team": "red", "from_player_track_id": 101, "to_player_track_id": 92, "confidence": 0.9, "details": "Ball release at 743.03 pixels/second followed by red control after 0.80s.", "completion_seconds": 22.8}, {"event_type": "turnover_candidate", "clip_seconds": 28.0, "team": "red", "from_player_track_id": 92, "to_player_track_id": 180, "confidence": 0.9, "details": "Ball release at 2802.36 pixels/second followed by black control after 2.00s.", "completion_seconds": 30.0}, {"event_type": "pass_candidate", "clip_seconds": 31.2, "team": "black", "from_player_track_id": 119, "to_player_track_id": 194, "confidence": 0.6246, "details": "Ball release at 174.64 pixels/second followed by black control after 0.20s.", "completion_seconds": 31.4}, {"event_type": "pass_candidate", "clip_seconds": 35.0, "team": "black", "from_player_track_id": 29, "to_player_track_id": 178, "confidence": 0.6619, "details": "Ball release at 211.90 pixels/second followed by black control after 0.20s.", "completion_seconds": 35.2}, {"event_type": "pass_candidate", "clip_seconds": 38.0, "team": "black", "from_player_track_id": 178, "to_player_track_id": 229, "confidence": 0.7602, "details": "Ball release at 310.16 pixels/second followed by black control after 0.20s.", "completion_seconds": 38.2}, {"event_type": "pass_candidate", "clip_seconds": 41.6, "team": "black", "from_player_track_id": 229, "to_player_track_id": 119, "confidence": 0.7624, "details": "Ball release at 312.41 pixels/second followed by black control after 2.40s.", "completion_seconds": 44.0}, {"event_type": "pass_candidate", "clip_seconds": 46.6, "team": "black", "from_player_track_id": 119, "to_player_track_id": 266, "confidence": 0.9, "details": "Ball release at 1314.00 pixels/second followed by black control after 0.20s.", "completion_seconds": 46.8}, {"event_type": "turnover_candidate", "clip_seconds": 51.8, "team": "black", "from_player_track_id": 266, "to_player_track_id": null, "confidence": 0.752, "details": "Ball remained outside the calibrated pitch for 5.04s after black control.", "completion_seconds": 51.8}];
+  const teams = ["red", "black"];
+  const video = document.getElementById("demo-video");
+  const progress = document.getElementById("live-progress");
+  const status = document.getElementById("live-status");
+  const videoStatus = document.getElementById("video-status");
+  const value = (id, number) => document.getElementById(id).textContent = number;
+
+  function updateLiveStats(seconds) {
+    progress.value = Math.min(60, seconds);
+    const replayed = events.filter(event => event.clip_seconds <= seconds + 0.05);
+    const completed = chunks.filter(chunk => chunk.end_seconds <= seconds + 0.05);
+    const latest = completed.length ? completed[completed.length - 1] : null;
+    value("live-chunk", latest ? latest.index + 1 : 0);
+    value("live-events", replayed.length);
+    for (const team of teams) {
+      const teamEvents = replayed.filter(event => event.team === team);
+      value(`live-${team}-passes`,
+        teamEvents.filter(event => event.event_type === "pass_candidate").length);
+      value(`live-${team}-shots`,
+        teamEvents.filter(event => event.event_type === "shot_candidate").length);
+      value(`live-${team}-turnovers`,
+        teamEvents.filter(event => event.event_type === "turnover_candidate").length);
+    }
+    document.querySelectorAll("tr[data-chunk]").forEach(row => {
+      row.classList.toggle(
+        "processed",
+        latest !== null && Number(row.dataset.chunk) <= latest.index
+      );
+    });
+    const eventMessage = `${replayed.length} detected event(s) through ` +
+      `${seconds.toFixed(1)}s. `;
+    status.textContent = latest
+      ? eventMessage + `Chunk ${latest.index + 1} published through ` +
+        `${latest.end_seconds.toFixed(0)}s; ` +
+        `${latest.duplicates_suppressed} overlap duplicate(s) suppressed.`
+      : eventMessage + `The first chunk publishes at ` +
+        `${chunks[0].end_seconds.toFixed(0)}s.`;
+  }
+
+  ["loadedmetadata", "timeupdate", "seeked", "ended"].forEach(name =>
+    video.addEventListener(name, () => updateLiveStats(video.currentTime))
+  );
+  video.addEventListener("loadedmetadata", () => {
+    videoStatus.textContent = "Video ready. Press play to run the chunk replay.";
+  });
+  video.addEventListener("playing", () => {
+    videoStatus.textContent = "Annotated benchmark playing.";
+  });
+  video.addEventListener("error", () => {
+    const code = video.error ? video.error.code : "unknown";
+    videoStatus.textContent = `Video could not be loaded (media error ${code}).`;
+  });
+  updateLiveStats(0);
+</script>
+</body>
+</html>

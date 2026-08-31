@@ -1,0 +1,1442 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Alfheim Manual Pass Count</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: Inter, system-ui, sans-serif;
+      background: #0d1117;
+      color: #f0f6fc;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 24px; }
+    main { max-width: 1500px; margin: auto; }
+    h1 { margin: 0 0 8px; }
+    h2 { margin-top: 28px; }
+    video { display: block; width: 100%; border-radius: 12px; background: #000; }
+    video::-webkit-media-controls-fullscreen-button { display: none; }
+    .video-stage {
+      position: relative;
+      overflow: hidden;
+      border-radius: 12px;
+      background: #000;
+    }
+    .video-stage:fullscreen {
+      display: grid;
+      place-items: center;
+      width: 100vw;
+      height: 100vh;
+      border-radius: 0;
+    }
+    .video-stage:fullscreen video {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      border-radius: 0;
+    }
+    .geometry-overlay {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+    .geometry-overlay.editing {
+      cursor: crosshair;
+      pointer-events: auto;
+    }
+    .live-overlay {
+      position: absolute;
+      left: 18px;
+      right: 18px;
+      bottom: 190px;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(220px, 340px));
+      justify-content: space-between;
+      gap: 16px;
+      pointer-events: none;
+    }
+    .fullscreen-review-controls {
+      display: none;
+      position: absolute;
+      bottom: 64px;
+      left: 50%;
+      z-index: 3;
+      width: min(920px, calc(100% - 28px));
+      transform: translateX(-50%);
+      grid-template-columns: repeat(2, minmax(180px, 1fr)) minmax(260px, 1.4fr);
+      gap: 7px;
+      padding: 8px;
+      border: 1px solid rgb(240 246 252 / 35%);
+      border-radius: 10px;
+      background: rgb(13 17 23 / 82%);
+      box-shadow: 0 4px 18px rgb(0 0 0 / 45%);
+      backdrop-filter: blur(4px);
+    }
+    .video-stage:fullscreen .fullscreen-review-controls { display: grid; }
+    .fullscreen-review-controls button {
+      min-height: 44px;
+      padding: 5px 7px;
+      font-size: 0.76rem;
+    }
+    .event-icon {
+      width: 32px;
+      height: 32px;
+      border-radius: 5px;
+      object-fit: cover;
+    }
+    .fullscreen-review-controls .team-event-group,
+    .fullscreen-review-controls .review-action-group {
+      margin: 0;
+      padding: 6px;
+    }
+    .fullscreen-review-controls .team-event-buttons {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .fullscreen-review-controls .team-event-buttons button {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 3px;
+    }
+    .review-action-group {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 7px;
+    }
+    .review-action-group .clear-all { grid-column: 1 / -1; }
+    .fullscreen-review-controls .confirm { border-color: #56d364; }
+    .overlay-team {
+      padding: 10px 14px;
+      border: 1px solid rgb(240 246 252 / 35%);
+      border-radius: 10px;
+      background: rgb(13 17 23 / 82%);
+      box-shadow: 0 4px 18px rgb(0 0 0 / 45%);
+      backdrop-filter: blur(4px);
+    }
+    .overlay-team strong { display: block; margin-bottom: 6px; }
+    .overlay-team.black-team { text-align: right; }
+    .overlay-source-label {
+      display: block;
+      margin: 6px 0 3px;
+      color: #79c0ff;
+      font-size: 0.68rem;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .overlay-source-label.manual-source { color: #56d364; }
+    .overlay-metrics {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+    }
+    .overlay-metric { color: #b1bac4; font-size: 0.72rem; }
+    .overlay-metric output {
+      display: block;
+      color: #fff;
+      font-size: 1.25rem;
+      font-weight: 800;
+    }
+    .muted { color: #8b949e; }
+    .definition, .card, table {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 10px;
+    }
+    .definition { padding: 14px 18px; margin: 18px 0; }
+    .lab-setup {
+      display: grid;
+      grid-template-columns: 1.2fr 1fr;
+      gap: 14px;
+      margin: 18px 0;
+    }
+    .lab-setup h2 { margin: 0 0 10px; font-size: 1.1rem; }
+    .form-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(120px, 1fr));
+      gap: 8px;
+      align-items: end;
+    }
+    .form-grid label, .geometry-tools label {
+      display: grid;
+      gap: 5px;
+      color: #b1bac4;
+      font-size: 0.82rem;
+    }
+    input, select {
+      width: 100%;
+      border: 1px solid #484f58;
+      border-radius: 7px;
+      padding: 9px;
+      background: #0d1117;
+      color: #f0f6fc;
+      font: inherit;
+    }
+    .toggle-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 16px;
+      margin-top: 10px;
+    }
+    .toggle-row label { color: #c9d1d9; }
+    .geometry-tools {
+      display: grid;
+      grid-template-columns: minmax(180px, 1fr) repeat(4, auto);
+      gap: 8px;
+      align-items: end;
+    }
+    .compact-button { padding: 9px 11px; font-size: 0.82rem; }
+    .processing-row {
+      display: grid;
+      grid-template-columns: minmax(180px, 1fr) auto;
+      gap: 10px;
+      align-items: center;
+      margin-top: 10px;
+    }
+    progress {
+      width: 100%;
+      height: 14px;
+      accent-color: #58a6ff;
+    }
+    .hidden { display: none !important; }
+    .controls, .counts, .transport {
+      display: grid;
+      gap: 12px;
+      margin: 16px 0;
+    }
+    .controls {
+      grid-template-columns: repeat(2, minmax(280px, 1fr));
+      gap: 8px;
+      margin: 10px 0;
+    }
+    .team-event-group {
+      margin: 0;
+      padding: 10px;
+      border: 1px solid #30363d;
+      border-radius: 10px;
+      background: #161b22;
+    }
+    .team-event-group legend {
+      padding: 0 6px;
+      font-weight: 800;
+    }
+    .team-event-group.red-team { border-color: #ff5a5f; }
+    .team-event-group.black-team { border-color: #8c959f; }
+    .team-event-buttons {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(130px, 1fr));
+      gap: 8px;
+    }
+    .controls button {
+      min-height: 42px;
+      padding: 7px 10px;
+      font-size: 0.88rem;
+    }
+    .counts { grid-template-columns: repeat(4, minmax(130px, 1fr)); }
+    .scoreboards { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+    .scoreboard { padding: 16px; }
+    .scoreboard h2 { margin-top: 0; }
+    .baseline { border-color: #58a6ff; }
+    .manual { border-color: #56d364; }
+    .pending { color: #d29922; }
+    .assist-status {
+      margin: 8px 0;
+      color: #79c0ff;
+      font-weight: 700;
+    }
+    .transport { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
+    .card { padding: 14px; }
+    .count { font-size: 2rem; font-weight: 700; color: #56d364; }
+    button, .file-label {
+      border: 1px solid #484f58;
+      border-radius: 8px;
+      padding: 12px;
+      background: #21262d;
+      color: #f0f6fc;
+      font: inherit;
+      font-weight: 700;
+      cursor: pointer;
+      text-align: center;
+    }
+    button:hover, .file-label:hover { background: #30363d; }
+    .red { border-color: #ff5a5f; }
+    .black { border-color: #8c959f; }
+    .danger { color: #ff7b72; }
+    table { width: 100%; border-collapse: collapse; overflow: hidden; }
+    th, td { padding: 9px 12px; border-bottom: 1px solid #30363d; text-align: left; }
+    th { color: #8b949e; }
+    tr.reached { background: #132a1a; }
+    .event-tables { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+    .table-wrap { overflow-x: auto; }
+    a { color: #58a6ff; }
+    input[type=file] { display: none; }
+    @media (max-width: 750px) {
+      .controls, .counts, .scoreboards, .event-tables { grid-template-columns: 1fr; }
+      .lab-setup { grid-template-columns: 1fr; }
+      .form-grid { grid-template-columns: 1fr 1fr; }
+      .geometry-tools { grid-template-columns: 1fr 1fr; }
+      .controls { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .live-overlay {
+        left: 8px;
+        right: 8px;
+        bottom: 96px;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+      }
+      .overlay-team { padding: 7px; }
+      .overlay-metrics { grid-template-columns: repeat(2, 1fr); }
+      .fullscreen-review-controls {
+        bottom: 58px;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Alfheim Match Lab</h1>
+  <p class="muted">One screen for clean/AI video, labelled ball, pitch geometry,
+    assisted manual review, and cached AI statistics.</p>
+  <p><a href="../../validation-lab/">Open fixed Validation Lab suites →</a></p>
+
+  <section class="definition">
+    <strong>Agreed counting rules</strong>
+    <p>A completed pass is recorded when a player plays the ball and the first
+      following player touch is by the same team. This includes long balls.
+      If possession is lost afterward, the pass remains completed and the later
+      loss is recorded separately as a turnover. Click the pass button at the
+      receiving teammate's first touch, when the pass becomes completed.</p>
+    <p>A throw-in, goal kick, or other restart also counts as a completed pass
+      when the first receiving player is on the same colour team as the player
+      taking the restart.</p>
+    <p><strong>Foul and free-kick rule:</strong> when a player is fouled, play
+      stops without a turnover. Ignore loose-ball movement after the foul.
+      When the awarded team places the ball and takes the free kick, begin
+      tracking again; record one completed pass only when a teammate first
+      controls the kick. For example, if black controls the ball, white fouls
+      black, and black restarts to a black teammate, record one black completed
+      pass and no turnover.</p>
+    <p class="muted">For this match, “Red/white” identifies the light team and
+      “Black” identifies the dark team. A turnover is assigned to the team that
+      loses possession. Record a shot when an intentional attempt is made toward
+      goal. Use “shot on target” instead when it enters the goal or would enter
+      without a goalkeeper/defender save; it counts as both one shot and one
+      shot on target.</p>
+    <p class="muted"><strong>Isolation rule:</strong> manual clicks never alter
+      AI events, confidence values, thresholds, or possession inference. The AI
+      panel only replays the saved calibrated baseline.</p>
+  </section>
+
+  <section class="lab-setup">
+    <article class="card">
+      <h2>Test segment</h2>
+      <div class="form-grid">
+        <label>Start minute
+          <input id="segment-start-minute" type="number" min="0" step="1" value="27">
+        </label>
+        <label>Start second
+          <input id="segment-start-second" type="number" min="0" max="59"
+            step="1" value="45">
+        </label>
+        <label>Duration (seconds, maximum 300)
+          <input id="segment-duration" type="number" min="1" max="300" step="1" value="60">
+        </label>
+        <button id="prepare-segment" class="compact-button">Prepare segment</button>
+        <button id="process-segment" class="compact-button">Process AI</button>
+      </div>
+      <p class="muted" id="segment-status">Current baseline: 27:45–28:45.
+        Loading full recording information…</p>
+      <div class="processing-row">
+        <progress id="ai-progress" max="300" value="0"></progress>
+        <span class="muted" id="ai-progress-label">AI not started</span>
+      </div>
+      <div class="toggle-row">
+        <label><input id="show-ball" type="checkbox"> Labelled ball</label>
+        <label><input id="show-pitch" type="checkbox" checked> Pitch edges</label>
+        <label><input id="show-goals" type="checkbox" checked> Goal mouths</label>
+        <label><input id="show-live-overlay" type="checkbox" checked>
+          Live statistics (AI + manual)</label>
+        <label>Video
+          <select id="video-mode">
+            <option value="clean">Clean panorama</option>
+            <option value="tracking" disabled>AI tracking · not processed</option>
+          </select>
+        </label>
+      </div>
+    </article>
+    <article class="card">
+      <h2>Camera geometry</h2>
+      <div class="geometry-tools">
+        <label>Feature to calibrate
+          <select id="geometry-feature">
+            <option value="near_touchline">Near long side</option>
+            <option value="far_touchline">Far long side</option>
+            <option value="left_goal_line">Left narrow side</option>
+            <option value="right_goal_line">Right narrow side</option>
+            <option value="left_goal_mouth">Left goal posts</option>
+            <option value="right_goal_mouth">Right goal posts</option>
+          </select>
+        </label>
+        <button id="edit-geometry" class="compact-button">Redraw</button>
+        <button id="undo-geometry" class="compact-button">Undo point</button>
+        <button id="finish-geometry" class="compact-button">Finish</button>
+        <button id="export-geometry" class="compact-button">Download</button>
+      </div>
+      <p class="muted" id="geometry-status">Pitch edges are provisional.
+        Goal mouths need four clockwise goal-frame corner clicks each before
+        shot-on-target testing.</p>
+      <p class="muted"><strong>Line rule:</strong> trace the outer edge of each
+        painted white line—the edge furthest from the playing area. The white
+        line is part of the pitch; the whole ball must cross its outer edge to
+        be out.</p>
+    </article>
+  </section>
+
+  <section class="video-stage" id="video-stage">
+    <video id="video" controls preload="auto"></video>
+    <canvas class="geometry-overlay" id="geometry-overlay"></canvas>
+    <aside class="live-overlay" id="live-overlay"
+      aria-label="Live AI and manual statistics">
+      <div class="overlay-team">
+        <strong>Red/white</strong>
+        <span class="overlay-source-label">AI baseline</span>
+        <div class="overlay-metrics">
+          <span class="overlay-metric">Passes<output id="overlay-ai-red-passes">0</output></span>
+          <span class="overlay-metric">Turnovers<output id="overlay-ai-red-turnovers">0</output></span>
+          <span class="overlay-metric">Shots<output id="overlay-ai-red-shots">0</output></span>
+          <span class="overlay-metric">On target<output id="overlay-ai-red-on-target">0</output></span>
+        </div>
+        <span class="overlay-source-label manual-source">Your clicks</span>
+        <div class="overlay-metrics">
+          <span class="overlay-metric">Passes<output id="overlay-manual-red-passes">0</output></span>
+          <span class="overlay-metric">Turnovers<output id="overlay-manual-red-turnovers">0</output></span>
+          <span class="overlay-metric">Shots<output id="overlay-manual-red-shots">0</output></span>
+          <span class="overlay-metric">On target<output id="overlay-manual-red-on-target">0</output></span>
+        </div>
+      </div>
+      <div class="overlay-team black-team">
+        <strong>Black</strong>
+        <span class="overlay-source-label">AI baseline</span>
+        <div class="overlay-metrics">
+          <span class="overlay-metric">Passes<output id="overlay-ai-black-passes">0</output></span>
+          <span class="overlay-metric">Turnovers<output id="overlay-ai-black-turnovers">0</output></span>
+          <span class="overlay-metric">Shots<output id="overlay-ai-black-shots">0</output></span>
+          <span class="overlay-metric">On target<output id="overlay-ai-black-on-target">0</output></span>
+        </div>
+        <span class="overlay-source-label manual-source">Your clicks</span>
+        <div class="overlay-metrics">
+          <span class="overlay-metric">Passes<output id="overlay-manual-black-passes">0</output></span>
+          <span class="overlay-metric">Turnovers<output id="overlay-manual-black-turnovers">0</output></span>
+          <span class="overlay-metric">Shots<output id="overlay-manual-black-shots">0</output></span>
+          <span class="overlay-metric">On target<output id="overlay-manual-black-on-target">0</output></span>
+        </div>
+      </div>
+    </aside>
+    <aside class="fullscreen-review-controls"
+      aria-label="Fullscreen manual event tracking">
+      <fieldset class="team-event-group red-team">
+        <legend>Red/white team</legend>
+        <div class="team-event-buttons">
+          <button class="red" data-team="red" data-type="completed_pass">
+            <img class="event-icon" src="pass.jpeg" alt="">
+            <span>Pass</span>
+          </button>
+          <button class="red" data-team="red" data-type="turnover">
+            <img class="event-icon" src="slide.jpeg" alt="">
+            <span>Turnover</span>
+          </button>
+        </div>
+      </fieldset>
+      <fieldset class="team-event-group black-team">
+        <legend>Black team</legend>
+        <div class="team-event-buttons">
+          <button class="black" data-team="black" data-type="completed_pass">
+            <img class="event-icon" src="pass.jpeg" alt="">
+            <span>Pass</span>
+          </button>
+          <button class="black" data-team="black" data-type="turnover">
+            <img class="event-icon" src="slide.jpeg" alt="">
+            <span>Turnover</span>
+          </button>
+        </div>
+      </fieldset>
+      <div class="review-action-group">
+        <button data-review-action="frame-back">← Frame</button>
+        <button class="confirm" data-review-action="confirm">Confirm / play</button>
+        <button data-review-action="frame-forward">Frame →</button>
+        <button data-review-action="undo">Undo</button>
+        <button class="danger clear-all" data-review-action="clear">
+          Clear all entries
+        </button>
+      </div>
+    </aside>
+  </section>
+  <p class="muted" id="playback-time">Current time: 0.00s</p>
+
+  <section class="transport">
+    <button id="back">-2 seconds</button>
+    <button id="slower">0.5× speed</button>
+    <button id="normal">1× speed</button>
+    <button id="forward">+2 seconds</button>
+    <button id="undo">Undo last</button>
+    <button id="fullscreen">Full screen with stats</button>
+  </section>
+  <section class="transport">
+    <button id="assist-toggle">Assisted review: ON</button>
+    <button id="frame-back">← Previous frame</button>
+    <button id="confirm-resume">Enter · Confirm and resume</button>
+    <button id="frame-forward">Next frame →</button>
+  </section>
+  <p class="assist-status" id="assist-status">Assisted review is ready:
+    choose an event to pause, refine its time with ←/→, then press Enter.</p>
+
+  <section class="controls" aria-label="Manual event tracking">
+    <fieldset class="team-event-group red-team">
+      <legend>Red/white team</legend>
+      <div class="team-event-buttons">
+        <button class="red" data-team="red" data-type="completed_pass">
+          1 · Completed pass
+        </button>
+        <button class="red" data-team="red" data-type="turnover">
+          3 · Turnover
+        </button>
+        <button class="red" data-team="red" data-type="shot">
+          5 · Shot
+        </button>
+        <button class="red" data-team="red" data-type="shot_on_target">
+          7 · Shot on target
+        </button>
+      </div>
+    </fieldset>
+    <fieldset class="team-event-group black-team">
+      <legend>Black team</legend>
+      <div class="team-event-buttons">
+        <button class="black" data-team="black" data-type="completed_pass">
+          2 · Completed pass
+        </button>
+        <button class="black" data-team="black" data-type="turnover">
+          4 · Turnover
+        </button>
+        <button class="black" data-team="black" data-type="shot">
+          6 · Shot
+        </button>
+        <button class="black" data-team="black" data-type="shot_on_target">
+          8 · Shot on target
+        </button>
+      </div>
+    </fieldset>
+  </section>
+
+  <section class="scoreboards">
+    <article class="card scoreboard manual">
+      <h2>Your live reference</h2>
+      <p class="muted">Only clicks at or before the current playhead are shown.</p>
+      <section class="counts">
+        <div class="card"><div class="muted">Red/white completed passes</div><div class="count" id="manual-red-passes">0</div></div>
+        <div class="card"><div class="muted">Black completed passes</div><div class="count" id="manual-black-passes">0</div></div>
+        <div class="card"><div class="muted">Red turnovers</div><div class="count" id="manual-red-turnovers">0</div></div>
+        <div class="card"><div class="muted">Black turnovers</div><div class="count" id="manual-black-turnovers">0</div></div>
+        <div class="card"><div class="muted">Red shots</div><div class="count" id="manual-red-shots">0</div></div>
+        <div class="card"><div class="muted">Black shots</div><div class="count" id="manual-black-shots">0</div></div>
+        <div class="card"><div class="muted">Red on target</div><div class="count" id="manual-red-on-target">0</div></div>
+        <div class="card"><div class="muted">Black on target</div><div class="count" id="manual-black-on-target">0</div></div>
+      </section>
+    </article>
+    <article class="card scoreboard baseline">
+      <h2>AI calibrated baseline</h2>
+      <p class="muted" id="ai-status">Loading saved AI events…</p>
+      <section class="counts">
+        <div class="card"><div class="muted">Red/white completed passes</div><div class="count" id="ai-red-passes">0</div></div>
+        <div class="card"><div class="muted">Black completed passes</div><div class="count" id="ai-black-passes">0</div></div>
+        <div class="card"><div class="muted">Red turnovers</div><div class="count" id="ai-red-turnovers">0</div></div>
+        <div class="card"><div class="muted">Black turnovers</div><div class="count" id="ai-black-turnovers">0</div></div>
+        <div class="card"><div class="muted">Red shots</div><div class="count" id="ai-red-shots">0</div></div>
+        <div class="card"><div class="muted">Black shots</div><div class="count" id="ai-black-shots">0</div></div>
+        <div class="card"><div class="muted">Red on-target candidates</div><div class="count" id="ai-red-on-target">0</div></div>
+        <div class="card"><div class="muted">Black on-target candidates</div><div class="count" id="ai-black-on-target">0</div></div>
+      </section>
+    </article>
+  </section>
+  <p class="muted">Possession percentage will be published after a complete
+    half has enough controlled-ball samples. This one-minute review does not
+    present a half-time possession claim.</p>
+
+  <section class="transport">
+    <button id="export">Download manual count</button>
+    <label class="file-label" for="import">Import manual count</label>
+    <input id="import" type="file" accept="application/json">
+    <button id="new-review">Start fresh review</button>
+    <button id="clear" class="danger">Clear all entries</button>
+  </section>
+
+  <section class="event-tables">
+    <article>
+      <h2>Your timestamped clicks</h2>
+      <p class="muted">Live log through the playhead. Pass time is the receiver's first touch.</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Time</th><th>Team</th><th>Event</th><th></th></tr></thead>
+          <tbody id="events"></tbody>
+        </table>
+      </div>
+    </article>
+    <article>
+      <h2>AI timestamped events</h2>
+      <p class="muted">Live log through the playhead. Release and receiver times come from the unchanged baseline.</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Release</th><th>Receiver</th><th>Team</th>
+            <th>Event</th><th>Confidence</th><th></th></tr></thead>
+          <tbody id="ai-events"></tbody>
+        </table>
+      </div>
+    </article>
+  </section>
+</main>
+<script>
+  let storageKey = "alfheim-window-555-manual-events-v1";
+  const video = document.getElementById("video");
+  const videoStage = document.getElementById("video-stage");
+  const geometryCanvas = document.getElementById("geometry-overlay");
+  const geometryContext = geometryCanvas.getContext("2d");
+  const fullscreenButton = document.getElementById("fullscreen");
+  const assistToggle = document.getElementById("assist-toggle");
+  const assistStatus = document.getElementById("assist-status");
+  const playbackTime = document.getElementById("playback-time");
+  const eventBody = document.getElementById("events");
+  const aiEventBody = document.getElementById("ai-events");
+  const segmentStatus = document.getElementById("segment-status");
+  const geometryStatus = document.getElementById("geometry-status");
+  const prepareSegmentButton = document.getElementById("prepare-segment");
+  const processSegmentButton = document.getElementById("process-segment");
+  const videoMode = document.getElementById("video-mode");
+  const aiProgress = document.getElementById("ai-progress");
+  const aiProgressLabel = document.getElementById("ai-progress-label");
+  const trackingOption = videoMode.querySelector('option[value="tracking"]');
+  const baselineCleanUrl = "../alfheim-window-playable.mp4";
+  const baselineTrackingUrl = "../analytics/tracking-verification.webm";
+  const pageParameters = new URLSearchParams(window.location.search);
+  const geometryStorageKey = "alfheim-camera-setting-2-geometry-v1";
+  let events = JSON.parse(localStorage.getItem(storageKey) || "[]");
+  let aiEvents = [];
+  let ballLabels = [];
+  let geometry = {image_width: 4450, image_height: 2000, features: {}};
+  let editingFeature = null;
+  let cleanVideoUrl = baselineCleanUrl;
+  let trackingVideoUrl = baselineTrackingUrl;
+  let clipStartSeconds = 0;
+  let reviewDurationSeconds = 60;
+  let sourceStartSeconds = 1665;
+  let segmentName = "alfheim-window-555";
+  let activeCacheKey = null;
+  let segmentStatusTimer = null;
+  let assistedReview = true;
+  let pendingEvent = null;
+  video.defaultPlaybackRate = 0.5;
+  video.playbackRate = 0.5;
+  if (pageParameters.get("prepare") !== "1") {
+    video.src = baselineCleanUrl;
+    processSegmentButton.disabled = true;
+    processSegmentButton.textContent = "AI ready";
+    trackingOption.disabled = false;
+    trackingOption.textContent = "AI player/team tracking · ready";
+    aiProgress.value = 300;
+    aiProgressLabel.textContent = "AI ready";
+  } else {
+    processSegmentButton.disabled = true;
+    processSegmentButton.textContent = "Checking AI…";
+  }
+
+  const save = () => {
+    localStorage.setItem(storageKey, JSON.stringify(events));
+    render();
+  };
+
+  const reviewTime = () => Math.max(0, video.currentTime - clipStartSeconds);
+  const reviewEnd = () => clipStartSeconds + reviewDurationSeconds;
+  const formatClock = value => {
+    const minutes = Math.floor(value / 60);
+    const seconds = value - minutes * 60;
+    return `${minutes}:${seconds.toFixed(1).padStart(4, "0")}`;
+  };
+
+  function render() {
+    const currentReviewTime = reviewTime();
+    const visibleManual = events.filter(
+      event => event.clip_seconds <= currentReviewTime + 0.05
+    );
+    const visibleAi = aiEvents.filter(
+      event => Number(event.completion_seconds ?? event.clip_seconds) <=
+        currentReviewTime + 0.05
+    );
+    const count = (source, team, type) => source.filter(
+      event => event.team === team && event.event_type === type
+    ).length;
+    const manualShots = team =>
+      count(visibleManual, team, "shot") +
+      count(visibleManual, team, "shot_on_target");
+    for (const team of ["red", "black"]) {
+      const manualValues = {
+        passes: count(visibleManual, team, "completed_pass"),
+        turnovers: count(visibleManual, team, "turnover"),
+        shots: manualShots(team),
+        "on-target": count(visibleManual, team, "shot_on_target")
+      };
+      for (const [metric, value] of Object.entries(manualValues)) {
+        document.getElementById(`manual-${team}-${metric}`).textContent = value;
+        document.getElementById(
+          `overlay-manual-${team}-${metric}`
+        ).textContent = value;
+      }
+      const aiValues = {
+        passes: count(visibleAi, team, "pass_candidate") +
+          count(visibleAi, team, "restart_pass_candidate"),
+        turnovers: count(visibleAi, team, "turnover_candidate"),
+        shots: count(visibleAi, team, "shot_candidate") +
+          count(visibleAi, team, "shot_on_target_candidate"),
+        "on-target": count(visibleAi, team, "shot_on_target_candidate")
+      };
+      for (const [metric, value] of Object.entries(aiValues)) {
+        document.getElementById(`ai-${team}-${metric}`).textContent = value;
+        document.getElementById(`overlay-ai-${team}-${metric}`).textContent =
+          value;
+      }
+    }
+    eventBody.replaceChildren(...visibleManual.map(event => {
+      const index = events.indexOf(event);
+      const row = document.createElement("tr");
+      row.classList.add("reached");
+      row.innerHTML = `<td>${event.clip_seconds.toFixed(2)}s</td>
+        <td>${event.team === "red" ? "Red/white" : "Black"}</td>
+        <td>${eventLabel(event.event_type)}</td>
+        <td><button data-seek-manual="${index}">Seek</button>
+          <button data-remove="${index}">Remove</button></td>`;
+      return row;
+    }));
+    aiEventBody.replaceChildren(...visibleAi.map(event => {
+      const index = aiEvents.indexOf(event);
+      const row = document.createElement("tr");
+      const completion = Number(
+        event.completion_seconds ?? event.clip_seconds
+      );
+      row.classList.add("reached");
+      row.innerHTML = `<td>${Number(event.clip_seconds).toFixed(2)}s</td>
+        <td>${completion.toFixed(2)}s</td>
+        <td>${event.team === "red" ? "Red/white" :
+          event.team === "black" ? "Black" : "-"}</td>
+        <td>${eventLabel(event.event_type)}</td>
+        <td>${Math.round(Number(event.confidence || 0) * 100)}%</td>
+        <td><button data-seek-ai="${index}">Seek</button></td>`;
+      return row;
+    }));
+    drawGeometry();
+  }
+
+  function eventLabel(eventType) {
+    return {
+      completed_pass: "Completed pass",
+      turnover: "Turnover",
+      shot: "Shot",
+      shot_on_target: "Shot on target",
+      pass_candidate: "Completed-pass candidate",
+      restart_pass_candidate: "Restart-pass candidate",
+      turnover_candidate: "Turnover candidate",
+      shot_candidate: "Shot candidate",
+      shot_on_target_candidate: "Shot-on-target candidate"
+    }[eventType] || eventType;
+  }
+
+  function mediaLayout() {
+    const rect = videoStage.getBoundingClientRect();
+    const mediaAspect = (video.videoWidth || geometry.image_width) /
+      (video.videoHeight || geometry.image_height);
+    const stageAspect = rect.width / Math.max(1, rect.height);
+    const width = stageAspect > mediaAspect
+      ? rect.height * mediaAspect
+      : rect.width;
+    const height = stageAspect > mediaAspect
+      ? rect.height
+      : rect.width / mediaAspect;
+    return {
+      rect,
+      x: (rect.width - width) / 2,
+      y: (rect.height - height) / 2,
+      width,
+      height
+    };
+  }
+
+  function drawGeometry() {
+    const layout = mediaLayout();
+    const ratio = window.devicePixelRatio || 1;
+    geometryCanvas.width = Math.max(1, Math.round(layout.rect.width * ratio));
+    geometryCanvas.height = Math.max(1, Math.round(layout.rect.height * ratio));
+    geometryContext.setTransform(ratio, 0, 0, ratio, 0, 0);
+    geometryContext.clearRect(0, 0, layout.rect.width, layout.rect.height);
+    const project = point => [
+      layout.x + point[0] * layout.width / geometry.image_width,
+      layout.y + point[1] * layout.height / geometry.image_height
+    ];
+    const drawLine = (points, color, width, dashed = false, closed = false) => {
+      if (!Array.isArray(points) || points.length < 2) return;
+      geometryContext.strokeStyle = color;
+      geometryContext.lineWidth = width;
+      geometryContext.setLineDash(dashed ? [8, 5] : []);
+      geometryContext.beginPath();
+      points.forEach((point, index) => {
+        const [x, y] = project(point);
+        if (index === 0) geometryContext.moveTo(x, y);
+        else geometryContext.lineTo(x, y);
+      });
+      if (closed) geometryContext.closePath();
+      geometryContext.stroke();
+      geometryContext.setLineDash([]);
+      points.forEach(point => {
+        const [x, y] = project(point);
+        geometryContext.fillStyle = color;
+        geometryContext.beginPath();
+        geometryContext.arc(x, y, 1.5, 0, Math.PI * 2);
+        geometryContext.fill();
+      });
+    };
+    if (document.getElementById("show-pitch").checked) {
+      drawLine(geometry.features.near_touchline, "#ffd33d", 1.5, true);
+      drawLine(geometry.features.far_touchline, "#ffd33d", 1.5, true);
+      drawLine(geometry.features.left_goal_line, "#ff9f1c", 1.5, true);
+      drawLine(geometry.features.right_goal_line, "#ff9f1c", 1.5, true);
+    }
+    if (document.getElementById("show-goals").checked) {
+      drawLine(geometry.features.left_goal_mouth, "#00e5ff", 2, false, true);
+      drawLine(geometry.features.right_goal_mouth, "#00e5ff", 2, false, true);
+    }
+    if (document.getElementById("show-ball").checked && ballLabels.length) {
+      const frame = Math.max(
+        0,
+        Math.min(ballLabels.length - 1, Math.floor(video.currentTime * 25))
+      );
+      const label = ballLabels[frame];
+      const [x, y] = project([label.x, label.y]);
+      geometryContext.strokeStyle = "#ff3b30";
+      geometryContext.fillStyle = "rgb(255 59 48 / 20%)";
+      geometryContext.lineWidth = 4;
+      geometryContext.beginPath();
+      geometryContext.arc(x, y, 13, 0, Math.PI * 2);
+      geometryContext.fill();
+      geometryContext.stroke();
+    }
+  }
+
+  async function loadBallLabels(url) {
+    const response = await fetch(url, {cache: "no-store"});
+    if (!response.ok) throw new Error(`Ball labels HTTP ${response.status}`);
+    const text = await response.text();
+    ballLabels = text.trim().split(/\r?\n/).slice(1).map(line => {
+      const columns = line.split(",");
+      return {x: Number(columns[4]), y: Number(columns[5])};
+    });
+    drawGeometry();
+  }
+
+  function saveGeometry() {
+    localStorage.setItem(geometryStorageKey, JSON.stringify(geometry));
+    drawGeometry();
+  }
+
+  function switchVideo(url) {
+    const time = video.currentTime;
+    const wasPlaying = !video.paused;
+    const rate = video.playbackRate;
+    video.src = url;
+    video.addEventListener("loadedmetadata", () => {
+      video.currentTime = Math.min(time, video.duration);
+      video.playbackRate = rate;
+      if (wasPlaying) video.play();
+    }, {once: true});
+  }
+
+  async function refreshSegmentStatus() {
+    if (!activeCacheKey) return;
+    const response = await fetch(
+      `/api/alfheim/status?cache_key=${encodeURIComponent(activeCacheKey)}`,
+      {cache: "no-store"}
+    );
+    const status = await response.json();
+    if (!response.ok) throw new Error(status.error || `HTTP ${response.status}`);
+    if (status.state === "processing") {
+      processSegmentButton.disabled = true;
+      processSegmentButton.textContent = "AI processing…";
+      aiProgress.max = status.expected_frames;
+      aiProgress.value = status.processed_frames;
+      aiProgressLabel.textContent =
+        `${status.processed_frames}/${status.expected_frames} frames`;
+      trackingOption.disabled = true;
+      trackingOption.textContent =
+        `AI tracking · processing ${status.processed_frames}/` +
+        `${status.expected_frames}`;
+      segmentStatus.textContent =
+        `AI processing locally: ${status.processed_frames}/` +
+        `${status.expected_frames} sampled frames cached.`;
+      document.getElementById("ai-status").textContent =
+        "Processing locally · counters remain hidden until events are ready";
+      return;
+    }
+    if (status.state === "detections_ready") {
+      processSegmentButton.disabled = false;
+      processSegmentButton.textContent = "Build tracks and events";
+      aiProgress.max = status.expected_frames;
+      aiProgress.value = status.expected_frames;
+      aiProgressLabel.textContent = "Detections complete";
+      trackingOption.disabled = true;
+      trackingOption.textContent = "AI tracking · building events";
+      segmentStatus.textContent =
+        "Player detections are complete; tracks and events are the next stage.";
+      document.getElementById("ai-status").textContent =
+        "Detections ready · event inference not built yet";
+      return;
+    }
+    if (status.state === "building") {
+      processSegmentButton.disabled = true;
+      processSegmentButton.textContent = "Building analytics…";
+      aiProgress.max = status.expected_frames || 1;
+      aiProgress.value = status.expected_frames || 1;
+      aiProgressLabel.textContent =
+        (status.stage || "building").replaceAll("_", " ");
+      segmentStatus.textContent =
+        status.message || "Building player tracks and events.";
+      return;
+    }
+    if (status.state === "failed") {
+      processSegmentButton.disabled = false;
+      processSegmentButton.textContent = "Retry AI";
+      aiProgressLabel.textContent = "AI failed";
+      segmentStatus.textContent =
+        `AI processing failed: ${status.message || "See analysis.log"}`;
+      return;
+    }
+    if (status.state !== "ready") {
+      processSegmentButton.disabled = false;
+      processSegmentButton.textContent = "Process AI";
+      aiProgress.value = 0;
+      aiProgressLabel.textContent = "AI not started";
+      trackingOption.disabled = true;
+      trackingOption.textContent = "AI tracking · not processed";
+      segmentStatus.textContent =
+        "Segment prepared; AI detection has not started.";
+      return;
+    }
+    const eventResponse = await fetch(status.events_url, {cache: "no-store"});
+    if (!eventResponse.ok) {
+      throw new Error(`Events HTTP ${eventResponse.status}`);
+    }
+    const rawEvents = await eventResponse.json();
+    aiEvents = rawEvents.map(event => ({
+      ...event,
+      clip_seconds: Number(event.clip_seconds) - clipStartSeconds,
+      completion_seconds: Number(
+        event.completion_seconds ?? event.clip_seconds
+      ) - clipStartSeconds
+    })).filter(event =>
+      event.completion_seconds >= 0 &&
+      event.completion_seconds <= reviewDurationSeconds
+    );
+    trackingVideoUrl = status.tracking_url;
+    processSegmentButton.disabled = true;
+    processSegmentButton.textContent = "AI ready";
+    aiProgress.max = status.expected_frames || 1;
+    aiProgress.value = status.expected_frames || 1;
+    aiProgressLabel.textContent = "AI ready";
+    trackingOption.disabled = false;
+    trackingOption.textContent = "AI player/team tracking · ready";
+    document.getElementById("show-live-overlay").checked = true;
+    document.getElementById("live-overlay").classList.remove("hidden");
+    document.getElementById("ai-status").textContent =
+      "Segment AI events ready · independent of manual clicks";
+    segmentStatus.textContent =
+      `Ready: ${formatClock(sourceStartSeconds)} for ` +
+      `${reviewDurationSeconds.toFixed(1)} seconds, including AI events.`;
+    clearInterval(segmentStatusTimer);
+    segmentStatusTimer = null;
+    render();
+  }
+
+  function addEvent(team, eventType) {
+    const entry = {
+      clip_seconds: Number(reviewTime().toFixed(3)),
+      team,
+      event_type: eventType
+    };
+    events.push(entry);
+    events.sort((left, right) => left.clip_seconds - right.clip_seconds);
+    if (assistedReview) {
+      video.pause();
+      video.playbackRate = 0.5;
+      pendingEvent = entry;
+      assistStatus.textContent =
+        `Adjusting ${eventLabel(eventType)} at ${entry.clip_seconds.toFixed(2)}s. ` +
+        "Use ←/→ for one frame, then Enter to confirm and resume.";
+    }
+    save();
+  }
+
+  function stepFrame(direction) {
+    video.pause();
+    const nextTime = Math.max(
+      clipStartSeconds,
+      Math.min(reviewEnd(), video.currentTime + direction / 25)
+    );
+    video.currentTime = nextTime;
+    if (pendingEvent) {
+      pendingEvent.clip_seconds = Number(
+        (nextTime - clipStartSeconds).toFixed(3)
+      );
+      events.sort((left, right) => left.clip_seconds - right.clip_seconds);
+      assistStatus.textContent =
+        `Event time: ${pendingEvent.clip_seconds.toFixed(2)}s. ` +
+        "Use ←/→ for one frame, then Enter to confirm and resume.";
+      save();
+    }
+  }
+
+  function confirmAndResume() {
+    if (pendingEvent) {
+      assistStatus.textContent =
+        `Saved at ${pendingEvent.clip_seconds.toFixed(2)}s. Playback resumed at 0.5×.`;
+      pendingEvent = null;
+    }
+    video.playbackRate = assistedReview ? 0.5 : video.playbackRate;
+    video.play();
+  }
+
+  function clearManualEvents() {
+    if (!confirm("Clear every manual event for this video?")) return;
+    events = [];
+    pendingEvent = null;
+    video.pause();
+    video.currentTime = clipStartSeconds;
+    save();
+  }
+
+  document.querySelectorAll("[data-team]").forEach(button => {
+    button.addEventListener("click", () => addEvent(
+      button.dataset.team, button.dataset.type
+    ));
+  });
+  document.querySelectorAll("[data-review-action]").forEach(button => {
+    button.addEventListener("click", () => {
+      const action = button.dataset.reviewAction;
+      if (action === "frame-back") stepFrame(-1);
+      if (action === "frame-forward") stepFrame(1);
+      if (action === "confirm") confirmAndResume();
+      if (action === "clear") clearManualEvents();
+      if (action === "undo") {
+        pendingEvent = null;
+        events.pop();
+        save();
+      }
+    });
+  });
+  eventBody.addEventListener("click", event => {
+    const seekIndex = event.target.dataset.seekManual;
+    if (seekIndex !== undefined) {
+      video.pause();
+      video.currentTime = clipStartSeconds +
+        events[Number(seekIndex)].clip_seconds;
+      return;
+    }
+    const index = event.target.dataset.remove;
+    if (index === undefined) return;
+    events.splice(Number(index), 1);
+    save();
+  });
+  aiEventBody.addEventListener("click", event => {
+    const index = event.target.dataset.seekAi;
+    if (index === undefined) return;
+    video.pause();
+    video.currentTime = clipStartSeconds + Number(
+      aiEvents[Number(index)].completion_seconds ??
+      aiEvents[Number(index)].clip_seconds
+    );
+  });
+  document.getElementById("undo").addEventListener("click", () => {
+    pendingEvent = null;
+    events.pop();
+    save();
+  });
+  function seekBy(seconds) {
+    video.pause();
+    video.currentTime = Math.max(
+      clipStartSeconds,
+      Math.min(reviewEnd(), video.currentTime + seconds)
+    );
+  }
+  document.getElementById("back").addEventListener("click", () => seekBy(-2));
+  document.getElementById("forward").addEventListener("click", () => seekBy(2));
+  document.getElementById("slower").addEventListener("click", () => {
+    video.playbackRate = 0.5;
+  });
+  document.getElementById("normal").addEventListener("click", () => {
+    video.playbackRate = 1;
+  });
+  assistToggle.addEventListener("click", () => {
+    assistedReview = !assistedReview;
+    pendingEvent = null;
+    assistToggle.textContent = `Assisted review: ${assistedReview ? "ON" : "OFF"}`;
+    assistStatus.textContent = assistedReview
+      ? "Assisted review is ready: choose an event to pause, refine its time with ←/→, then press Enter."
+      : "Assisted review is off. Event clicks will not pause playback.";
+  });
+  document.getElementById("frame-back").addEventListener(
+    "click", () => stepFrame(-1)
+  );
+  document.getElementById("frame-forward").addEventListener(
+    "click", () => stepFrame(1)
+  );
+  document.getElementById("confirm-resume").addEventListener(
+    "click", confirmAndResume
+  );
+  ["show-ball", "show-pitch", "show-goals"].forEach(id => {
+    document.getElementById(id).addEventListener("change", drawGeometry);
+  });
+  document.getElementById("show-live-overlay").addEventListener(
+    "change",
+    event => document.getElementById("live-overlay").classList.toggle(
+      "hidden", !event.target.checked
+    )
+  );
+  videoMode.addEventListener("change", () => {
+    if (videoMode.value === "tracking" && !trackingVideoUrl) {
+      videoMode.value = "clean";
+      segmentStatus.textContent =
+        "AI tracking has not been processed for this new segment yet.";
+      return;
+    }
+    switchVideo(
+      videoMode.value === "tracking" ? trackingVideoUrl : cleanVideoUrl
+    );
+  });
+  document.getElementById("edit-geometry").addEventListener("click", () => {
+    editingFeature = document.getElementById("geometry-feature").value;
+    geometry.features[editingFeature] = [];
+    geometryCanvas.classList.add("editing");
+    geometryStatus.textContent =
+      `Click points for ${editingFeature.replaceAll("_", " ")}. ` +
+      "Trace the outer edge of painted pitch lines. For a goal mouth, click " +
+      "all four visible goal-frame corners clockwise.";
+    drawGeometry();
+  });
+  document.getElementById("undo-geometry").addEventListener("click", () => {
+    if (!editingFeature) return;
+    geometry.features[editingFeature].pop();
+    drawGeometry();
+  });
+  document.getElementById("finish-geometry").addEventListener("click", () => {
+    if (!editingFeature) return;
+    const minimumPoints = editingFeature.endsWith("goal_mouth") ? 4 : 2;
+    if (geometry.features[editingFeature].length < minimumPoints) {
+      geometryStatus.textContent =
+        `Add at least ${minimumPoints} points before finishing.`;
+      return;
+    }
+    const completed = editingFeature;
+    editingFeature = null;
+    geometryCanvas.classList.remove("editing");
+    saveGeometry();
+    geometryStatus.textContent =
+      `${completed.replaceAll("_", " ")} saved for this camera.`;
+  });
+  geometryCanvas.addEventListener("click", event => {
+    if (!editingFeature) return;
+    const layout = mediaLayout();
+    const canvasRect = geometryCanvas.getBoundingClientRect();
+    const x = event.clientX - canvasRect.left - layout.x;
+    const y = event.clientY - canvasRect.top - layout.y;
+    if (x < 0 || y < 0 || x > layout.width || y > layout.height) return;
+    geometry.features[editingFeature].push([
+      Math.round(x * geometry.image_width / layout.width),
+      Math.round(y * geometry.image_height / layout.height)
+    ]);
+    drawGeometry();
+  });
+  document.getElementById("export-geometry").addEventListener("click", () => {
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(new Blob(
+      [JSON.stringify(geometry, null, 2)], {type: "application/json"}
+    ));
+    link.download = `${geometry.camera_id || "camera"}-pitch-calibration.json`;
+    link.click();
+    URL.revokeObjectURL(link.href);
+  });
+  prepareSegmentButton.addEventListener("click", async () => {
+    const requestedMinute = Number(
+      document.getElementById("segment-start-minute").value
+    );
+    const requestedSecond = Number(
+      document.getElementById("segment-start-second").value
+    );
+    const requestedStart = requestedMinute * 60 + requestedSecond;
+    const requestedDuration = Number(
+      document.getElementById("segment-duration").value
+    );
+    if (
+      !Number.isInteger(requestedMinute)
+      || requestedMinute < 0
+      || !Number.isInteger(requestedSecond)
+      || requestedSecond < 0
+      || requestedSecond > 59
+    ) {
+      segmentStatus.textContent =
+        "Start time needs a non-negative minute and a second from 0 to 59.";
+      return;
+    }
+    prepareSegmentButton.disabled = true;
+    aiProgress.removeAttribute("value");
+    aiProgressLabel.textContent = "Preparing video";
+    segmentStatus.textContent =
+      "Preparing the local browser video and supplied ball labels…";
+    try {
+      const response = await fetch("/api/alfheim/segment", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+          start_seconds: requestedStart,
+          duration_seconds: requestedDuration
+        })
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+      video.pause();
+      cleanVideoUrl = payload.video_url;
+      trackingVideoUrl = null;
+      trackingOption.disabled = true;
+      trackingOption.textContent = "AI tracking · checking status";
+      videoMode.value = "clean";
+      clipStartSeconds = Number(payload.clip_start_seconds);
+      reviewDurationSeconds = Number(payload.duration_seconds);
+      sourceStartSeconds = Number(payload.requested_start_seconds);
+      document.getElementById("segment-start-minute").value =
+        Math.floor(sourceStartSeconds / 60);
+      document.getElementById("segment-start-second").value =
+        Math.floor(sourceStartSeconds % 60);
+      segmentName = payload.cache_key;
+      activeCacheKey = payload.cache_key;
+      storageKey = (
+        `alfheim-${sourceStartSeconds}-${reviewDurationSeconds}-manual-events-v1`
+      );
+      events = JSON.parse(localStorage.getItem(storageKey) || "[]");
+      aiEvents = [];
+      pendingEvent = null;
+      document.getElementById("show-live-overlay").checked = true;
+      document.getElementById("live-overlay").classList.remove("hidden");
+      document.getElementById("ai-status").textContent =
+        "Not processed yet · manual reference is ready for this segment";
+      await loadBallLabels(payload.labels_url);
+      video.src = cleanVideoUrl;
+      video.addEventListener("loadedmetadata", () => {
+        video.currentTime = clipStartSeconds;
+        video.playbackRate = assistedReview ? 0.5 : 1;
+        render();
+      }, {once: true});
+      segmentStatus.textContent =
+        `Ready: ${formatClock(sourceStartSeconds)} for ` +
+        `${reviewDurationSeconds.toFixed(1)} seconds. AI remains separate ` +
+        "until this segment is processed.";
+      render();
+      clearInterval(segmentStatusTimer);
+      await refreshSegmentStatus();
+      if (!trackingVideoUrl) {
+        segmentStatusTimer = setInterval(() => {
+          refreshSegmentStatus().catch(error => {
+            segmentStatus.textContent = `AI status unavailable: ${error.message}`;
+          });
+        }, 5000);
+      }
+    } catch (error) {
+      segmentStatus.textContent = `Could not prepare segment: ${error.message}`;
+    } finally {
+      prepareSegmentButton.disabled = false;
+    }
+  });
+  processSegmentButton.addEventListener("click", async () => {
+    if (!activeCacheKey) {
+      segmentStatus.textContent = "Prepare a segment before starting AI.";
+      return;
+    }
+    processSegmentButton.disabled = true;
+    processSegmentButton.textContent = "Starting AI…";
+    aiProgress.removeAttribute("value");
+    aiProgressLabel.textContent = "Starting";
+    try {
+      const response = await fetch("/api/alfheim/analyze", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({cache_key: activeCacheKey})
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+      segmentStatus.textContent =
+        "Local AI pipeline started. You may continue manual review.";
+      clearInterval(segmentStatusTimer);
+      segmentStatusTimer = setInterval(() => {
+        refreshSegmentStatus().catch(error => {
+          segmentStatus.textContent = `AI status unavailable: ${error.message}`;
+        });
+      }, 5000);
+      await refreshSegmentStatus();
+    } catch (error) {
+      processSegmentButton.disabled = false;
+      processSegmentButton.textContent = "Retry AI";
+      segmentStatus.textContent = `Could not start AI: ${error.message}`;
+    }
+  });
+  fullscreenButton.addEventListener("click", async () => {
+    if (document.fullscreenElement === videoStage) {
+      await document.exitFullscreen();
+      return;
+    }
+    await videoStage.requestFullscreen();
+  });
+  document.addEventListener("fullscreenchange", () => {
+    fullscreenButton.textContent = document.fullscreenElement === videoStage
+      ? "Exit full screen"
+      : "Full screen with stats";
+  });
+  document.getElementById("export").addEventListener("click", () => {
+    const payload = {
+      schema_version: 2,
+      video: segmentName,
+      source_start_seconds: sourceStartSeconds,
+      duration_seconds: reviewDurationSeconds,
+      definition: "Same-team first touch completes a pass, including throw-ins, goal kicks, free kicks, and other restarts. A foul stops play without a turnover; ignore loose-ball movement and resume tracking from the restart kick. Later live-play loss is a turnover. Shot on target also counts as one shot.",
+      exported_at: new Date().toISOString(),
+      events
+    };
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(new Blob(
+      [JSON.stringify(payload, null, 2)], {type: "application/json"}
+    ));
+    link.download = `${segmentName}-manual-events.json`;
+    link.click();
+    URL.revokeObjectURL(link.href);
+  });
+  document.getElementById("import").addEventListener("change", async event => {
+    const payload = JSON.parse(await event.target.files[0].text());
+    if (![1, 2].includes(payload.schema_version) || !Array.isArray(payload.events)) {
+      throw new Error("Unsupported manual-count file");
+    }
+    events = payload.events;
+    save();
+  });
+  document.getElementById("clear").addEventListener("click", clearManualEvents);
+  document.getElementById("new-review").addEventListener("click", () => {
+    events = [];
+    pendingEvent = null;
+    video.pause();
+    video.currentTime = clipStartSeconds;
+    save();
+  });
+  window.addEventListener("keydown", event => {
+    if (event.target.matches("input, textarea, select, button")) return;
+    if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+      event.preventDefault();
+      stepFrame(event.key === "ArrowLeft" ? -1 : 1);
+      return;
+    }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      confirmAndResume();
+      return;
+    }
+    const shortcuts = {
+      "1": ["red", "completed_pass"],
+      "2": ["black", "completed_pass"],
+      "3": ["red", "turnover"],
+      "4": ["black", "turnover"],
+      "5": ["red", "shot"],
+      "6": ["black", "shot"],
+      "7": ["red", "shot_on_target"],
+      "8": ["black", "shot_on_target"]
+    };
+    if (shortcuts[event.key]) {
+      event.preventDefault();
+      addEvent(...shortcuts[event.key]);
+    }
+  });
+  ["loadedmetadata", "timeupdate", "seeked"].forEach(name => {
+    video.addEventListener(name, () => {
+      if (video.currentTime > reviewEnd() + 0.01) {
+        video.pause();
+        video.currentTime = reviewEnd();
+      }
+      playbackTime.textContent =
+        `Segment ${reviewTime().toFixed(2)}s / ` +
+        `${reviewDurationSeconds.toFixed(2)}s · full recording ` +
+        `${formatClock(sourceStartSeconds + reviewTime())}`;
+      render();
+    });
+  });
+  window.addEventListener("resize", drawGeometry);
+  document.addEventListener("fullscreenchange", drawGeometry);
+  Promise.all([
+    fetch("../pitch-calibration.json", {cache: "no-store"}).then(response => {
+      if (!response.ok) throw new Error(`Calibration HTTP ${response.status}`);
+      return response.json();
+    }),
+    loadBallLabels("../ball-ground-truth.csv"),
+    fetch("/api/alfheim/info", {cache: "no-store"}).then(response => {
+      if (!response.ok) throw new Error(`Source info HTTP ${response.status}`);
+      return response.json();
+    })
+  ]).then(([calibration, , sourceInfo]) => {
+    const savedGeometry = localStorage.getItem(geometryStorageKey);
+    geometry = savedGeometry ? JSON.parse(savedGeometry) : calibration;
+    segmentStatus.textContent =
+      `Full labelled recording: ${formatClock(sourceInfo.duration_seconds)}. ` +
+      "Current baseline: 27:45–28:45.";
+    drawGeometry();
+  }).catch(error => {
+    geometryStatus.textContent = `Geometry/labels unavailable: ${error.message}`;
+  });
+  fetch("../analytics-data/predicted-events.json", {cache: "no-store"})
+    .then(response => {
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return response.json();
+    })
+    .then(payload => {
+      if (segmentName !== "alfheim-window-555") return;
+      aiEvents = Array.isArray(payload) ? payload : [];
+      document.getElementById("ai-status").textContent =
+        "Saved baseline replay · does not learn from manual clicks";
+      render();
+    })
+    .catch(error => {
+      document.getElementById("ai-status").textContent =
+        `Baseline unavailable: ${error.message}`;
+    });
+  if (pageParameters.has("start")) {
+    const bookmarkedStart = Number(pageParameters.get("start"));
+    document.getElementById("segment-start-minute").value =
+      Math.floor(bookmarkedStart / 60);
+    document.getElementById("segment-start-second").value =
+      Math.floor(bookmarkedStart % 60);
+  }
+  if (pageParameters.has("duration")) {
+    document.getElementById("segment-duration").value =
+      pageParameters.get("duration");
+  }
+  if (pageParameters.get("prepare") === "1") {
+    setTimeout(() => prepareSegmentButton.click(), 0);
+  }
+  function animateOverlay() {
+    if (!video.paused) drawGeometry();
+    requestAnimationFrame(animateOverlay);
+  }
+  requestAnimationFrame(animateOverlay);
+  render();
+</script>
+</body>
+</html>
