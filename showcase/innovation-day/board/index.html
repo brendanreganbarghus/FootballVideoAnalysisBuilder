@@ -1,0 +1,679 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Landscape Innovation Day board for Grassroots Football Intelligence.">
+  <title>Grassroots Football Intelligence | Innovation Board</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --ink: #fbf8fb;
+      --muted: #c5bac6;
+      --canvas: #100d12;
+      --surface: #19131b;
+      --surface-2: #241826;
+      --line: #49354b;
+      --purple: #ba4ca6;
+      --purple-deep: #6c1d5f;
+      --mint: #68e0c1;
+      --amber: #f5bd68;
+      font-family: Inter, "Segoe UI", Arial, sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; }
+    body {
+      min-height: 100svh;
+      display: grid;
+      place-items: center;
+      overflow: auto;
+      background: #080609;
+      color: var(--ink);
+    }
+    a { color: inherit; }
+
+    .board {
+      container-type: inline-size;
+      position: relative;
+      width: min(100vw, 177.78vh);
+      aspect-ratio: 16 / 9;
+      overflow: hidden;
+      padding: 2.2cqw;
+      background:
+        radial-gradient(circle at 78% 12%, rgb(108 29 95 / 42%), transparent 28%),
+        radial-gradient(circle at 8% 92%, rgb(104 224 193 / 11%), transparent 28%),
+        linear-gradient(135deg, #100d12 0%, #120e14 48%, #0d0a0f 100%);
+      box-shadow: 0 0 80px rgb(0 0 0 / 65%);
+    }
+
+    .board::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      opacity: .18;
+      background-image:
+        linear-gradient(rgb(255 255 255 / 5%) 1px, transparent 1px),
+        linear-gradient(90deg, rgb(255 255 255 / 5%) 1px, transparent 1px);
+      background-size: 2.8cqw 2.8cqw;
+      mask-image: linear-gradient(to bottom, black, transparent 72%);
+    }
+
+    .topbar {
+      position: relative;
+      z-index: 1;
+      height: 5.6cqw;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 2cqw;
+      border-bottom: 1px solid rgb(255 255 255 / 10%);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 1.2cqw;
+    }
+
+    .brand img {
+      width: 7.8cqw;
+      padding: .48cqw .68cqw;
+      border-radius: .45cqw;
+      background: white;
+    }
+
+    .brand-copy strong,
+    .brand-copy span { display: block; }
+    .brand-copy strong {
+      font-size: 1.06cqw;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+    }
+    .brand-copy span {
+      margin-top: .24cqw;
+      color: var(--muted);
+      font-size: .68cqw;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+    }
+
+    .status {
+      display: flex;
+      align-items: center;
+      gap: .65cqw;
+      padding: .65cqw 1cqw;
+      border: 1px solid rgb(104 224 193 / 40%);
+      border-radius: 999px;
+      color: var(--mint);
+      background: rgb(104 224 193 / 8%);
+      font-size: .74cqw;
+      font-weight: 850;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+    .status::before {
+      content: "";
+      width: .52cqw;
+      aspect-ratio: 1;
+      border-radius: 50%;
+      background: var(--mint);
+      box-shadow: 0 0 1cqw var(--mint);
+    }
+
+    .content {
+      position: relative;
+      z-index: 1;
+      height: calc(100% - 5.6cqw);
+      display: grid;
+      grid-template-columns: 35% 39% 26%;
+      grid-template-rows: 57% 43%;
+      gap: 1.15cqw;
+      padding-top: 1.45cqw;
+    }
+
+    .hero {
+      grid-row: 1 / 3;
+      display: flex;
+      flex-direction: column;
+      padding-right: 1.4cqw;
+    }
+
+    .eyebrow {
+      margin: 0 0 .85cqw;
+      color: var(--mint);
+      font-size: .75cqw;
+      font-weight: 900;
+      letter-spacing: .16em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      max-width: 31cqw;
+      margin: 0;
+      font-size: 4.35cqw;
+      line-height: .91;
+      letter-spacing: -.06em;
+    }
+    h1 em {
+      color: var(--purple);
+      font-style: normal;
+    }
+
+    .pitch-line {
+      width: 9cqw;
+      height: .3cqw;
+      margin: 1.25cqw 0 1.1cqw;
+      border-radius: 99px;
+      background: linear-gradient(90deg, var(--purple), var(--mint));
+    }
+
+    .lead {
+      max-width: 30cqw;
+      margin: 0;
+      color: var(--muted);
+      font-size: 1.15cqw;
+      line-height: 1.44;
+    }
+
+    .proof {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: .7cqw;
+      margin-top: 1.25cqw;
+    }
+
+    .proof-card {
+      padding: .86cqw;
+      border: 1px solid var(--line);
+      border-radius: .72cqw;
+      background: rgb(25 19 27 / 86%);
+    }
+    .proof-card b {
+      display: block;
+      color: var(--mint);
+      font-size: 1.36cqw;
+    }
+    .proof-card span {
+      color: var(--muted);
+      font-size: .73cqw;
+      text-transform: uppercase;
+      letter-spacing: .07em;
+    }
+
+    .match-snapshot {
+      margin-top: 1cqw;
+      overflow: hidden;
+      border: 1px solid rgb(186 76 166 / 45%);
+      border-radius: .72cqw;
+      background: linear-gradient(135deg, #18121a, #0f0c11);
+    }
+    .snapshot-heading {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1cqw;
+      padding: .58cqw .78cqw;
+      border-bottom: 1px solid var(--line);
+    }
+    .snapshot-heading b {
+      font-size: .77cqw;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+    }
+    .snapshot-heading span {
+      color: var(--purple);
+      font-size: .55cqw;
+      font-weight: 850;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+    .snapshot-teams {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .snapshot-team {
+      padding: .67cqw .76cqw .72cqw;
+    }
+    .snapshot-team + .snapshot-team {
+      border-left: 1px solid var(--line);
+      text-align: right;
+    }
+    .snapshot-team > strong {
+      display: block;
+      margin-bottom: .48cqw;
+      font-size: .78cqw;
+    }
+    .snapshot-metrics {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: .35cqw;
+    }
+    .snapshot-metric span,
+    .snapshot-metric b { display: block; }
+    .snapshot-metric span {
+      min-height: 1.42cqw;
+      color: var(--muted);
+      font-size: .5cqw;
+      line-height: 1.18;
+    }
+    .snapshot-metric b {
+      margin-top: .12cqw;
+      color: var(--ink);
+      font-size: 1.12cqw;
+    }
+    .snapshot-team:first-child .snapshot-metric b { color: var(--mint); }
+    .snapshot-team:last-child .snapshot-metric b { color: #e7c9e3; }
+
+    .value {
+      margin-top: auto;
+      padding: 1.08cqw;
+      border-left: .28cqw solid var(--amber);
+      background: rgb(245 189 104 / 8%);
+    }
+    .value b {
+      display: block;
+      margin-bottom: .3cqw;
+      color: var(--amber);
+      font-size: .88cqw;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+    .value p {
+      margin: 0;
+      font-size: .92cqw;
+      line-height: 1.38;
+    }
+
+    .visual {
+      position: relative;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 1cqw;
+      background: var(--surface);
+      box-shadow: 0 1.6cqw 4cqw rgb(0 0 0 / 34%);
+    }
+    .visual img {
+      width: 100%;
+      height: 100%;
+      display: block;
+      object-fit: cover;
+    }
+    .visual-main img { object-position: center 64%; }
+    .visual-validation img { object-position: center top; }
+    .visual::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background: linear-gradient(to top, rgb(10 7 11 / 88%), transparent 42%);
+    }
+    .visual-caption {
+      position: absolute;
+      z-index: 2;
+      left: 1cqw;
+      right: 1cqw;
+      bottom: .8cqw;
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 1cqw;
+    }
+    .visual-caption b {
+      display: block;
+      font-size: 1.02cqw;
+    }
+    .visual-caption span {
+      color: var(--muted);
+      font-size: .7cqw;
+    }
+    .visual-caption .pill {
+      flex: 0 0 auto;
+      padding: .42cqw .65cqw;
+      border: 1px solid rgb(186 76 166 / 52%);
+      border-radius: 999px;
+      color: #f2b4e7;
+      background: rgb(108 29 95 / 52%);
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .pipeline {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: .5cqw;
+      margin-top: .85cqw;
+    }
+    .pipeline-step {
+      position: relative;
+      min-height: 5.4cqw;
+      padding: .72cqw;
+      border: 1px solid var(--line);
+      border-radius: .65cqw;
+      background: var(--surface);
+    }
+    .pipeline-step:not(:last-child)::after {
+      content: "›";
+      position: absolute;
+      z-index: 3;
+      top: 50%;
+      right: -.73cqw;
+      width: .95cqw;
+      height: .95cqw;
+      display: grid;
+      place-items: center;
+      transform: translateY(-50%);
+      border-radius: 50%;
+      color: var(--mint);
+      background: #211923;
+      font-size: 1.15cqw;
+      font-weight: 900;
+    }
+    .pipeline-step i {
+      display: block;
+      color: var(--purple);
+      font-size: .65cqw;
+      font-style: normal;
+      font-weight: 900;
+      letter-spacing: .08em;
+    }
+    .pipeline-step b {
+      display: block;
+      margin: .36cqw 0 .24cqw;
+      font-size: .88cqw;
+    }
+    .pipeline-step span {
+      color: var(--muted);
+      font-size: .62cqw;
+      line-height: 1.25;
+    }
+
+    .challenge {
+      grid-row: 1 / 3;
+      display: flex;
+      flex-direction: column;
+      padding: 1.15cqw;
+      border: 1px solid var(--line);
+      border-radius: 1cqw;
+      background:
+        linear-gradient(155deg, rgb(108 29 95 / 24%), transparent 55%),
+        var(--surface);
+    }
+    .challenge-label {
+      color: var(--purple);
+      font-size: .7cqw;
+      font-weight: 900;
+      letter-spacing: .13em;
+      text-transform: uppercase;
+    }
+    .challenge h2 {
+      margin: .38cqw 0 .55cqw;
+      font-size: 1.65cqw;
+      line-height: 1.05;
+    }
+    .challenge > p {
+      margin: 0 0 .82cqw;
+      color: var(--muted);
+      font-size: .78cqw;
+      line-height: 1.36;
+    }
+    .challenge-list {
+      display: grid;
+      gap: .55cqw;
+    }
+    .challenge-item {
+      display: grid;
+      grid-template-columns: 2.3cqw 1fr;
+      align-items: center;
+      gap: .7cqw;
+      padding: .62cqw;
+      border: 1px solid rgb(186 76 166 / 28%);
+      border-radius: .62cqw;
+      background: rgb(33 25 35 / 70%);
+    }
+    .challenge-icon {
+      width: 2.3cqw;
+      aspect-ratio: 1;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--purple);
+      border-radius: 50%;
+      color: var(--purple);
+      font-size: 1cqw;
+      font-weight: 900;
+    }
+    .challenge-item b {
+      display: block;
+      font-size: .83cqw;
+    }
+    .challenge-item span {
+      color: var(--muted);
+      font-size: .63cqw;
+    }
+
+    .validation-thumb {
+      height: 11.3cqw;
+      margin-top: .85cqw;
+    }
+
+    .callout {
+      margin-top: auto;
+      padding-top: .75cqw;
+      border-top: 1px solid var(--line);
+    }
+    .callout strong {
+      display: block;
+      color: var(--mint);
+      font-size: .92cqw;
+    }
+    .callout p {
+      margin: .3cqw 0 .7cqw;
+      color: var(--muted);
+      font-size: .68cqw;
+      line-height: 1.3;
+    }
+    .callout a {
+      display: block;
+      padding: .68cqw;
+      border: 1px solid var(--purple);
+      border-radius: .55cqw;
+      background: var(--purple-deep);
+      font-size: .72cqw;
+      font-weight: 850;
+      text-align: center;
+      text-decoration: none;
+    }
+
+    .footer-note {
+      position: absolute;
+      z-index: 2;
+      right: 2.2cqw;
+      bottom: .52cqw;
+      color: #8f8490;
+      font-size: .48cqw;
+    }
+
+    @media (max-aspect-ratio: 4 / 3) {
+      body { align-items: start; }
+      .board {
+        width: 100vw;
+        min-width: 980px;
+      }
+    }
+
+    @media print {
+      @page { size: A3 landscape; margin: 0; }
+      body { background: #100d12; print-color-adjust: exact; }
+      .board {
+        width: 420mm;
+        height: 297mm;
+        aspect-ratio: auto;
+        box-shadow: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="board">
+    <header class="topbar">
+      <div class="brand">
+        <img src="../assets/xebia-logo.svg" alt="Xebia">
+        <div class="brand-copy">
+          <strong>Grassroots Football Intelligence</strong>
+          <span>Innovation Day concept · Brendan Barghus</span>
+        </div>
+      </div>
+      <div class="status">Working local prototype</div>
+    </header>
+
+    <div class="content">
+      <section class="hero">
+        <p class="eyebrow">Affordable match intelligence</p>
+        <h1>Every match tells a story. <em>AI helps clubs read it.</em></h1>
+        <div class="pitch-line"></div>
+        <p class="lead">
+          Open computer vision and Ultralytics YOLO turn panoramic match video
+          into practical statistics for amateur coaches.
+        </p>
+
+        <div class="proof" aria-label="Capabilities already demonstrated">
+          <div class="proof-card">
+            <b>Completed passes</b>
+            <span>Working inference</span>
+          </div>
+          <div class="proof-card">
+            <b>Possession changes</b>
+            <span>Working inference</span>
+          </div>
+        </div>
+
+        <div class="match-snapshot" aria-label="Illustrative live match statistics">
+          <div class="snapshot-heading">
+            <b>Live match snapshot</b>
+            <span>Illustrative values</span>
+          </div>
+          <div class="snapshot-teams">
+            <div class="snapshot-team">
+              <strong>Red/white</strong>
+              <div class="snapshot-metrics">
+                <div class="snapshot-metric"><span>Passes</span><b>87</b></div>
+                <div class="snapshot-metric"><span>Turnovers</span><b>11</b></div>
+                <div class="snapshot-metric"><span>On target</span><b>3</b></div>
+                <div class="snapshot-metric"><span>Off target</span><b>2</b></div>
+              </div>
+            </div>
+            <div class="snapshot-team">
+              <strong>Black</strong>
+              <div class="snapshot-metrics">
+                <div class="snapshot-metric"><span>Passes</span><b>79</b></div>
+                <div class="snapshot-metric"><span>Turnovers</span><b>14</b></div>
+                <div class="snapshot-metric"><span>On target</span><b>1</b></div>
+                <div class="snapshot-metric"><span>Off target</span><b>3</b></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="value">
+          <b>Why it matters</b>
+          <p>
+            Reduce hours of manual match review and make useful analysis
+            accessible without professional-league infrastructure.
+          </p>
+        </div>
+      </section>
+
+      <section>
+        <div class="visual visual-main">
+          <img src="assets/match-lab.png"
+            alt="Match Lab reviewing panoramic football footage">
+          <div class="visual-caption">
+            <div>
+              <b>Match Lab</b>
+              <span>Video, geometry, AI output and human review together</span>
+            </div>
+            <span class="pill">Built locally</span>
+          </div>
+        </div>
+
+        <div class="pipeline" aria-label="Analytics pipeline">
+          <div class="pipeline-step">
+            <i>01</i>
+            <b>Capture</b>
+            <span>Panoramic match video</span>
+          </div>
+          <div class="pipeline-step">
+            <i>02</i>
+            <b>Detect</b>
+            <span>YOLO players and ball</span>
+          </div>
+          <div class="pipeline-step">
+            <i>03</i>
+            <b>Understand</b>
+            <span>Tracks become events</span>
+          </div>
+          <div class="pipeline-step">
+            <i>04</i>
+            <b>Improve</b>
+            <span>Human-checked insights</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="visual visual-validation">
+        <img src="assets/validation-lab.png"
+          alt="Validation Lab comparing fixed football test reels">
+        <div class="visual-caption">
+          <div>
+            <b>Validation Lab</b>
+            <span>Fixed blind tests protect progress from guesswork</span>
+          </div>
+          <span class="pill">Measured</span>
+        </div>
+      </section>
+
+      <aside class="challenge">
+        <span class="challenge-label">The Innovation Day challenge</span>
+        <h2>Can we understand the decisive moments?</h2>
+        <p>
+          Build on completed-pass inference and teach the system to distinguish:
+        </p>
+
+        <div class="challenge-list">
+          <div class="challenge-item">
+            <span class="challenge-icon">T</span>
+            <div><b>Shots on target</b><span>Goal or save-bound attempts</span></div>
+          </div>
+          <div class="challenge-item">
+            <span class="challenge-icon">O</span>
+            <div><b>Shots off target</b><span>Intentional attempts that miss</span></div>
+          </div>
+          <div class="challenge-item">
+            <span class="challenge-icon">C</span>
+            <div><b>Corners taken</b><span>Restart location and first touch</span></div>
+          </div>
+        </div>
+
+        <div class="visual validation-thumb">
+          <img src="assets/innovation-overview.png"
+            alt="Innovation Day concept landing page">
+        </div>
+
+        <div class="callout">
+          <strong>Local-first. Human-validated. Grassroots-focused.</strong>
+          <p>
+            Today: recorded panoramic footage. Next: affordable multi-camera
+            and near-live match insight.
+          </p>
+          <a href="../">Explore the working Innovation Day concept</a>
+        </div>
+      </aside>
+    </div>
+
+    <small class="footer-note">
+      Internal Innovation Day concept · Research footage subject to dataset restrictions
+    </small>
+  </main>
+</body>
+</html>
