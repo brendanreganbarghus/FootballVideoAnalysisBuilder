@@ -45,3 +45,9 @@ def test_validation_lab_locks_manual_before_scoring_ai() -> None:
     assert "delta <= 1" in html
     assert "overallThreshold: 0.9" in html
     assert "reelThreshold: 0.8" in html
+
+
+def test_validation_lab_links_to_innovation_day_developer_setup() -> None:
+    html = PAGE.read_text(encoding="utf-8")
+
+    assert "../../../showcase/innovation-day/developer-guide/" in html

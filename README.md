@@ -89,6 +89,23 @@ adding pilot infrastructure around it. In particular, ONNX is an optimized
 deployment format but does not change the Ultralytics licence, and ByteTrack
 IDs are best-effort identities rather than permanent player records.
 
+## Local Alfheim data
+
+Keep the restricted source video outside Git. Point the local server and segment
+preparation script at the extracted `pano` directory with:
+
+```powershell
+$env:FOOTBALL_ALFHEIM_PANO = `
+  "C:\Users\BrendanBarghus\OneDrive - Xebia\Innovationday Artifacts\10-master-data\alfheim\pano"
+python .\scripts\serve-local.py --bind 127.0.0.1 --port 8080
+```
+
+The environment variable may be absolute or relative to the repository. Without
+it, the existing local `pano\` folder remains the default. OneDrive Files On
+Demand must make every source file available locally before processing.
+Prepared segments and AI runs remain local and ignored under
+`benchmarks\alfheim\generated\`.
+
 ## SoccerTrack v2 benchmark
 
 SoccerTrack's documented Hugging Face repository is not live as of

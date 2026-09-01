@@ -4,6 +4,11 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Alfheim Validation Lab</title>
+  <script>
+    if (new URLSearchParams(window.location.search).get("theme") === "innovation") {
+      document.documentElement.dataset.theme = "innovation";
+    }
+  </script>
   <style>
     :root {
       color-scheme: dark;
@@ -142,6 +147,49 @@
       border: 0;
       background: #0d1117;
     }
+    html[data-theme="innovation"] {
+      background: #100d12;
+      color: #f8f5f8;
+    }
+    html[data-theme="innovation"] body {
+      background:
+        radial-gradient(circle at 88% 4%, rgb(108 29 95 / 30%), transparent 32rem),
+        #100d12;
+    }
+    html[data-theme="innovation"] header,
+    html[data-theme="innovation"] .card {
+      border-color: #3b2e3c;
+      background: #18131a;
+    }
+    html[data-theme="innovation"] header p,
+    html[data-theme="innovation"] .muted,
+    html[data-theme="innovation"] .test-meta {
+      color: #b9afba;
+    }
+    html[data-theme="innovation"] a { color: #d56ac1; }
+    html[data-theme="innovation"] nav a,
+    html[data-theme="innovation"] .phase-tab,
+    html[data-theme="innovation"] .threshold,
+    html[data-theme="innovation"] .test-card,
+    html[data-theme="innovation"] .suite-result,
+    html[data-theme="innovation"] button {
+      border-color: #554257;
+      background: #211923;
+      color: #f8f5f8;
+    }
+    html[data-theme="innovation"] nav a[aria-current="page"],
+    html[data-theme="innovation"] .test-card.selected {
+      border-color: #ba4ca6;
+      background: rgb(108 29 95 / 24%);
+    }
+    html[data-theme="innovation"] .phase-tab.active {
+      border-color: #68e0c1;
+    }
+    html[data-theme="innovation"] button:hover { border-color: #ba4ca6; }
+    html[data-theme="innovation"] iframe { background: #100d12; }
+    html[data-theme="innovation"] .workspace-head {
+      border-bottom-color: #3b2e3c;
+    }
     @media (max-width: 1050px) {
       main { grid-template-columns: 1fr; }
       iframe { height: 900px; }
@@ -153,7 +201,9 @@
   <h1>Alfheim Validation Lab</h1>
   <p>Fixed blind benchmark suites. Manual references are locked before AI runs.</p>
   <nav aria-label="Analytics labs">
-    <a href="../window-555/manual-review/">Match Lab playground</a>
+    <a href="../../../showcase/innovation-day/">Innovation Day overview</a>
+    <a href="../../../showcase/innovation-day/developer-guide/">Developer setup</a>
+    <a id="match-lab-link" href="../window-555/manual-review/">Match Lab playground</a>
     <a href="./" aria-current="page">Validation Lab</a>
   </nav>
 </header>
@@ -206,6 +256,12 @@
   const list = document.getElementById("test-list");
   const frame = document.getElementById("test-frame");
   const lockButton = document.getElementById("lock-reference");
+  const pageParameters = new URLSearchParams(window.location.search);
+  const innovationTheme = pageParameters.get("theme") === "innovation";
+  if (innovationTheme) {
+    document.getElementById("match-lab-link").href =
+      "../window-555/manual-review/?theme=innovation";
+  }
   let selected = suite.tests[0];
   let results = new Map();
 
@@ -223,7 +279,8 @@
   }
 
   function testUrl(test) {
-    return `../window-555/manual-review/?start=${test.start}&duration=60&prepare=1&v=41&validation=1&test=${test.id}`;
+    const theme = innovationTheme ? "&theme=innovation" : "";
+    return `../window-555/manual-review/?start=${test.start}&duration=60&prepare=1&v=41&validation=1&test=${test.id}${theme}`;
   }
 
   function readManual(test) {

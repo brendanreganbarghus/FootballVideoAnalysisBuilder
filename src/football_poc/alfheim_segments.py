@@ -1,8 +1,19 @@
 from __future__ import annotations
 
 import math
+import os
 from dataclasses import asdict, dataclass
 from pathlib import Path
+
+
+def resolve_alfheim_pano(workspace: Path) -> Path:
+    configured = os.environ.get("FOOTBALL_ALFHEIM_PANO", "").strip()
+    if not configured:
+        return (workspace / "pano").resolve()
+    path = Path(os.path.expandvars(configured)).expanduser()
+    if not path.is_absolute():
+        path = workspace / path
+    return path.resolve()
 
 
 @dataclass(frozen=True)

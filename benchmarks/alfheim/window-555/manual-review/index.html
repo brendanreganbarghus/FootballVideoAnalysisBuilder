@@ -4,6 +4,11 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Alfheim Manual Pass Count</title>
+  <script>
+    if (new URLSearchParams(window.location.search).get("theme") === "innovation") {
+      document.documentElement.dataset.theme = "innovation";
+    }
+  </script>
   <style>
     :root {
       color-scheme: dark;
@@ -16,24 +21,44 @@
     main { max-width: 1500px; margin: auto; }
     h1 { margin: 0 0 8px; }
     h2 { margin-top: 28px; }
+    .lab-nav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 14px 0 18px;
+    }
+    .lab-nav a {
+      padding: 8px 11px;
+      border: 1px solid #30363d;
+      border-radius: 7px;
+      text-decoration: none;
+    }
     video { display: block; width: 100%; border-radius: 12px; background: #000; }
     video::-webkit-media-controls-fullscreen-button { display: none; }
     .video-stage {
-      position: relative;
       overflow: hidden;
       border-radius: 12px;
       background: #000;
     }
+    .video-media {
+      position: relative;
+      min-height: 0;
+      overflow: hidden;
+      background: #000;
+    }
     .video-stage:fullscreen {
       display: grid;
-      place-items: center;
+      grid-template-rows: minmax(0, 1fr) auto auto;
       width: 100vw;
       height: 100vh;
       border-radius: 0;
     }
+    .video-stage:fullscreen .video-media,
     .video-stage:fullscreen video {
       width: 100%;
       height: 100%;
+    }
+    .video-stage:fullscreen video {
       object-fit: contain;
       border-radius: 0;
     }
@@ -49,29 +74,23 @@
       pointer-events: auto;
     }
     .live-overlay {
-      position: absolute;
-      left: 18px;
-      right: 18px;
-      bottom: 190px;
       display: grid;
-      grid-template-columns: repeat(2, minmax(220px, 340px));
-      justify-content: space-between;
-      gap: 16px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+      width: 100%;
+      padding: 8px;
+      border-top: 1px solid rgb(240 246 252 / 35%);
+      background: rgb(13 17 23 / 82%);
       pointer-events: none;
     }
     .fullscreen-review-controls {
       display: none;
-      position: absolute;
-      bottom: 64px;
-      left: 50%;
       z-index: 3;
-      width: min(920px, calc(100% - 28px));
-      transform: translateX(-50%);
+      width: 100%;
       grid-template-columns: repeat(2, minmax(180px, 1fr)) minmax(260px, 1.4fr);
       gap: 7px;
       padding: 8px;
-      border: 1px solid rgb(240 246 252 / 35%);
-      border-radius: 10px;
+      border-top: 1px solid rgb(240 246 252 / 35%);
       background: rgb(13 17 23 / 82%);
       box-shadow: 0 4px 18px rgb(0 0 0 / 45%);
       backdrop-filter: blur(4px);
@@ -88,6 +107,17 @@
       border-radius: 5px;
       object-fit: cover;
     }
+    .event-symbol {
+      display: grid;
+      width: 32px;
+      height: 32px;
+      place-items: center;
+      border: 1px solid currentColor;
+      border-radius: 50%;
+      font-size: .78rem;
+      font-weight: 900;
+    }
+    .event-symbol.target { border-style: double; border-width: 4px; }
     .fullscreen-review-controls .team-event-group,
     .fullscreen-review-controls .review-action-group {
       margin: 0;
@@ -143,6 +173,12 @@
       font-weight: 800;
     }
     .muted { color: #8b949e; }
+    .installation-warning {
+      color: #ffd6a0;
+      border-left: 3px solid #d29922;
+      padding-left: 10px;
+    }
+    .installation-ready { color: #3fb950; }
     .definition, .card, table {
       background: #161b22;
       border: 1px solid #30363d;
@@ -204,6 +240,28 @@
       accent-color: #58a6ff;
     }
     .hidden { display: none !important; }
+    .state-panel {
+      position: relative;
+      transition: filter .2s ease, opacity .2s ease;
+    }
+    .state-panel.is-disabled {
+      filter: grayscale(.72);
+      opacity: .48;
+    }
+    .state-panel.is-disabled button,
+    .state-panel.is-disabled input,
+    .state-panel.is-disabled select {
+      cursor: not-allowed;
+    }
+    .ai-readiness-panel,
+    .ai-overlay-block {
+      transition: filter .2s ease, opacity .2s ease;
+    }
+    .ai-readiness-panel.is-disabled,
+    .ai-overlay-block.is-disabled {
+      filter: grayscale(.8);
+      opacity: .35;
+    }
     .controls, .counts, .transport {
       display: grid;
       gap: 12px;
@@ -275,6 +333,71 @@
     .table-wrap { overflow-x: auto; }
     a { color: #58a6ff; }
     input[type=file] { display: none; }
+    html[data-theme="innovation"] {
+      background: #100d12;
+      color: #f8f5f8;
+    }
+    html[data-theme="innovation"] body {
+      background:
+        radial-gradient(circle at 88% 4%, rgb(108 29 95 / 30%), transparent 32rem),
+        #100d12;
+    }
+    html[data-theme="innovation"] .definition,
+    html[data-theme="innovation"] .card,
+    html[data-theme="innovation"] table,
+    html[data-theme="innovation"] .team-event-group {
+      border-color: #3b2e3c;
+      background: #18131a;
+    }
+    html[data-theme="innovation"] .baseline { border-color: #ba4ca6; }
+    html[data-theme="innovation"] .manual { border-color: #68e0c1; }
+    html[data-theme="innovation"] .muted,
+    html[data-theme="innovation"] th,
+    html[data-theme="innovation"] .form-grid label,
+    html[data-theme="innovation"] .geometry-tools label,
+    html[data-theme="innovation"] .overlay-metric {
+      color: #b9afba;
+    }
+    html[data-theme="innovation"] a,
+    html[data-theme="innovation"] .assist-status,
+    html[data-theme="innovation"] .overlay-source-label {
+      color: #d56ac1;
+    }
+    html[data-theme="innovation"] .overlay-source-label.manual-source,
+    html[data-theme="innovation"] .count {
+      color: #68e0c1;
+    }
+    html[data-theme="innovation"] button,
+    html[data-theme="innovation"] .file-label,
+    html[data-theme="innovation"] input,
+    html[data-theme="innovation"] select {
+      border-color: #554257;
+      background: #211923;
+      color: #f8f5f8;
+    }
+    html[data-theme="innovation"] button:hover,
+    html[data-theme="innovation"] .file-label:hover {
+      background: #342536;
+    }
+    html[data-theme="innovation"] progress { accent-color: #ba4ca6; }
+    html[data-theme="innovation"] th,
+    html[data-theme="innovation"] td { border-bottom-color: #3b2e3c; }
+    html[data-theme="innovation"] tr.reached { background: #142a25; }
+    html[data-theme="innovation"] .overlay-team,
+    html[data-theme="innovation"] .fullscreen-review-controls {
+      border-color: rgb(186 76 166 / 50%);
+      background: rgb(16 13 18 / 86%);
+    }
+    html[data-theme="innovation"] .lab-nav a {
+      border-color: #554257;
+      background: #211923;
+    }
+    html[data-theme="innovation"] .fullscreen-review-controls {
+      display: grid;
+    }
+    html[data-theme="innovation"] .presentation-duplicate {
+      display: none;
+    }
     @media (max-width: 750px) {
       .controls, .counts, .scoreboards, .event-tables { grid-template-columns: 1fr; }
       .lab-setup { grid-template-columns: 1fr; }
@@ -282,16 +405,12 @@
       .geometry-tools { grid-template-columns: 1fr 1fr; }
       .controls { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .live-overlay {
-        left: 8px;
-        right: 8px;
-        bottom: 96px;
         grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 8px;
       }
       .overlay-team { padding: 7px; }
       .overlay-metrics { grid-template-columns: repeat(2, 1fr); }
       .fullscreen-review-controls {
-        bottom: 58px;
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }
     }
@@ -302,7 +421,11 @@
   <h1>Alfheim Match Lab</h1>
   <p class="muted">One screen for clean/AI video, labelled ball, pitch geometry,
     assisted manual review, and cached AI statistics.</p>
-  <p><a href="../../validation-lab/">Open fixed Validation Lab suites →</a></p>
+  <nav class="lab-nav" aria-label="Match Lab navigation">
+    <a href="../../../../showcase/innovation-day/">Innovation Day overview</a>
+    <a href="../../../../showcase/innovation-day/developer-guide/">Developer setup</a>
+    <a id="validation-lab-link" href="../../validation-lab/">Validation Lab</a>
+  </nav>
 
   <section class="definition">
     <strong>Agreed counting rules</strong>
@@ -333,9 +456,16 @@
   </section>
 
   <section class="lab-setup">
-    <article class="card">
+    <article class="card state-panel" id="segment-panel">
       <h2>Test segment</h2>
       <div class="form-grid">
+        <label>Prepared locally
+          <select id="prepared-segment">
+            <option value="alfheim-window-555">
+              27:45–28:45 · AI ready · v41 baseline
+            </option>
+          </select>
+        </label>
         <label>Start minute
           <input id="segment-start-minute" type="number" min="0" step="1" value="27">
         </label>
@@ -349,6 +479,9 @@
         <button id="prepare-segment" class="compact-button">Prepare segment</button>
         <button id="process-segment" class="compact-button">Process AI</button>
       </div>
+      <p class="muted" id="baseline-install-status">
+        Checking the three required v41 baseline videos…
+      </p>
       <p class="muted" id="segment-status">Current baseline: 27:45–28:45.
         Loading full recording information…</p>
       <div class="processing-row">
@@ -369,7 +502,7 @@
         </label>
       </div>
     </article>
-    <article class="card">
+    <article class="card state-panel" id="geometry-panel">
       <h2>Camera geometry</h2>
       <div class="geometry-tools">
         <label>Feature to calibrate
@@ -398,44 +531,50 @@
   </section>
 
   <section class="video-stage" id="video-stage">
-    <video id="video" controls preload="auto"></video>
-    <canvas class="geometry-overlay" id="geometry-overlay"></canvas>
+    <div class="video-media">
+      <video id="video" controls preload="auto"></video>
+      <canvas class="geometry-overlay" id="geometry-overlay"></canvas>
+    </div>
     <aside class="live-overlay" id="live-overlay"
-      aria-label="Live AI and manual statistics">
-      <div class="overlay-team">
-        <strong>Red/white</strong>
-        <span class="overlay-source-label">AI baseline</span>
-        <div class="overlay-metrics">
-          <span class="overlay-metric">Passes<output id="overlay-ai-red-passes">0</output></span>
-          <span class="overlay-metric">Turnovers<output id="overlay-ai-red-turnovers">0</output></span>
-          <span class="overlay-metric">Shots<output id="overlay-ai-red-shots">0</output></span>
-          <span class="overlay-metric">On target<output id="overlay-ai-red-on-target">0</output></span>
+        aria-label="Live AI and manual statistics">
+        <div class="overlay-team">
+          <strong>Red/white</strong>
+          <div class="ai-overlay-block">
+            <span class="overlay-source-label">AI baseline</span>
+            <div class="overlay-metrics">
+              <span class="overlay-metric">Passes<output id="overlay-ai-red-passes">0</output></span>
+              <span class="overlay-metric">Turnovers<output id="overlay-ai-red-turnovers">0</output></span>
+              <span class="overlay-metric">Shots<output id="overlay-ai-red-shots">0</output></span>
+              <span class="overlay-metric">On target<output id="overlay-ai-red-on-target">0</output></span>
+            </div>
+          </div>
+          <span class="overlay-source-label manual-source">Your clicks</span>
+          <div class="overlay-metrics">
+            <span class="overlay-metric">Passes<output id="overlay-manual-red-passes">0</output></span>
+            <span class="overlay-metric">Turnovers<output id="overlay-manual-red-turnovers">0</output></span>
+            <span class="overlay-metric">Shots<output id="overlay-manual-red-shots">0</output></span>
+            <span class="overlay-metric">On target<output id="overlay-manual-red-on-target">0</output></span>
+          </div>
         </div>
-        <span class="overlay-source-label manual-source">Your clicks</span>
-        <div class="overlay-metrics">
-          <span class="overlay-metric">Passes<output id="overlay-manual-red-passes">0</output></span>
-          <span class="overlay-metric">Turnovers<output id="overlay-manual-red-turnovers">0</output></span>
-          <span class="overlay-metric">Shots<output id="overlay-manual-red-shots">0</output></span>
-          <span class="overlay-metric">On target<output id="overlay-manual-red-on-target">0</output></span>
+        <div class="overlay-team black-team">
+          <strong>Black</strong>
+          <div class="ai-overlay-block">
+            <span class="overlay-source-label">AI baseline</span>
+            <div class="overlay-metrics">
+              <span class="overlay-metric">Passes<output id="overlay-ai-black-passes">0</output></span>
+              <span class="overlay-metric">Turnovers<output id="overlay-ai-black-turnovers">0</output></span>
+              <span class="overlay-metric">Shots<output id="overlay-ai-black-shots">0</output></span>
+              <span class="overlay-metric">On target<output id="overlay-ai-black-on-target">0</output></span>
+            </div>
+          </div>
+          <span class="overlay-source-label manual-source">Your clicks</span>
+          <div class="overlay-metrics">
+            <span class="overlay-metric">Passes<output id="overlay-manual-black-passes">0</output></span>
+            <span class="overlay-metric">Turnovers<output id="overlay-manual-black-turnovers">0</output></span>
+            <span class="overlay-metric">Shots<output id="overlay-manual-black-shots">0</output></span>
+            <span class="overlay-metric">On target<output id="overlay-manual-black-on-target">0</output></span>
+          </div>
         </div>
-      </div>
-      <div class="overlay-team black-team">
-        <strong>Black</strong>
-        <span class="overlay-source-label">AI baseline</span>
-        <div class="overlay-metrics">
-          <span class="overlay-metric">Passes<output id="overlay-ai-black-passes">0</output></span>
-          <span class="overlay-metric">Turnovers<output id="overlay-ai-black-turnovers">0</output></span>
-          <span class="overlay-metric">Shots<output id="overlay-ai-black-shots">0</output></span>
-          <span class="overlay-metric">On target<output id="overlay-ai-black-on-target">0</output></span>
-        </div>
-        <span class="overlay-source-label manual-source">Your clicks</span>
-        <div class="overlay-metrics">
-          <span class="overlay-metric">Passes<output id="overlay-manual-black-passes">0</output></span>
-          <span class="overlay-metric">Turnovers<output id="overlay-manual-black-turnovers">0</output></span>
-          <span class="overlay-metric">Shots<output id="overlay-manual-black-shots">0</output></span>
-          <span class="overlay-metric">On target<output id="overlay-manual-black-on-target">0</output></span>
-        </div>
-      </div>
     </aside>
     <aside class="fullscreen-review-controls"
       aria-label="Fullscreen manual event tracking">
@@ -450,6 +589,14 @@
             <img class="event-icon" src="slide.jpeg" alt="">
             <span>Turnover</span>
           </button>
+          <button class="red" data-team="red" data-type="shot">
+            <span class="event-symbol">S</span>
+            <span>Shot</span>
+          </button>
+          <button class="red" data-team="red" data-type="shot_on_target">
+            <span class="event-symbol target">T</span>
+            <span>On target</span>
+          </button>
         </div>
       </fieldset>
       <fieldset class="team-event-group black-team">
@@ -463,6 +610,14 @@
             <img class="event-icon" src="slide.jpeg" alt="">
             <span>Turnover</span>
           </button>
+          <button class="black" data-team="black" data-type="shot">
+            <span class="event-symbol">S</span>
+            <span>Shot</span>
+          </button>
+          <button class="black" data-team="black" data-type="shot_on_target">
+            <span class="event-symbol target">T</span>
+            <span>On target</span>
+          </button>
         </div>
       </fieldset>
       <div class="review-action-group">
@@ -470,6 +625,7 @@
         <button class="confirm" data-review-action="confirm">Confirm / play</button>
         <button data-review-action="frame-forward">Frame →</button>
         <button data-review-action="undo">Undo</button>
+        <button data-review-action="fullscreen">Full screen</button>
         <button class="danger clear-all" data-review-action="clear">
           Clear all entries
         </button>
@@ -478,7 +634,7 @@
   </section>
   <p class="muted" id="playback-time">Current time: 0.00s</p>
 
-  <section class="transport">
+  <section class="transport presentation-duplicate">
     <button id="back">-2 seconds</button>
     <button id="slower">0.5× speed</button>
     <button id="normal">1× speed</button>
@@ -486,16 +642,16 @@
     <button id="undo">Undo last</button>
     <button id="fullscreen">Full screen with stats</button>
   </section>
-  <section class="transport">
+  <section class="transport presentation-duplicate">
     <button id="assist-toggle">Assisted review: ON</button>
     <button id="frame-back">← Previous frame</button>
     <button id="confirm-resume">Enter · Confirm and resume</button>
     <button id="frame-forward">Next frame →</button>
   </section>
-  <p class="assist-status" id="assist-status">Assisted review is ready:
+  <p class="assist-status presentation-duplicate" id="assist-status">Assisted review is ready:
     choose an event to pause, refine its time with ←/→, then press Enter.</p>
 
-  <section class="controls" aria-label="Manual event tracking">
+  <section class="controls presentation-duplicate" aria-label="Manual event tracking">
     <fieldset class="team-event-group red-team">
       <legend>Red/white team</legend>
       <div class="team-event-buttons">
@@ -532,7 +688,7 @@
     </fieldset>
   </section>
 
-  <section class="scoreboards">
+  <section class="scoreboards presentation-duplicate">
     <article class="card scoreboard manual">
       <h2>Your live reference</h2>
       <p class="muted">Only clicks at or before the current playhead are shown.</p>
@@ -547,7 +703,7 @@
         <div class="card"><div class="muted">Black on target</div><div class="count" id="manual-black-on-target">0</div></div>
       </section>
     </article>
-    <article class="card scoreboard baseline">
+    <article class="card scoreboard baseline ai-readiness-panel" id="ai-readiness-panel">
       <h2>AI calibrated baseline</h2>
       <p class="muted" id="ai-status">Loading saved AI events…</p>
       <section class="counts">
@@ -562,7 +718,7 @@
       </section>
     </article>
   </section>
-  <p class="muted">Possession percentage will be published after a complete
+  <p class="muted presentation-duplicate">Possession percentage will be published after a complete
     half has enough controlled-ball samples. This one-minute review does not
     present a half-time possession claim.</p>
 
@@ -585,7 +741,7 @@
         </table>
       </div>
     </article>
-    <article>
+    <article class="ai-readiness-panel" id="ai-events-panel">
       <h2>AI timestamped events</h2>
       <p class="muted">Live log through the playhead. Release and receiver times come from the unchanged baseline.</p>
       <div class="table-wrap">
@@ -611,6 +767,8 @@
   const eventBody = document.getElementById("events");
   const aiEventBody = document.getElementById("ai-events");
   const segmentStatus = document.getElementById("segment-status");
+  const preparedSegmentSelect = document.getElementById("prepared-segment");
+  const baselineInstallStatus = document.getElementById("baseline-install-status");
   const geometryStatus = document.getElementById("geometry-status");
   const prepareSegmentButton = document.getElementById("prepare-segment");
   const processSegmentButton = document.getElementById("process-segment");
@@ -621,6 +779,10 @@
   const baselineCleanUrl = "../alfheim-window-playable.mp4";
   const baselineTrackingUrl = "../analytics/tracking-verification.webm";
   const pageParameters = new URLSearchParams(window.location.search);
+  if (pageParameters.get("theme") === "innovation") {
+    document.getElementById("validation-lab-link").href =
+      "../../validation-lab/?theme=innovation";
+  }
   const geometryStorageKey = "alfheim-camera-setting-2-geometry-v1";
   let events = JSON.parse(localStorage.getItem(storageKey) || "[]");
   let aiEvents = [];
@@ -637,6 +799,136 @@
   let segmentStatusTimer = null;
   let assistedReview = true;
   let pendingEvent = null;
+  let preparedSegments = [];
+  const requiredBaselineSegments = new Map([
+    ["segment-0575-020", "28:45–29:45"],
+    ["segment-0595-020", "29:45–30:45"],
+    ["segment-0615-020", "30:45–31:45"]
+  ]);
+  const segmentPanel = document.getElementById("segment-panel");
+  const geometryPanel = document.getElementById("geometry-panel");
+  const segmentInputs = [
+    preparedSegmentSelect,
+    document.getElementById("segment-start-minute"),
+    document.getElementById("segment-start-second"),
+    document.getElementById("segment-duration"),
+    prepareSegmentButton
+  ];
+  const geometryControls = [
+    document.getElementById("geometry-feature"),
+    document.getElementById("edit-geometry"),
+    document.getElementById("undo-geometry"),
+    document.getElementById("finish-geometry"),
+    document.getElementById("export-geometry")
+  ];
+
+  function setSegmentPreparing(preparing) {
+    segmentPanel.classList.toggle("is-disabled", preparing);
+    segmentPanel.setAttribute("aria-busy", String(preparing));
+    segmentInputs.forEach(control => {
+      control.disabled = preparing;
+    });
+    if (preparing) processSegmentButton.disabled = true;
+  }
+
+  function setGeometryAvailable(available) {
+    geometryPanel.classList.toggle("is-disabled", !available);
+    geometryPanel.setAttribute("aria-disabled", String(!available));
+    geometryControls.forEach(control => {
+      control.disabled = !available;
+    });
+    if (!available) {
+      editingFeature = null;
+      geometryCanvas.classList.remove("editing");
+    }
+  }
+
+  function setAiReady(ready) {
+    document.querySelectorAll(".ai-readiness-panel, .ai-overlay-block")
+      .forEach(panel => {
+        panel.classList.toggle("is-disabled", !ready);
+        panel.setAttribute("aria-disabled", String(!ready));
+      });
+  }
+
+  function preparedStateLabel(state) {
+    return {
+      ready: "AI ready",
+      processing: "AI processing",
+      detections_ready: "detections ready",
+      building: "building events",
+      failed: "AI failed",
+      prepared: "video ready · AI not run"
+    }[state] || state.replaceAll("_", " ");
+  }
+
+  function preparedSegmentLabel(segment) {
+    const start = Number(segment.source_start_seconds);
+    const end = start + Number(segment.duration_seconds);
+    const protectedLabel = segment.protected ? " · protected v41 reel" : "";
+    return (
+      `${formatClock(start)}–${formatClock(end)} · ` +
+      `${preparedStateLabel(segment.state)}${protectedLabel}`
+    );
+  }
+
+  async function loadPreparedSegments(selectedKey = segmentName) {
+    const response = await fetch("/api/alfheim/segments", {cache: "no-store"});
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+    preparedSegments = payload.segments;
+    const preparedKeys = new Set(
+      preparedSegments.map(segment => segment.cache_key)
+    );
+    const missingBaselines = [...requiredBaselineSegments]
+      .filter(([cacheKey]) => !preparedKeys.has(cacheKey));
+    baselineInstallStatus.classList.toggle(
+      "installation-warning", missingBaselines.length > 0
+    );
+    baselineInstallStatus.classList.toggle(
+      "installation-ready", missingBaselines.length === 0
+    );
+    baselineInstallStatus.replaceChildren();
+    if (missingBaselines.length) {
+      baselineInstallStatus.append(
+        `Installation incomplete. Prepare the missing v41 baseline videos: ${
+          missingBaselines.map(([, time]) => time).join(", ")
+        }. `
+      );
+      const guideLink = document.createElement("a");
+      guideLink.href = (
+        "../../../../showcase/innovation-day/developer-guide/" +
+        "#shared-v41-baseline"
+      );
+      guideLink.textContent = "Return to developer-guide step 5.";
+      baselineInstallStatus.append(guideLink);
+    } else {
+      baselineInstallStatus.textContent =
+        "Installation complete: all three protected v41 baseline videos are ready.";
+    }
+    preparedSegmentSelect.replaceChildren(...preparedSegments.map(segment => {
+      const option = document.createElement("option");
+      option.value = segment.cache_key;
+      option.textContent = preparedSegmentLabel(segment);
+      return option;
+    }));
+    if (!preparedSegments.length) {
+      const option = document.createElement("option");
+      option.textContent = "No prepared videos found";
+      option.value = "";
+      preparedSegmentSelect.append(option);
+      preparedSegmentSelect.disabled = true;
+      return;
+    }
+    preparedSegmentSelect.disabled = false;
+    if (preparedSegments.some(segment => segment.cache_key === selectedKey)) {
+      preparedSegmentSelect.value = selectedKey;
+    }
+  }
+
+  const preparingBookmarkedSegment = pageParameters.get("prepare") === "1";
+  setGeometryAvailable(!preparingBookmarkedSegment);
+  setAiReady(!preparingBookmarkedSegment);
   video.defaultPlaybackRate = 0.5;
   video.playbackRate = 0.5;
   if (pageParameters.get("prepare") !== "1") {
@@ -752,7 +1044,7 @@
   }
 
   function mediaLayout() {
-    const rect = videoStage.getBoundingClientRect();
+    const rect = geometryCanvas.getBoundingClientRect();
     const mediaAspect = (video.videoWidth || geometry.image_width) /
       (video.videoHeight || geometry.image_height);
     const stageAspect = rect.width / Math.max(1, rect.height);
@@ -782,6 +1074,11 @@
       layout.x + point[0] * layout.width / geometry.image_width,
       layout.y + point[1] * layout.height / geometry.image_height
     ];
+    const innovationTheme =
+      document.documentElement.dataset.theme === "innovation";
+    const touchlineColor = innovationTheme ? "#9b3f8f" : "#ffd33d";
+    const goalLineColor = innovationTheme ? "#ba4ca6" : "#ff9f1c";
+    const goalFrameColor = innovationTheme ? "#edb5e3" : "#00e5ff";
     const drawLine = (points, color, width, dashed = false, closed = false) => {
       if (!Array.isArray(points) || points.length < 2) return;
       geometryContext.strokeStyle = color;
@@ -805,14 +1102,14 @@
       });
     };
     if (document.getElementById("show-pitch").checked) {
-      drawLine(geometry.features.near_touchline, "#ffd33d", 1.5, true);
-      drawLine(geometry.features.far_touchline, "#ffd33d", 1.5, true);
-      drawLine(geometry.features.left_goal_line, "#ff9f1c", 1.5, true);
-      drawLine(geometry.features.right_goal_line, "#ff9f1c", 1.5, true);
+      drawLine(geometry.features.near_touchline, touchlineColor, 1.5, true);
+      drawLine(geometry.features.far_touchline, touchlineColor, 1.5, true);
+      drawLine(geometry.features.left_goal_line, goalLineColor, 1.5, true);
+      drawLine(geometry.features.right_goal_line, goalLineColor, 1.5, true);
     }
     if (document.getElementById("show-goals").checked) {
-      drawLine(geometry.features.left_goal_mouth, "#00e5ff", 2, false, true);
-      drawLine(geometry.features.right_goal_mouth, "#00e5ff", 2, false, true);
+      drawLine(geometry.features.left_goal_mouth, goalFrameColor, 2, false, true);
+      drawLine(geometry.features.right_goal_mouth, goalFrameColor, 2, false, true);
     }
     if (document.getElementById("show-ball").checked && ballLabels.length) {
       const frame = Math.max(
@@ -867,6 +1164,7 @@
     );
     const status = await response.json();
     if (!response.ok) throw new Error(status.error || `HTTP ${response.status}`);
+    if (status.state !== "ready") setAiReady(false);
     if (status.state === "processing") {
       processSegmentButton.disabled = true;
       processSegmentButton.textContent = "AI processing…";
@@ -944,6 +1242,7 @@
       event.completion_seconds >= 0 &&
       event.completion_seconds <= reviewDurationSeconds
     );
+    setAiReady(true);
     trackingVideoUrl = status.tracking_url;
     processSegmentButton.disabled = true;
     processSegmentButton.textContent = "AI ready";
@@ -1032,6 +1331,7 @@
       if (action === "frame-back") stepFrame(-1);
       if (action === "frame-forward") stepFrame(1);
       if (action === "confirm") confirmAndResume();
+      if (action === "fullscreen") fullscreenButton.click();
       if (action === "clear") clearManualEvents();
       if (action === "undo") {
         pendingEvent = null;
@@ -1171,6 +1471,27 @@
     link.click();
     URL.revokeObjectURL(link.href);
   });
+  preparedSegmentSelect.addEventListener("change", () => {
+    const selected = preparedSegments.find(
+      segment => segment.cache_key === preparedSegmentSelect.value
+    );
+    if (!selected) return;
+    if (selected.cache_key === "alfheim-window-555") {
+      const baselineUrl = new URL(window.location.href);
+      baselineUrl.searchParams.delete("start");
+      baselineUrl.searchParams.delete("duration");
+      baselineUrl.searchParams.delete("prepare");
+      window.location.assign(baselineUrl);
+      return;
+    }
+    document.getElementById("segment-start-minute").value =
+      Math.floor(Number(selected.source_start_seconds) / 60);
+    document.getElementById("segment-start-second").value =
+      Math.floor(Number(selected.source_start_seconds) % 60);
+    document.getElementById("segment-duration").value =
+      Number(selected.duration_seconds);
+    prepareSegmentButton.click();
+  });
   prepareSegmentButton.addEventListener("click", async () => {
     const requestedMinute = Number(
       document.getElementById("segment-start-minute").value
@@ -1193,7 +1514,9 @@
         "Start time needs a non-negative minute and a second from 0 to 59.";
       return;
     }
-    prepareSegmentButton.disabled = true;
+    setSegmentPreparing(true);
+    setGeometryAvailable(false);
+    setAiReady(false);
     aiProgress.removeAttribute("value");
     aiProgressLabel.textContent = "Preparing video";
     segmentStatus.textContent =
@@ -1236,6 +1559,7 @@
         "Not processed yet · manual reference is ready for this segment";
       await loadBallLabels(payload.labels_url);
       video.src = cleanVideoUrl;
+      setGeometryAvailable(true);
       video.addEventListener("loadedmetadata", () => {
         video.currentTime = clipStartSeconds;
         video.playbackRate = assistedReview ? 0.5 : 1;
@@ -1248,6 +1572,7 @@
       render();
       clearInterval(segmentStatusTimer);
       await refreshSegmentStatus();
+      await loadPreparedSegments(activeCacheKey);
       if (!trackingVideoUrl) {
         segmentStatusTimer = setInterval(() => {
           refreshSegmentStatus().catch(error => {
@@ -1256,9 +1581,10 @@
         }, 5000);
       }
     } catch (error) {
+      setGeometryAvailable(false);
       segmentStatus.textContent = `Could not prepare segment: ${error.message}`;
     } finally {
-      prepareSegmentButton.disabled = false;
+      setSegmentPreparing(false);
     }
   });
   processSegmentButton.addEventListener("click", async () => {
@@ -1267,6 +1593,7 @@
       return;
     }
     processSegmentButton.disabled = true;
+    setAiReady(false);
     processSegmentButton.textContent = "Starting AI…";
     aiProgress.removeAttribute("value");
     aiProgressLabel.textContent = "Starting";
@@ -1401,6 +1728,25 @@
   }).catch(error => {
     geometryStatus.textContent = `Geometry/labels unavailable: ${error.message}`;
   });
+  loadPreparedSegments().catch(error => {
+    preparedSegmentSelect.replaceChildren();
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = `Prepared list unavailable: ${error.message}`;
+    preparedSegmentSelect.append(option);
+    preparedSegmentSelect.disabled = true;
+    baselineInstallStatus.classList.add("installation-warning");
+    baselineInstallStatus.replaceChildren(
+      `Could not verify the required baseline videos: ${error.message}. `
+    );
+    const guideLink = document.createElement("a");
+    guideLink.href = (
+      "../../../../showcase/innovation-day/developer-guide/" +
+      "#shared-v41-baseline"
+    );
+    guideLink.textContent = "Return to developer-guide step 5.";
+    baselineInstallStatus.append(guideLink);
+  });
   fetch("../analytics-data/predicted-events.json", {cache: "no-store"})
     .then(response => {
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -1409,11 +1755,13 @@
     .then(payload => {
       if (segmentName !== "alfheim-window-555") return;
       aiEvents = Array.isArray(payload) ? payload : [];
+      setAiReady(true);
       document.getElementById("ai-status").textContent =
         "Saved baseline replay · does not learn from manual clicks";
       render();
     })
     .catch(error => {
+      setAiReady(false);
       document.getElementById("ai-status").textContent =
         `Baseline unavailable: ${error.message}`;
     });

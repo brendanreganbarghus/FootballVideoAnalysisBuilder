@@ -7,12 +7,22 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from football_poc.alfheim_segments import resolve_alfheim_pano
+
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Create a labelled MP4 window from Alfheim pano H.264 segments."
     )
-    parser.add_argument("--pano", type=Path, default=Path("pano"))
+    parser.add_argument(
+        "--pano",
+        type=Path,
+        default=resolve_alfheim_pano(Path.cwd()),
+        help=(
+            "Extracted Alfheim pano directory. Defaults to "
+            "FOOTBALL_ALFHEIM_PANO, then .\\pano."
+        ),
+    )
     parser.add_argument("--start-segment", type=int, default=555)
     parser.add_argument("--segment-count", type=int, default=20)
     parser.add_argument(

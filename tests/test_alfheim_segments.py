@@ -5,6 +5,7 @@ import pytest
 from football_poc.alfheim_segments import (
     alfheim_source_info,
     plan_alfheim_segment,
+    resolve_alfheim_pano,
 )
 
 
@@ -14,6 +15,25 @@ def make_pano(tmp_path: Path, count: int = 10) -> Path:
     for index in range(count):
         (pano / f"{index:04d}_clip.h264").touch()
     return pano
+
+
+def test_pano_path_defaults_to_workspace(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("FOOTBALL_ALFHEIM_PANO", raising=False)
+
+    assert resolve_alfheim_pano(tmp_path) == (tmp_path / "pano").resolve()
+
+
+def test_pano_path_uses_environment(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    master = tmp_path / "Innovationday Artifacts" / "alfheim" / "pano"
+    monkeypatch.setenv("FOOTBALL_ALFHEIM_PANO", str(master))
+
+    assert resolve_alfheim_pano(tmp_path) == master.resolve()
 
 
 def test_source_info_uses_three_second_segments(tmp_path: Path) -> None:

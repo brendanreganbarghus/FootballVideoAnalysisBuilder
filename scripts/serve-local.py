@@ -15,6 +15,7 @@ from urllib.parse import parse_qs, urlparse
 from football_poc.alfheim_segments import (
     alfheim_source_info,
     plan_alfheim_segment,
+    resolve_alfheim_pano,
 )
 
 
@@ -26,8 +27,17 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
         request = urlparse(self.path)
         if request.path == "/api/alfheim/info":
             try:
-                self._send_json(200, alfheim_source_info(Path.cwd() / "pano"))
+                self._send_json(
+                    200,
+                    alfheim_source_info(resolve_alfheim_pano(Path.cwd())),
+                )
             except (FileNotFoundError, ValueError) as error:
+                self._send_json(400, {"error": str(error)})
+            return
+        if request.path == "/api/alfheim/segments":
+            try:
+                self._send_json(200, {"segments": self._prepared_segments()})
+            except (FileNotFoundError, KeyError, TypeError, ValueError) as error:
                 self._send_json(400, {"error": str(error)})
             return
         if request.path == "/api/alfheim/status":
@@ -54,8 +64,9 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
             if content_length <= 0 or content_length > 4096:
                 raise ValueError("Request body must contain a small JSON object")
             payload = json.loads(self.rfile.read(content_length))
+            pano = resolve_alfheim_pano(Path.cwd())
             plan = plan_alfheim_segment(
-                Path.cwd() / "pano",
+                pano,
                 start_seconds=float(payload["start_seconds"]),
                 duration_seconds=float(payload["duration_seconds"]),
             )
@@ -77,7 +88,7 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
                         sys.executable,
                         str(Path.cwd() / "scripts" / "prepare-alfheim-window.py"),
                         "--pano",
-                        str(Path.cwd() / "pano"),
+                        str(pano),
                         "--start-segment",
                         str(plan.first_segment),
                         "--segment-count",
@@ -219,6 +230,63 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
                 else None
             ),
         }
+
+    def _prepared_segments(self) -> list[dict[str, object]]:
+        workspace = Path.cwd()
+        items: list[dict[str, object]] = []
+        baseline = workspace / "benchmarks" / "alfheim" / "window-555"
+        baseline_video = baseline / "alfheim-window-playable.mp4"
+        baseline_labels = baseline / "ball-ground-truth.csv"
+        baseline_events = baseline / "analytics-data" / "predicted-events.json"
+        baseline_tracking = baseline / "analytics" / "tracking-verification.webm"
+        if baseline_video.is_file() and baseline_labels.is_file():
+            baseline_relative = baseline.relative_to(workspace).as_posix()
+            baseline_ready = baseline_events.is_file() and baseline_tracking.is_file()
+            items.append(
+                {
+                    "cache_key": "alfheim-window-555",
+                    "source_start_seconds": 555 * 3,
+                    "duration_seconds": 60,
+                    "state": "ready" if baseline_ready else "prepared",
+                    "protected": False,
+                    "video_url": (
+                        f"/{baseline_relative}/alfheim-window-playable.mp4"
+                    ),
+                    "labels_url": f"/{baseline_relative}/ball-ground-truth.csv",
+                }
+            )
+
+        generated = workspace / "benchmarks" / "alfheim" / "generated"
+        if not generated.is_dir():
+            return items
+        for root in sorted(generated.iterdir()):
+            match = re.fullmatch(r"segment-(\d{4})-(\d{3})", root.name)
+            if not match or not root.is_dir():
+                continue
+            video = root / "alfheim-window-playable.mp4"
+            labels = root / "ball-ground-truth.csv"
+            if not video.is_file() or not labels.is_file():
+                continue
+            first_segment, segment_count = map(int, match.groups())
+            status = self._segment_status(root.name)
+            relative = root.relative_to(workspace).as_posix()
+            items.append(
+                {
+                    "cache_key": root.name,
+                    "source_start_seconds": first_segment * 3,
+                    "duration_seconds": segment_count * 3,
+                    "state": status["state"],
+                    "protected": root.name
+                    in {
+                        "segment-0575-020",
+                        "segment-0595-020",
+                        "segment-0615-020",
+                    },
+                    "video_url": f"/{relative}/alfheim-window-playable.mp4",
+                    "labels_url": f"/{relative}/ball-ground-truth.csv",
+                }
+            )
+        return items
 
     def send_head(self) -> BinaryIO | None:
         path = Path(self.translate_path(self.path))

@@ -1,0 +1,1254 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Innovation Day concept for affordable, local-first football analytics for grassroots clubs.">
+  <title>Grassroots Football Intelligence | Innovation Day</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --ink: #f8f5f8;
+      --muted: #b9afba;
+      --canvas: #100d12;
+      --surface: #18131a;
+      --surface-2: #211923;
+      --line: #3b2e3c;
+      --xebia: #6c1d5f;
+      --xebia-light: #ba4ca6;
+      --signal: #68e0c1;
+      --amber: #f5bd68;
+      --danger: #ff8e91;
+      --max: 1180px;
+      font-family: Inter, "Segoe UI", Arial, sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background:
+        radial-gradient(circle at 85% 5%, rgba(108, 29, 95, .32), transparent 31rem),
+        radial-gradient(circle at 10% 35%, rgba(104, 224, 193, .07), transparent 26rem),
+        var(--canvas);
+      color: var(--ink);
+      line-height: 1.55;
+    }
+
+    a { color: inherit; }
+    img { display: block; max-width: 100%; }
+    strong { color: var(--ink); }
+
+    .shell {
+      width: min(var(--max), calc(100% - 40px));
+      margin: 0 auto;
+    }
+
+    .site-header {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      border-bottom: 1px solid rgba(255, 255, 255, .08);
+      background: rgba(16, 13, 18, .88);
+      backdrop-filter: blur(16px);
+    }
+
+    .nav {
+      min-height: 72px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 24px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      text-decoration: none;
+    }
+
+    .brand img {
+      width: 112px;
+      height: auto;
+      padding: 7px 10px;
+      border-radius: 7px;
+      background: #fff;
+    }
+
+    .brand span {
+      color: var(--muted);
+      font-size: .76rem;
+      font-weight: 800;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+    }
+
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 22px;
+      color: var(--muted);
+      font-size: .9rem;
+      font-weight: 650;
+    }
+
+    .nav-links a { text-decoration: none; }
+    .nav-links a:hover { color: var(--ink); }
+
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 46px;
+      padding: 0 18px;
+      border: 1px solid var(--xebia-light);
+      border-radius: 7px;
+      background: var(--xebia);
+      color: #fff;
+      font-weight: 800;
+      text-decoration: none;
+      transition: transform .15s ease, border-color .15s ease;
+    }
+
+    .button:hover {
+      transform: translateY(-2px);
+      border-color: #ed8cda;
+    }
+
+    .button.secondary {
+      border-color: var(--line);
+      background: transparent;
+      color: var(--ink);
+    }
+
+    .hero {
+      min-height: 680px;
+      display: grid;
+      grid-template-columns: minmax(0, 1.15fr) minmax(380px, .85fr);
+      align-items: center;
+      gap: 64px;
+      padding: 90px 0 78px;
+    }
+
+    .eyebrow,
+    .status-label {
+      color: var(--signal);
+      font-size: .78rem;
+      font-weight: 850;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+    }
+
+    h1, h2, h3, p { margin-top: 0; }
+    h1 {
+      max-width: 760px;
+      margin-bottom: 24px;
+      font-size: clamp(3rem, 6vw, 6.2rem);
+      line-height: .96;
+      letter-spacing: -.055em;
+    }
+
+    h1 span { color: var(--xebia-light); }
+
+    .hero-copy > p {
+      max-width: 720px;
+      margin-bottom: 30px;
+      color: var(--muted);
+      font-size: clamp(1.05rem, 1.7vw, 1.3rem);
+    }
+
+    .hero-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .hero-note {
+      margin-top: 24px;
+      color: #968a97;
+      font-size: .82rem;
+    }
+
+    .scoreboard {
+      position: relative;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: linear-gradient(145deg, #241726, #151117 65%);
+      box-shadow: 0 28px 80px rgba(0, 0, 0, .34);
+    }
+
+    .scoreboard::before {
+      position: absolute;
+      inset: 0;
+      background:
+        linear-gradient(rgba(104, 224, 193, .05) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(104, 224, 193, .05) 1px, transparent 1px);
+      background-size: 34px 34px;
+      content: "";
+      pointer-events: none;
+    }
+
+    .score-head,
+    .score-body,
+    .score-foot { position: relative; }
+
+    .score-head {
+      display: flex;
+      justify-content: space-between;
+      padding: 18px 20px;
+      border-bottom: 1px solid var(--line);
+      color: var(--muted);
+      font-size: .75rem;
+      font-weight: 800;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+
+    .live-dot {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--signal);
+    }
+
+    .live-dot::before {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--signal);
+      box-shadow: 0 0 14px var(--signal);
+      content: "";
+    }
+
+    .score-body { padding: 26px 22px 18px; }
+    .teams {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      align-items: center;
+      gap: 18px;
+      margin-bottom: 28px;
+    }
+
+    .team:last-child { text-align: right; }
+    .team-name {
+      display: block;
+      color: var(--muted);
+      font-size: .8rem;
+      font-weight: 800;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+
+    .team-value {
+      display: block;
+      margin-top: 4px;
+      font-size: 2.2rem;
+      font-weight: 850;
+    }
+
+    .versus { color: #7f7380; font-weight: 800; }
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+    }
+
+    .metric {
+      padding: 14px 10px;
+      border: 1px solid rgba(255, 255, 255, .08);
+      border-radius: 9px;
+      background: rgba(12, 10, 13, .58);
+      text-align: center;
+    }
+
+    .metric b {
+      display: block;
+      font-size: 1.28rem;
+    }
+
+    .metric span {
+      color: var(--muted);
+      font-size: .71rem;
+      text-transform: uppercase;
+    }
+
+    .score-foot {
+      padding: 14px 20px;
+      border-top: 1px solid var(--line);
+      color: #968a97;
+      font-size: .75rem;
+    }
+
+    section { padding: 88px 0; }
+    section + section { border-top: 1px solid rgba(255, 255, 255, .07); }
+
+    .section-head {
+      display: grid;
+      grid-template-columns: .65fr 1.35fr;
+      gap: 50px;
+      margin-bottom: 40px;
+    }
+
+    .section-number {
+      color: var(--xebia-light);
+      font-size: .78rem;
+      font-weight: 850;
+      letter-spacing: .16em;
+      text-transform: uppercase;
+    }
+
+    h2 {
+      margin-bottom: 16px;
+      font-size: clamp(2rem, 4vw, 3.6rem);
+      line-height: 1.05;
+      letter-spacing: -.035em;
+    }
+
+    .section-lead {
+      max-width: 780px;
+      color: var(--muted);
+      font-size: 1.08rem;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 14px;
+    }
+
+    .card {
+      padding: 25px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: rgba(30, 23, 32, .78);
+    }
+
+    .card h3 {
+      margin-bottom: 10px;
+      font-size: 1.12rem;
+    }
+
+    .card p,
+    .card li { color: var(--muted); }
+    .card p:last-child { margin-bottom: 0; }
+
+    .icon {
+      display: grid;
+      width: 42px;
+      height: 42px;
+      margin-bottom: 24px;
+      place-items: center;
+      border: 1px solid rgba(186, 76, 166, .5);
+      border-radius: 8px;
+      color: var(--xebia-light);
+      font-weight: 850;
+    }
+
+    .positioning {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 18px;
+    }
+
+    .positioning .card:first-child { border-color: rgba(104, 224, 193, .45); }
+
+    .positioning ul,
+    .roadmap-list,
+    .risk-list {
+      margin: 16px 0 0;
+      padding-left: 19px;
+    }
+
+    .positioning li + li,
+    .roadmap-list li + li,
+    .risk-list li + li { margin-top: 8px; }
+
+    .architecture {
+      display: grid;
+      grid-template-columns:
+        minmax(0, 1.4fr) auto minmax(0, 1.4fr) auto minmax(0, 1.4fr)
+        auto minmax(0, 1.4fr) auto minmax(0, 1.4fr);
+      align-items: stretch;
+      gap: 8px;
+    }
+
+    .arch-node {
+      min-height: 140px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--surface);
+    }
+
+    .arch-node small {
+      color: var(--xebia-light);
+      font-size: .7rem;
+      font-weight: 850;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+    }
+
+    .arch-node strong {
+      display: block;
+      margin-top: 20px;
+      line-height: 1.25;
+    }
+
+    .arch-arrow {
+      display: grid;
+      place-items: center;
+      color: var(--signal);
+      font-size: 1.25rem;
+    }
+
+    .architecture-note {
+      margin: 20px 0 0;
+      color: var(--muted);
+      font-size: .9rem;
+    }
+
+    .status-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 14px;
+    }
+
+    .status-card {
+      min-height: 225px;
+      padding: 26px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--surface);
+    }
+
+    .status-card.working { border-top: 3px solid var(--signal); }
+    .status-card.evidence { border-top: 3px solid var(--xebia-light); }
+    .status-card.progress { border-top: 3px solid var(--amber); }
+    .status-card.planned { border-top: 3px solid #6d7180; }
+    .status-card h3 { margin: 10px 0; }
+    .status-card p { color: var(--muted); }
+
+    .evidence-band {
+      margin-top: 16px;
+      padding: 12px 14px;
+      border-radius: 8px;
+      background: rgba(108, 29, 95, .25);
+      color: #e5c7df;
+      font-size: .86rem;
+    }
+
+    .obstacles {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+    }
+
+    .obstacle {
+      padding: 22px;
+      border-left: 2px solid var(--xebia-light);
+      background: rgba(30, 23, 32, .74);
+    }
+
+    .obstacle b {
+      display: block;
+      margin-bottom: 8px;
+    }
+
+    .obstacle span {
+      color: var(--muted);
+      font-size: .9rem;
+    }
+
+    .stack {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+    }
+
+    .stack-item {
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      background: var(--surface);
+    }
+
+    .stack-item b { display: block; }
+    .stack-item span {
+      color: var(--muted);
+      font-size: .82rem;
+    }
+
+    .budget-layout {
+      display: grid;
+      grid-template-columns: .8fr 1.2fr;
+      gap: 18px;
+    }
+
+    .budget-total {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      min-height: 320px;
+      padding: 36px;
+      border: 1px solid rgba(186, 76, 166, .55);
+      border-radius: 14px;
+      background: linear-gradient(150deg, rgba(108, 29, 95, .34), var(--surface));
+    }
+
+    .budget-total strong {
+      display: block;
+      margin: 8px 0;
+      font-size: clamp(2.5rem, 5vw, 4.5rem);
+      line-height: 1;
+      letter-spacing: -.05em;
+    }
+
+    .budget-total p { color: var(--muted); }
+
+    .budget-lines {
+      display: grid;
+      gap: 9px;
+    }
+
+    .budget-line {
+      display: flex;
+      justify-content: space-between;
+      gap: 18px;
+      padding: 18px 20px;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      background: var(--surface);
+    }
+
+    .budget-line span { color: var(--muted); }
+    .budget-disclaimer {
+      margin: 16px 0 0;
+      color: #938794;
+      font-size: .78rem;
+    }
+
+    .license-table {
+      width: 100%;
+      border-collapse: collapse;
+      border: 1px solid var(--line);
+      background: var(--surface);
+    }
+
+    .license-table th,
+    .license-table td {
+      padding: 15px 16px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    .license-table th {
+      color: var(--muted);
+      font-size: .72rem;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+    }
+
+    .license-table td { font-size: .9rem; }
+    .license-table td:nth-child(2) { color: var(--muted); }
+
+    .decision {
+      color: var(--amber);
+      font-size: .74rem;
+      font-weight: 850;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+
+    .ok { color: var(--signal); }
+    .blocked { color: var(--danger); }
+
+    .callout {
+      margin-top: 18px;
+      padding: 18px 20px;
+      border-left: 3px solid var(--amber);
+      background: rgba(245, 189, 104, .08);
+      color: #dac8ab;
+    }
+
+    .roadmap {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+      counter-reset: roadmap;
+    }
+
+    .roadmap-card {
+      min-height: 250px;
+      padding: 22px;
+      border: 1px solid var(--line);
+      border-radius: 11px;
+      background: var(--surface);
+      counter-increment: roadmap;
+    }
+
+    .roadmap-card::before {
+      display: block;
+      margin-bottom: 28px;
+      color: var(--xebia-light);
+      font-size: .76rem;
+      font-weight: 850;
+      content: "0" counter(roadmap);
+    }
+
+    .roadmap-card p {
+      color: var(--muted);
+      font-size: .9rem;
+    }
+
+    .demo-panel {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    .demo-link {
+      display: flex;
+      min-height: 210px;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 26px;
+      border: 1px solid var(--line);
+      border-radius: 13px;
+      background: var(--surface);
+      text-decoration: none;
+    }
+
+    .demo-link:hover { border-color: var(--xebia-light); }
+    .demo-link span { color: var(--muted); }
+    .demo-link b { font-size: 1.5rem; }
+    .demo-link i {
+      align-self: flex-end;
+      color: var(--signal);
+      font-style: normal;
+      font-weight: 850;
+    }
+
+    .sources {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px 28px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .sources a {
+      color: var(--muted);
+      text-underline-offset: 3px;
+    }
+
+    .sources a:hover { color: var(--ink); }
+
+    footer {
+      padding: 34px 0 44px;
+      border-top: 1px solid rgba(255, 255, 255, .08);
+      color: #8d818e;
+      font-size: .8rem;
+    }
+
+    .footer-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 24px;
+    }
+
+    @media (max-width: 980px) {
+      .nav-links a:not(.button) { display: none; }
+      .hero {
+        grid-template-columns: 1fr;
+        gap: 42px;
+        padding-top: 70px;
+      }
+      .hero-copy { max-width: 820px; }
+      .section-head { grid-template-columns: 1fr; gap: 12px; }
+      .grid, .stack { grid-template-columns: repeat(2, 1fr); }
+      .obstacles, .roadmap { grid-template-columns: repeat(2, 1fr); }
+      .architecture { grid-template-columns: 1fr; }
+      .arch-node { min-height: 110px; }
+      .arch-arrow { transform: rotate(90deg); }
+      .budget-layout { grid-template-columns: 1fr; }
+    }
+
+    @media (max-width: 640px) {
+      .shell { width: min(100% - 24px, var(--max)); }
+      .nav { min-height: 64px; }
+      .brand span { display: none; }
+      .brand img { width: 90px; }
+      .nav .button { min-height: 40px; padding: 0 12px; font-size: .8rem; }
+      .hero { min-height: auto; padding: 58px 0; }
+      h1 { font-size: clamp(2.8rem, 15vw, 4.6rem); }
+      section { padding: 64px 0; }
+      .grid, .positioning, .status-grid, .obstacles, .stack,
+      .roadmap, .demo-panel, .sources { grid-template-columns: 1fr; }
+      .scoreboard { border-radius: 12px; }
+      .metrics { grid-template-columns: 1fr; }
+      .metric { display: flex; justify-content: space-between; align-items: center; }
+      .team-value { font-size: 1.7rem; }
+      .license-wrap { overflow-x: auto; }
+      .license-table { min-width: 720px; }
+      .footer-row { flex-direction: column; }
+    }
+
+    @media print {
+      .site-header { position: static; }
+      body { background: #fff; color: #151117; }
+      .card, .status-card, .stack-item, .roadmap-card, .demo-link,
+      .budget-line, .license-table { background: #fff; color: #151117; }
+      section { break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+  <header class="site-header">
+    <div class="shell nav">
+      <a class="brand" href="#top" aria-label="Innovation Day home">
+        <img src="assets/xebia-logo.svg" alt="Xebia">
+        <span>Innovation Day concept</span>
+      </a>
+      <nav class="nav-links" aria-label="Presentation sections">
+        <a href="#solution">Solution</a>
+        <a href="#progress">Progress</a>
+        <a href="#roadmap">Roadmap</a>
+        <a href="developer-guide/">Developer setup</a>
+        <a class="button" href="#demo">Open demo</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="top">
+    <div class="shell hero">
+      <div class="hero-copy">
+        <p class="eyebrow">Grassroots football intelligence</p>
+        <h1>Match insight while the game is still <span>alive.</span></h1>
+        <p>
+          A local-first computer-vision concept that turns panoramic match video
+          into provisional possession, pass and turnover statistics for amateur
+          clubs at halftime and full time.
+        </p>
+        <div class="hero-actions">
+          <a class="button" href="#demo">Explore the working labs</a>
+          <a class="button secondary" href="#progress">See what is proven</a>
+        </div>
+        <p class="hero-note">
+          Personal Innovation Day prototype by Brendan Barghus. This is not an
+          official Xebia or partner product endorsement.
+        </p>
+      </div>
+
+      <aside class="scoreboard" aria-label="Illustrative target scoreboard">
+        <div class="score-head">
+          <span class="live-dot">Provisional AI statistics</span>
+          <span>Illustrative view</span>
+        </div>
+        <div class="score-body">
+          <div class="teams">
+            <div class="team">
+              <span class="team-name">Home</span>
+              <span class="team-value">54%</span>
+            </div>
+            <span class="versus">POSSESSION</span>
+            <div class="team">
+              <span class="team-name">Away</span>
+              <span class="team-value">46%</span>
+            </div>
+          </div>
+          <div class="metrics">
+            <div class="metric"><b>87 / 79</b><span>Passes</span></div>
+            <div class="metric"><b>11 / 14</b><span>Turnovers</span></div>
+            <div class="metric"><b>4 / 3</b><span>Shots</span></div>
+          </div>
+        </div>
+        <div class="score-foot">
+          Target experience only. Public figures require confidence thresholds
+          and operator review.
+        </div>
+      </aside>
+    </div>
+
+    <section id="problem">
+      <div class="shell">
+        <div class="section-head">
+          <p class="section-number">01 / Opportunity</p>
+          <div>
+            <h2>Useful analysis should not arrive after the moment has passed.</h2>
+            <p class="section-lead">
+              Grassroots coaches have limited analyst time and constrained
+              budgets. Existing sports-camera products prove the demand, but this
+              experiment asks a different question: can camera-neutral hardware
+              and local edge processing provide timely team-level insight while
+              keeping control of video and recurring costs?
+            </p>
+          </div>
+        </div>
+        <div class="grid">
+          <article class="card">
+            <div class="icon">01</div>
+            <h3>Timely coaching feedback</h3>
+            <p>
+              Publish provisional statistics near halftime and full time, when
+              coaches can still use them.
+            </p>
+          </article>
+          <article class="card">
+            <div class="icon">02</div>
+            <h3>Grassroots economics</h3>
+            <p>
+              Test commodity panoramic IP cameras and a shared local GPU instead
+              of designing around a mandatory per-camera cloud ecosystem.
+            </p>
+          </article>
+          <article class="card">
+            <div class="icon">03</div>
+            <h3>Club-controlled data</h3>
+            <p>
+              Keep raw match footage on the club network by default and publish
+              only compact statistics to local displays.
+            </p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section id="solution">
+      <div class="shell">
+        <div class="section-head">
+          <p class="section-number">02 / Product hypothesis</p>
+          <div>
+            <h2>Four views. One local match state. One simple scoreboard.</h2>
+            <p class="section-lead">
+              The target installation combines four synchronized, fixed
+              panoramic feeds in pitch coordinates rather than stitching a
+              broadcast image. A local GPU proposes events; an operator remains
+              the authority for uncertain moments.
+            </p>
+          </div>
+        </div>
+
+        <div class="architecture" aria-label="Target four-camera architecture">
+          <div class="arch-node">
+            <small>Capture</small>
+            <strong>4 panoramic IP cameras</strong>
+          </div>
+          <div class="arch-arrow" aria-hidden="true">&rarr;</div>
+          <div class="arch-node">
+            <small>Network</small>
+            <strong>Cat6 / PoE and synchronized local recording</strong>
+          </div>
+          <div class="arch-arrow" aria-hidden="true">&rarr;</div>
+          <div class="arch-node">
+            <small>Edge AI</small>
+            <strong>GPU detection, tracking and camera fusion</strong>
+          </div>
+          <div class="arch-arrow" aria-hidden="true">&rarr;</div>
+          <div class="arch-node">
+            <small>Football state</small>
+            <strong>Control, possession, events and confidence</strong>
+          </div>
+          <div class="arch-arrow" aria-hidden="true">&rarr;</div>
+          <div class="arch-node">
+            <small>Outcome</small>
+            <strong>Review UI and local scoreboard</strong>
+          </div>
+        </div>
+        <p class="architecture-note">
+          Target latency is 10-20 seconds for provisional figures. RTSP ingest,
+          four-camera synchronization and production GPU throughput are planned,
+          not yet implemented.
+        </p>
+      </div>
+    </section>
+
+    <section id="progress">
+      <div class="shell">
+        <div class="section-head">
+          <p class="section-number">03 / Honest progress</p>
+          <div>
+            <h2>Separate what works, what has evidence, and what comes next.</h2>
+            <p class="section-lead">
+              The current system is a recorded, single-camera research POC with
+              live-style replay. Its validation workflow is designed to prevent a
+              fix for one passage of play from breaking another.
+            </p>
+          </div>
+        </div>
+
+        <div class="status-grid">
+          <article class="status-card working">
+            <span class="status-label">Working now</span>
+            <h3>Match Lab playground</h3>
+            <p>
+              Recorded-video selection, player/team/ball overlays, pitch and goal
+              calibration, manual event controls, AI counters, event timelines
+              and local segment processing.
+            </p>
+          </article>
+          <article class="status-card evidence">
+            <span class="status-label">Benchmark evidence</span>
+            <h3>v41 pass and turnover logic</h3>
+            <p>
+              One confirmed gold reel contains 16 reviewed events. Its published
+              team totals match that reference exactly, and executable regression
+              tests protect the current behavior.
+            </p>
+            <div class="evidence-band">
+              Evidence on a difficult research reel, not a production accuracy
+              guarantee.
+            </div>
+          </article>
+          <article class="status-card progress">
+            <span class="status-label">Validation in progress</span>
+            <h3>Five fixed blind tests</h3>
+            <p>
+              Five one-minute reels are prepared. Manual references must be
+              locked before AI scoring. Release requires at least 90% overall
+              team-aware F1 and no reel below 80%.
+            </p>
+          </article>
+          <article class="status-card planned">
+            <span class="status-label">Planned</span>
+            <h3>Live multi-camera product</h3>
+            <p>
+              Four feeds, stream recovery, frame synchronization, camera fusion,
+              reliable shots and corners, GPU latency measurement, operator queue
+              and stadium-display publishing.
+            </p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section id="engineering">
+      <div class="shell">
+        <div class="section-head">
+          <p class="section-number">04 / Engineering journey</p>
+          <div>
+            <h2>The hard part is not drawing a box. It is preserving football meaning.</h2>
+            <p class="section-lead">
+              The detector sees pixels. The product needs a durable explanation
+              of control, flight, reception, interruption and restart across
+              noisy observations.
+            </p>
+          </div>
+        </div>
+
+        <div class="obstacles">
+          <div class="obstacle">
+            <b>A tiny, fast ball</b>
+            <span>Wide panoramic footage reduces the ball to very few useful pixels.</span>
+          </div>
+          <div class="obstacle">
+            <b>Perspective distortion</b>
+            <span>Image distance changes dramatically between near and far touchlines.</span>
+          </div>
+          <div class="obstacle">
+            <b>Occlusion and identity</b>
+            <span>Players overlap and tracker IDs fragment or alternate during contact.</span>
+          </div>
+          <div class="obstacle">
+            <b>Airborne fly-bys</b>
+            <span>A ball crossing a player box is not automatically a touch.</span>
+          </div>
+          <div class="obstacle">
+            <b>Long clearances</b>
+            <span>Ownership must survive several seconds without inventing control.</span>
+          </div>
+          <div class="obstacle">
+            <b>Restarts and boundaries</b>
+            <span>First touch, out-of-play state and last ownership must agree.</span>
+          </div>
+          <div class="obstacle">
+            <b>Missed visual evidence</b>
+            <span>Ball deceleration and a second flight can reveal an occluded pass.</span>
+          </div>
+          <div class="obstacle">
+            <b>Regression risk</b>
+            <span>Saved reels and exact event gates reject improvements that break prior wins.</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="technology">
+      <div class="shell">
+        <div class="section-head">
+          <p class="section-number">05 / Technology</p>
+          <div>
+            <h2>A pragmatic computer-vision stack with our football logic on top.</h2>
+            <p class="section-lead">
+              Detection and video libraries provide observations. The
+              football-specific temporal engine, review workflow and validation
+              gates turn those observations into explainable candidate events.
+            </p>
+          </div>
+        </div>
+        <div class="stack">
+          <div class="stack-item"><b>Python</b><span>Pipeline and domain orchestration</span></div>
+          <div class="stack-item"><b>Ultralytics YOLO</b><span>Current player and ball detector</span></div>
+          <div class="stack-item"><b>OpenCV</b><span>Video, geometry and calibration</span></div>
+          <div class="stack-item"><b>NumPy</b><span>Numerical observations</span></div>
+          <div class="stack-item"><b>Tracking</b><span>ByteTrack path plus benchmark association</span></div>
+          <div class="stack-item"><b>State engine</b><span>Control, flight, reception and restart rules</span></div>
+          <div class="stack-item"><b>Browser UI</b><span>Local replay, review and scoreboard</span></div>
+          <div class="stack-item"><b>pytest</b><span>Unit and saved-reel regression gates</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="market">
+      <div class="shell">
+        <div class="section-head">
+          <p class="section-number">06 / Market position</p>
+          <div>
+            <h2>The market is validated. The architecture is the experiment.</h2>
+            <p class="section-lead">
+              Veo and Zone14 demonstrate clear demand for automated football
+              recording and analysis. This concept does not claim feature parity;
+              it investigates a local-first, camera-neutral route for clubs that
+              value timely statistics and direct control of their footage.
+            </p>
+          </div>
+        </div>
+        <div class="positioning">
+          <article class="card">
+            <span class="status-label">Our hypothesis</span>
+            <h3>Club-operated edge analytics</h3>
+            <ul>
+              <li>Four independently selected panoramic IP cameras</li>
+              <li>Local recording and GPU inference by default</li>
+              <li>Compact local scoreboard output</li>
+              <li>Operator correction for disputed events</li>
+              <li>Hardware reuse where video quality passes the benchmark</li>
+            </ul>
+          </article>
+          <article class="card">
+            <span class="status-label">Competitive reality</span>
+            <h3>Do not build the pitch on stale assumptions</h3>
+            <ul>
+              <li>Vendor bundles, regions and promotions change regularly</li>
+              <li>Zone14 advertises live analysis and streaming capabilities</li>
+              <li>Veo offers camera, subscription, analytics and live options</li>
+              <li>Commercial comparison requires current club-specific quotes</li>
+              <li>The POC must win on measured value, not unsupported claims</li>
+            </ul>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section id="cost">
+      <div class="shell">
+        <div class="section-head">
+          <p class="section-number">07 / Cost hypothesis</p>
+          <div>
+            <h2>Benchmark the camera before buying the system.</h2>
+            <p class="section-lead">
+              The target is a reusable local installation rather than a finished
+              vendor quote. Camera suitability depends on ball pixels, blur,
+              exposure, bitrate, stream access and synchronization - not brand
+              or headline resolution alone.
+            </p>
+          </div>
+        </div>
+        <div class="budget-layout">
+          <div class="budget-total">
+            <span class="status-label">Illustrative four-camera pilot</span>
+            <strong>EUR 4.2k-9k</strong>
+            <p>
+              One-time planning range before software licensing, VAT,
+              professional installation and support.
+            </p>
+          </div>
+          <div class="budget-lines">
+            <div class="budget-line"><span>Four IP cameras</span><strong>EUR 1.4k-3k</strong></div>
+            <div class="budget-line"><span>Mounts, weather protection, Cat6 and PoE</span><strong>EUR 0.8k-1.8k</strong></div>
+            <div class="budget-line"><span>Local NVIDIA GPU computer</span><strong>EUR 1.5k-3k</strong></div>
+            <div class="budget-line"><span>Storage, UPS and display integration</span><strong>EUR 0.5k-1.2k</strong></div>
+          </div>
+        </div>
+        <p class="budget-disclaimer">
+          Planning estimate prepared 31 August 2026. Validate with three current
+          supplier quotes and a one-minute footage benchmark before purchase.
+          Electricity, maintenance, backup, support and commercial model
+          licensing remain recurring or separate costs.
+        </p>
+      </div>
+    </section>
+
+    <section id="licensing">
+      <div class="shell">
+        <div class="section-head">
+          <p class="section-number">08 / Licensing and trust</p>
+          <div>
+            <h2>Open source is a capability, not automatic commercial permission.</h2>
+            <p class="section-lead">
+              Code, model weights, training data and match footage each have
+              separate rights. A paid pilot cannot proceed until all four are
+              documented.
+            </p>
+          </div>
+        </div>
+        <div class="license-wrap">
+          <table class="license-table">
+            <thead>
+              <tr>
+                <th>Component</th>
+                <th>Current position</th>
+                <th>Commercial action</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Ultralytics YOLO</td>
+                <td>AGPL-3.0 or Enterprise licence</td>
+                <td><span class="decision">Decision required</span> - comply fully, license it, or replace it</td>
+              </tr>
+              <tr>
+                <td>OpenCV</td>
+                <td>Apache-2.0</td>
+                <td><span class="decision ok">Permissive</span> - retain notices and review distribution</td>
+              </tr>
+              <tr>
+                <td>Python / NumPy / LAP</td>
+                <td>Permissive licences; exact versions must be inventoried</td>
+                <td><span class="decision ok">Manage notices</span></td>
+              </tr>
+              <tr>
+                <td>ByteTrack</td>
+                <td>MIT for the referenced implementation</td>
+                <td><span class="decision ok">Retain notice</span></td>
+              </tr>
+              <tr>
+                <td>Simula Alfheim data</td>
+                <td>Internal non-commercial research use; no redistribution</td>
+                <td><span class="decision blocked">Not a commercial product dataset</span></td>
+              </tr>
+              <tr>
+                <td>SoccerTrack v2 data</td>
+                <td>CC BY 4.0</td>
+                <td><span class="decision">Attribution required</span></td>
+              </tr>
+              <tr>
+                <td>Current football checkpoint</td>
+                <td>Model licence and training provenance undeclared</td>
+                <td><span class="decision blocked">Internal POC only</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="callout">
+          Before a club pilot: complete model and data provenance, AVG/GDPR
+          lawful-basis assessment, safeguarding for minors, privacy notice,
+          access control, retention and deletion policy, and operator escalation.
+          This is engineering guidance, not legal advice.
+        </div>
+      </div>
+    </section>
+
+    <section id="roadmap">
+      <div class="shell">
+        <div class="section-head">
+          <p class="section-number">09 / Roadmap</p>
+          <div>
+            <h2>Move from evidence to a consented live club pilot.</h2>
+            <p class="section-lead">
+              Each phase has an explicit benchmark gate. New event types do not
+              merge if they regress the confirmed pass and turnover baseline.
+            </p>
+          </div>
+        </div>
+        <div class="roadmap">
+          <article class="roadmap-card">
+            <h3>Freeze passes and turnovers</h3>
+            <p>Complete five blind reels and meet the 90% overall / 80% per-reel gates.</p>
+          </article>
+          <article class="roadmap-card">
+            <h3>Add goal and boundary state</h3>
+            <p>Validate shots, shots on target, touchline exits, goal-line exits and corners.</p>
+          </article>
+          <article class="roadmap-card">
+            <h3>Prove four-camera edge ingest</h3>
+            <p>Synchronize RTSP feeds, fuse pitch observations and meet latency on target hardware.</p>
+          </article>
+          <article class="roadmap-card">
+            <h3>Run a governed club pilot</h3>
+            <p>Use consented footage, operator review and measured coaching value across 3-5 matches.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section id="demo">
+      <div class="shell">
+        <div class="section-head">
+          <p class="section-number">10 / Working demonstration</p>
+          <div>
+            <h2>Two labs, two responsibilities.</h2>
+            <p class="section-lead">
+              Match Lab supports exploration and manual review. Validation Lab
+              protects fixed blind tests and release thresholds. Neither page is
+              changed by this presentation.
+            </p>
+          </div>
+        </div>
+        <div class="demo-panel">
+          <a class="demo-link" href="../../benchmarks/alfheim/window-555/manual-review/?theme=innovation">
+            <span>Explore video, overlays, manual events and AI timelines.</span>
+            <b>Open Match Lab playground</b>
+            <i>Launch &rarr;</i>
+          </a>
+          <a class="demo-link" href="../../benchmarks/alfheim/validation-lab/?theme=innovation">
+            <span>Review five fixed reels, locked references and F1 gates.</span>
+            <b>Open Validation Lab</b>
+            <i>Launch &rarr;</i>
+          </a>
+        </div>
+      </div>
+    </section>
+
+    <section id="sources">
+      <div class="shell">
+        <div class="section-head">
+          <p class="section-number">Sources / 31 August 2026</p>
+          <div>
+            <h2>Claims should remain traceable.</h2>
+            <p class="section-lead">
+              Product pricing and licensing change. Recheck every source before
+              an external presentation or commercial decision.
+            </p>
+          </div>
+        </div>
+        <ul class="sources">
+          <li><a href="https://xebia.com/news/xebia-named-an-openai-select-partner/">Xebia: OpenAI Select Partner announcement</a></li>
+          <li><a href="https://xebia.com/partners/github/">Xebia: GitHub partnership</a></li>
+          <li><a href="https://xebia.com/artificial-intelligence/">Xebia: Artificial Intelligence practice</a></li>
+          <li><a href="https://www.veo.com/en-us/pricing">Veo: official plans and pricing</a></li>
+          <li><a href="https://zone14.ai/en/buy-football-camera/">Zone14: official camera offer</a></li>
+          <li><a href="https://zone14.ai/en/live-streaming-for-football/">Zone14: official live product</a></li>
+          <li><a href="https://www.ultralytics.com/license">Ultralytics: official licensing guidance</a></li>
+          <li><a href="https://github.com/opencv/opencv/blob/4.x/LICENSE">OpenCV: Apache-2.0 licence</a></li>
+          <li><a href="https://github.com/AtomScott/SoccerTrack-v2/blob/main/LICENSE-DATA">SoccerTrack v2: data licence</a></li>
+          <li><a href="https://dataset.simula.no/alfheim/">Simula Alfheim dataset portal</a></li>
+        </ul>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="shell footer-row">
+      <span>Grassroots Football Intelligence - Innovation Day concept</span>
+      <span>Personal prototype by Brendan Barghus | v41 baseline protected</span>
+    </div>
+  </footer>
+</body>
+</html>
