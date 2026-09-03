@@ -336,6 +336,11 @@
     <article class="card">
       <h2>Test segment</h2>
       <div class="form-grid">
+        <label>Completed videos
+          <select id="prepared-segment">
+            <option value="alfheim-window-555">Loading completed videos…</option>
+          </select>
+        </label>
         <label>Start minute
           <input id="segment-start-minute" type="number" min="0" step="1" value="27">
         </label>
@@ -611,6 +616,7 @@
   const eventBody = document.getElementById("events");
   const aiEventBody = document.getElementById("ai-events");
   const segmentStatus = document.getElementById("segment-status");
+  const preparedSegmentSelect = document.getElementById("prepared-segment");
   const geometryStatus = document.getElementById("geometry-status");
   const prepareSegmentButton = document.getElementById("prepare-segment");
   const processSegmentButton = document.getElementById("process-segment");
@@ -634,6 +640,7 @@
   let sourceStartSeconds = 1665;
   let segmentName = "alfheim-window-555";
   let activeCacheKey = null;
+  let preparedSegments = [];
   let segmentStatusTimer = null;
   let assistedReview = true;
   let pendingEvent = null;
@@ -665,27 +672,65 @@
     return `${minutes}:${seconds.toFixed(1).padStart(4, "0")}`;
   };
 
+  function preparedStateLabel(state) {
+    return {
+      ready: "AI ready",
+      processing: "AI processing",
+      detections_ready: "detections ready",
+      building: "building events",
+      failed: "AI failed",
+      prepared: "video ready · AI not run"
+    }[state] || state.replaceAll("_", " ");
+  }
+
+  function preparedSegmentLabel(segment) {
+    const start = Number(segment.source_start_seconds);
+    const end = start + Number(segment.duration_seconds);
+    const protectedLabel = segment.protected ? " · protected v41 reel" : "";
+    return (
+      `${formatClock(start)}–${formatClock(end)} · ` +
+      `${preparedStateLabel(segment.state)}${protectedLabel}`
+    );
+  }
+
+  async function loadPreparedSegments(selectedKey = segmentName) {
+    const response = await fetch("/api/alfheim/segments", {cache: "no-store"});
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+    preparedSegments = payload.segments;
+    preparedSegmentSelect.replaceChildren(...preparedSegments.map(segment => {
+      const option = document.createElement("option");
+      option.value = segment.cache_key;
+      option.textContent = preparedSegmentLabel(segment);
+      return option;
+    }));
+    preparedSegmentSelect.disabled = preparedSegments.length === 0;
+    if (!preparedSegments.length) {
+      const option = document.createElement("option");
+      option.value = "";
+      option.textContent = "No completed videos found";
+      preparedSegmentSelect.append(option);
+    } else if (
+      preparedSegments.some(segment => segment.cache_key === selectedKey)
+    ) {
+      preparedSegmentSelect.value = selectedKey;
+    }
+  }
+
   function render() {
     const currentReviewTime = reviewTime();
-    const visibleManual = events.filter(
-      event => event.clip_seconds <= currentReviewTime + 0.05
-    );
-    const visibleAi = aiEvents.filter(
-      event => Number(event.completion_seconds ?? event.clip_seconds) <=
-        currentReviewTime + 0.05
-    );
     const count = (source, team, type) => source.filter(
       event => event.team === team && event.event_type === type
     ).length;
     const manualShots = team =>
-      count(visibleManual, team, "shot") +
-      count(visibleManual, team, "shot_on_target");
+      count(events, team, "shot") +
+      count(events, team, "shot_on_target");
     for (const team of ["red", "black"]) {
       const manualValues = {
-        passes: count(visibleManual, team, "completed_pass"),
-        turnovers: count(visibleManual, team, "turnover"),
+        passes: count(events, team, "completed_pass"),
+        turnovers: count(events, team, "turnover"),
         shots: manualShots(team),
-        "on-target": count(visibleManual, team, "shot_on_target")
+        "on-target": count(events, team, "shot_on_target")
       };
       for (const [metric, value] of Object.entries(manualValues)) {
         document.getElementById(`manual-${team}-${metric}`).textContent = value;
@@ -694,12 +739,12 @@
         ).textContent = value;
       }
       const aiValues = {
-        passes: count(visibleAi, team, "pass_candidate") +
-          count(visibleAi, team, "restart_pass_candidate"),
-        turnovers: count(visibleAi, team, "turnover_candidate"),
-        shots: count(visibleAi, team, "shot_candidate") +
-          count(visibleAi, team, "shot_on_target_candidate"),
-        "on-target": count(visibleAi, team, "shot_on_target_candidate")
+        passes: count(aiEvents, team, "pass_candidate") +
+          count(aiEvents, team, "restart_pass_candidate"),
+        turnovers: count(aiEvents, team, "turnover_candidate"),
+        shots: count(aiEvents, team, "shot_candidate") +
+          count(aiEvents, team, "shot_on_target_candidate"),
+        "on-target": count(aiEvents, team, "shot_on_target_candidate")
       };
       for (const [metric, value] of Object.entries(aiValues)) {
         document.getElementById(`ai-${team}-${metric}`).textContent = value;
@@ -707,10 +752,12 @@
           value;
       }
     }
-    eventBody.replaceChildren(...visibleManual.map(event => {
+    eventBody.replaceChildren(...events.map(event => {
       const index = events.indexOf(event);
       const row = document.createElement("tr");
-      row.classList.add("reached");
+      if (event.clip_seconds <= currentReviewTime + 0.05) {
+        row.classList.add("reached");
+      }
       row.innerHTML = `<td>${event.clip_seconds.toFixed(2)}s</td>
         <td>${event.team === "red" ? "Red/white" : "Black"}</td>
         <td>${eventLabel(event.event_type)}</td>
@@ -718,13 +765,15 @@
           <button data-remove="${index}">Remove</button></td>`;
       return row;
     }));
-    aiEventBody.replaceChildren(...visibleAi.map(event => {
+    aiEventBody.replaceChildren(...aiEvents.map(event => {
       const index = aiEvents.indexOf(event);
       const row = document.createElement("tr");
       const completion = Number(
         event.completion_seconds ?? event.clip_seconds
       );
-      row.classList.add("reached");
+      if (completion <= currentReviewTime + 0.05) {
+        row.classList.add("reached");
+      }
       row.innerHTML = `<td>${Number(event.clip_seconds).toFixed(2)}s</td>
         <td>${completion.toFixed(2)}s</td>
         <td>${event.team === "red" ? "Red/white" :
@@ -950,8 +999,10 @@
     aiProgress.max = status.expected_frames || 1;
     aiProgress.value = status.expected_frames || 1;
     aiProgressLabel.textContent = "AI ready";
-    trackingOption.disabled = false;
-    trackingOption.textContent = "AI player/team tracking · ready";
+    trackingOption.disabled = !trackingVideoUrl;
+    trackingOption.textContent = trackingVideoUrl
+      ? "AI player/team tracking · ready"
+      : "AI tracking video · unavailable";
     document.getElementById("show-live-overlay").checked = true;
     document.getElementById("live-overlay").classList.remove("hidden");
     document.getElementById("ai-status").textContent =
@@ -1171,6 +1222,23 @@
     link.click();
     URL.revokeObjectURL(link.href);
   });
+  preparedSegmentSelect.addEventListener("change", () => {
+    const selected = preparedSegments.find(
+      segment => segment.cache_key === preparedSegmentSelect.value
+    );
+    if (!selected) return;
+    if (selected.cache_key === "alfheim-window-555") {
+      window.location.reload();
+      return;
+    }
+    document.getElementById("segment-start-minute").value =
+      Math.floor(Number(selected.source_start_seconds) / 60);
+    document.getElementById("segment-start-second").value =
+      Math.floor(Number(selected.source_start_seconds) % 60);
+    document.getElementById("segment-duration").value =
+      Number(selected.duration_seconds);
+    prepareSegmentButton.click();
+  });
   prepareSegmentButton.addEventListener("click", async () => {
     const requestedMinute = Number(
       document.getElementById("segment-start-minute").value
@@ -1248,6 +1316,7 @@
       render();
       clearInterval(segmentStatusTimer);
       await refreshSegmentStatus();
+      await loadPreparedSegments(activeCacheKey);
       if (!trackingVideoUrl) {
         segmentStatusTimer = setInterval(() => {
           refreshSegmentStatus().catch(error => {
@@ -1400,6 +1469,14 @@
     drawGeometry();
   }).catch(error => {
     geometryStatus.textContent = `Geometry/labels unavailable: ${error.message}`;
+  });
+  loadPreparedSegments().catch(error => {
+    preparedSegmentSelect.replaceChildren();
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = `Completed videos unavailable: ${error.message}`;
+    preparedSegmentSelect.append(option);
+    preparedSegmentSelect.disabled = true;
   });
   fetch("../analytics-data/predicted-events.json", {cache: "no-store"})
     .then(response => {

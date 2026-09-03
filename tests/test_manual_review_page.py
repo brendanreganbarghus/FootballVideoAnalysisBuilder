@@ -31,7 +31,7 @@ def test_manual_review_supports_shots_and_old_exports() -> None:
 
     assert '"7": ["red", "shot_on_target"]' in html
     assert '"8": ["black", "shot_on_target"]' in html
-    assert "count(visibleManual, team, \"shot_on_target\")" in html
+    assert "count(events, team, \"shot_on_target\")" in html
     assert "schema_version: 2" in html
     assert "[1, 2].includes(payload.schema_version)" in html
 
@@ -62,8 +62,22 @@ def test_manual_and_ai_event_tables_show_receiver_times() -> None:
     assert "data-seek-manual" in html
     assert "data-seek-ai" in html
     assert "including throw-ins, goal kicks, free kicks, and other restarts" in html
-    assert "visibleManual.map(event =>" in html
-    assert "visibleAi.map(event =>" in html
+    assert "events.map(event =>" in html
+    assert "aiEvents.map(event =>" in html
+
+
+def test_seeking_keeps_all_manual_and_ai_events_visible() -> None:
+    html = PAGE.read_text(encoding="utf-8")
+    render = html.split("function render()", 1)[1].split(
+        "\n  function eventLabel", 1
+    )[0]
+
+    assert "events.filter(" not in render
+    assert "aiEvents.filter(" not in render
+    assert "count(events, team" in render
+    assert "count(aiEvents, team" in render
+    assert "events.map(event =>" in render
+    assert "aiEvents.map(event =>" in render
 
 
 def test_fullscreen_video_keeps_live_ai_overlay() -> None:
@@ -180,17 +194,29 @@ def test_match_lab_combines_overlays_and_segment_selection() -> None:
     assert 'id="segment-start-minute"' in html
     assert 'id="segment-start-second"' in html
     assert 'id="segment-duration"' in html
+    assert 'id="prepared-segment"' in html
     assert 'id="ai-progress"' in html
     assert 'id="process-segment"' in html
     assert "AI tracking · processing" in html
     assert 'fetch("/api/alfheim/segment"' in html
     assert 'fetch("/api/alfheim/analyze"' in html
     assert 'fetch("/api/alfheim/info"' in html
+    assert 'fetch("/api/alfheim/segments"' in html
     assert "/api/alfheim/status?cache_key=" in html
     assert "source_start_seconds: sourceStartSeconds" in html
     assert "requestedMinute * 60 + requestedSecond" in html
     assert "requestedSecond > 59" in html
     assert 'pageParameters.get("prepare") === "1"' in html
+
+
+def test_match_lab_lists_completed_segments_with_ai_state() -> None:
+    html = PAGE.read_text(encoding="utf-8")
+
+    assert "function preparedSegmentLabel(segment)" in html
+    assert 'ready: "AI ready"' in html
+    assert 'prepared: "video ready · AI not run"' in html
+    assert '" · protected v41 reel"' in html
+    assert 'preparedSegmentSelect.addEventListener("change"' in html
 
 
 def test_match_lab_supports_per_camera_geometry_calibration() -> None:
