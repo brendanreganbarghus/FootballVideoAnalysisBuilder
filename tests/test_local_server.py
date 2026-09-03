@@ -24,7 +24,6 @@ def write_prepared_segment(root: Path, *, ai_ready: bool) -> None:
         analytics = root / "analytics-data"
         analytics.mkdir()
         (analytics / "predicted-events.json").write_text("[]", encoding="utf-8")
-        (analytics / "tracking-verification.webm").touch()
 
 
 def test_prepared_segment_list_reports_times_protection_and_ai_state(

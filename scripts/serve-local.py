@@ -200,7 +200,7 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
             else {}
         )
         relative = root.relative_to(Path.cwd()).as_posix()
-        if events.is_file() and tracking.is_file():
+        if events.is_file():
             state = "ready"
         elif analysis_status.get("stage") == "failed":
             state = "failed"
@@ -238,10 +238,9 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
         baseline_video = baseline / "alfheim-window-playable.mp4"
         baseline_labels = baseline / "ball-ground-truth.csv"
         baseline_events = baseline / "analytics-data" / "predicted-events.json"
-        baseline_tracking = baseline / "analytics" / "tracking-verification.webm"
         if baseline_video.is_file() and baseline_labels.is_file():
             baseline_relative = baseline.relative_to(workspace).as_posix()
-            baseline_ready = baseline_events.is_file() and baseline_tracking.is_file()
+            baseline_ready = baseline_events.is_file()
             items.append(
                 {
                     "cache_key": "alfheim-window-555",
