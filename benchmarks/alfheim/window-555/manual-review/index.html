@@ -33,6 +33,7 @@
       border-radius: 7px;
       text-decoration: none;
     }
+    .innovation-navigation { display: none; }
     video { display: block; width: 100%; border-radius: 12px; background: #000; }
     video::-webkit-media-controls-fullscreen-button { display: none; }
     .video-stage {
@@ -392,6 +393,7 @@
       border-color: #554257;
       background: #211923;
     }
+    html[data-theme="innovation"] .innovation-navigation { display: inline-block; }
     html[data-theme="innovation"] .fullscreen-review-controls {
       display: grid;
     }
@@ -422,8 +424,13 @@
   <p class="muted">One screen for clean/AI video, labelled ball, pitch geometry,
     assisted manual review, and cached AI statistics.</p>
   <nav class="lab-nav" aria-label="Match Lab navigation">
-    <a href="../../../../showcase/innovation-day/">Innovation Day overview</a>
-    <a href="../../../../showcase/innovation-day/developer-guide/">Developer setup</a>
+    <a class="innovation-navigation"
+      href="../../../../showcase/innovation-day/">Innovation Day overview</a>
+    <a class="innovation-navigation"
+      href="../../../../showcase/innovation-day/board/">Advertising board</a>
+    <a class="innovation-navigation"
+      href="../../../../showcase/innovation-day/developer-guide/">Developer setup</a>
+    <a id="match-lab-link" href="./" aria-current="page">Match Lab playground</a>
     <a id="validation-lab-link" href="../../validation-lab/">Validation Lab</a>
   </nav>
 
@@ -780,6 +787,7 @@
   const baselineTrackingUrl = "../analytics/tracking-verification.webm";
   const pageParameters = new URLSearchParams(window.location.search);
   if (pageParameters.get("theme") === "innovation") {
+    document.getElementById("match-lab-link").href = "?theme=innovation";
     document.getElementById("validation-lab-link").href =
       "../../validation-lab/?theme=innovation";
   }
@@ -959,25 +967,18 @@
 
   function render() {
     const currentReviewTime = reviewTime();
-    const visibleManual = events.filter(
-      event => event.clip_seconds <= currentReviewTime + 0.05
-    );
-    const visibleAi = aiEvents.filter(
-      event => Number(event.completion_seconds ?? event.clip_seconds) <=
-        currentReviewTime + 0.05
-    );
     const count = (source, team, type) => source.filter(
       event => event.team === team && event.event_type === type
     ).length;
     const manualShots = team =>
-      count(visibleManual, team, "shot") +
-      count(visibleManual, team, "shot_on_target");
+      count(events, team, "shot") +
+      count(events, team, "shot_on_target");
     for (const team of ["red", "black"]) {
       const manualValues = {
-        passes: count(visibleManual, team, "completed_pass"),
-        turnovers: count(visibleManual, team, "turnover"),
+        passes: count(events, team, "completed_pass"),
+        turnovers: count(events, team, "turnover"),
         shots: manualShots(team),
-        "on-target": count(visibleManual, team, "shot_on_target")
+        "on-target": count(events, team, "shot_on_target")
       };
       for (const [metric, value] of Object.entries(manualValues)) {
         document.getElementById(`manual-${team}-${metric}`).textContent = value;
@@ -986,12 +987,12 @@
         ).textContent = value;
       }
       const aiValues = {
-        passes: count(visibleAi, team, "pass_candidate") +
-          count(visibleAi, team, "restart_pass_candidate"),
-        turnovers: count(visibleAi, team, "turnover_candidate"),
-        shots: count(visibleAi, team, "shot_candidate") +
-          count(visibleAi, team, "shot_on_target_candidate"),
-        "on-target": count(visibleAi, team, "shot_on_target_candidate")
+        passes: count(aiEvents, team, "pass_candidate") +
+          count(aiEvents, team, "restart_pass_candidate"),
+        turnovers: count(aiEvents, team, "turnover_candidate"),
+        shots: count(aiEvents, team, "shot_candidate") +
+          count(aiEvents, team, "shot_on_target_candidate"),
+        "on-target": count(aiEvents, team, "shot_on_target_candidate")
       };
       for (const [metric, value] of Object.entries(aiValues)) {
         document.getElementById(`ai-${team}-${metric}`).textContent = value;
@@ -999,10 +1000,12 @@
           value;
       }
     }
-    eventBody.replaceChildren(...visibleManual.map(event => {
+    eventBody.replaceChildren(...events.map(event => {
       const index = events.indexOf(event);
       const row = document.createElement("tr");
-      row.classList.add("reached");
+      if (event.clip_seconds <= currentReviewTime + 0.05) {
+        row.classList.add("reached");
+      }
       row.innerHTML = `<td>${event.clip_seconds.toFixed(2)}s</td>
         <td>${event.team === "red" ? "Red/white" : "Black"}</td>
         <td>${eventLabel(event.event_type)}</td>
@@ -1010,13 +1013,15 @@
           <button data-remove="${index}">Remove</button></td>`;
       return row;
     }));
-    aiEventBody.replaceChildren(...visibleAi.map(event => {
+    aiEventBody.replaceChildren(...aiEvents.map(event => {
       const index = aiEvents.indexOf(event);
       const row = document.createElement("tr");
       const completion = Number(
         event.completion_seconds ?? event.clip_seconds
       );
-      row.classList.add("reached");
+      if (completion <= currentReviewTime + 0.05) {
+        row.classList.add("reached");
+      }
       row.innerHTML = `<td>${Number(event.clip_seconds).toFixed(2)}s</td>
         <td>${completion.toFixed(2)}s</td>
         <td>${event.team === "red" ? "Red/white" :

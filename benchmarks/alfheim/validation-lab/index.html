@@ -39,6 +39,7 @@
       background: #1f6feb33;
       color: #f0f6fc;
     }
+    .innovation-navigation { display: none; }
     main {
       display: grid;
       grid-template-columns: minmax(320px, 440px) minmax(600px, 1fr);
@@ -182,6 +183,7 @@
       border-color: #ba4ca6;
       background: rgb(108 29 95 / 24%);
     }
+    html[data-theme="innovation"] .innovation-navigation { display: inline-block; }
     html[data-theme="innovation"] .phase-tab.active {
       border-color: #68e0c1;
     }
@@ -201,10 +203,14 @@
   <h1>Alfheim Validation Lab</h1>
   <p>Fixed blind benchmark suites. Manual references are locked before AI runs.</p>
   <nav aria-label="Analytics labs">
-    <a href="../../../showcase/innovation-day/">Innovation Day overview</a>
-    <a href="../../../showcase/innovation-day/developer-guide/">Developer setup</a>
+    <a class="innovation-navigation"
+      href="../../../showcase/innovation-day/">Innovation Day overview</a>
+    <a class="innovation-navigation"
+      href="../../../showcase/innovation-day/board/">Advertising board</a>
+    <a class="innovation-navigation"
+      href="../../../showcase/innovation-day/developer-guide/">Developer setup</a>
     <a id="match-lab-link" href="../window-555/manual-review/">Match Lab playground</a>
-    <a href="./" aria-current="page">Validation Lab</a>
+    <a id="validation-lab-link" href="./" aria-current="page">Validation Lab</a>
   </nav>
 </header>
 <main>
@@ -261,6 +267,7 @@
   if (innovationTheme) {
     document.getElementById("match-lab-link").href =
       "../window-555/manual-review/?theme=innovation";
+    document.getElementById("validation-lab-link").href = "?theme=innovation";
   }
   let selected = suite.tests[0];
   let results = new Map();

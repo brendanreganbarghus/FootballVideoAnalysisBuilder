@@ -17,9 +17,14 @@ def test_landing_page_links_to_developer_setup_and_themed_labs() -> None:
     html = LANDING.read_text(encoding="utf-8")
 
     assert 'href="developer-guide/"' in html
-    assert 'href="board/"' in html
+    assert '<a class="button" href="board/">Advertising board</a>' in html
     assert "manual-review/?theme=innovation" in html
     assert "validation-lab/?theme=innovation" in html
+    navigation = html.split(
+        '<nav class="nav-links" aria-label="Presentation sections">', 1
+    )[1].split("</nav>", 1)[0]
+    assert "manual-review/?theme=innovation" in navigation
+    assert "validation-lab/?theme=innovation" in navigation
 
 
 def test_developer_guide_documents_local_artifact_flow() -> None:
@@ -44,8 +49,10 @@ def test_developer_guide_links_back_to_all_innovation_surfaces() -> None:
 
     assert 'id="shared-v41-baseline"' in html
     assert 'href="../"' in html
+    assert '<a href="../board/">Advertising board</a>' in html
     assert "manual-review/?theme=innovation" in html
     assert "validation-lab/?theme=innovation" in html
+    assert '<a href="./" aria-current="page">Developer setup</a>' in html
 
 
 def test_landscape_board_tells_the_innovation_story() -> None:

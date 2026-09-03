@@ -26,12 +26,26 @@ def test_manual_review_keeps_ai_and_manual_counters_isolated() -> None:
     assert 'id="ai-black-on-target">0' in html
 
 
+def test_match_lab_separates_default_and_innovation_navigation() -> None:
+    html = PAGE.read_text(encoding="utf-8")
+
+    assert '.innovation-navigation { display: none; }' in html
+    assert (
+        'html[data-theme="innovation"] .innovation-navigation '
+        "{ display: inline-block; }"
+    ) in html
+    assert 'id="match-lab-link"' in html
+    assert "../../../../showcase/innovation-day/board/" in html
+    assert 'document.getElementById("match-lab-link").href = "?theme=innovation"' in html
+    assert "../../validation-lab/?theme=innovation" in html
+
+
 def test_manual_review_supports_shots_and_old_exports() -> None:
     html = PAGE.read_text(encoding="utf-8")
 
     assert '"7": ["red", "shot_on_target"]' in html
     assert '"8": ["black", "shot_on_target"]' in html
-    assert "count(visibleManual, team, \"shot_on_target\")" in html
+    assert "count(events, team, \"shot_on_target\")" in html
     assert "schema_version: 2" in html
     assert "[1, 2].includes(payload.schema_version)" in html
 
@@ -62,8 +76,22 @@ def test_manual_and_ai_event_tables_show_receiver_times() -> None:
     assert "data-seek-manual" in html
     assert "data-seek-ai" in html
     assert "including throw-ins, goal kicks, free kicks, and other restarts" in html
-    assert "visibleManual.map(event =>" in html
-    assert "visibleAi.map(event =>" in html
+    assert "events.map(event =>" in html
+    assert "aiEvents.map(event =>" in html
+
+
+def test_seeking_keeps_all_manual_and_ai_events_visible() -> None:
+    html = PAGE.read_text(encoding="utf-8")
+    render = html.split("function render()", 1)[1].split(
+        "\n  function eventLabel", 1
+    )[0]
+
+    assert "events.filter(" not in render
+    assert "aiEvents.filter(" not in render
+    assert "count(events, team" in render
+    assert "count(aiEvents, team" in render
+    assert "events.map(event =>" in render
+    assert "aiEvents.map(event =>" in render
 
 
 def test_fullscreen_video_keeps_live_ai_overlay() -> None:
