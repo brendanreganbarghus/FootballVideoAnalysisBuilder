@@ -4,11 +4,6 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Alfheim Manual Pass Count</title>
-  <script>
-    if (new URLSearchParams(window.location.search).get("theme") === "innovation") {
-      document.documentElement.dataset.theme = "innovation";
-    }
-  </script>
   <style>
     :root {
       color-scheme: dark;
@@ -33,7 +28,6 @@
       border-radius: 7px;
       text-decoration: none;
     }
-    .innovation-navigation { display: none; }
     video { display: block; width: 100%; border-radius: 12px; background: #000; }
     video::-webkit-media-controls-fullscreen-button { display: none; }
     .video-stage {
@@ -334,72 +328,6 @@
     .table-wrap { overflow-x: auto; }
     a { color: #58a6ff; }
     input[type=file] { display: none; }
-    html[data-theme="innovation"] {
-      background: #100d12;
-      color: #f8f5f8;
-    }
-    html[data-theme="innovation"] body {
-      background:
-        radial-gradient(circle at 88% 4%, rgb(108 29 95 / 30%), transparent 32rem),
-        #100d12;
-    }
-    html[data-theme="innovation"] .definition,
-    html[data-theme="innovation"] .card,
-    html[data-theme="innovation"] table,
-    html[data-theme="innovation"] .team-event-group {
-      border-color: #3b2e3c;
-      background: #18131a;
-    }
-    html[data-theme="innovation"] .baseline { border-color: #ba4ca6; }
-    html[data-theme="innovation"] .manual { border-color: #68e0c1; }
-    html[data-theme="innovation"] .muted,
-    html[data-theme="innovation"] th,
-    html[data-theme="innovation"] .form-grid label,
-    html[data-theme="innovation"] .geometry-tools label,
-    html[data-theme="innovation"] .overlay-metric {
-      color: #b9afba;
-    }
-    html[data-theme="innovation"] a,
-    html[data-theme="innovation"] .assist-status,
-    html[data-theme="innovation"] .overlay-source-label {
-      color: #d56ac1;
-    }
-    html[data-theme="innovation"] .overlay-source-label.manual-source,
-    html[data-theme="innovation"] .count {
-      color: #68e0c1;
-    }
-    html[data-theme="innovation"] button,
-    html[data-theme="innovation"] .file-label,
-    html[data-theme="innovation"] input,
-    html[data-theme="innovation"] select {
-      border-color: #554257;
-      background: #211923;
-      color: #f8f5f8;
-    }
-    html[data-theme="innovation"] button:hover,
-    html[data-theme="innovation"] .file-label:hover {
-      background: #342536;
-    }
-    html[data-theme="innovation"] progress { accent-color: #ba4ca6; }
-    html[data-theme="innovation"] th,
-    html[data-theme="innovation"] td { border-bottom-color: #3b2e3c; }
-    html[data-theme="innovation"] tr.reached { background: #142a25; }
-    html[data-theme="innovation"] .overlay-team,
-    html[data-theme="innovation"] .fullscreen-review-controls {
-      border-color: rgb(186 76 166 / 50%);
-      background: rgb(16 13 18 / 86%);
-    }
-    html[data-theme="innovation"] .lab-nav a {
-      border-color: #554257;
-      background: #211923;
-    }
-    html[data-theme="innovation"] .innovation-navigation { display: inline-block; }
-    html[data-theme="innovation"] .fullscreen-review-controls {
-      display: grid;
-    }
-    html[data-theme="innovation"] .presentation-duplicate {
-      display: none;
-    }
     @media (max-width: 750px) {
       .controls, .counts, .scoreboards, .event-tables { grid-template-columns: 1fr; }
       .lab-setup { grid-template-columns: 1fr; }
@@ -424,12 +352,6 @@
   <p class="muted">One screen for clean/AI video, labelled ball, pitch geometry,
     assisted manual review, and cached AI statistics.</p>
   <nav class="lab-nav" aria-label="Match Lab navigation">
-    <a class="innovation-navigation"
-      href="../../../../showcase/innovation-day/">Innovation Day overview</a>
-    <a class="innovation-navigation"
-      href="../../../../showcase/innovation-day/board/">Advertising board</a>
-    <a class="innovation-navigation"
-      href="../../../../showcase/innovation-day/developer-guide/">Developer setup</a>
     <a id="match-lab-link" href="./" aria-current="page">Match Lab playground</a>
     <a id="validation-lab-link" href="../../validation-lab/">Validation Lab</a>
   </nav>
@@ -641,7 +563,7 @@
   </section>
   <p class="muted" id="playback-time">Current time: 0.00s</p>
 
-  <section class="transport presentation-duplicate">
+  <section class="transport">
     <button id="back">-2 seconds</button>
     <button id="slower">0.5× speed</button>
     <button id="normal">1× speed</button>
@@ -649,16 +571,16 @@
     <button id="undo">Undo last</button>
     <button id="fullscreen">Full screen with stats</button>
   </section>
-  <section class="transport presentation-duplicate">
+  <section class="transport">
     <button id="assist-toggle">Assisted review: ON</button>
     <button id="frame-back">← Previous frame</button>
     <button id="confirm-resume">Enter · Confirm and resume</button>
     <button id="frame-forward">Next frame →</button>
   </section>
-  <p class="assist-status presentation-duplicate" id="assist-status">Assisted review is ready:
+  <p class="assist-status" id="assist-status">Assisted review is ready:
     choose an event to pause, refine its time with ←/→, then press Enter.</p>
 
-  <section class="controls presentation-duplicate" aria-label="Manual event tracking">
+  <section class="controls" aria-label="Manual event tracking">
     <fieldset class="team-event-group red-team">
       <legend>Red/white team</legend>
       <div class="team-event-buttons">
@@ -695,7 +617,7 @@
     </fieldset>
   </section>
 
-  <section class="scoreboards presentation-duplicate">
+  <section class="scoreboards">
     <article class="card scoreboard manual">
       <h2>Your live reference</h2>
       <p class="muted">Only clicks at or before the current playhead are shown.</p>
@@ -725,7 +647,7 @@
       </section>
     </article>
   </section>
-  <p class="muted presentation-duplicate">Possession percentage will be published after a complete
+  <p class="muted">Possession percentage will be published after a complete
     half has enough controlled-ball samples. This one-minute review does not
     present a half-time possession claim.</p>
 
@@ -786,11 +708,6 @@
   const baselineCleanUrl = "../alfheim-window-playable.mp4";
   const baselineTrackingUrl = "../analytics/tracking-verification.webm";
   const pageParameters = new URLSearchParams(window.location.search);
-  if (pageParameters.get("theme") === "innovation") {
-    document.getElementById("match-lab-link").href = "?theme=innovation";
-    document.getElementById("validation-lab-link").href =
-      "../../validation-lab/?theme=innovation";
-  }
   const geometryStorageKey = "alfheim-camera-setting-2-geometry-v1";
   let events = JSON.parse(localStorage.getItem(storageKey) || "[]");
   let aiEvents = [];
@@ -904,11 +821,8 @@
         }. `
       );
       const guideLink = document.createElement("a");
-      guideLink.href = (
-        "../../../../showcase/innovation-day/developer-guide/" +
-        "#shared-v41-baseline"
-      );
-      guideLink.textContent = "Return to developer-guide step 5.";
+      guideLink.href = "../../../../README.md#local-alfheim-data";
+      guideLink.textContent = "See the local data setup.";
       baselineInstallStatus.append(guideLink);
     } else {
       baselineInstallStatus.textContent =
@@ -1079,11 +993,9 @@
       layout.x + point[0] * layout.width / geometry.image_width,
       layout.y + point[1] * layout.height / geometry.image_height
     ];
-    const innovationTheme =
-      document.documentElement.dataset.theme === "innovation";
-    const touchlineColor = innovationTheme ? "#9b3f8f" : "#ffd33d";
-    const goalLineColor = innovationTheme ? "#ba4ca6" : "#ff9f1c";
-    const goalFrameColor = innovationTheme ? "#edb5e3" : "#00e5ff";
+    const touchlineColor = "#ffd33d";
+    const goalLineColor = "#ff9f1c";
+    const goalFrameColor = "#00e5ff";
     const drawLine = (points, color, width, dashed = false, closed = false) => {
       if (!Array.isArray(points) || points.length < 2) return;
       geometryContext.strokeStyle = color;
@@ -1745,11 +1657,8 @@
       `Could not verify the required baseline videos: ${error.message}. `
     );
     const guideLink = document.createElement("a");
-    guideLink.href = (
-      "../../../../showcase/innovation-day/developer-guide/" +
-      "#shared-v41-baseline"
-    );
-    guideLink.textContent = "Return to developer-guide step 5.";
+    guideLink.href = "../../../../README.md#local-alfheim-data";
+    guideLink.textContent = "See the local data setup.";
     baselineInstallStatus.append(guideLink);
   });
   fetch("../analytics-data/predicted-events.json", {cache: "no-store"})

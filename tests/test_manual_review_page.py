@@ -26,20 +26,6 @@ def test_manual_review_keeps_ai_and_manual_counters_isolated() -> None:
     assert 'id="ai-black-on-target">0' in html
 
 
-def test_match_lab_separates_default_and_innovation_navigation() -> None:
-    html = PAGE.read_text(encoding="utf-8")
-
-    assert '.innovation-navigation { display: none; }' in html
-    assert (
-        'html[data-theme="innovation"] .innovation-navigation '
-        "{ display: inline-block; }"
-    ) in html
-    assert 'id="match-lab-link"' in html
-    assert "../../../../showcase/innovation-day/board/" in html
-    assert 'document.getElementById("match-lab-link").href = "?theme=innovation"' in html
-    assert "../../validation-lab/?theme=innovation" in html
-
-
 def test_manual_review_supports_shots_and_old_exports() -> None:
     html = PAGE.read_text(encoding="utf-8")
 
@@ -169,7 +155,7 @@ def test_fullscreen_video_has_compact_manual_review_controls() -> None:
 def test_manual_event_buttons_are_grouped_by_team() -> None:
     html = PAGE.read_text(encoding="utf-8")
     controls = html.split(
-        '<section class="controls presentation-duplicate" '
+        '<section class="controls" '
         'aria-label="Manual event tracking">', 1
     )[1].split("</section>", 1)[0]
 
@@ -253,8 +239,8 @@ def test_match_lab_flags_missing_required_baseline_installation() -> None:
     assert '["segment-0595-020", "29:45–30:45"]' in html
     assert '["segment-0615-020", "30:45–31:45"]' in html
     assert "Installation incomplete. Prepare the missing v41 baseline videos" in html
-    assert "#shared-v41-baseline" in html
-    assert "Return to developer-guide step 5." in html
+    assert "../../../../README.md#local-alfheim-data" in html
+    assert "See the local data setup." in html
     assert (
         "Installation complete: all three protected v41 baseline videos are ready."
         in html
@@ -276,28 +262,6 @@ def test_match_lab_supports_per_camera_geometry_calibration() -> None:
     assert "pitch-calibration.json" in html
 
 
-def test_innovation_theme_uses_purple_pitch_and_goal_geometry() -> None:
-    html = PAGE.read_text(encoding="utf-8")
-
-    assert 'dataset.theme === "innovation"' in html
-    assert 'const touchlineColor = innovationTheme ? "#9b3f8f"' in html
-    assert 'const goalLineColor = innovationTheme ? "#ba4ca6"' in html
-    assert 'const goalFrameColor = innovationTheme ? "#edb5e3"' in html
-
-
-def test_innovation_theme_keeps_compact_video_controls_and_hides_duplicates() -> None:
-    html = PAGE.read_text(encoding="utf-8")
-    video_stage = html.split('<section class="video-stage" id="video-stage">', 1)[1]
-    video_stage = video_stage.split("</section>", 1)[0]
-
-    assert video_stage.count('data-type="shot"') == 2
-    assert video_stage.count('data-type="shot_on_target"') == 2
-    assert 'data-review-action="fullscreen"' in video_stage
-    assert 'html[data-theme="innovation"] .presentation-duplicate' in html
-    assert '<section class="scoreboards presentation-duplicate">' in html
-    assert '<section class="transport presentation-duplicate">' in html
-
-
 def test_match_lab_locks_panels_for_preparation_and_ai_readiness() -> None:
     html = PAGE.read_text(encoding="utf-8")
 
@@ -312,9 +276,3 @@ def test_match_lab_locks_panels_for_preparation_and_ai_readiness() -> None:
     assert "setGeometryAvailable(false)" in html
     assert 'if (status.state !== "ready") setAiReady(false)' in html
     assert "setAiReady(true)" in html
-
-
-def test_match_lab_links_to_innovation_day_developer_setup() -> None:
-    html = PAGE.read_text(encoding="utf-8")
-
-    assert "../../../../showcase/innovation-day/developer-guide/" in html

@@ -45,23 +45,3 @@ def test_validation_lab_locks_manual_before_scoring_ai() -> None:
     assert "delta <= 1" in html
     assert "overallThreshold: 0.9" in html
     assert "reelThreshold: 0.8" in html
-
-
-def test_validation_lab_links_to_innovation_day_developer_setup() -> None:
-    html = PAGE.read_text(encoding="utf-8")
-
-    assert "../../../showcase/innovation-day/developer-guide/" in html
-
-
-def test_validation_lab_separates_default_and_innovation_navigation() -> None:
-    html = PAGE.read_text(encoding="utf-8")
-
-    assert '.innovation-navigation { display: none; }' in html
-    assert (
-        'html[data-theme="innovation"] .innovation-navigation '
-        "{ display: inline-block; }"
-    ) in html
-    assert 'id="validation-lab-link"' in html
-    assert "../../../showcase/innovation-day/board/" in html
-    assert 'document.getElementById("validation-lab-link").href = "?theme=innovation"' in html
-    assert "../window-555/manual-review/?theme=innovation" in html

@@ -102,9 +102,13 @@ python .\scripts\serve-local.py --bind 127.0.0.1 --port 8080
 
 The environment variable may be absolute or relative to the repository. Without
 it, the existing local `pano\` folder remains the default. OneDrive Files On
-Demand must make every source file available locally before processing.
-Prepared segments and AI runs remain local and ignored under
-`benchmarks\alfheim\generated\`.
+Demand must make every source file available locally before processing. The
+application reads the extracted `pano\` directory, not the archive.
+
+Prepared segments and AI runs remain local under
+`benchmarks\alfheim\generated\`. Dataset files, generated videos, model weights,
+caches, archives, and exports are excluded by `.gitignore`; Git contains only
+source code and lightweight reproducible configuration.
 
 ## SoccerTrack v2 benchmark
 
