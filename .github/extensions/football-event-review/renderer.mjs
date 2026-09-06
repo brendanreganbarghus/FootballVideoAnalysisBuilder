@@ -953,6 +953,7 @@ export function renderHtml() {
       min-height: 42px;
       border-bottom: 1px solid rgb(240 246 252 / 10%);
     }
+    .comparison-row.has-review-actions { min-height: 80px; }
     .comparison-row:last-child { border-bottom: 0; }
     .comparison-row.matched { background: rgb(35 134 54 / 10%); }
     .comparison-row.reviewed { background: rgb(31 111 235 / 16%); }
@@ -1024,6 +1025,7 @@ export function renderHtml() {
     }
     .comparison-actions {
       display: grid;
+      align-self: center;
       min-width: 118px;
       gap: 6px;
       padding: 4px;
@@ -2195,6 +2197,13 @@ export function renderHtml() {
         item.className = "comparison-row " + row.status;
         if (row.review?.decision?.status === "rejected") {
           item.classList.add("decision-rejected");
+        }
+        if (
+          row.review
+          && !row.review.decision?.status
+          && state.segment.validationStatus !== "passed"
+        ) {
+          item.classList.add("has-review-actions");
         }
         const seconds = document.createElement("div");
         seconds.className = "comparison-time";
