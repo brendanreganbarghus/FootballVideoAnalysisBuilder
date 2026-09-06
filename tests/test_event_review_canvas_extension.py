@@ -583,12 +583,19 @@ def test_playback_surfaces_and_selects_each_triggered_event() -> None:
     assert '"stoppage", totals.stoppage + " foul/stoppage"' in renderer
     assert '"off", totals.off + " difference"' in renderer
     assert '"comparison-row " + row.status' in renderer
-    assert ".comparison-row.has-review-actions { min-height: 80px; }" in renderer
+    assert ".comparison-row.has-review-actions { min-height: 48px; }" in renderer
     assert 'item.classList.add("has-review-actions")' in renderer
     assert "function comparisonReviewCell(row)" in renderer
-    assert '"Verify & Accept C" + (row.reviewIndex + 1)' in renderer
+    assert "function comparisonActionIcon(kind)" in renderer
+    assert '"Verify and accept Copilot proposal C" + (row.reviewIndex + 1)' in renderer
+    assert 'accept.setAttribute("aria-label", acceptLabel)' in renderer
+    assert "accept.title = acceptLabel" in renderer
+    assert 'accept.append(comparisonActionIcon("accept"))' in renderer
     assert "await requestCopilotAcceptance(row.reviewIndex)" in renderer
-    assert '"Reject C" + (row.reviewIndex + 1)' in renderer
+    assert '"Reject Copilot proposal C" + (row.reviewIndex + 1)' in renderer
+    assert 'reject.setAttribute("aria-label", rejectLabel)' in renderer
+    assert "reject.title = rejectLabel" in renderer
+    assert 'reject.append(comparisonActionIcon("reject"))' in renderer
     assert 'await decide("rejected", row.reviewIndex)' in renderer
     assert 'async function decide(status, targetIndex = selectedIndex)' in renderer
     assert 'accepted.textContent = "✓ Accepted"' in renderer

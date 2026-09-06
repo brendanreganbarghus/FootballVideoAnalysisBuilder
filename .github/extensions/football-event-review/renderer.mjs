@@ -953,7 +953,7 @@ export function renderHtml() {
       min-height: 42px;
       border-bottom: 1px solid rgb(240 246 252 / 10%);
     }
-    .comparison-row.has-review-actions { min-height: 80px; }
+    .comparison-row.has-review-actions { min-height: 48px; }
     .comparison-row:last-child { border-bottom: 0; }
     .comparison-row.matched { background: rgb(35 134 54 / 10%); }
     .comparison-row.reviewed { background: rgb(31 111 235 / 16%); }
@@ -1025,13 +1025,30 @@ export function renderHtml() {
     }
     .comparison-actions {
       display: grid;
+      grid-template-columns: repeat(2, 34px);
       align-self: center;
-      min-width: 118px;
+      min-width: 0;
       gap: 6px;
       padding: 4px;
       border: 1px solid rgb(240 246 252 / 12%);
       border-radius: 7px;
       background: rgb(13 17 23 / 46%);
+    }
+    .comparison-action.icon-action {
+      display: grid;
+      width: 34px;
+      min-height: 34px;
+      padding: 0;
+      place-items: center;
+    }
+    .comparison-action-icon {
+      width: 16px;
+      height: 16px;
+      fill: none;
+      stroke: currentColor;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      stroke-width: 2;
     }
     .comparison-action.accept-action {
       border-color: #3fb950;
@@ -2066,6 +2083,22 @@ export function renderHtml() {
       return button;
     }
 
+    function comparisonActionIcon(kind) {
+      const namespace = "http://www.w3.org/2000/svg";
+      const icon = document.createElementNS(namespace, "svg");
+      icon.classList.add("comparison-action-icon");
+      icon.setAttribute("viewBox", "0 0 16 16");
+      icon.setAttribute("aria-hidden", "true");
+      icon.setAttribute("focusable", "false");
+      const path = document.createElementNS(namespace, "path");
+      path.setAttribute(
+        "d",
+        kind === "accept" ? "M3 8.5 6.5 12 13 4.5" : "M4 4l8 8M12 4l-8 8"
+      );
+      icon.append(path);
+      return icon;
+    }
+
     function comparisonReviewCell(row) {
       if (!row.review) {
         const empty = document.createElement("span");
@@ -2105,8 +2138,12 @@ export function renderHtml() {
         actions.className = "comparison-actions";
         const accept = document.createElement("button");
         accept.type = "button";
-        accept.className = "comparison-action accept-action";
-        accept.textContent = "Verify & Accept C" + (row.reviewIndex + 1);
+        accept.className = "comparison-action icon-action accept-action";
+        const acceptLabel =
+          "Verify and accept Copilot proposal C" + (row.reviewIndex + 1);
+        accept.setAttribute("aria-label", acceptLabel);
+        accept.title = acceptLabel;
+        accept.append(comparisonActionIcon("accept"));
         accept.disabled = state.activity?.state === "working";
         accept.addEventListener("click", async event => {
           event.stopPropagation();
@@ -2115,8 +2152,11 @@ export function renderHtml() {
         });
         const reject = document.createElement("button");
         reject.type = "button";
-        reject.className = "comparison-action reject";
-        reject.textContent = "Reject C" + (row.reviewIndex + 1);
+        reject.className = "comparison-action icon-action reject";
+        const rejectLabel = "Reject Copilot proposal C" + (row.reviewIndex + 1);
+        reject.setAttribute("aria-label", rejectLabel);
+        reject.title = rejectLabel;
+        reject.append(comparisonActionIcon("reject"));
         reject.disabled = state.activity?.state === "working";
         reject.addEventListener("click", async event => {
           event.stopPropagation();
