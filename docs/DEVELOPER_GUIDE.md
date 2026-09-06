@@ -4,6 +4,11 @@ This guide explains the current proof of concept (POC), the intended two-camera
 home-ground system, where each algorithm lives, and how to change and rerun the
 pipeline.
 
+The canonical football-law, match-state, analytics-definition, portability,
+and rule-change contracts live in
+[`RULES_ENGINE_ARCHITECTURE.md`](RULES_ENGINE_ARCHITECTURE.md). Treat that
+document as the architectural base for event-engine changes.
+
 The project is currently a single-camera, offline benchmark with a live-style
 replay. The two-camera RTSP ingestion, frame synchronization, GPU optimization,
 operator review UI, and stadium-screen output are the next architecture stage;
@@ -206,6 +211,24 @@ The defaults on `infer_cached_possession` are the main tuning surface:
 Change one threshold at a time and evaluate all three windows. Do not tune only
 against the visible demo minute.
 
+### `src\football_poc\match_state.py`
+
+Contains the platform-neutral, law-grounded state model that gates event
+inference.
+
+- `MATCH_LAW_PROFILE`: reviewed official IFAB source profile.
+- `MatchPlayState`: live, uncertain, stopped, restart-pending, and period-end
+  states.
+- `RestartType`: all Law 8 restart families.
+- `build_match_state_timeline`: deterministic law/evidence transitions.
+- `detect_stationary_ball_restarts`: observable restart evidence without a
+  mandatory official detector.
+
+Keep official match-state rules separate from analytics definitions in
+`possession.py`. See
+[`RULES_ENGINE_ARCHITECTURE.md`](RULES_ENGINE_ARCHITECTURE.md) before changing
+either contract.
+
 For the Alfheim diagnostic, high-speed straight ball motion near a player is
 treated as a fly-by rather than control. Calibrated sustained pitch exits can
 produce boundary turnovers, and inferred restart receptions use a distinct
@@ -284,6 +307,7 @@ python -m pip check
 Run one focused test while editing:
 
 ```powershell
+python -m pytest -q tests\test_match_state.py
 python -m pytest -q tests\test_possession.py
 python -m pytest -q tests\test_ball_tracking.py
 ```

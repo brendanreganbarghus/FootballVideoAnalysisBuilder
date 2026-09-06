@@ -7,7 +7,7 @@
   <style>
     :root {
       color-scheme: dark;
-      font-family: Inter, system-ui, sans-serif;
+      font-family: Calibri, "Segoe UI", sans-serif;
       background: #0d1117;
       color: #f0f6fc;
     }
@@ -35,27 +35,92 @@
       border-radius: 12px;
       background: #000;
     }
+    .review-workspace {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
+      gap: 16px;
+      align-items: start;
+    }
+    .live-event-panel {
+      position: sticky;
+      top: 16px;
+      max-height: min(72vh, 680px);
+      overflow-y: auto;
+    }
+    .live-event-panel h2 { margin: 0 0 6px; }
+    .live-event-list {
+      display: grid;
+      gap: 8px;
+      margin: 12px 0 0;
+      padding: 0;
+      list-style: none;
+    }
+    .live-event-card {
+      padding: 10px;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      background: #0d1117;
+    }
+    .live-event-card.is-current {
+      border-color: #56d364;
+      background: #132a1a;
+      box-shadow: 0 0 0 1px rgb(86 211 100 / 25%);
+    }
+    .live-event-card.foul-event {
+      border-color: #d29922;
+      background: #2b2412;
+    }
+    .live-event-source {
+      display: block;
+      margin-top: 5px;
+      color: #b1bac4;
+      font-size: .82rem;
+      overflow-wrap: anywhere;
+    }
+    .live-event-source strong { color: #f0f6fc; }
+    .live-event-result {
+      display: block;
+      margin-top: 7px;
+      font-size: .78rem;
+    }
     .video-media {
       position: relative;
       min-height: 0;
       overflow: hidden;
       background: #000;
     }
-    .video-stage:fullscreen {
-      display: grid;
-      grid-template-rows: minmax(0, 1fr) auto auto;
+    .review-workspace:fullscreen {
       width: 100vw;
       height: 100vh;
+      padding: 8px;
+      grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
+      align-items: stretch;
+      background: #0d1117;
+    }
+    .review-workspace:fullscreen .video-stage {
+      display: grid;
+      grid-template-rows: minmax(0, 1fr) auto auto;
+      min-width: 0;
+      height: 100%;
       border-radius: 0;
     }
-    .video-stage:fullscreen .video-media,
-    .video-stage:fullscreen video {
+    .review-workspace:fullscreen .video-media,
+    .review-workspace:fullscreen video {
       width: 100%;
       height: 100%;
     }
-    .video-stage:fullscreen video {
+    .review-workspace:fullscreen video {
       object-fit: contain;
       border-radius: 0;
+    }
+    .review-workspace:fullscreen .video-media video,
+    .review-workspace:fullscreen .geometry-overlay {
+      transform-origin: 50% 50%;
+    }
+    .review-workspace:fullscreen .live-event-panel {
+      position: static;
+      height: 100%;
+      max-height: none;
     }
     .geometry-overlay {
       position: absolute;
@@ -90,7 +155,7 @@
       box-shadow: 0 4px 18px rgb(0 0 0 / 45%);
       backdrop-filter: blur(4px);
     }
-    .video-stage:fullscreen .fullscreen-review-controls { display: grid; }
+    .review-workspace:fullscreen .fullscreen-review-controls { display: grid; }
     .fullscreen-review-controls button {
       min-height: 44px;
       padding: 5px 7px;
@@ -135,6 +200,64 @@
     }
     .review-action-group .clear-all { grid-column: 1 / -1; }
     .fullscreen-review-controls .confirm { border-color: #56d364; }
+    .fullscreen-toggle-row {
+      display: grid;
+      grid-column: 1 / -1;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 7px;
+    }
+    .fullscreen-zoom-controls {
+      display: grid;
+      grid-column: 1 / -1;
+      grid-template-columns: repeat(3, minmax(100px, auto))
+        repeat(2, minmax(180px, 1fr));
+      gap: 7px;
+      align-items: end;
+    }
+    .fullscreen-zoom-controls label {
+      display: grid;
+      gap: 3px;
+      color: #b1bac4;
+      font-size: .72rem;
+    }
+    .fullscreen-zoom-controls input { width: 100%; }
+    #zoom-status {
+      align-self: center;
+      color: #79c0ff;
+      font-variant-numeric: tabular-nums;
+      text-align: center;
+    }
+    .fullscreen-timeline-controls {
+      display: grid;
+      grid-column: 1 / -1;
+      grid-template-columns: minmax(100px, auto) minmax(240px, 1fr)
+        minmax(120px, auto);
+      gap: 10px;
+      align-items: center;
+    }
+    .fullscreen-timeline-controls label {
+      display: grid;
+      gap: 3px;
+      color: #b1bac4;
+      font-size: .72rem;
+    }
+    .fullscreen-timeline-controls input { width: 100%; }
+    #fullscreen-timeline-status {
+      font-variant-numeric: tabular-nums;
+      text-align: right;
+    }
+    .fullscreen-assisted-content {
+      display: grid;
+      grid-column: 1 / -1;
+      grid-template-columns: repeat(2, minmax(180px, 1fr)) minmax(260px, 1.4fr);
+      gap: 7px;
+    }
+    .fullscreen-playback-controls {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 7px;
+      align-content: start;
+    }
     .overlay-team {
       padding: 10px 14px;
       border: 1px solid rgb(240 246 252 / 35%);
@@ -187,6 +310,21 @@
       margin: 18px 0;
     }
     .lab-setup h2 { margin: 0 0 10px; font-size: 1.1rem; }
+    details.card { padding: 0; }
+    details.card > summary {
+      padding: 14px;
+      cursor: pointer;
+      font-weight: 800;
+      user-select: none;
+    }
+    details.card > summary:hover { background: #21262d; }
+    details.card > summary:focus-visible {
+      outline: 2px solid #58a6ff;
+      outline-offset: -2px;
+    }
+    details.card[open] > summary { border-bottom: 1px solid #30363d; }
+    .details-content { padding: 14px; }
+    .correlation-details { margin-top: 18px; }
     .form-grid {
       display: grid;
       grid-template-columns: repeat(4, minmax(120px, 1fr));
@@ -208,6 +346,10 @@
       color: #f0f6fc;
       font: inherit;
     }
+    #prepared-segment option.validated-segment-option {
+      background-color: #1f6f43;
+      color: #ffffff;
+    }
     .toggle-row {
       display: flex;
       flex-wrap: wrap;
@@ -224,10 +366,14 @@
     .compact-button { padding: 9px 11px; font-size: 0.82rem; }
     .processing-row {
       display: grid;
-      grid-template-columns: minmax(180px, 1fr) auto;
+      grid-template-columns: minmax(180px, 1fr) auto auto;
       gap: 10px;
       align-items: center;
       margin-top: 10px;
+    }
+    .processing-row span {
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
     }
     progress {
       width: 100%;
@@ -257,7 +403,7 @@
       filter: grayscale(.8);
       opacity: .35;
     }
-    .controls, .counts, .transport {
+    .controls, .transport {
       display: grid;
       gap: 12px;
       margin: 16px 0;
@@ -280,6 +426,12 @@
     }
     .team-event-group.red-team { border-color: #ff5a5f; }
     .team-event-group.black-team { border-color: #8c959f; }
+    .foul { border-color: #d29922; color: #f2cc60; }
+    .foul-annotation { color: #d29922; font-weight: 700; }
+    .foul-event-group {
+      grid-column: 1 / -1;
+      border-color: #d29922;
+    }
     .team-event-buttons {
       display: grid;
       grid-template-columns: repeat(2, minmax(130px, 1fr));
@@ -290,12 +442,6 @@
       padding: 7px 10px;
       font-size: 0.88rem;
     }
-    .counts { grid-template-columns: repeat(4, minmax(130px, 1fr)); }
-    .scoreboards { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
-    .scoreboard { padding: 16px; }
-    .scoreboard h2 { margin-top: 0; }
-    .baseline { border-color: #58a6ff; }
-    .manual { border-color: #56d364; }
     .pending { color: #d29922; }
     .assist-status {
       margin: 8px 0;
@@ -324,12 +470,16 @@
     th, td { padding: 9px 12px; border-bottom: 1px solid #30363d; text-align: left; }
     th { color: #8b949e; }
     tr.reached { background: #132a1a; }
-    .event-tables { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+    .correlation-match { color: #56d364; font-weight: 700; }
+    .correlation-close { color: #d29922; font-weight: 700; }
+    .correlation-mismatch { color: #ff7b72; font-weight: 700; }
+    .event-time { white-space: nowrap; }
+    .event-time small { display: block; color: #8b949e; }
     .table-wrap { overflow-x: auto; }
     a { color: #58a6ff; }
     input[type=file] { display: none; }
     @media (max-width: 750px) {
-      .controls, .counts, .scoreboards, .event-tables { grid-template-columns: 1fr; }
+      .controls { grid-template-columns: 1fr; }
       .lab-setup { grid-template-columns: 1fr; }
       .form-grid { grid-template-columns: 1fr 1fr; }
       .geometry-tools { grid-template-columns: 1fr 1fr; }
@@ -343,6 +493,24 @@
       .fullscreen-review-controls {
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }
+      .fullscreen-zoom-controls {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+      .fullscreen-zoom-controls label { grid-column: span 3; }
+      .fullscreen-timeline-controls {
+        grid-template-columns: minmax(100px, auto) minmax(0, 1fr);
+      }
+      #fullscreen-timeline-status { grid-column: 1 / -1; text-align: center; }
+      .fullscreen-assisted-content {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+    @media (max-width: 1050px) {
+      .review-workspace { grid-template-columns: 1fr; }
+      .live-event-panel {
+        position: static;
+        max-height: 360px;
+      }
     }
   </style>
 </head>
@@ -353,6 +521,9 @@
     assisted manual review, and cached AI statistics.</p>
   <nav class="lab-nav" aria-label="Match Lab navigation">
     <a id="match-lab-link" href="./" aria-current="page">Match Lab playground</a>
+    <a id="review-workflow-link" href="../../review-studio/">
+      Test 3 review workflow
+    </a>
     <a id="validation-lab-link" href="../../validation-lab/">Validation Lab</a>
   </nav>
 
@@ -368,6 +539,8 @@
       taking the restart.</p>
     <p><strong>Foul and free-kick rule:</strong> when a player is fouled, play
       stops without a turnover. Ignore loose-ball movement after the foul.
+      Click <strong>Foul encountered</strong> at the confirmed stoppage; this
+      yellow annotation is saved but is not compared with AI team events.
       When the awarded team places the ball and takes the free kick, begin
       tracking again; record one completed pass only when a teammate first
       controls the kick. For example, if black controls the ball, white fouls
@@ -385,8 +558,9 @@
   </section>
 
   <section class="lab-setup">
-    <article class="card state-panel" id="segment-panel">
-      <h2>Test segment</h2>
+    <details class="card state-panel" id="segment-panel">
+      <summary>Test Segment</summary>
+      <div class="details-content">
       <div class="form-grid">
         <label>Prepared locally
           <select id="prepared-segment">
@@ -413,9 +587,12 @@
       </p>
       <p class="muted" id="segment-status">Current baseline: 27:45–28:45.
         Loading full recording information…</p>
-      <div class="processing-row">
+      <div class="processing-row" aria-live="polite">
         <progress id="ai-progress" max="300" value="0"></progress>
         <span class="muted" id="ai-progress-label">AI not started</span>
+        <span class="muted" id="processing-timing">
+          Segment 60.0s · AI elapsed —
+        </span>
       </div>
       <div class="toggle-row">
         <label><input id="show-ball" type="checkbox"> Labelled ball</label>
@@ -430,9 +607,11 @@
           </select>
         </label>
       </div>
-    </article>
-    <article class="card state-panel" id="geometry-panel">
-      <h2>Camera geometry</h2>
+      </div>
+    </details>
+    <details class="card state-panel" id="geometry-panel">
+      <summary>Camera Geometry</summary>
+      <div class="details-content">
       <div class="geometry-tools">
         <label>Feature to calibrate
           <select id="geometry-feature">
@@ -456,16 +635,19 @@
         painted white line—the edge furthest from the playing area. The white
         line is part of the pitch; the whole ball must cross its outer edge to
         be out.</p>
-    </article>
+      </div>
+    </details>
   </section>
 
-  <section class="video-stage" id="video-stage">
-    <div class="video-media">
-      <video id="video" controls preload="auto"></video>
-      <canvas class="geometry-overlay" id="geometry-overlay"></canvas>
-    </div>
-    <aside class="live-overlay" id="live-overlay"
-        aria-label="Live AI and manual statistics">
+  <section class="review-workspace" id="review-workspace"
+    aria-label="Video and live event review">
+    <section class="video-stage" id="video-stage">
+      <div class="video-media">
+        <video id="video" controls preload="auto"></video>
+        <canvas class="geometry-overlay" id="geometry-overlay"></canvas>
+      </div>
+      <aside class="live-overlay" id="live-overlay"
+          aria-label="Live AI and manual statistics">
         <div class="overlay-team">
           <strong>Red/white</strong>
           <div class="ai-overlay-block">
@@ -504,83 +686,153 @@
             <span class="overlay-metric">On target<output id="overlay-manual-black-on-target">0</output></span>
           </div>
         </div>
-    </aside>
-    <aside class="fullscreen-review-controls"
-      aria-label="Fullscreen manual event tracking">
-      <fieldset class="team-event-group red-team">
-        <legend>Red/white team</legend>
-        <div class="team-event-buttons">
-          <button class="red" data-team="red" data-type="completed_pass">
-            <img class="event-icon" src="pass.jpeg" alt="">
-            <span>Pass</span>
+      </aside>
+      <aside class="fullscreen-review-controls"
+        aria-label="Fullscreen manual event tracking">
+        <div class="fullscreen-toggle-row">
+          <button data-assist-toggle aria-pressed="true">
+            Assisted Review: ON
           </button>
-          <button class="red" data-team="red" data-type="turnover">
-            <img class="event-icon" src="slide.jpeg" alt="">
-            <span>Turnover</span>
-          </button>
-          <button class="red" data-team="red" data-type="shot">
-            <span class="event-symbol">S</span>
-            <span>Shot</span>
-          </button>
-          <button class="red" data-team="red" data-type="shot_on_target">
-            <span class="event-symbol target">T</span>
-            <span>On target</span>
-          </button>
+          <button data-review-action="fullscreen">Exit Full Screen</button>
         </div>
-      </fieldset>
-      <fieldset class="team-event-group black-team">
-        <legend>Black team</legend>
-        <div class="team-event-buttons">
-          <button class="black" data-team="black" data-type="completed_pass">
-            <img class="event-icon" src="pass.jpeg" alt="">
-            <span>Pass</span>
-          </button>
-          <button class="black" data-team="black" data-type="turnover">
-            <img class="event-icon" src="slide.jpeg" alt="">
-            <span>Turnover</span>
-          </button>
-          <button class="black" data-team="black" data-type="shot">
-            <span class="event-symbol">S</span>
-            <span>Shot</span>
-          </button>
-          <button class="black" data-team="black" data-type="shot_on_target">
-            <span class="event-symbol target">T</span>
-            <span>On target</span>
-          </button>
+        <div class="fullscreen-zoom-controls"
+          aria-label="Fullscreen video zoom">
+          <button type="button" data-zoom-action="out">Zoom Out</button>
+          <button type="button" data-zoom-action="reset">Reset Zoom</button>
+          <button type="button" data-zoom-action="in">Zoom In</button>
+          <label>Horizontal Focus
+            <input id="zoom-focus-x" name="zoom-focus-x" type="range"
+              min="0" max="100" value="50" autocomplete="off">
+          </label>
+          <label>Vertical Focus
+            <input id="zoom-focus-y" name="zoom-focus-y" type="range"
+              min="0" max="100" value="50" autocomplete="off">
+          </label>
+          <output id="zoom-status" aria-live="polite">1× · Centered</output>
         </div>
-      </fieldset>
-      <div class="review-action-group">
-        <button data-review-action="frame-back">← Frame</button>
-        <button class="confirm" data-review-action="confirm">Confirm / play</button>
-        <button data-review-action="frame-forward">Frame →</button>
-        <button data-review-action="undo">Undo</button>
-        <button data-review-action="fullscreen">Full screen</button>
-        <button class="danger clear-all" data-review-action="clear">
-          Clear all entries
-        </button>
-      </div>
+        <div class="fullscreen-timeline-controls"
+          aria-label="Fullscreen playback timeline">
+          <button id="fullscreen-play-toggle" type="button">Play</button>
+          <label>Playback Position
+            <input id="fullscreen-timeline" name="fullscreen-timeline"
+              type="range" min="0" max="60" step="0.04" value="0"
+              autocomplete="off">
+          </label>
+          <output id="fullscreen-timeline-status" aria-live="polite">
+            0.00s / 60.00s
+          </output>
+        </div>
+        <div class="fullscreen-assisted-content" data-assisted-review>
+          <fieldset class="team-event-group red-team">
+            <legend>Red/white team</legend>
+            <div class="team-event-buttons">
+              <button class="red" data-team="red" data-type="completed_pass">
+                <img class="event-icon" src="pass.jpeg" alt="">
+                <span>Pass</span>
+              </button>
+              <button class="red" data-team="red" data-type="turnover">
+                <img class="event-icon" src="slide.jpeg" alt="">
+                <span>Turnover</span>
+              </button>
+              <button class="red" data-team="red" data-type="shot">
+                <span class="event-symbol">S</span>
+                <span>Shot</span>
+              </button>
+              <button class="red" data-team="red" data-type="shot_on_target">
+                <span class="event-symbol target">T</span>
+                <span>On target</span>
+              </button>
+            </div>
+          </fieldset>
+          <fieldset class="team-event-group black-team">
+            <legend>Black team</legend>
+            <div class="team-event-buttons">
+              <button class="black" data-team="black" data-type="completed_pass">
+                <img class="event-icon" src="pass.jpeg" alt="">
+                <span>Pass</span>
+              </button>
+              <button class="black" data-team="black" data-type="turnover">
+                <img class="event-icon" src="slide.jpeg" alt="">
+                <span>Turnover</span>
+              </button>
+              <button class="black" data-team="black" data-type="shot">
+                <span class="event-symbol">S</span>
+                <span>Shot</span>
+              </button>
+              <button class="black" data-team="black" data-type="shot_on_target">
+                <span class="event-symbol target">T</span>
+                <span>On target</span>
+              </button>
+            </div>
+          </fieldset>
+          <fieldset class="team-event-group foul-event-group">
+            <legend>Match annotation</legend>
+            <button class="foul" data-team="neutral"
+              data-type="foul_encountered">
+              <span class="event-symbol">F</span>
+              <span>Foul encountered</span>
+            </button>
+          </fieldset>
+          <div class="fullscreen-playback-controls">
+            <button data-playback-action="back">−2 Seconds</button>
+            <button data-playback-action="slower">0.5× Speed</button>
+            <button data-playback-action="normal">1× Speed</button>
+            <button data-playback-action="forward">+2 Seconds</button>
+            <button data-review-action="frame-back">← Frame</button>
+            <button class="confirm" data-review-action="confirm">
+              Confirm / Play
+            </button>
+            <button data-review-action="frame-forward">Frame →</button>
+            <button data-playback-action="undo">Undo</button>
+            <button class="danger clear-all" data-review-action="clear">
+              Clear All Entries
+            </button>
+          </div>
+        </div>
+      </aside>
+    </section>
+    <aside class="card live-event-panel" id="ai-readiness-panel"
+      aria-labelledby="live-events-heading">
+      <h2 id="live-events-heading">Live Events</h2>
+      <p class="muted" id="ai-status">Loading saved AI events…</p>
+      <p class="muted">Newest reached event first. AI counters and this list
+        follow the current video time; the complete correlation remains below.</p>
+      <ol class="live-event-list" id="live-event-list" aria-live="polite">
+        <li class="muted">No events reached yet.</li>
+      </ol>
     </aside>
   </section>
   <p class="muted" id="playback-time">Current time: 0.00s</p>
 
   <section class="transport">
-    <button id="back">-2 seconds</button>
-    <button id="slower">0.5× speed</button>
-    <button id="normal">1× speed</button>
-    <button id="forward">+2 seconds</button>
-    <button id="undo">Undo last</button>
+    <button id="back" data-playback-action="back"
+      data-assisted-review>−2 Seconds</button>
+    <button id="slower" data-playback-action="slower"
+      data-assisted-review>0.5× Speed</button>
+    <button id="normal" data-playback-action="normal"
+      data-assisted-review>1× Speed</button>
+    <button id="forward" data-playback-action="forward"
+      data-assisted-review>+2 Seconds</button>
+    <button id="undo" data-playback-action="undo"
+      data-assisted-review>Undo Last</button>
     <button id="fullscreen">Full screen with stats</button>
   </section>
   <section class="transport">
-    <button id="assist-toggle">Assisted review: ON</button>
-    <button id="frame-back">← Previous frame</button>
-    <button id="confirm-resume">Enter · Confirm and resume</button>
-    <button id="frame-forward">Next frame →</button>
+    <button id="assist-toggle" data-assist-toggle aria-pressed="true">
+      Assisted Review: ON
+    </button>
+    <button id="frame-back" data-assisted-review>← Previous Frame</button>
+    <button id="confirm-resume" data-assisted-review>
+      Enter · Confirm and Resume
+    </button>
+    <button id="frame-forward" data-assisted-review>Next Frame →</button>
   </section>
-  <p class="assist-status" id="assist-status">Assisted review is ready:
+  <p class="assist-status" id="assist-status" data-assisted-review>
+    Assisted review is ready:
     choose an event to pause, refine its time with ←/→, then press Enter.</p>
 
-  <section class="controls" aria-label="Manual event tracking">
+  <section class="controls" aria-label="Manual event tracking"
+    data-assisted-review>
     <fieldset class="team-event-group red-team">
       <legend>Red/white team</legend>
       <div class="team-event-buttons">
@@ -615,38 +867,15 @@
         </button>
       </div>
     </fieldset>
+    <fieldset class="team-event-group foul-event-group">
+      <legend>Match annotation</legend>
+      <button class="foul" data-team="neutral"
+        data-type="foul_encountered">
+        F · Foul encountered
+      </button>
+    </fieldset>
   </section>
 
-  <section class="scoreboards">
-    <article class="card scoreboard manual">
-      <h2>Your live reference</h2>
-      <p class="muted">Only clicks at or before the current playhead are shown.</p>
-      <section class="counts">
-        <div class="card"><div class="muted">Red/white completed passes</div><div class="count" id="manual-red-passes">0</div></div>
-        <div class="card"><div class="muted">Black completed passes</div><div class="count" id="manual-black-passes">0</div></div>
-        <div class="card"><div class="muted">Red turnovers</div><div class="count" id="manual-red-turnovers">0</div></div>
-        <div class="card"><div class="muted">Black turnovers</div><div class="count" id="manual-black-turnovers">0</div></div>
-        <div class="card"><div class="muted">Red shots</div><div class="count" id="manual-red-shots">0</div></div>
-        <div class="card"><div class="muted">Black shots</div><div class="count" id="manual-black-shots">0</div></div>
-        <div class="card"><div class="muted">Red on target</div><div class="count" id="manual-red-on-target">0</div></div>
-        <div class="card"><div class="muted">Black on target</div><div class="count" id="manual-black-on-target">0</div></div>
-      </section>
-    </article>
-    <article class="card scoreboard baseline ai-readiness-panel" id="ai-readiness-panel">
-      <h2>AI calibrated baseline</h2>
-      <p class="muted" id="ai-status">Loading saved AI events…</p>
-      <section class="counts">
-        <div class="card"><div class="muted">Red/white completed passes</div><div class="count" id="ai-red-passes">0</div></div>
-        <div class="card"><div class="muted">Black completed passes</div><div class="count" id="ai-black-passes">0</div></div>
-        <div class="card"><div class="muted">Red turnovers</div><div class="count" id="ai-red-turnovers">0</div></div>
-        <div class="card"><div class="muted">Black turnovers</div><div class="count" id="ai-black-turnovers">0</div></div>
-        <div class="card"><div class="muted">Red shots</div><div class="count" id="ai-red-shots">0</div></div>
-        <div class="card"><div class="muted">Black shots</div><div class="count" id="ai-black-shots">0</div></div>
-        <div class="card"><div class="muted">Red on-target candidates</div><div class="count" id="ai-red-on-target">0</div></div>
-        <div class="card"><div class="muted">Black on-target candidates</div><div class="count" id="ai-black-on-target">0</div></div>
-      </section>
-    </article>
-  </section>
   <p class="muted">Possession percentage will be published after a complete
     half has enough controlled-ball samples. This one-minute review does not
     present a half-time possession claim.</p>
@@ -659,42 +888,50 @@
     <button id="clear" class="danger">Clear all entries</button>
   </section>
 
-  <section class="event-tables">
-    <article>
-      <h2>Your timestamped clicks</h2>
-      <p class="muted">Live log through the playhead. Pass time is the receiver's first touch.</p>
+  <details class="card correlation-details" id="ai-events-panel">
+    <summary>Manual ↔ AI Event Correlation</summary>
+    <div class="details-content">
+      <p class="muted">Both sides use the receiver/completion time. The closest
+        events within three seconds are placed opposite each other; time and
+        25-fps frame are shown for exact review.</p>
       <div class="table-wrap">
-        <table>
-          <thead><tr><th>Time</th><th>Team</th><th>Event</th><th></th></tr></thead>
-          <tbody id="events"></tbody>
-        </table>
+      <table>
+        <thead>
+          <tr><th colspan="4">Your manual reference</th><th>Comparison</th>
+            <th colspan="5">AI baseline</th></tr>
+          <tr><th>Receiver</th><th>Team</th><th>Event</th><th></th>
+            <th>Result</th><th>Receiver</th><th>Team</th><th>Event</th>
+            <th>Confidence</th><th></th></tr>
+        </thead>
+        <tbody id="correlated-events"></tbody>
+      </table>
       </div>
-    </article>
-    <article class="ai-readiness-panel" id="ai-events-panel">
-      <h2>AI timestamped events</h2>
-      <p class="muted">Live log through the playhead. Release and receiver times come from the unchanged baseline.</p>
-      <div class="table-wrap">
-        <table>
-          <thead><tr><th>Release</th><th>Receiver</th><th>Team</th>
-            <th>Event</th><th>Confidence</th><th></th></tr></thead>
-          <tbody id="ai-events"></tbody>
-        </table>
-      </div>
-    </article>
-  </section>
+    </div>
+  </details>
 </main>
 <script>
   let storageKey = "alfheim-window-555-manual-events-v1";
   const video = document.getElementById("video");
+  const reviewWorkspace = document.getElementById("review-workspace");
   const videoStage = document.getElementById("video-stage");
   const geometryCanvas = document.getElementById("geometry-overlay");
   const geometryContext = geometryCanvas.getContext("2d");
   const fullscreenButton = document.getElementById("fullscreen");
-  const assistToggle = document.getElementById("assist-toggle");
+  const zoomFocusX = document.getElementById("zoom-focus-x");
+  const zoomFocusY = document.getElementById("zoom-focus-y");
+  const zoomStatus = document.getElementById("zoom-status");
+  const fullscreenPlayToggle = document.getElementById(
+    "fullscreen-play-toggle"
+  );
+  const fullscreenTimeline = document.getElementById("fullscreen-timeline");
+  const fullscreenTimelineStatus = document.getElementById(
+    "fullscreen-timeline-status"
+  );
+  const assistToggles = document.querySelectorAll("[data-assist-toggle]");
   const assistStatus = document.getElementById("assist-status");
   const playbackTime = document.getElementById("playback-time");
-  const eventBody = document.getElementById("events");
-  const aiEventBody = document.getElementById("ai-events");
+  const correlationBody = document.getElementById("correlated-events");
+  const liveEventList = document.getElementById("live-event-list");
   const segmentStatus = document.getElementById("segment-status");
   const preparedSegmentSelect = document.getElementById("prepared-segment");
   const baselineInstallStatus = document.getElementById("baseline-install-status");
@@ -704,10 +941,20 @@
   const videoMode = document.getElementById("video-mode");
   const aiProgress = document.getElementById("ai-progress");
   const aiProgressLabel = document.getElementById("ai-progress-label");
+  const processingTiming = document.getElementById("processing-timing");
   const trackingOption = videoMode.querySelector('option[value="tracking"]');
   const baselineCleanUrl = "../alfheim-window-playable.mp4";
   const baselineTrackingUrl = "../analytics/tracking-verification.webm";
   const pageParameters = new URLSearchParams(window.location.search);
+  const validationTestWindows = {
+    "test-1": {start: 180, duration: 60, cacheKey: "segment-0060-020"},
+    "test-2": {start: 540, duration: 60, cacheKey: "segment-0180-020"},
+    "test-3": {start: 900, duration: 60, cacheKey: "segment-0300-020"},
+    "test-4": {start: 1260, duration: 60, cacheKey: "segment-0420-020"},
+    "test-5": {start: 2100, duration: 60, cacheKey: "segment-0700-020"}
+  };
+  const selectedValidationTest =
+    validationTestWindows[pageParameters.get("test")] || null;
   const geometryStorageKey = "alfheim-camera-setting-2-geometry-v1";
   let events = JSON.parse(localStorage.getItem(storageKey) || "[]");
   let aiEvents = [];
@@ -725,6 +972,10 @@
   let assistedReview = true;
   let pendingEvent = null;
   let preparedSegments = [];
+  let aiProcessingStartedAt = null;
+  let aiProcessingTimer = null;
+  const videoZoomLevels = [1, 1.5, 2, 3, 4];
+  let videoZoomIndex = 0;
   const requiredBaselineSegments = new Map([
     ["segment-0575-020", "28:45–29:45"],
     ["segment-0595-020", "29:45–30:45"],
@@ -776,6 +1027,74 @@
       });
   }
 
+  function formatElapsed(milliseconds) {
+    const totalSeconds = Math.max(0, Math.floor(milliseconds / 1000));
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return `${String(minutes).padStart(2, "0")}:` +
+      `${String(seconds).padStart(2, "0")}`;
+  }
+
+  function updateProcessingTiming() {
+    const elapsed = aiProcessingStartedAt === null
+      ? "—"
+      : formatElapsed(performance.now() - aiProcessingStartedAt);
+    processingTiming.textContent =
+      `Segment ${reviewDurationSeconds.toFixed(1)}s · AI elapsed ${elapsed}`;
+  }
+
+  function startAiProcessingTimer() {
+    if (aiProcessingStartedAt === null) {
+      aiProcessingStartedAt = performance.now();
+    }
+    clearInterval(aiProcessingTimer);
+    updateProcessingTiming();
+    aiProcessingTimer = setInterval(updateProcessingTiming, 1000);
+  }
+
+  function stopAiProcessingTimer() {
+    clearInterval(aiProcessingTimer);
+    aiProcessingTimer = null;
+    updateProcessingTiming();
+  }
+
+  function updateVideoZoom() {
+    const zoom = videoZoomLevels[videoZoomIndex];
+    const focusX = Number(zoomFocusX.value);
+    const focusY = Number(zoomFocusY.value);
+    const transform = `scale(${zoom})`;
+    const transformOrigin = `${focusX}% ${focusY}%`;
+    for (const surface of [video, geometryCanvas]) {
+      surface.style.transform = transform;
+      surface.style.transformOrigin = transformOrigin;
+    }
+    zoomFocusX.disabled = zoom === 1;
+    zoomFocusY.disabled = zoom === 1;
+    document.querySelector('[data-zoom-action="out"]').disabled =
+      videoZoomIndex === 0;
+    document.querySelector('[data-zoom-action="in"]').disabled =
+      videoZoomIndex === videoZoomLevels.length - 1;
+    zoomStatus.textContent = zoom === 1
+      ? "1× · Centered"
+      : `${zoom}× · Focus ${focusX}% / ${focusY}%`;
+  }
+
+  function resetVideoZoom() {
+    videoZoomIndex = 0;
+    zoomFocusX.value = "50";
+    zoomFocusY.value = "50";
+    updateVideoZoom();
+  }
+
+  function updateFullscreenTimeline() {
+    const current = Math.min(reviewDurationSeconds, reviewTime());
+    fullscreenTimeline.max = String(reviewDurationSeconds);
+    fullscreenTimeline.value = String(current);
+    fullscreenTimelineStatus.textContent =
+      `${current.toFixed(2)}s / ${reviewDurationSeconds.toFixed(2)}s`;
+    fullscreenPlayToggle.textContent = video.paused ? "Play" : "Pause";
+  }
+
   function preparedStateLabel(state) {
     return {
       ready: "AI ready",
@@ -791,10 +1110,25 @@
     const start = Number(segment.source_start_seconds);
     const end = start + Number(segment.duration_seconds);
     const protectedLabel = segment.protected ? " · protected v41 reel" : "";
+    const validatedLabel = segment.validated ? " · ✓ 100% validated" : "";
     return (
       `${formatClock(start)}–${formatClock(end)} · ` +
-      `${preparedStateLabel(segment.state)}${protectedLabel}`
+      `${preparedStateLabel(segment.state)}${validatedLabel}${protectedLabel}`
     );
+  }
+
+  async function loadPublishedManualReference(cacheKey) {
+    const response = await fetch(
+      `/benchmarks/alfheim/generated/${encodeURIComponent(cacheKey)}` +
+      "/manual-reference.json",
+      {cache: "no-store"}
+    );
+    if (response.status === 404) return [];
+    const payload = await response.json();
+    if (!response.ok) {
+      throw new Error(payload.error || `HTTP ${response.status}`);
+    }
+    return Array.isArray(payload.events) ? payload.events : [];
   }
 
   async function loadPreparedSegments(selectedKey = segmentName) {
@@ -828,10 +1162,15 @@
       baselineInstallStatus.textContent =
         "Installation complete: all three protected v41 baseline videos are ready.";
     }
+
     preparedSegmentSelect.replaceChildren(...preparedSegments.map(segment => {
       const option = document.createElement("option");
       option.value = segment.cache_key;
       option.textContent = preparedSegmentLabel(segment);
+      option.classList.toggle(
+        "validated-segment-option",
+        Boolean(segment.validated)
+      );
       return option;
     }));
     if (!preparedSegments.length) {
@@ -848,12 +1187,15 @@
     }
   }
 
-  const preparingBookmarkedSegment = pageParameters.get("prepare") === "1";
+  const preparingBookmarkedSegment = (
+    selectedValidationTest !== null
+    || pageParameters.get("prepare") === "1"
+  );
   setGeometryAvailable(!preparingBookmarkedSegment);
   setAiReady(!preparingBookmarkedSegment);
   video.defaultPlaybackRate = 0.5;
   video.playbackRate = 0.5;
-  if (pageParameters.get("prepare") !== "1") {
+  if (!preparingBookmarkedSegment) {
     video.src = baselineCleanUrl;
     processSegmentButton.disabled = true;
     processSegmentButton.textContent = "AI ready";
@@ -868,6 +1210,12 @@
 
   const save = () => {
     localStorage.setItem(storageKey, JSON.stringify(events));
+    const emptyMarkerKey = `${storageKey}-explicitly-empty-v1`;
+    if (events.length) {
+      localStorage.removeItem(emptyMarkerKey);
+    } else {
+      localStorage.setItem(emptyMarkerKey, "1");
+    }
     render();
   };
 
@@ -881,6 +1229,10 @@
 
   function render() {
     const currentReviewTime = reviewTime();
+    updateFullscreenTimeline();
+    const reachedAiEvents = aiEvents.filter(
+      event => eventCompletionSeconds(event, true) <= currentReviewTime + 0.05
+    );
     const count = (source, team, type) => source.filter(
       event => event.team === team && event.event_type === type
     ).length;
@@ -895,57 +1247,248 @@
         "on-target": count(events, team, "shot_on_target")
       };
       for (const [metric, value] of Object.entries(manualValues)) {
-        document.getElementById(`manual-${team}-${metric}`).textContent = value;
         document.getElementById(
           `overlay-manual-${team}-${metric}`
         ).textContent = value;
       }
       const aiValues = {
-        passes: count(aiEvents, team, "pass_candidate") +
-          count(aiEvents, team, "restart_pass_candidate"),
-        turnovers: count(aiEvents, team, "turnover_candidate"),
-        shots: count(aiEvents, team, "shot_candidate") +
-          count(aiEvents, team, "shot_on_target_candidate"),
-        "on-target": count(aiEvents, team, "shot_on_target_candidate")
+        passes: count(reachedAiEvents, team, "pass_candidate") +
+          count(reachedAiEvents, team, "restart_pass_candidate"),
+        turnovers: count(reachedAiEvents, team, "turnover_candidate"),
+        shots: count(reachedAiEvents, team, "shot_candidate") +
+          count(reachedAiEvents, team, "shot_on_target_candidate"),
+        "on-target": count(reachedAiEvents, team, "shot_on_target_candidate")
       };
       for (const [metric, value] of Object.entries(aiValues)) {
-        document.getElementById(`ai-${team}-${metric}`).textContent = value;
         document.getElementById(`overlay-ai-${team}-${metric}`).textContent =
           value;
       }
     }
-    eventBody.replaceChildren(...events.map(event => {
-      const index = events.indexOf(event);
+    correlationBody.replaceChildren(...correlateEvents().map(pair => {
       const row = document.createElement("tr");
-      if (event.clip_seconds <= currentReviewTime + 0.05) {
-        row.classList.add("reached");
-      }
-      row.innerHTML = `<td>${event.clip_seconds.toFixed(2)}s</td>
-        <td>${event.team === "red" ? "Red/white" : "Black"}</td>
-        <td>${eventLabel(event.event_type)}</td>
-        <td><button data-seek-manual="${index}">Seek</button>
-          <button data-remove="${index}">Remove</button></td>`;
-      return row;
-    }));
-    aiEventBody.replaceChildren(...aiEvents.map(event => {
-      const index = aiEvents.indexOf(event);
-      const row = document.createElement("tr");
-      const completion = Number(
-        event.completion_seconds ?? event.clip_seconds
+      const manual = pair.manual;
+      const ai = pair.ai;
+      const comparisonTime = Math.max(
+        manual ? eventCompletionSeconds(manual, false) : 0,
+        ai ? eventCompletionSeconds(ai, true) : 0
       );
-      if (completion <= currentReviewTime + 0.05) {
+      if (comparisonTime <= currentReviewTime + 0.05) {
         row.classList.add("reached");
       }
-      row.innerHTML = `<td>${Number(event.clip_seconds).toFixed(2)}s</td>
-        <td>${completion.toFixed(2)}s</td>
-        <td>${event.team === "red" ? "Red/white" :
-          event.team === "black" ? "Black" : "-"}</td>
-        <td>${eventLabel(event.event_type)}</td>
-        <td>${Math.round(Number(event.confidence || 0) * 100)}%</td>
-        <td><button data-seek-ai="${index}">Seek</button></td>`;
+      row.innerHTML = manualEventCells(manual, pair.manualIndex) +
+        `<td>${correlationLabel(manual, ai)}</td>` +
+        aiEventCells(ai, pair.aiIndex);
       return row;
     }));
+    renderLiveEvents(currentReviewTime);
     drawGeometry();
+  }
+
+  function renderLiveEvents(currentReviewTime) {
+    const reached = [
+      ...events.map(event => ({
+        event,
+        source: "You",
+        isAi: false,
+        time: eventCompletionSeconds(event, false)
+      })),
+      ...aiEvents.map(event => ({
+        event,
+        source: "AI",
+        isAi: true,
+        time: eventCompletionSeconds(event, true)
+      }))
+    ].filter(entry => entry.time <= currentReviewTime + 0.05)
+      .sort((first, second) => first.time - second.time)
+      .slice(-6)
+      .reverse();
+    if (!reached.length) {
+      const empty = document.createElement("li");
+      empty.className = "muted";
+      empty.textContent = "No events reached yet.";
+      liveEventList.replaceChildren(empty);
+      return;
+    }
+    liveEventList.replaceChildren(...reached.map(entry => {
+      const item = document.createElement("li");
+      item.className = "live-event-card";
+      if (entry.event.event_type === "foul_encountered") {
+        item.classList.add("foul-event");
+      }
+      if (Math.abs(entry.time - currentReviewTime) <= 0.3) {
+        item.classList.add("is-current");
+      }
+      const eventSource = document.createElement("span");
+      eventSource.className = "live-event-source";
+      const sourceLabel = document.createElement("strong");
+      sourceLabel.textContent = entry.source;
+      const eventTime = document.createElement("span");
+      eventTime.className = "event-time";
+      const eventFrame = document.createElement("small");
+      eventFrame.textContent = `frame ${Math.round(entry.time * 25)}`;
+      eventTime.append(`${entry.time.toFixed(3)}s`, eventFrame);
+      eventSource.append(
+        sourceLabel,
+        " · ",
+        eventTime,
+        ` · ${teamLabel(entry.event.team)} · ` +
+          eventLabel(entry.event.event_type)
+      );
+      const eventKind = document.createElement("span");
+      eventKind.className = "live-event-result";
+      eventKind.textContent = entry.isAi ? "AI event" : "Manual event";
+      item.append(eventSource, eventKind);
+      return item;
+    }));
+  }
+
+  function correlationTime(pair) {
+    return Math.max(
+      pair.manual ? eventCompletionSeconds(pair.manual, false) : 0,
+      pair.ai ? eventCompletionSeconds(pair.ai, true) : 0
+    );
+  }
+
+  function eventCompletionSeconds(event, isAi) {
+    return Number(isAi
+      ? event.completion_seconds ?? event.clip_seconds
+      : event.clip_seconds);
+  }
+
+  function formatEventTime(seconds) {
+    return `<span class="event-time">${seconds.toFixed(3)}s` +
+      `<small>frame ${Math.round(seconds * 25)}</small></span>`;
+  }
+
+  function teamLabel(team) {
+    return team === "red" ? "Red/white" : team === "black" ? "Black" : "-";
+  }
+
+  function canonicalEventType(eventType) {
+    return {
+      pass_candidate: "completed_pass",
+      restart_pass_candidate: "completed_pass",
+      turnover_candidate: "turnover",
+      shot_candidate: "shot",
+      shot_on_target_candidate: "shot_on_target"
+    }[eventType] || eventType;
+  }
+
+  function correlateEvents() {
+    const candidates = [];
+    events.forEach((manual, manualIndex) => {
+      if (manual.event_type === "foul_encountered") return;
+      aiEvents.forEach((ai, aiIndex) => {
+        if (
+          canonicalEventType(manual.event_type) !==
+          canonicalEventType(ai.event_type)
+        ) return;
+        const difference = Math.abs(
+          eventCompletionSeconds(ai, true) -
+          eventCompletionSeconds(manual, false)
+        );
+        if (difference <= 3) {
+          candidates.push({
+            manualIndex,
+            aiIndex,
+            difference,
+            sameTeam: manual.team === ai.team
+          });
+        }
+      });
+    });
+    candidates.sort((left, right) =>
+      Number(right.sameTeam) - Number(left.sameTeam) ||
+      left.difference - right.difference
+    );
+    const usedManual = new Set();
+    const usedAi = new Set();
+    const pairs = [];
+    for (const candidate of candidates) {
+      if (
+        usedManual.has(candidate.manualIndex) ||
+        usedAi.has(candidate.aiIndex)
+      ) continue;
+      usedManual.add(candidate.manualIndex);
+      usedAi.add(candidate.aiIndex);
+      pairs.push({
+        manual: events[candidate.manualIndex],
+        manualIndex: candidate.manualIndex,
+        ai: aiEvents[candidate.aiIndex],
+        aiIndex: candidate.aiIndex
+      });
+    }
+    events.forEach((manual, manualIndex) => {
+      if (!usedManual.has(manualIndex)) {
+        pairs.push({manual, manualIndex, ai: null, aiIndex: null});
+      }
+    });
+    aiEvents.forEach((ai, aiIndex) => {
+      if (!usedAi.has(aiIndex)) {
+        pairs.push({manual: null, manualIndex: null, ai, aiIndex});
+      }
+    });
+    return pairs.sort((left, right) => {
+      const leftTime = Math.min(
+        left.manual ? eventCompletionSeconds(left.manual, false) : Infinity,
+        left.ai ? eventCompletionSeconds(left.ai, true) : Infinity
+      );
+      const rightTime = Math.min(
+        right.manual ? eventCompletionSeconds(right.manual, false) : Infinity,
+        right.ai ? eventCompletionSeconds(right.ai, true) : Infinity
+      );
+      return leftTime - rightTime;
+    });
+  }
+
+  function manualEventCells(event, index) {
+    if (!event) return "<td>-</td><td>-</td><td>-</td><td></td>";
+    return `<td>${formatEventTime(eventCompletionSeconds(event, false))}</td>` +
+      `<td>${teamLabel(event.team)}</td>` +
+      `<td>${eventLabel(event.event_type)}</td>` +
+      `<td><button data-seek-manual="${index}">Seek</button> ` +
+      `<button data-remove="${index}">Remove</button></td>`;
+  }
+
+  function aiEventCells(event, index) {
+    if (!event) return "<td>-</td><td>-</td><td>-</td><td>-</td><td></td>";
+    const completion = eventCompletionSeconds(event, true);
+    const release = Number(event.clip_seconds);
+    return `<td>${formatEventTime(completion)}` +
+      `<small>release ${release.toFixed(3)}s</small></td>` +
+      `<td>${teamLabel(event.team)}</td>` +
+      `<td>${eventLabel(event.event_type)}</td>` +
+      `<td>${Math.round(Number(event.confidence || 0) * 100)}%</td>` +
+      `<td><button data-seek-ai="${index}">Seek</button></td>`;
+  }
+
+  function correlationLabel(manual, ai) {
+    if (manual?.event_type === "foul_encountered") {
+      return '<span class="foul-annotation">Annotation only</span>';
+    }
+    if (!manual) return '<span class="correlation-mismatch">AI only</span>';
+    if (!ai) return '<span class="correlation-mismatch">Manual only</span>';
+    const difference = eventCompletionSeconds(ai, true) -
+      eventCompletionSeconds(manual, false);
+    const delta = `${difference >= 0 ? "+" : ""}${difference.toFixed(3)}s`;
+    const sameTeam = manual.team === ai.team;
+    const sameType = canonicalEventType(manual.event_type) ===
+      canonicalEventType(ai.event_type);
+    if (sameTeam && sameType) {
+      const sameFrame = Math.round(eventCompletionSeconds(manual, false) * 25) ===
+        Math.round(eventCompletionSeconds(ai, true) * 25);
+      const label = sameFrame ? "Same frame" :
+        Math.abs(difference) <= 1 ? "Match" : "Close";
+      const style = Math.abs(difference) <= 1
+        ? "correlation-match"
+        : "correlation-close";
+      return `<span class="${style}">${label} · ${delta}</span>`;
+    }
+    const reasons = [];
+    if (!sameTeam) reasons.push("team");
+    if (!sameType) reasons.push("event");
+    return `<span class="correlation-mismatch">${reasons.join(" + ")} ` +
+      `mismatch · ${delta}</span>`;
   }
 
   function eventLabel(eventType) {
@@ -954,11 +1497,12 @@
       turnover: "Turnover",
       shot: "Shot",
       shot_on_target: "Shot on target",
-      pass_candidate: "Completed-pass candidate",
-      restart_pass_candidate: "Restart-pass candidate",
-      turnover_candidate: "Turnover candidate",
-      shot_candidate: "Shot candidate",
-      shot_on_target_candidate: "Shot-on-target candidate"
+      foul_encountered: "Foul encountered",
+      pass_candidate: "Completed pass",
+      restart_pass_candidate: "Completed pass",
+      turnover_candidate: "Turnover",
+      shot_candidate: "Shot",
+      shot_on_target_candidate: "Shot on target"
     }[eventType] || eventType;
   }
 
@@ -1083,6 +1627,8 @@
     if (!response.ok) throw new Error(status.error || `HTTP ${response.status}`);
     if (status.state !== "ready") setAiReady(false);
     if (status.state === "processing") {
+      startAiProcessingTimer();
+      processSegmentButton.dataset.eventsOnly = "false";
       processSegmentButton.disabled = true;
       processSegmentButton.textContent = "AI processing…";
       aiProgress.max = status.expected_frames;
@@ -1101,6 +1647,8 @@
       return;
     }
     if (status.state === "detections_ready") {
+      stopAiProcessingTimer();
+      processSegmentButton.dataset.eventsOnly = "false";
       processSegmentButton.disabled = false;
       processSegmentButton.textContent = "Build tracks and events";
       aiProgress.max = status.expected_frames;
@@ -1115,6 +1663,7 @@
       return;
     }
     if (status.state === "building") {
+      startAiProcessingTimer();
       processSegmentButton.disabled = true;
       processSegmentButton.textContent = "Building analytics…";
       aiProgress.max = status.expected_frames || 1;
@@ -1126,6 +1675,7 @@
       return;
     }
     if (status.state === "failed") {
+      stopAiProcessingTimer();
       processSegmentButton.disabled = false;
       processSegmentButton.textContent = "Retry AI";
       aiProgressLabel.textContent = "AI failed";
@@ -1134,6 +1684,7 @@
       return;
     }
     if (status.state !== "ready") {
+      processSegmentButton.dataset.eventsOnly = "false";
       processSegmentButton.disabled = false;
       processSegmentButton.textContent = "Process AI";
       aiProgress.value = 0;
@@ -1144,7 +1695,9 @@
         "Segment prepared; AI detection has not started.";
       return;
     }
-    const eventResponse = await fetch(status.events_url, {cache: "no-store"});
+    const eventUrl = new URL(status.events_url, window.location.origin);
+    eventUrl.searchParams.set("updated", Date.now());
+    const eventResponse = await fetch(eventUrl, {cache: "no-store"});
     if (!eventResponse.ok) {
       throw new Error(`Events HTTP ${eventResponse.status}`);
     }
@@ -1160,9 +1713,11 @@
       event.completion_seconds <= reviewDurationSeconds
     );
     setAiReady(true);
+    stopAiProcessingTimer();
     trackingVideoUrl = status.tracking_url;
-    processSegmentButton.disabled = true;
-    processSegmentButton.textContent = "AI ready";
+    processSegmentButton.disabled = false;
+    processSegmentButton.dataset.eventsOnly = "true";
+    processSegmentButton.textContent = "Rerun AI logic";
     aiProgress.max = status.expected_frames || 1;
     aiProgress.value = status.expected_frames || 1;
     aiProgressLabel.textContent = "AI ready";
@@ -1183,7 +1738,7 @@
   function addEvent(team, eventType) {
     const entry = {
       clip_seconds: Number(reviewTime().toFixed(3)),
-      team,
+      team: eventType === "foul_encountered" ? null : team,
       event_type: eventType
     };
     events.push(entry);
@@ -1257,7 +1812,7 @@
       }
     });
   });
-  eventBody.addEventListener("click", event => {
+  correlationBody.addEventListener("click", event => {
     const seekIndex = event.target.dataset.seekManual;
     if (seekIndex !== undefined) {
       video.pause();
@@ -1265,24 +1820,19 @@
         events[Number(seekIndex)].clip_seconds;
       return;
     }
-    const index = event.target.dataset.remove;
-    if (index === undefined) return;
-    events.splice(Number(index), 1);
-    save();
-  });
-  aiEventBody.addEventListener("click", event => {
-    const index = event.target.dataset.seekAi;
-    if (index === undefined) return;
+    const removeIndex = event.target.dataset.remove;
+    if (removeIndex !== undefined) {
+      events.splice(Number(removeIndex), 1);
+      save();
+      return;
+    }
+    const aiIndex = event.target.dataset.seekAi;
+    if (aiIndex === undefined) return;
     video.pause();
     video.currentTime = clipStartSeconds + Number(
-      aiEvents[Number(index)].completion_seconds ??
-      aiEvents[Number(index)].clip_seconds
+      aiEvents[Number(aiIndex)].completion_seconds ??
+      aiEvents[Number(aiIndex)].clip_seconds
     );
-  });
-  document.getElementById("undo").addEventListener("click", () => {
-    pendingEvent = null;
-    events.pop();
-    save();
   });
   function seekBy(seconds) {
     video.pause();
@@ -1291,21 +1841,76 @@
       Math.min(reviewEnd(), video.currentTime + seconds)
     );
   }
-  document.getElementById("back").addEventListener("click", () => seekBy(-2));
-  document.getElementById("forward").addEventListener("click", () => seekBy(2));
-  document.getElementById("slower").addEventListener("click", () => {
-    video.playbackRate = 0.5;
+  document.querySelectorAll("[data-playback-action]").forEach(button => {
+    button.addEventListener("click", () => {
+      const action = button.dataset.playbackAction;
+      if (action === "back") seekBy(-2);
+      if (action === "forward") seekBy(2);
+      if (action === "slower") video.playbackRate = 0.5;
+      if (action === "normal") video.playbackRate = 1;
+      if (action === "undo") {
+        pendingEvent = null;
+        events.pop();
+        save();
+      }
+    });
+    document.querySelectorAll("[data-zoom-action]").forEach(button => {
+      button.addEventListener("click", () => {
+        const action = button.dataset.zoomAction;
+        if (action === "in") {
+          videoZoomIndex = Math.min(
+            videoZoomLevels.length - 1, videoZoomIndex + 1
+          );
+        }
+        if (action === "out") videoZoomIndex = Math.max(0, videoZoomIndex - 1);
+        if (action === "reset") {
+          resetVideoZoom();
+          return;
+        }
+        updateVideoZoom();
+      });
+    });
+    [zoomFocusX, zoomFocusY].forEach(control => {
+      control.addEventListener("input", updateVideoZoom);
+    });
+    updateVideoZoom();
+    fullscreenTimeline.addEventListener("input", () => {
+      video.currentTime = clipStartSeconds + Number(fullscreenTimeline.value);
+    });
+    fullscreenPlayToggle.addEventListener("click", () => {
+      if (video.paused) {
+        void video.play();
+        return;
+      }
+      video.pause();
+    });
+    ["play", "pause"].forEach(name => {
+      video.addEventListener(name, updateFullscreenTimeline);
+    });
   });
-  document.getElementById("normal").addEventListener("click", () => {
-    video.playbackRate = 1;
-  });
-  assistToggle.addEventListener("click", () => {
-    assistedReview = !assistedReview;
+
+  function setAssistedReview(enabled) {
+    assistedReview = enabled;
     pendingEvent = null;
-    assistToggle.textContent = `Assisted review: ${assistedReview ? "ON" : "OFF"}`;
-    assistStatus.textContent = assistedReview
-      ? "Assisted review is ready: choose an event to pause, refine its time with ←/→, then press Enter."
-      : "Assisted review is off. Event clicks will not pause playback.";
+    document.querySelectorAll("[data-assisted-review]").forEach(control => {
+      control.classList.toggle("hidden", !assistedReview);
+    });
+    assistToggles.forEach(toggle => {
+      toggle.textContent =
+        `Assisted Review: ${assistedReview ? "ON" : "OFF"}`;
+      toggle.setAttribute("aria-pressed", String(assistedReview));
+    });
+    if (assistedReview) {
+      assistStatus.textContent =
+        "Assisted review is ready: choose an event to pause, refine its " +
+        "time with ←/→, then press Enter.";
+    }
+  }
+
+  assistToggles.forEach(toggle => {
+    toggle.addEventListener("click", () => {
+      setAssistedReview(!assistedReview);
+    });
   });
   document.getElementById("frame-back").addEventListener(
     "click", () => stepFrame(-1)
@@ -1457,6 +2062,7 @@
       videoMode.value = "clean";
       clipStartSeconds = Number(payload.clip_start_seconds);
       reviewDurationSeconds = Number(payload.duration_seconds);
+      updateProcessingTiming();
       sourceStartSeconds = Number(payload.requested_start_seconds);
       document.getElementById("segment-start-minute").value =
         Math.floor(sourceStartSeconds / 60);
@@ -1467,7 +2073,39 @@
       storageKey = (
         `alfheim-${sourceStartSeconds}-${reviewDurationSeconds}-manual-events-v1`
       );
-      events = JSON.parse(localStorage.getItem(storageKey) || "[]");
+      const savedManualEvents = localStorage.getItem(storageKey);
+      const parsedManualEvents = savedManualEvents === null
+        ? null
+        : JSON.parse(savedManualEvents);
+      const isExplicitlyEmpty = localStorage.getItem(
+        `${storageKey}-explicitly-empty-v1`
+      ) === "1";
+      events = (
+        parsedManualEvents === null
+        || (!parsedManualEvents.length && !isExplicitlyEmpty)
+      )
+        ? await loadPublishedManualReference(activeCacheKey)
+        : parsedManualEvents;
+      const manualFrom = Number(pageParameters.get("manual-from"));
+      const manualTo = Number(pageParameters.get("manual-to"));
+      const manualTeam = pageParameters.get("manual-team");
+      const manualType = pageParameters.get("manual-type");
+      if (
+        Number.isFinite(manualFrom)
+        && Number.isFinite(manualTo)
+        && manualTeam
+        && manualType
+      ) {
+        const eventToUpdate = events.find(event =>
+          event.team === manualTeam
+          && event.event_type === manualType
+          && Math.abs(event.clip_seconds - manualFrom) <= 0.05
+        );
+        if (eventToUpdate) {
+          eventToUpdate.clip_seconds = manualTo;
+          localStorage.setItem(storageKey, JSON.stringify(events));
+        }
+      }
       aiEvents = [];
       pendingEvent = null;
       document.getElementById("show-live-overlay").checked = true;
@@ -1511,19 +2149,29 @@
     }
     processSegmentButton.disabled = true;
     setAiReady(false);
-    processSegmentButton.textContent = "Starting AI…";
+    aiProcessingStartedAt = null;
+    startAiProcessingTimer();
+    const eventsOnly = processSegmentButton.dataset.eventsOnly === "true";
+    processSegmentButton.textContent = eventsOnly
+      ? "Rerunning AI logic…"
+      : "Starting AI…";
     aiProgress.removeAttribute("value");
     aiProgressLabel.textContent = "Starting";
     try {
       const response = await fetch("/api/alfheim/analyze", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({cache_key: activeCacheKey})
+        body: JSON.stringify({
+          cache_key: activeCacheKey,
+          events_only: eventsOnly
+        })
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
       segmentStatus.textContent =
-        "Local AI pipeline started. You may continue manual review.";
+        eventsOnly
+          ? "Event logic is rerunning from cached tracking. Manual clicks are unchanged."
+          : "Local AI pipeline started. You may continue manual review.";
       clearInterval(segmentStatusTimer);
       segmentStatusTimer = setInterval(() => {
         refreshSegmentStatus().catch(error => {
@@ -1538,16 +2186,17 @@
     }
   });
   fullscreenButton.addEventListener("click", async () => {
-    if (document.fullscreenElement === videoStage) {
+    if (document.fullscreenElement === reviewWorkspace) {
       await document.exitFullscreen();
       return;
     }
-    await videoStage.requestFullscreen();
+    await reviewWorkspace.requestFullscreen();
   });
   document.addEventListener("fullscreenchange", () => {
-    fullscreenButton.textContent = document.fullscreenElement === videoStage
+    fullscreenButton.textContent = document.fullscreenElement === reviewWorkspace
       ? "Exit full screen"
       : "Full screen with stats";
+    if (document.fullscreenElement !== reviewWorkspace) resetVideoZoom();
   });
   document.getElementById("export").addEventListener("click", () => {
     const payload = {
@@ -1585,6 +2234,7 @@
   });
   window.addEventListener("keydown", event => {
     if (event.target.matches("input, textarea, select, button")) return;
+    if (!assistedReview) return;
     if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
       event.preventDefault();
       stepFrame(event.key === "ArrowLeft" ? -1 : 1);
@@ -1603,7 +2253,9 @@
       "5": ["red", "shot"],
       "6": ["black", "shot"],
       "7": ["red", "shot_on_target"],
-      "8": ["black", "shot_on_target"]
+      "8": ["black", "shot_on_target"],
+      "f": ["neutral", "foul_encountered"],
+      "F": ["neutral", "foul_encountered"]
     };
     if (shortcuts[event.key]) {
       event.preventDefault();
@@ -1645,7 +2297,7 @@
   }).catch(error => {
     geometryStatus.textContent = `Geometry/labels unavailable: ${error.message}`;
   });
-  loadPreparedSegments().catch(error => {
+  loadPreparedSegments(selectedValidationTest?.cacheKey).catch(error => {
     preparedSegmentSelect.replaceChildren();
     const option = document.createElement("option");
     option.value = "";
@@ -1679,18 +2331,23 @@
       document.getElementById("ai-status").textContent =
         `Baseline unavailable: ${error.message}`;
     });
-  if (pageParameters.has("start")) {
-    const bookmarkedStart = Number(pageParameters.get("start"));
+  if (selectedValidationTest || pageParameters.has("start")) {
+    const bookmarkedStart = selectedValidationTest
+      ? selectedValidationTest.start
+      : Number(pageParameters.get("start"));
     document.getElementById("segment-start-minute").value =
       Math.floor(bookmarkedStart / 60);
     document.getElementById("segment-start-second").value =
       Math.floor(bookmarkedStart % 60);
   }
-  if (pageParameters.has("duration")) {
+  if (selectedValidationTest) {
+    document.getElementById("segment-duration").value =
+      selectedValidationTest.duration;
+  } else if (pageParameters.has("duration")) {
     document.getElementById("segment-duration").value =
       pageParameters.get("duration");
   }
-  if (pageParameters.get("prepare") === "1") {
+  if (preparingBookmarkedSegment) {
     setTimeout(() => prepareSegmentButton.click(), 0);
   }
   function animateOverlay() {
@@ -1698,6 +2355,7 @@
     requestAnimationFrame(animateOverlay);
   }
   requestAnimationFrame(animateOverlay);
+  setAssistedReview(true);
   render();
 </script>
 </body>

@@ -17,6 +17,14 @@ from football_poc.cli import _extract_detections, _print_progress, _wanted_class
 
 
 @dataclass(frozen=True)
+class CameraStream:
+    camera_id: str
+    video: Path
+    time_offset_seconds: float
+    calibration: Path | None
+
+
+@dataclass(frozen=True)
 class BenchmarkManifest:
     path: Path
     video: Path
@@ -25,6 +33,8 @@ class BenchmarkManifest:
     end_frame: int
     action_counts: dict[str, int]
     actions: tuple[dict[str, Any], ...]
+    camera_streams: tuple[CameraStream, ...]
+    primary_camera_id: str
 
     @classmethod
     def load(cls, path: str | Path) -> BenchmarkManifest:
@@ -35,9 +45,12 @@ class BenchmarkManifest:
         if not isinstance(payload, dict):
             raise ValueError("Benchmark manifest must be a JSON object")
 
-        video = Path(str(payload.get("video", "")))
-        if not video.is_file():
-            raise FileNotFoundError(f"Benchmark video does not exist: {video}")
+        camera_streams, primary_camera_id = _load_camera_streams(payload)
+        video = next(
+            stream.video
+            for stream in camera_streams
+            if stream.camera_id == primary_camera_id
+        )
         fps = float(payload.get("fps", 0))
         start_frame = int(payload.get("start_frame", -1))
         end_frame = int(payload.get("end_frame", -1))
@@ -58,6 +71,8 @@ class BenchmarkManifest:
             end_frame=end_frame,
             action_counts={str(key): int(value) for key, value in action_counts.items()},
             actions=tuple(action for action in actions if isinstance(action, dict)),
+            camera_streams=camera_streams,
+            primary_camera_id=primary_camera_id,
         )
 
     @property
@@ -67,6 +82,63 @@ class BenchmarkManifest:
     @property
     def sha256(self) -> str:
         return hashlib.sha256(self.path.read_bytes()).hexdigest()
+
+
+def _load_camera_streams(
+    payload: dict[str, Any],
+) -> tuple[tuple[CameraStream, ...], str]:
+    stream_payloads = payload.get("camera_streams")
+    if stream_payloads is None:
+        stream_payloads = [
+            {
+                "camera_id": "primary",
+                "video": payload.get("video", ""),
+                "time_offset_seconds": 0,
+            }
+        ]
+    if not isinstance(stream_payloads, list) or not stream_payloads:
+        raise ValueError("Benchmark camera_streams must be a non-empty list")
+
+    streams: list[CameraStream] = []
+    camera_ids: set[str] = set()
+    for raw_stream in stream_payloads:
+        if not isinstance(raw_stream, dict):
+            raise ValueError("Each benchmark camera stream must be a JSON object")
+        camera_id = str(raw_stream.get("camera_id", "")).strip()
+        if not camera_id:
+            raise ValueError("Each benchmark camera stream needs a camera_id")
+        if camera_id in camera_ids:
+            raise ValueError(f"Duplicate benchmark camera_id: {camera_id}")
+        video = Path(str(raw_stream.get("video", "")))
+        if not video.is_file():
+            raise FileNotFoundError(f"Benchmark video does not exist: {video}")
+        offset = float(raw_stream.get("time_offset_seconds", 0))
+        if not math.isfinite(offset):
+            raise ValueError("Camera time_offset_seconds must be finite")
+        calibration_value = raw_stream.get("calibration")
+        calibration = Path(str(calibration_value)) if calibration_value else None
+        if calibration is not None and not calibration.is_file():
+            raise FileNotFoundError(
+                f"Camera calibration does not exist: {calibration}"
+            )
+        streams.append(
+            CameraStream(
+                camera_id=camera_id,
+                video=video.resolve(),
+                time_offset_seconds=offset,
+                calibration=calibration.resolve() if calibration else None,
+            )
+        )
+        camera_ids.add(camera_id)
+
+    primary_camera_id = str(
+        payload.get("primary_camera_id", streams[0].camera_id)
+    ).strip()
+    if primary_camera_id not in camera_ids:
+        raise ValueError(
+            f"Primary camera is not declared in camera_streams: {primary_camera_id}"
+        )
+    return tuple(streams), primary_camera_id
 
 
 @dataclass(frozen=True)

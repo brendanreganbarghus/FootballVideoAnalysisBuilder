@@ -12,11 +12,27 @@ from pathlib import Path
 from typing import BinaryIO
 from urllib.parse import parse_qs, urlparse
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+LOCAL_SOURCE = PROJECT_ROOT / "src"
+if str(LOCAL_SOURCE) not in sys.path:
+    sys.path.insert(0, str(LOCAL_SOURCE))
+
 from football_poc.alfheim_segments import (
     alfheim_source_info,
     plan_alfheim_segment,
     resolve_alfheim_pano,
 )
+from football_poc.event_comparison import compare_manual_events
+
+
+def workspace_environment(workspace: Path) -> dict[str, str]:
+    environment = os.environ.copy()
+    source = str((workspace / "src").resolve())
+    existing = environment.get("PYTHONPATH")
+    environment["PYTHONPATH"] = (
+        os.pathsep.join((source, existing)) if existing else source
+    )
+    return environment
 
 
 class RangeRequestHandler(SimpleHTTPRequestHandler):
@@ -126,6 +142,9 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
                 raise ValueError("Request body must contain a small JSON object")
             payload = json.loads(self.rfile.read(content_length))
             cache_key = str(payload["cache_key"])
+            events_only = payload.get("events_only", False)
+            if not isinstance(events_only, bool):
+                raise ValueError("events_only must be a boolean")
             if not re.fullmatch(r"segment-\d{4}-\d{3}", cache_key):
                 raise ValueError("Invalid segment cache key")
             segment = (
@@ -143,13 +162,17 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
                 return
             log_path = segment / "analysis.log"
             log = log_path.open("ab")
+            arguments = [
+                sys.executable,
+                str(Path.cwd() / "scripts" / "process-alfheim-segment.py"),
+                str(segment),
+            ]
+            if events_only:
+                arguments.append("--events-only")
             process = subprocess.Popen(
-                [
-                    sys.executable,
-                    str(Path.cwd() / "scripts" / "process-alfheim-segment.py"),
-                    str(segment),
-                ],
+                arguments,
                 cwd=Path.cwd(),
+                env=workspace_environment(Path.cwd()),
                 stdout=log,
                 stderr=subprocess.STDOUT,
             )
@@ -170,7 +193,6 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(body)
 
@@ -199,8 +221,15 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
             if analysis_status_path.is_file()
             else {}
         )
+        current_process = self.analysis_processes.get(cache_key)
         relative = root.relative_to(Path.cwd()).as_posix()
-        if events.is_file():
+        if current_process is not None and current_process.poll() is None:
+            state = (
+                "processing"
+                if analysis_status.get("stage") == "detecting"
+                else "building"
+            )
+        elif events.is_file():
             state = "ready"
         elif analysis_status.get("stage") == "failed":
             state = "failed"
@@ -268,6 +297,24 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
                 continue
             first_segment, segment_count = map(int, match.groups())
             status = self._segment_status(root.name)
+            manual_reference = root / "manual-reference.json"
+            predicted_events = root / "analytics-data" / "predicted-events.json"
+            validated = False
+            if manual_reference.is_file() and predicted_events.is_file():
+                manual = json.loads(manual_reference.read_text(encoding="utf-8"))[
+                    "events"
+                ]
+                predicted = json.loads(predicted_events.read_text(encoding="utf-8"))
+                report = compare_manual_events(
+                    manual,
+                    predicted,
+                    tolerance_seconds=1.0,
+                )
+                validated = (
+                    len(manual) == len(predicted) == report["matched_event_count"]
+                    and not report["unmatched_manual"]
+                    and not report["unmatched_predicted"]
+                )
             relative = root.relative_to(workspace).as_posix()
             items.append(
                 {
@@ -275,6 +322,7 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
                     "source_start_seconds": first_segment * 3,
                     "duration_seconds": segment_count * 3,
                     "state": status["state"],
+                    "validated": validated,
                     "protected": root.name
                     in {
                         "segment-0575-020",
@@ -348,6 +396,11 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
     def end_headers(self) -> None:
         if "Range" not in self.headers:
             self.send_header("Accept-Ranges", "bytes")
+        request_path = urlparse(self.path).path
+        if request_path.endswith((".html", ".json")) or request_path.startswith(
+            "/api/"
+        ):
+            self.send_header("Cache-Control", "no-store, no-cache, must-revalidate")
         super().end_headers()
 
 
@@ -357,7 +410,7 @@ def main() -> None:
     )
     parser.add_argument("--port", type=int, default=8080)
     parser.add_argument("--bind", default="127.0.0.1")
-    parser.add_argument("--directory", type=Path, default=Path.cwd())
+    parser.add_argument("--directory", type=Path, default=PROJECT_ROOT)
     args = parser.parse_args()
     os.chdir(args.directory)
     server = ThreadingHTTPServer((args.bind, args.port), RangeRequestHandler)

@@ -17,17 +17,16 @@ ROOT = Path(__file__).parents[1] / "benchmarks" / "alfheim" / "generated"
 @pytest.mark.parametrize(
     "segment",
     [
+        "segment-0060-020",
+        "segment-0180-020",
         "segment-0575-020",
-        pytest.param(
-            "segment-0595-020",
-            marks=pytest.mark.xfail(
-                reason="Published inference has not reached the manual totals."
-            ),
-        ),
+        "segment-0595-020",
         "segment-0615-020",
     ],
 )
-def test_published_event_totals_match_blind_manual_reference(segment: str) -> None:
+def test_published_events_exactly_match_blind_manual_reference(
+    segment: str,
+) -> None:
     segment_root = ROOT / segment
     manual = json.loads(
         (segment_root / "manual-reference.json").read_text(encoding="utf-8")
@@ -46,8 +45,13 @@ def test_published_event_totals_match_blind_manual_reference(segment: str) -> No
         for event in predicted
         if _manual_event_type(event["event_type"]) is not None
     )
+    report = compare_manual_events(manual, predicted, tolerance_seconds=1.0)
 
     assert predicted_counts == manual_counts
+    assert len(predicted) == len(manual)
+    assert report["matched_event_count"] == len(manual)
+    assert report["unmatched_manual"] == []
+    assert report["unmatched_predicted"] == []
 
 
 def _manual_event_type(event_type: str) -> str | None:
@@ -81,16 +85,17 @@ def test_third_blind_minute_opens_with_three_black_passes() -> None:
 
 
 @pytest.mark.parametrize(
-    ("segment", "minimum_f1"),
+    "segment",
     [
-        ("segment-0575-020", 0.75),
-        ("segment-0595-020", 0.23),
-        ("segment-0615-020", 0.53),
+        "segment-0060-020",
+        "segment-0180-020",
+        "segment-0575-020",
+        "segment-0595-020",
+        "segment-0615-020",
     ],
 )
-def test_current_pipeline_does_not_regress_saved_blind_minutes(
+def test_current_pipeline_exactly_matches_saved_blind_minutes(
     segment: str,
-    minimum_f1: float,
     tmp_path: Path,
 ) -> None:
     segment_root = ROOT / segment
@@ -119,16 +124,11 @@ def test_current_pipeline_does_not_regress_saved_blind_minutes(
         (output / "predicted-events.json").read_text(encoding="utf-8")
     )
     report = compare_manual_events(manual, predicted, tolerance_seconds=1.0)
-    true_positives = report["matched_event_count"]
-    precision = true_positives / len(predicted) if predicted else 0
-    recall = true_positives / len(manual) if manual else 0
-    f1 = (
-        2 * precision * recall / (precision + recall)
-        if precision + recall
-        else 0
-    )
 
-    assert f1 >= minimum_f1
+    assert len(predicted) == len(manual)
+    assert report["matched_event_count"] == len(manual)
+    assert report["unmatched_manual"] == []
+    assert report["unmatched_predicted"] == []
 
     if segment == "segment-0615-020":
         early_events = [

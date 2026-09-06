@@ -70,12 +70,39 @@ This can be many times slower without an NVIDIA GPU.
 - `pass_or_shot_candidate` means the tracked ball departed a nearby player at
   speed. Team classification, pitch calibration, goal geometry, and temporal
   football rules are required to turn it into a confirmed event.
-- Two-camera fusion is intentionally outside this first, single-video spike.
+- Benchmark manifests can declare multiple synchronized `camera_streams`, each
+  with a camera ID, video, time offset, and optional calibration. Existing
+  single-video manifests remain compatible and run through the designated
+  primary camera. Cross-camera track fusion remains a later pipeline stage.
 
 Ultralytics code and models have licensing conditions including AGPL-3.0 and
 commercial options. Review the current Ultralytics licence before distributing
 or commercializing this POC. A later commercial benchmark should include
 permissively licensed alternatives such as RF-DETR.
+
+## Platform-neutral rules engine
+
+The event pipeline separates football law, observable evidence, and analytics:
+
+1. The pure-Python match-state layer applies the observable parts of the
+   current [IFAB Laws of the Game](https://www.theifab.com/laws/latest/):
+   in/out of play, referee stoppages, advantage, period end, and the restart
+   families defined by Laws 8, 9, and 12–17.
+2. Evidence adapters infer those states from the available platform inputs,
+   such as ball boundaries and motion, player disengagement and reaction,
+   whistle/official signals when available, and restart geometry.
+3. Passes, turnovers, possession, and shot outcomes are project analytics
+   definitions layered on top; the Laws do not define those statistics.
+
+Uncertain evidence enters `possible_stoppage` or `unknown`, which suppresses
+speculative ordinary events until competitive play or a legal restart is
+supported. The engine core has no UI, operating-system, model-provider, or
+video-decoder dependency, so the same state policy can run behind any platform
+that supplies normalized observations.
+
+The canonical architecture, official-law map, transition contracts, Test 3
+example, review workflow, versioning policy, and regression gate are documented
+in [`docs\RULES_ENGINE_ARCHITECTURE.md`](docs/RULES_ENGINE_ARCHITECTURE.md).
 
 ## Grassroots pilot profile
 
@@ -104,6 +131,16 @@ The environment variable may be absolute or relative to the repository. Without
 it, the existing local `pano\` folder remains the default. OneDrive Files On
 Demand must make every source file available locally before processing. The
 application reads the extracted `pano\` directory, not the archive.
+
+Football Event Review decisions, conversations, engine snapshots, and output
+hashes are stored under
+`30-shared-baselines\event-review-state` in the governed artifact root. The
+extension uses `FOOTBALL_ARTIFACT_ROOT` when set, otherwise it discovers
+`Innovationday Artifacts` under the configured commercial OneDrive folder.
+Each state save also updates its SHA-256 entry in
+`00-governance\checksums.sha256`, so another developer can restore and verify
+the same review status. If no shared artifact root is available, review state
+falls back to the current Copilot session workspace.
 
 Prepared segments and AI runs remain local under
 `benchmarks\alfheim\generated\`. Dataset files, generated videos, model weights,

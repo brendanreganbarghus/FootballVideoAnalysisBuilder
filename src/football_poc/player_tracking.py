@@ -249,11 +249,14 @@ def apply_goalkeeper_affiliations(
     for track in tracks:
         foot_x = median(point.foot[0] for point in track.points)
         foot_y = median(point.foot[1] for point in track.points)
+        track_duration = track.points[-1].clip_seconds - track.points[0].clip_seconds
         for affiliation in affiliations:
             eligible = set(affiliation.get("eligible_teams", ["unknown"]))
             region = affiliation["region"]
             if (
                 track.team in eligible
+                and track_duration
+                >= float(affiliation.get("minimum_track_seconds", 0.0))
                 and float(region["x_min"]) <= foot_x <= float(region["x_max"])
                 and float(region["y_min"]) <= foot_y <= float(region["y_max"])
             ):

@@ -68,6 +68,82 @@ def test_manifest_validates_and_loads_frame_range(tmp_path: Path) -> None:
 
     assert manifest.source_frame_count == 100
     assert manifest.action_counts == {"pass": 3}
+    assert manifest.primary_camera_id == "primary"
+    assert manifest.camera_streams[0].video == video.resolve()
+
+
+def test_manifest_loads_synchronized_camera_streams(tmp_path: Path) -> None:
+    left_video = tmp_path / "left.mp4"
+    right_video = tmp_path / "right.mp4"
+    left_calibration = tmp_path / "left-calibration.json"
+    right_calibration = tmp_path / "right-calibration.json"
+    for path in (
+        left_video,
+        right_video,
+        left_calibration,
+        right_calibration,
+    ):
+        path.touch()
+    path = tmp_path / "manifest.json"
+    path.write_text(
+        json.dumps(
+            {
+                "camera_streams": [
+                    {
+                        "camera_id": "sideline-left",
+                        "video": str(left_video),
+                        "time_offset_seconds": 0.0,
+                        "calibration": str(left_calibration),
+                    },
+                    {
+                        "camera_id": "sideline-right",
+                        "video": str(right_video),
+                        "time_offset_seconds": 0.12,
+                        "calibration": str(right_calibration),
+                    },
+                ],
+                "primary_camera_id": "sideline-right",
+                "fps": 25,
+                "start_frame": 0,
+                "end_frame": 1500,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    manifest = BenchmarkManifest.load(path)
+
+    assert manifest.primary_camera_id == "sideline-right"
+    assert manifest.video == right_video.resolve()
+    assert [stream.camera_id for stream in manifest.camera_streams] == [
+        "sideline-left",
+        "sideline-right",
+    ]
+    assert manifest.camera_streams[1].time_offset_seconds == 0.12
+    assert manifest.camera_streams[0].calibration == left_calibration.resolve()
+
+
+def test_manifest_rejects_duplicate_camera_ids(tmp_path: Path) -> None:
+    video = tmp_path / "video.mp4"
+    video.touch()
+    path = tmp_path / "manifest.json"
+    path.write_text(
+        json.dumps(
+            {
+                "camera_streams": [
+                    {"camera_id": "sideline", "video": str(video)},
+                    {"camera_id": "sideline", "video": str(video)},
+                ],
+                "fps": 25,
+                "start_frame": 0,
+                "end_frame": 100,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="Duplicate benchmark camera_id"):
+        BenchmarkManifest.load(path)
 
 
 def test_manifest_rejects_invalid_frame_range(tmp_path: Path) -> None:

@@ -1,5 +1,6 @@
 import importlib.util
 import json
+import os
 from pathlib import Path
 
 
@@ -43,6 +44,7 @@ def test_prepared_segment_list_reports_times_protection_and_ai_state(
             "source_start_seconds": 1725,
             "duration_seconds": 60,
             "state": "ready",
+            "validated": False,
             "protected": True,
             "video_url": (
                 "/benchmarks/alfheim/generated/segment-0575-020/"
@@ -58,6 +60,7 @@ def test_prepared_segment_list_reports_times_protection_and_ai_state(
             "source_start_seconds": 2100,
             "duration_seconds": 30,
             "state": "prepared",
+            "validated": False,
             "protected": False,
             "video_url": (
                 "/benchmarks/alfheim/generated/segment-0700-010/"
@@ -69,3 +72,38 @@ def test_prepared_segment_list_reports_times_protection_and_ai_state(
             ),
         },
     ]
+
+
+def test_workspace_environment_prioritizes_current_worktree(
+    tmp_path: Path, monkeypatch
+) -> None:
+    previous = str(tmp_path / "other-checkout" / "src")
+    monkeypatch.setenv("PYTHONPATH", previous)
+
+    environment = SERVE_LOCAL.workspace_environment(tmp_path)
+
+    assert environment["PYTHONPATH"].split(os.pathsep) == [
+        str((tmp_path / "src").resolve()),
+        previous,
+    ]
+
+
+def test_html_and_json_responses_disable_browser_caching() -> None:
+    handler = object.__new__(SERVE_LOCAL.RangeRequestHandler)
+    handler.path = "/benchmarks/example.json"
+    handler.headers = {}
+    headers: list[tuple[str, str]] = []
+    handler.send_header = lambda name, value: headers.append((name, value))
+    handler.wfile = None
+
+    original = SERVE_LOCAL.SimpleHTTPRequestHandler.end_headers
+    SERVE_LOCAL.SimpleHTTPRequestHandler.end_headers = lambda self: None
+    try:
+        handler.end_headers()
+    finally:
+        SERVE_LOCAL.SimpleHTTPRequestHandler.end_headers = original
+
+    assert (
+        "Cache-Control",
+        "no-store, no-cache, must-revalidate",
+    ) in headers

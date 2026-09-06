@@ -1,0 +1,814 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0d1117">
+  <title>Test 3 Review Workflow</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: Inter, "Segoe UI", sans-serif;
+      background: #0d1117;
+      color: #f0f6fc;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      min-width: 320px;
+      margin: 0;
+      background:
+        radial-gradient(circle at 80% 0%, rgb(31 111 235 / 14%), transparent 28rem),
+        #0d1117;
+    }
+    button, input { font: inherit; }
+    button, a { touch-action: manipulation; }
+    button {
+      cursor: pointer;
+      border: 1px solid #484f58;
+      border-radius: 8px;
+      padding: 8px 11px;
+      background: #21262d;
+      color: #f0f6fc;
+    }
+    button:hover, a:hover { border-color: #8b949e; }
+    button:focus-visible, a:focus-visible, input:focus-visible {
+      outline: 3px solid #58a6ff;
+      outline-offset: 2px;
+    }
+    button:disabled { cursor: not-allowed; opacity: .5; }
+    a { color: #79c0ff; }
+    .skip-link {
+      position: fixed;
+      z-index: 10;
+      top: 8px;
+      left: 8px;
+      padding: 8px 12px;
+      border-radius: 8px;
+      background: #f0f6fc;
+      color: #0d1117;
+      transform: translateY(-160%);
+    }
+    .skip-link:focus { transform: translateY(0); }
+    header {
+      border-bottom: 1px solid #30363d;
+      background: rgb(22 27 34 / 92%);
+      padding: 20px clamp(16px, 4vw, 48px);
+    }
+    .header-row, .title-row, .transport, .workflow-actions {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+    }
+    .header-row { justify-content: space-between; }
+    h1, h2, h3 { text-wrap: balance; }
+    h1 { margin: 0 0 5px; font-size: clamp(1.45rem, 3vw, 2rem); }
+    h2 { margin: 0; font-size: 1.05rem; }
+    h3 { margin: 0; font-size: .95rem; }
+    p { text-wrap: pretty; }
+    .muted { color: #8b949e; }
+    .eyebrow {
+      margin: 0 0 5px;
+      color: #79c0ff;
+      font-size: .76rem;
+      font-weight: 800;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+    .fixed-scope {
+      padding: 7px 10px;
+      border: 1px solid #238636;
+      border-radius: 999px;
+      background: rgb(35 134 54 / 15%);
+      color: #7ee787;
+      font-size: .82rem;
+      font-weight: 750;
+      white-space: nowrap;
+    }
+    .workflow {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 1px;
+      max-width: 1800px;
+      margin: 0 auto;
+      border-inline: 1px solid #30363d;
+      background: #30363d;
+    }
+    .workflow-step {
+      min-width: 0;
+      padding: 12px 16px;
+      background: #161b22;
+    }
+    .workflow-step strong { display: block; margin-bottom: 3px; }
+    .workflow-step span {
+      color: #8b949e;
+      font-size: .82rem;
+      overflow-wrap: anywhere;
+    }
+    .step-number {
+      display: inline-grid;
+      width: 24px;
+      height: 24px;
+      margin-right: 7px;
+      place-items: center;
+      border-radius: 50%;
+      background: #30363d;
+      color: #f0f6fc;
+      font-size: .76rem;
+    }
+    main {
+      max-width: 1800px;
+      margin: auto;
+      padding: 18px clamp(12px, 2vw, 24px) 36px;
+    }
+    .card {
+      border: 1px solid #30363d;
+      border-radius: 12px;
+      background: #161b22;
+      box-shadow: 0 12px 32px rgb(0 0 0 / 16%);
+    }
+    .review-head {
+      display: grid;
+      grid-template-columns: minmax(0, 1.8fr) minmax(280px, .8fr);
+      gap: 16px;
+      align-items: stretch;
+    }
+    .video-card { overflow: hidden; }
+    .video-card:fullscreen {
+      display: grid;
+      width: 100vw;
+      height: 100vh;
+      grid-template-rows: minmax(0, 1fr) auto;
+      border: 0;
+      border-radius: 0;
+      background: #000;
+    }
+    .video-card:fullscreen video {
+      height: 100%;
+      aspect-ratio: auto;
+    }
+    .video-card:fullscreen .video-controls {
+      padding:
+        12px max(12px, env(safe-area-inset-right))
+        max(12px, env(safe-area-inset-bottom))
+        max(12px, env(safe-area-inset-left));
+      background: #161b22;
+    }
+    video {
+      display: block;
+      width: 100%;
+      aspect-ratio: 16 / 7;
+      background: #000;
+      object-fit: contain;
+    }
+    .video-controls {
+      display: grid;
+      grid-template-columns: auto minmax(180px, 1fr) auto;
+      gap: 10px;
+      align-items: center;
+      padding: 12px;
+    }
+    .timeline-label {
+      display: grid;
+      gap: 4px;
+      min-width: 0;
+      color: #b1bac4;
+      font-size: .78rem;
+    }
+    .timeline-label input { width: 100%; }
+    .time {
+      min-width: 9rem;
+      color: #f0f6fc;
+      font-variant-numeric: tabular-nums;
+      text-align: right;
+    }
+    .focus-card { padding: 16px; }
+    .focus-card > p { margin: 6px 0 14px; }
+    .focus-grid { display: grid; gap: 9px; }
+    .focus-item {
+      min-width: 0;
+      padding: 10px;
+      border: 1px solid #30363d;
+      border-radius: 9px;
+      background: #0d1117;
+    }
+    .focus-item strong {
+      display: block;
+      margin-bottom: 4px;
+      color: #b1bac4;
+      font-size: .74rem;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+    }
+    .focus-item span { overflow-wrap: anywhere; }
+    .review-toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      gap: 12px;
+      margin: 16px 0 10px;
+      padding: 14px 16px;
+    }
+    .review-toolbar p { margin: 5px 0 0; }
+    .toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      min-height: 42px;
+      cursor: pointer;
+    }
+    .lanes {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+    }
+    .lane {
+      min-width: 0;
+      overflow: hidden;
+    }
+    .lane-header {
+      position: sticky;
+      z-index: 2;
+      top: 0;
+      padding: 14px;
+      border-bottom: 1px solid #30363d;
+      background: #161b22;
+    }
+    .lane-header p { margin: 5px 0 0; font-size: .82rem; }
+    .lane-count {
+      margin-left: auto;
+      color: #b1bac4;
+      font-variant-numeric: tabular-nums;
+      font-size: .82rem;
+    }
+    .event-list {
+      display: grid;
+      gap: 8px;
+      max-height: 610px;
+      margin: 0;
+      padding: 10px;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      list-style: none;
+    }
+    .event-card {
+      width: 100%;
+      min-width: 0;
+      padding: 10px;
+      border: 1px solid #30363d;
+      border-left: 4px solid #8b949e;
+      border-radius: 9px;
+      background: #0d1117;
+      text-align: left;
+    }
+    .event-card:hover { background: #161b22; }
+    .event-card[aria-pressed="true"] {
+      border-color: #58a6ff;
+      background: rgb(31 111 235 / 15%);
+    }
+    .event-card.red { border-left-color: #ff7b72; }
+    .event-card.black { border-left-color: #b1bac4; }
+    .event-card.neutral { border-left-color: #d29922; }
+    .event-top {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      font-variant-numeric: tabular-nums;
+    }
+    .event-kind { font-weight: 750; }
+    .event-meta {
+      display: block;
+      margin-top: 5px;
+      color: #8b949e;
+      font-size: .78rem;
+      overflow-wrap: anywhere;
+    }
+    .decision {
+      display: inline-block;
+      margin-top: 7px;
+      padding: 2px 6px;
+      border-radius: 999px;
+      background: #30363d;
+      color: #b1bac4;
+      font-size: .7rem;
+      font-weight: 750;
+    }
+    .decision.accepted { background: rgb(35 134 54 / 35%); color: #7ee787; }
+    .decision.review { background: rgb(210 153 34 / 28%); color: #e3b341; }
+    .decision.rejected { background: rgb(218 54 51 / 28%); color: #ff7b72; }
+    .decision-controls {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 7px;
+      margin-top: 14px;
+    }
+    .decision-controls button { padding-inline: 6px; font-size: .78rem; }
+    .decision-controls button[data-decision="accepted"] {
+      border-color: #238636;
+    }
+    .decision-controls button[data-decision="review"] {
+      border-color: #9e6a03;
+    }
+    .decision-controls button[data-decision="rejected"] {
+      border-color: #da3633;
+    }
+    .empty {
+      padding: 18px;
+      color: #8b949e;
+      text-align: center;
+    }
+    .status-banner {
+      margin-top: 12px;
+      padding: 12px 14px;
+      border: 1px solid #30363d;
+      border-radius: 9px;
+      background: #0d1117;
+      color: #b1bac4;
+    }
+    @media (max-width: 1050px) {
+      .review-head, .lanes { grid-template-columns: 1fr; }
+      .event-list { max-height: 430px; }
+      .workflow { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 560px) {
+      .video-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .timeline-label { grid-column: 1 / -1; grid-row: 1; }
+      .time { min-width: 0; text-align: center; }
+      .decision-controls { grid-template-columns: 1fr; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+    }
+  </style>
+</head>
+<body>
+<a class="skip-link" href="#review-lanes">Skip to Review Lanes</a>
+<header>
+  <div class="header-row">
+    <div>
+      <p class="eyebrow">Pass Validation Workflow Trial</p>
+      <h1>Test 3 Review Workspace</h1>
+      <div class="muted">Alfheim · 15:00–16:00 · passes, turnovers & foul context</div>
+    </div>
+    <span class="fixed-scope">Fixed to 1 minute</span>
+  </div>
+</header>
+
+<section class="workflow" aria-label="Review workflow">
+  <div class="workflow-step">
+    <strong><span class="step-number">1</span>Copilot Drafts</strong>
+    <span>Independent video review proposes events without reading your clicks.</span>
+  </div>
+  <div class="workflow-step">
+    <strong><span class="step-number">2</span>You Verify</strong>
+    <span>Review the same minute and keep your manual evidence independent.</span>
+  </div>
+  <div class="workflow-step">
+    <strong><span class="step-number">3</span>Rules Engine Checks</strong>
+    <span>Compare saved inference only after the human reference exists.</span>
+  </div>
+</section>
+
+<main>
+  <section class="review-head" aria-label="Synchronized video review">
+    <div class="card video-card" id="video-card">
+      <video id="review-video" controls preload="metadata"
+        aria-label="Alfheim Test 3 match footage">
+        <source
+          src="../generated/segment-0300-020/alfheim-window-playable.mp4"
+          type="video/mp4">
+        Your browser cannot play this local review video.
+      </video>
+      <div class="video-controls">
+        <button id="previous-frame" type="button">← Frame</button>
+        <label class="timeline-label" for="review-timeline">
+          Review Position
+          <input id="review-timeline" name="review-timeline" type="range"
+            min="0" max="60" step="0.04" value="0" autocomplete="off">
+        </label>
+        <button id="next-frame" type="button">Frame →</button>
+        <button id="play-toggle" type="button">Play</button>
+        <output class="time" id="review-time" aria-live="polite">
+          0.00s / 60.00s
+        </output>
+        <button id="enlarge-review" type="button">Enlarge Review</button>
+      </div>
+    </div>
+
+    <aside class="card focus-card" aria-labelledby="focus-heading">
+      <p class="eyebrow">Current Evidence</p>
+      <h2 id="focus-heading">Select an Event</h2>
+      <p class="muted">Selecting any event seeks the shared video and lines up
+        the closest evidence from all 3 reviewers.</p>
+      <div class="focus-grid">
+        <div class="focus-item">
+          <strong>Copilot Draft</strong>
+          <span id="focus-copilot">No event selected</span>
+        </div>
+        <div class="focus-item">
+          <strong>Your Reference</strong>
+          <span id="focus-manual">No nearby event</span>
+        </div>
+        <div class="focus-item">
+          <strong>Rules Engine</strong>
+          <span id="focus-engine">No nearby event</span>
+        </div>
+      </div>
+      <div class="decision-controls" aria-label="Copilot draft decision">
+        <button type="button" data-decision="accepted">Agree</button>
+        <button type="button" data-decision="review">Review Again</button>
+        <button type="button" data-decision="rejected">Reject</button>
+      </div>
+      <p class="status-banner" id="workflow-status" aria-live="polite">
+        Loading Test 3 evidence…
+      </p>
+    </aside>
+  </section>
+
+  <section class="card review-toolbar" aria-labelledby="lanes-heading">
+    <div>
+      <h2 id="lanes-heading">One Minute, 3 Independent Views</h2>
+      <p class="muted">Your decisions classify the Copilot draft only. They
+        never change your manual clicks or the rules-engine output.</p>
+    </div>
+    <div class="workflow-actions">
+      <label class="toggle">
+        <input id="differences-only" name="differences-only" type="checkbox"
+          autocomplete="off">
+        Show Unresolved Drafts Only
+      </label>
+      <button id="refresh-manual" type="button">Refresh Your Clicks</button>
+      <a href="../window-555/manual-review/?segment=segment-0300-020">
+        Edit in Match Lab
+      </a>
+    </div>
+  </section>
+
+  <section class="lanes" id="review-lanes" aria-label="Event review lanes">
+    <section class="card lane" aria-labelledby="copilot-heading">
+      <div class="lane-header">
+        <div class="title-row">
+          <h2 id="copilot-heading">Copilot Draft</h2>
+          <span class="lane-count" id="copilot-count">0 events</span>
+        </div>
+        <p class="muted">Independent visual interpretation to verify.</p>
+      </div>
+      <ol class="event-list" id="copilot-events"></ol>
+    </section>
+
+    <section class="card lane" aria-labelledby="manual-heading">
+      <div class="lane-header">
+        <div class="title-row">
+          <h2 id="manual-heading">Your Reference</h2>
+          <span class="lane-count" id="manual-count">0 events</span>
+        </div>
+        <p class="muted">Your browser-local clicks from Test 3.</p>
+      </div>
+      <ol class="event-list" id="manual-events"></ol>
+    </section>
+
+    <section class="card lane" aria-labelledby="engine-heading">
+      <div class="lane-header">
+        <div class="title-row">
+          <h2 id="engine-heading">Rules Engine</h2>
+          <span class="lane-count" id="engine-count">0 events</span>
+        </div>
+        <p class="muted">Saved inference; never trained from either review.</p>
+      </div>
+      <ol class="event-list" id="engine-events"></ol>
+    </section>
+  </section>
+</main>
+
+<script>
+  const SEGMENT_KEY = "segment-0300-020";
+  const MANUAL_STORAGE_KEY = "alfheim-900-60-manual-events-v1";
+  const DECISION_STORAGE_KEY = "alfheim-test-3-copilot-review-decisions-v1";
+  const engineUrl =
+    `../generated/${SEGMENT_KEY}/analytics-data/predicted-events.json`;
+  const video = document.getElementById("review-video");
+  const videoCard = document.getElementById("video-card");
+  const timeline = document.getElementById("review-timeline");
+  const timeOutput = document.getElementById("review-time");
+  const playToggle = document.getElementById("play-toggle");
+  const enlargeReview = document.getElementById("enlarge-review");
+  const status = document.getElementById("workflow-status");
+  const differencesOnly = document.getElementById("differences-only");
+  const decisions = JSON.parse(
+    localStorage.getItem(DECISION_STORAGE_KEY) || "{}"
+  );
+
+  // This fixed draft records the completed independent Test 3 adjudication.
+  // It is deliberately separate from browser manual clicks and engine JSON.
+  const copilotEvents = [
+    {seconds: 3.8, team: "red", type: "completed_pass",
+      note: "Opening aerial delivery reaches red/white control."},
+    {seconds: 5.0, team: "red", type: "turnover",
+      note: "Black establishes control after the opening contest."},
+    {seconds: 5.2, team: "black", type: "completed_pass",
+      note: "Short direction-supported black exchange."},
+    {seconds: 6.0, team: "black", type: "completed_pass",
+      note: "Return touch completes the second black pass."},
+    {seconds: 7.8, team: "black", type: "turnover",
+      note: "Contested deceleration precedes red control."},
+    {seconds: 21.256, team: null, type: "foul_encountered",
+      note: "Play has stopped; later ball repositioning is not a pass."},
+    {seconds: 27.4, team: "black", type: "completed_pass",
+      note: "Genuine free-kick restart reaches a black teammate."},
+    {seconds: 32.0, team: "black", type: "completed_pass",
+      note: "Black teammate receives the released ball."},
+    {seconds: 35.0, team: "black", type: "completed_pass",
+      note: "Short black pass completes at first control."},
+    {seconds: 46.4, team: "black", type: "completed_pass",
+      note: "Same-team restart reception after the ball went out."},
+    {seconds: 49.2, team: "black", type: "completed_pass",
+      note: "Black retains possession through a teammate reception."},
+    {seconds: 51.4, team: "black", type: "turnover",
+      note: "Red sustains control after the black possession."},
+    {seconds: 54.4, team: "red", type: "turnover",
+      note: "Black regains sustained control."},
+    {seconds: 56.6, team: "black", type: "completed_pass",
+      note: "Black track-to-track reception completes the pass."}
+  ];
+
+  let manualEvents = [];
+  let engineEvents = [];
+  let selectedIndex = null;
+
+  function canonicalType(type) {
+    return {
+      pass_candidate: "completed_pass",
+      restart_pass_candidate: "completed_pass",
+      turnover_candidate: "turnover"
+    }[type] || type;
+  }
+
+  function eventSeconds(event, source) {
+    if (source === "copilot") return Number(event.seconds);
+    if (source === "engine") {
+      return Number(event.completion_seconds ?? event.clip_seconds);
+    }
+    return Number(event.clip_seconds);
+  }
+
+  function eventType(event) {
+    return canonicalType(event.type ?? event.event_type);
+  }
+
+  function typeLabel(type) {
+    return {
+      completed_pass: "Completed Pass",
+      turnover: "Turnover",
+      foul_encountered: "Foul Encountered"
+    }[canonicalType(type)] || type.replaceAll("_", " ");
+  }
+
+  function teamLabel(team) {
+    return team === "red"
+      ? "Red/white"
+      : team === "black" ? "Black" : "Match annotation";
+  }
+
+  function eventSummary(event, source) {
+    if (!event) return "No nearby event";
+    const seconds = eventSeconds(event, source);
+    return `${seconds.toFixed(3)}s · ${teamLabel(event.team)} · ` +
+      typeLabel(eventType(event));
+  }
+
+  function nearestEvent(events, source, target) {
+    const matching = events
+      .map(event => ({
+        event,
+        difference: Math.abs(eventSeconds(event, source) - target.seconds)
+      }))
+      .filter(candidate =>
+        eventType(candidate.event) === target.type &&
+        candidate.difference <= 2
+      )
+      .sort((left, right) => left.difference - right.difference);
+    return matching[0]?.event || null;
+  }
+
+  function decisionFor(index) {
+    return decisions[String(index)] || "pending";
+  }
+
+  function renderEventList(targetId, events, source) {
+    const target = document.getElementById(targetId);
+    const visible = source === "copilot" && differencesOnly.checked
+      ? events.filter((_, index) => decisionFor(index) !== "accepted")
+      : events;
+    if (!visible.length) {
+      const empty = document.createElement("li");
+      empty.className = "empty";
+      empty.textContent = source === "manual"
+        ? "No Test 3 clicks found in this browser yet."
+        : "No events to review.";
+      target.replaceChildren(empty);
+      return;
+    }
+    target.replaceChildren(...visible.map(event => {
+      const originalIndex = events.indexOf(event);
+      const item = document.createElement("li");
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = `event-card ${event.team || "neutral"}`;
+      button.dataset.source = source;
+      button.dataset.index = String(originalIndex);
+      button.setAttribute(
+        "aria-pressed",
+        String(source === "copilot" && originalIndex === selectedIndex)
+      );
+      const top = document.createElement("span");
+      top.className = "event-top";
+      const kind = document.createElement("span");
+      kind.className = "event-kind";
+      kind.textContent = typeLabel(eventType(event));
+      const seconds = document.createElement("span");
+      seconds.textContent = `${eventSeconds(event, source).toFixed(3)}s`;
+      top.append(kind, seconds);
+      const meta = document.createElement("span");
+      meta.className = "event-meta";
+      meta.textContent = event.note || teamLabel(event.team);
+      button.append(top, meta);
+      if (source === "copilot") {
+        const decision = document.createElement("span");
+        decision.className = `decision ${decisionFor(originalIndex)}`;
+        decision.textContent = {
+          pending: "Not reviewed",
+          accepted: "Agreed",
+          review: "Review again",
+          rejected: "Rejected"
+        }[decisionFor(originalIndex)];
+        button.append(decision);
+      }
+      item.append(button);
+      return item;
+    }));
+  }
+
+  function updateCounts() {
+    const unresolved = copilotEvents.filter(
+      (_, index) => decisionFor(index) !== "accepted"
+    ).length;
+    document.getElementById("copilot-count").textContent =
+      `${copilotEvents.length} events · ${unresolved} unresolved`;
+    document.getElementById("manual-count").textContent =
+      `${manualEvents.length} events`;
+    document.getElementById("engine-count").textContent =
+      `${engineEvents.length} events`;
+    status.textContent =
+      `Test 3 only · ${unresolved} Copilot drafts still need your decision · ` +
+      `${manualEvents.length} manual events · ${engineEvents.length} engine events`;
+  }
+
+  function render() {
+    renderEventList("copilot-events", copilotEvents, "copilot");
+    renderEventList("manual-events", manualEvents, "manual");
+    renderEventList("engine-events", engineEvents, "engine");
+    updateCounts();
+  }
+
+  function selectCopilotEvent(index) {
+    selectedIndex = index;
+    const selected = copilotEvents[index];
+    const manual = nearestEvent(manualEvents, "manual", selected);
+    const engine = nearestEvent(engineEvents, "engine", selected);
+    document.getElementById("focus-heading").textContent =
+      typeLabel(selected.type);
+    document.getElementById("focus-copilot").textContent =
+      `${eventSummary(selected, "copilot")} · ${selected.note}`;
+    document.getElementById("focus-manual").textContent =
+      eventSummary(manual, "manual");
+    document.getElementById("focus-engine").textContent =
+      eventSummary(engine, "engine");
+    video.currentTime = selected.seconds;
+    video.pause();
+    render();
+  }
+
+  document.getElementById("review-lanes").addEventListener("click", event => {
+    const card = event.target.closest(".event-card");
+    if (!card) return;
+    const source = card.dataset.source;
+    const index = Number(card.dataset.index);
+    if (source === "copilot") {
+      selectCopilotEvent(index);
+      return;
+    }
+    const sourceEvents = source === "manual" ? manualEvents : engineEvents;
+    const seconds = eventSeconds(sourceEvents[index], source);
+    const closestCopilot = copilotEvents
+      .map((candidate, candidateIndex) => ({
+        candidateIndex,
+        difference: Math.abs(candidate.seconds - seconds)
+      }))
+      .sort((left, right) => left.difference - right.difference)[0];
+    selectCopilotEvent(closestCopilot.candidateIndex);
+    video.currentTime = seconds;
+  });
+
+  document.querySelectorAll("[data-decision]").forEach(button => {
+    button.addEventListener("click", () => {
+      if (selectedIndex === null) {
+        status.textContent = "Select a Copilot draft before recording a decision.";
+        return;
+      }
+      decisions[String(selectedIndex)] = button.dataset.decision;
+      localStorage.setItem(DECISION_STORAGE_KEY, JSON.stringify(decisions));
+      selectCopilotEvent(selectedIndex);
+    });
+  });
+
+  function readManualEvents() {
+    try {
+      const parsed = JSON.parse(
+        localStorage.getItem(MANUAL_STORAGE_KEY) || "[]"
+      );
+      manualEvents = Array.isArray(parsed) ? parsed : [];
+    } catch {
+      manualEvents = [];
+      status.textContent =
+        "Your saved Test 3 clicks could not be read. Reopen Match Lab and export them.";
+    }
+  }
+
+  async function loadEngineEvents() {
+    const response = await fetch(engineUrl, {cache: "no-store"});
+    if (!response.ok) {
+      throw new Error(`Rules-engine events returned HTTP ${response.status}`);
+    }
+    engineEvents = await response.json();
+  }
+
+  function updateTimeline() {
+    const current = Math.min(60, Math.max(0, video.currentTime || 0));
+    timeline.value = String(current);
+    timeOutput.textContent = `${current.toFixed(2)}s / 60.00s`;
+    playToggle.textContent = video.paused ? "Play" : "Pause";
+  }
+
+  function stepFrame(direction) {
+    video.pause();
+    video.currentTime = Math.min(
+      60,
+      Math.max(0, video.currentTime + direction / 25)
+    );
+  }
+
+  document.getElementById("previous-frame").addEventListener(
+    "click", () => stepFrame(-1)
+  );
+  document.getElementById("next-frame").addEventListener(
+    "click", () => stepFrame(1)
+  );
+  playToggle.addEventListener("click", () => {
+    if (video.paused) {
+      void video.play();
+    } else {
+      video.pause();
+    }
+  });
+  enlargeReview.addEventListener("click", async () => {
+    if (document.fullscreenElement === videoCard) {
+      await document.exitFullscreen();
+      return;
+    }
+    await videoCard.requestFullscreen();
+  });
+  document.addEventListener("fullscreenchange", () => {
+    enlargeReview.textContent = document.fullscreenElement === videoCard
+      ? "Exit Full Screen"
+      : "Enlarge Review";
+  });
+  timeline.addEventListener("input", () => {
+    video.pause();
+    video.currentTime = Number(timeline.value);
+  });
+  ["timeupdate", "seeked", "play", "pause", "loadedmetadata"].forEach(name => {
+    video.addEventListener(name, updateTimeline);
+  });
+  differencesOnly.addEventListener("change", render);
+  document.getElementById("refresh-manual").addEventListener("click", () => {
+    readManualEvents();
+    render();
+  });
+
+  async function initialize() {
+    readManualEvents();
+    try {
+      await loadEngineEvents();
+      render();
+      selectCopilotEvent(0);
+    } catch (error) {
+      render();
+      status.textContent = `Could not load Test 3 rules-engine output: ${error.message}`;
+    }
+  }
+
+  void initialize();
+</script>
+</body>
+</html>

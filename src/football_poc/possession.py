@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from collections import Counter, defaultdict
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from math import hypot
 from pathlib import Path
 from typing import Any, Iterable
@@ -10,6 +10,15 @@ from typing import Any, Iterable
 import cv2
 
 from football_poc.benchmark import BenchmarkManifest
+from football_poc.match_state import (
+    MatchStateTimeline,
+    build_match_state_timeline,
+    coalesce_stoppage_candidates,
+    detect_stationary_ball_restarts,
+    partition_continuous_flight_candidates,
+    partition_fragmented_boundary_candidates,
+)
+from football_poc.player_tracking import classify_color_scores
 
 
 @dataclass(frozen=True)
@@ -52,6 +61,23 @@ class PredictedEvent:
     confidence: float
     details: str
     completion_seconds: float | None = None
+
+
+def retain_stable_possession_segments(
+    segments: Iterable[PossessionSegment],
+    *,
+    minimum_observations: int,
+    trusted_single_observation_track_ids: set[int],
+) -> list[PossessionSegment]:
+    return [
+        segment
+        for segment in segments
+        if len(segment.observations) >= minimum_observations
+        or (
+            len(segment.observations) == 1
+            and segment.player_track_id in trusted_single_observation_track_ids
+        )
+    ]
 
 
 def infer_cached_possession(
@@ -99,6 +125,12 @@ def infer_cached_possession(
 ) -> Path:
     manifest = BenchmarkManifest.load(manifest_path)
     players = _load_player_points(player_tracks_path, manifest.path)
+    goalkeeper_track_ids = {
+        int(point["track_id"])
+        for frame_points in players.values()
+        for point in frame_points
+        if point.get("role") == "goalkeeper"
+    }
     balls = _load_ball_points(ball_tracks_path, manifest.path)
     raw_observations = _control_observations(
         players,
@@ -148,15 +180,21 @@ def infer_cached_possession(
         ),
         minimum_owner_direction_cosine=occluded_owner_min_direction_cosine,
     )
-    stable_segments = [
-        segment
-        for segment in segments
-        if len(segment.observations) >= minimum_segment_observations
-    ]
+    stable_segments = retain_stable_possession_segments(
+        segments,
+        minimum_observations=minimum_segment_observations,
+        trusted_single_observation_track_ids=goalkeeper_track_ids,
+    )
     segment_transfer_events = infer_transfer_events(
         stable_segments,
         maximum_transfer_seconds=maximum_transfer_seconds,
         minimum_transfer_heights=minimum_transfer_heights,
+    )
+    direction_change_transfer_events = infer_direction_change_transfer_events(
+        balls,
+        stable_segments,
+        maximum_transfer_seconds=maximum_transfer_seconds,
+        minimum_speed_pixels_per_second=minimum_pass_speed_pixels_per_second,
     )
     flight_transfer_events = infer_flight_transfer_events(
         balls,
@@ -194,7 +232,11 @@ def infer_cached_possession(
         )
     ]
     transfer_events = merge_transfer_events(
-        [*flight_transfer_events, *deceleration_transfer_events],
+        [
+            *flight_transfer_events,
+            *deceleration_transfer_events,
+            *direction_change_transfer_events,
+        ],
         segment_transfer_events,
         deduplication_seconds=transfer_deduplication_seconds,
     )
@@ -214,45 +256,136 @@ def infer_cached_possession(
         )
         if initial_event is not None:
             transfer_events = [initial_event, *transfer_events]
+    clip_duration_seconds = manifest.source_frame_count / manifest.fps
+    match_state_timeline = build_match_state_timeline(
+        [], duration_seconds=clip_duration_seconds
+    )
+    rejected_boundary_intervals: list[dict[str, Any]] = []
+    aerial_boundary_intervals: list[dict[str, Any]] = []
     if boundary_events_path is not None:
         boundary_payload = json.loads(
             boundary_events_path.read_text(encoding="utf-8")
         )
+        raw_boundary_intervals = boundary_payload.get("intervals", [])
+        ball_points = [
+            point for frame_points in balls.values() for point in frame_points
+        ]
+        state_boundary_intervals, flight_rejections = (
+            partition_continuous_flight_candidates(
+                raw_boundary_intervals,
+                ball_points,
+            )
+        )
         boundary_intervals = filter_aerial_boundary_intervals(
-            boundary_payload.get("intervals", []),
+            raw_boundary_intervals,
             stable_segments,
         )
-        boundary_intervals = annotate_restart_releases(
-            boundary_intervals,
+        accepted_boundary_starts = {
+            float(interval["start_seconds"]) for interval in boundary_intervals
+        }
+        aerial_boundary_intervals = [
+            interval
+            for interval in raw_boundary_intervals
+            if float(interval["start_seconds"]) not in accepted_boundary_starts
+        ]
+        accepted_state_intervals = filter_aerial_boundary_intervals(
+            state_boundary_intervals,
+            stable_segments,
+        )
+        accepted_state_starts = {
+            float(interval["start_seconds"])
+            for interval in accepted_state_intervals
+        }
+        state_possession_rejections = [
+            interval
+            for interval in state_boundary_intervals
+            if float(interval["start_seconds"]) not in accepted_state_starts
+        ]
+        coalesced_state_intervals = coalesce_stoppage_candidates(
+            accepted_state_intervals
+        )
+        accepted_state_intervals, fragmented_boundary_rejections = (
+            partition_fragmented_boundary_candidates(
+                coalesced_state_intervals,
+                (
+                    {
+                        "start_seconds": segment.start_seconds,
+                        "end_seconds": segment.end_seconds,
+                    }
+                    for segment in stable_segments
+                ),
+            )
+        )
+        accepted_state_intervals = annotate_restart_releases(
+            accepted_state_intervals,
             balls,
             minimum_speed_pixels_per_second=(
                 minimum_restart_speed_pixels_per_second
             ),
         )
+        in_field_restart_intervals = detect_stationary_ball_restarts(
+            ball_points,
+            (
+                point
+                for frame_points in players.values()
+                for point in frame_points
+            ),
+        )
+        in_field_restart_intervals = extend_restarts_through_ball_setup(
+            in_field_restart_intervals,
+            stable_segments,
+            ball_points,
+        )
+        accepted_state_intervals = sorted(
+            [*accepted_state_intervals, *in_field_restart_intervals],
+            key=lambda interval: float(interval["start_seconds"]),
+        )
+        rejected_boundary_intervals = [
+            (
+                interval
+                if "reason" in interval
+                else {**interval, "reason": "continuous_possession"}
+            )
+            for interval in sorted(
+                [
+                    *flight_rejections,
+                    *state_possession_rejections,
+                    *fragmented_boundary_rejections,
+                ],
+                key=lambda item: float(item["start_seconds"]),
+            )
+        ]
+        match_state_timeline = build_match_state_timeline(
+            accepted_state_intervals,
+            duration_seconds=clip_duration_seconds,
+        )
         transfer_events = [
             event
             for event in transfer_events
-            if not _event_released_outside(event, boundary_intervals)
-            and not _event_completed_outside(event, boundary_intervals)
-            and not _deceleration_immediately_precedes_boundary(
-                event, boundary_intervals
+            if match_state_timeline.allows_event(
+                event.event_type,
+                event.clip_seconds,
+                event.completion_seconds,
             )
         ]
         boundary_turnovers = infer_boundary_turnovers(
-            boundary_intervals,
+            accepted_state_intervals,
             stable_segments,
             prior_events=transfer_events,
             ownership_lookback_seconds=boundary_ownership_lookback_seconds,
+            startup_restart_max_seconds=startup_guard_seconds,
         )
         transfer_events = sorted(
             transfer_events
             + boundary_turnovers
             + infer_restart_passes(
-                boundary_intervals,
+                accepted_state_intervals,
                 stable_segments,
                 prior_events=[*transfer_events, *boundary_turnovers],
                 ownership_lookback_seconds=boundary_ownership_lookback_seconds,
                 balls=balls,
+                startup_restart_max_seconds=startup_guard_seconds,
+                control_observations=raw_observations,
             ),
             key=lambda event: event.clip_seconds,
         )
@@ -317,11 +450,11 @@ def infer_cached_possession(
                 occluded_owner_min_direction_cosine
             ),
         )
-        stable_turnover_state_segments = [
-            segment
-            for segment in turnover_state_segments
-            if len(segment.observations) >= minimum_segment_observations
-        ]
+        stable_turnover_state_segments = retain_stable_possession_segments(
+            turnover_state_segments,
+            minimum_observations=minimum_segment_observations,
+            trusted_single_observation_track_ids=goalkeeper_track_ids,
+        )
         turnover_segments = build_possession_segments(
             turnover_observations,
             segment_gap_seconds=segment_gap_seconds,
@@ -339,11 +472,11 @@ def infer_cached_possession(
                 occluded_owner_min_direction_cosine
             ),
         )
-        stable_turnover_segments = [
-            segment
-            for segment in turnover_segments
-            if len(segment.observations) >= minimum_segment_observations
-        ]
+        stable_turnover_segments = retain_stable_possession_segments(
+            turnover_segments,
+            minimum_observations=minimum_segment_observations,
+            trusted_single_observation_track_ids=goalkeeper_track_ids,
+        )
         turnover_segment_events = infer_transfer_events(
             stable_turnover_segments,
             maximum_transfer_seconds=maximum_transfer_seconds,
@@ -380,6 +513,124 @@ def infer_cached_possession(
             + turnover_events,
             key=lambda event: event.clip_seconds,
         )
+    transfer_events = reconcile_one_touch_team_transfers(
+        transfer_events,
+        raw_observations,
+        balls,
+        minimum_speed_pixels_per_second=minimum_pass_speed_pixels_per_second,
+        maximum_prior_reception_seconds=pass_receiver_window_seconds,
+    )
+    transfer_events = reconcile_track_identity_team_switches(
+        transfer_events,
+        players,
+        maximum_chain_seconds=pass_receiver_window_seconds,
+    )
+    transfer_events = infer_deferred_contested_turnovers(
+        transfer_events,
+        players,
+        balls,
+        minimum_speed_pixels_per_second=minimum_pass_speed_pixels_per_second,
+    )
+    transfer_events = reconcile_delayed_turnover_chains(
+        transfer_events,
+        players,
+        balls,
+        minimum_speed_pixels_per_second=minimum_pass_speed_pixels_per_second,
+    )
+    transfer_events = reconcile_unconfirmed_turnovers(
+        transfer_events,
+        state_segments,
+    )
+    transfer_events = suppress_uncontrolled_opponent_turnovers(
+        transfer_events,
+        players,
+        balls,
+    )
+    transfer_events = propagate_deferred_possession_chains(
+        transfer_events,
+        players,
+        balls,
+        minimum_speed_pixels_per_second=minimum_pass_speed_pixels_per_second,
+    )
+    transfer_events = suppress_overlapping_opponent_handoffs(
+        transfer_events,
+        players,
+        balls,
+    )
+    transfer_events = refine_weak_reception_completion_times(
+        transfer_events,
+        state_segments,
+    )
+    transfer_events = refine_delayed_turnovers_to_contested_decelerations(
+        transfer_events,
+        players,
+        balls,
+        minimum_speed_pixels_per_second=minimum_pass_speed_pixels_per_second,
+    )
+    transfer_events = refine_receptions_to_sharp_contacts(
+        transfer_events,
+        raw_observations,
+        balls,
+        minimum_speed_pixels_per_second=minimum_pass_speed_pixels_per_second,
+    )
+    transfer_events = infer_short_exchange_receptions(
+        transfer_events,
+        raw_observations,
+        balls,
+        minimum_speed_pixels_per_second=minimum_pass_speed_pixels_per_second,
+        maximum_prior_reception_seconds=pass_receiver_window_seconds,
+    )
+    transfer_events = refine_aerial_challenged_receiver_receptions(
+        transfer_events,
+        raw_observations,
+        aerial_boundary_intervals,
+        players,
+        balls,
+    )
+    transfer_events = infer_unresolved_direction_change_receptions(
+        transfer_events,
+        raw_observations,
+        balls,
+        minimum_speed_pixels_per_second=minimum_pass_speed_pixels_per_second,
+    )
+    transfer_events = infer_occluded_exchange_receptions(
+        transfer_events,
+        balls,
+        minimum_speed_pixels_per_second=minimum_pass_speed_pixels_per_second,
+    )
+    transfer_events = infer_unobserved_chain_contacts(
+        transfer_events,
+        raw_observations,
+        balls,
+        minimum_speed_pixels_per_second=minimum_pass_speed_pixels_per_second,
+    )
+    transfer_events = refine_one_touch_acceleration_receptions(
+        transfer_events,
+        players,
+        balls,
+        minimum_speed_pixels_per_second=minimum_pass_speed_pixels_per_second,
+    )
+    transfer_events = suppress_redundant_retained_possession_links(
+        transfer_events
+    )
+    transfer_events = filter_disconnected_low_confidence_startup(
+        transfer_events
+    )
+    transfer_events = reconcile_deflected_turnover_sequences(
+        transfer_events,
+        state_segments,
+    )
+    transfer_events = infer_opening_aerial_reception(
+        transfer_events,
+        raw_observations,
+        rejected_boundary_intervals,
+    )
+    transfer_events = reconcile_intervening_opponent_aerial_contacts(
+        transfer_events,
+        raw_observations,
+        balls,
+        minimum_speed_pixels_per_second=minimum_pass_speed_pixels_per_second,
+    )
     width, height = _video_dimensions(manifest.video)
     shot_events = (
         infer_shot_events(
@@ -398,6 +649,7 @@ def infer_cached_possession(
         [*transfer_events, *shot_events],
         key=lambda event: event.clip_seconds,
     )
+    events = gate_events_by_match_state(events, match_state_timeline)
     ground_truth = [
         {
             "event_type": (
@@ -443,11 +695,35 @@ def infer_cached_possession(
         json.dumps([asdict(event) for event in events], indent=2),
         encoding="utf-8",
     )
+    (output / "match-state-events.json").write_text(
+        json.dumps(
+            match_state_timeline.to_dict(
+                rejected_boundary_candidates=rejected_boundary_intervals
+            ),
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
     (output / "event-evaluation.json").write_text(
         json.dumps(evaluation, indent=2), encoding="utf-8"
     )
     print(f"Possession and event outputs written to {output.resolve()}")
     return destination
+
+
+def gate_events_by_match_state(
+    events: Iterable[PredictedEvent],
+    timeline: MatchStateTimeline,
+) -> list[PredictedEvent]:
+    return [
+        event
+        for event in events
+        if timeline.allows_event(
+            event.event_type,
+            event.clip_seconds,
+            event.completion_seconds,
+        )
+    ]
 
 
 def build_possession_segments(
@@ -507,9 +783,41 @@ def build_possession_segments(
             1.0, (observation.player_height + previous.player_height) / 2
         )
         same_physical_player = (
-            observation.player_track_id == current.player_track_id
+            observation.player_track_id == previous.player_track_id
             or player_distance / player_scale <= identity_switch_radius_heights
         )
+        continuous_dribble = False
+        if (
+            len(current.observations) >= 2
+            and previous.control_ratio <= 1.0
+            and observation.control_ratio <= 1.0
+            and gap > 0
+        ):
+            earlier = current.observations[-2]
+            incoming = (
+                previous.ball_x - earlier.ball_x,
+                previous.ball_y - earlier.ball_y,
+            )
+            outgoing = (
+                observation.ball_x - previous.ball_x,
+                observation.ball_y - previous.ball_y,
+            )
+            incoming_distance = hypot(*incoming)
+            outgoing_distance = hypot(*outgoing)
+            direction_cosine = (
+                (
+                    incoming[0] * outgoing[0]
+                    + incoming[1] * outgoing[1]
+                )
+                / (incoming_distance * outgoing_distance)
+                if incoming_distance > 0 and outgoing_distance > 0
+                else -1.0
+            )
+            ball_speed_heights = outgoing_distance / gap / player_scale
+            continuous_dribble = (
+                direction_cosine >= 0.9
+                and ball_speed_heights <= 5.0
+            )
         prior_track_returns = (
             observation.player_track_id != current.player_track_id
             and frozenset(
@@ -520,7 +828,7 @@ def build_possession_segments(
         if (
             gap <= segment_gap_seconds
             and observation.team == current.team
-            and same_physical_player
+            and (same_physical_player or continuous_dribble)
             and not prior_track_returns
         ):
             current.observations.append(observation)
@@ -577,10 +885,44 @@ def collapse_transient_opponent_segments(
                     ),
                     minimum_direction_cosine=minimum_owner_direction_cosine,
                 )
-                if (
+                following_gap = (
+                    source[end].start_seconds - source[end - 1].end_seconds
+                )
+                continuity_window = (
+                    maximum_occlusion_seconds
+                    if maximum_occlusion_seconds is not None
+                    else maximum_transient_seconds
+                )
+                transient_bridge = (
                     transient_duration <= maximum_transient_seconds
-                    or owner_continuity
+                    and following_gap <= continuity_window
+                )
+                coherent_opponent_control = any(
+                    len(segment.observations) >= 4
+                    and sum(
+                        observation.control_ratio <= 0.5
+                        for observation in segment.observations
+                    )
+                    >= 2
+                    for segment in source[index:end]
+                )
+                owner_continuity_allowed = owner_continuity and (
+                    len(source[end].observations) >= 2
+                    or not coherent_opponent_control
+                )
+                if (
+                    transient_bridge
+                    or owner_continuity_allowed
                 ):
+                    following = source[end]
+                    if (
+                        accepted[-1].team == following.team
+                        and accepted[-1].observations[-1].player_track_id
+                        == following.observations[0].player_track_id
+                    ):
+                        accepted[-1].observations.extend(following.observations)
+                        index = end + 1
+                        continue
                     index = end
                     continue
         accepted.append(current)
@@ -659,7 +1001,23 @@ def infer_transfer_events(
             current_first.ball_y - previous_last.ball_y,
         )
         travel_heights = travel / scale
-        if travel_heights < minimum_transfer_heights:
+        if (
+            previous.team == current.team
+            and travel_heights < minimum_transfer_heights
+        ):
+            continue
+        if (
+            previous.team != current.team
+            and travel_heights < minimum_transfer_heights
+            and (
+                len(current.observations) < 4
+                or sum(
+                    observation.control_ratio <= 0.5
+                    for observation in current.observations
+                )
+                < 2
+            )
+        ):
             continue
 
         event_type = (
@@ -690,6 +1048,1419 @@ def infer_transfer_events(
             )
         )
     return events
+
+
+def infer_direction_change_transfer_events(
+    balls: dict[int, list[dict[str, Any]]],
+    possession_segments: Iterable[PossessionSegment],
+    *,
+    maximum_transfer_seconds: float,
+    minimum_speed_pixels_per_second: float,
+    maximum_direction_cosine: float = 0.25,
+) -> list[PredictedEvent]:
+    if not -1 <= maximum_direction_cosine <= 1:
+        raise ValueError("Maximum direction cosine must be between -1 and 1")
+    points = sorted(
+        (
+            point
+            for frame_points in balls.values()
+            for point in frame_points
+            if not point.get("interpolated", False)
+        ),
+        key=lambda point: float(point["clip_seconds"]),
+    )
+    segments = list(possession_segments)
+    events: list[PredictedEvent] = []
+    for sender, receiver in zip(segments, segments[1:]):
+        gap = receiver.start_seconds - sender.end_seconds
+        if (
+            sender.team != receiver.team
+            or sender.player_track_id == receiver.player_track_id
+            or gap < 0
+            or gap > maximum_transfer_seconds
+        ):
+            continue
+        candidates: list[tuple[float, float]] = []
+        for previous, current, following in zip(
+            points,
+            points[1:],
+            points[2:],
+        ):
+            timestamp = float(current["clip_seconds"])
+            if not sender.end_seconds <= timestamp <= receiver.start_seconds:
+                continue
+            incoming_seconds = timestamp - float(previous["clip_seconds"])
+            outgoing_seconds = float(following["clip_seconds"]) - timestamp
+            if incoming_seconds <= 0 or outgoing_seconds <= 0:
+                continue
+            incoming = (
+                float(current["x"]) - float(previous["x"]),
+                float(current["y"]) - float(previous["y"]),
+            )
+            outgoing = (
+                float(following["x"]) - float(current["x"]),
+                float(following["y"]) - float(current["y"]),
+            )
+            incoming_distance = hypot(*incoming)
+            outgoing_distance = hypot(*outgoing)
+            if incoming_distance == 0 or outgoing_distance == 0:
+                continue
+            incoming_speed = incoming_distance / incoming_seconds
+            outgoing_speed = outgoing_distance / outgoing_seconds
+            if min(incoming_speed, outgoing_speed) < minimum_speed_pixels_per_second:
+                continue
+            direction_cosine = (
+                incoming[0] * outgoing[0] + incoming[1] * outgoing[1]
+            ) / (incoming_distance * outgoing_distance)
+            if direction_cosine <= maximum_direction_cosine:
+                candidates.append((direction_cosine, timestamp))
+        if not candidates:
+            continue
+        direction_cosine, _ = min(candidates)
+        events.append(
+            PredictedEvent(
+                event_type="pass_candidate",
+                clip_seconds=round(sender.end_seconds, 3),
+                team=sender.team,
+                from_player_track_id=sender.player_track_id,
+                to_player_track_id=receiver.player_track_id,
+                confidence=round(
+                    min(0.8, 0.55 + (1 - direction_cosine) * 0.1),
+                    4,
+                ),
+                details=(
+                    "Ball direction changed sharply as same-team control "
+                    "transferred."
+                ),
+                completion_seconds=round(receiver.start_seconds, 3),
+            )
+        )
+    return _deduplicate_receptions(events)
+
+
+def reconcile_one_touch_team_transfers(
+    events: Iterable[PredictedEvent],
+    observations: Iterable[PossessionObservation],
+    balls: dict[int, list[dict[str, Any]]],
+    *,
+    minimum_speed_pixels_per_second: float,
+    maximum_prior_reception_seconds: float,
+    maximum_direction_cosine: float = 0.25,
+    observation_tolerance_seconds: float = 0.04,
+    receiver_tolerance_seconds: float = 0.25,
+) -> list[PredictedEvent]:
+    source = list(events)
+    controls = list(observations)
+    motion = _ball_motion_evidence(balls)
+    reconciled: list[PredictedEvent] = []
+    for outgoing in source:
+        if outgoing.event_type != "pass_candidate":
+            reconciled.append(outgoing)
+            continue
+        candidates: list[PossessionObservation] = []
+        for observation in controls:
+            if (
+                observation.team == outgoing.team
+                or abs(observation.clip_seconds - outgoing.clip_seconds)
+                > observation_tolerance_seconds
+            ):
+                continue
+            evidence = next(
+                (
+                    value
+                    for (_, frame), value in motion.items()
+                    if frame == observation.source_frame
+                ),
+                None,
+            )
+            if (
+                evidence is not None
+                and evidence[0] >= minimum_speed_pixels_per_second
+                and evidence[1] <= maximum_direction_cosine
+            ):
+                candidates.append(observation)
+        if not candidates:
+            reconciled.append(outgoing)
+            continue
+        contact = min(candidates, key=lambda item: item.control_ratio)
+        anchors = [
+            event
+            for event in source
+            if event.team == contact.team
+            and event.completion_seconds is not None
+            and 0
+            < outgoing.clip_seconds - event.completion_seconds
+            <= maximum_prior_reception_seconds
+        ]
+        if not anchors:
+            reconciled.append(outgoing)
+            continue
+        anchor = max(anchors, key=lambda event: event.completion_seconds or 0)
+        reconciled.append(
+            PredictedEvent(
+                event_type="pass_candidate",
+                clip_seconds=round(outgoing.clip_seconds, 3),
+                team=contact.team,
+                from_player_track_id=None,
+                to_player_track_id=contact.player_track_id,
+                confidence=0.6,
+                details=(
+                    "A sharp one-touch contact completed the incoming "
+                    "same-team pass and immediately released the next pass."
+                ),
+                completion_seconds=round(outgoing.clip_seconds, 3),
+            )
+        )
+        reconciled.append(
+            replace(
+                outgoing,
+                team=contact.team,
+                from_player_track_id=contact.player_track_id,
+                details=(
+                    "A sharp one-touch contact established the outgoing "
+                    f"{contact.team} pass."
+                ),
+            )
+        )
+    chained: list[PredictedEvent] = []
+    for event in sorted(reconciled, key=lambda item: item.clip_seconds):
+        anchors = [
+            prior
+            for prior in chained
+            if event.from_player_track_id is not None
+            and (
+                prior.details.startswith(
+                    "A sharp one-touch contact established"
+                )
+                or prior.details.startswith(
+                    "Possession-chain continuity preserved"
+                )
+            )
+            and prior.to_player_track_id == event.from_player_track_id
+            and prior.completion_seconds is not None
+            and 0
+            <= event.clip_seconds - prior.completion_seconds
+            <= maximum_prior_reception_seconds
+        ]
+        if not anchors or event.team == anchors[-1].team:
+            chained.append(event)
+            continue
+        anchor = max(anchors, key=lambda item: item.completion_seconds or 0)
+        receiver_teams = [
+            observation.team
+            for observation in controls
+            if event.to_player_track_id is not None
+            and observation.player_track_id == event.to_player_track_id
+            and event.completion_seconds is not None
+            and abs(
+                observation.clip_seconds - event.completion_seconds
+            )
+            <= receiver_tolerance_seconds
+        ]
+        if not receiver_teams:
+            chained.append(event)
+            continue
+        receiver_team = Counter(receiver_teams).most_common(1)[0][0]
+        chained.append(
+            replace(
+                event,
+                event_type=(
+                    "pass_candidate"
+                    if receiver_team == anchor.team
+                    else "turnover_candidate"
+                ),
+                team=anchor.team,
+                details=(
+                    "Possession-chain continuity preserved the corrected "
+                    "sender team through the next release."
+                ),
+            )
+        )
+    return _deduplicate_receptions(chained)
+
+
+def reconcile_intervening_opponent_aerial_contacts(
+    events: Iterable[PredictedEvent],
+    observations: Iterable[PossessionObservation],
+    balls: dict[int, list[dict[str, Any]]],
+    *,
+    minimum_speed_pixels_per_second: float,
+    maximum_direction_cosine: float = -0.75,
+    maximum_control_ratio: float = 1.0,
+    maximum_sender_gap_seconds: float = 4.0,
+    maximum_receiver_gap_seconds: float = 3.0,
+) -> list[PredictedEvent]:
+    """Split a same-team transfer when an opponent sharply redirects the flight."""
+    source = list(events)
+    controls = list(observations)
+    motion = _ball_motion_evidence(balls)
+    reconciled: list[PredictedEvent] = []
+    for event in source:
+        completion = event.completion_seconds
+        if (
+            event.event_type != "pass_candidate"
+            or completion is None
+            or event.to_player_track_id is None
+        ):
+            reconciled.append(event)
+            continue
+        candidates: list[
+            tuple[float, PossessionObservation, PossessionObservation]
+        ] = []
+        for contact in controls:
+            if (
+                contact.team == event.team
+                or contact.control_ratio > maximum_control_ratio
+                or not 0 < completion - contact.clip_seconds
+                <= maximum_receiver_gap_seconds
+                or any(
+                    peer is not contact
+                    and peer.team == contact.team
+                    and abs(peer.clip_seconds - contact.clip_seconds) <= 1.0
+                    for peer in controls
+                )
+            ):
+                continue
+            evidence = next(
+                (
+                    value
+                    for (_, frame), value in motion.items()
+                    if frame == contact.source_frame
+                ),
+                None,
+            )
+            if (
+                evidence is None
+                or evidence[0] < minimum_speed_pixels_per_second
+                or evidence[1] > maximum_direction_cosine
+            ):
+                continue
+            sender_controls = [
+                observation
+                for observation in controls
+                if observation.team == event.team
+                and 0 < contact.clip_seconds - observation.clip_seconds
+                <= maximum_sender_gap_seconds
+            ]
+            if not sender_controls:
+                continue
+            sender = max(
+                sender_controls,
+                key=lambda observation: observation.clip_seconds,
+            )
+            candidates.append((evidence[1], contact, sender))
+        if not candidates:
+            reconciled.append(event)
+            continue
+        _, contact, sender = min(candidates, key=lambda candidate: candidate[0])
+        if any(
+            prior.event_type == "turnover_candidate"
+            and prior.team == event.team
+            and prior.completion_seconds is not None
+            and abs(prior.completion_seconds - contact.clip_seconds) <= 0.5
+            for prior in source
+        ):
+            reconciled.append(event)
+            continue
+        reconciled.extend(
+            [
+                PredictedEvent(
+                    event_type="turnover_candidate",
+                    clip_seconds=round(sender.clip_seconds, 3),
+                    team=event.team,
+                    from_player_track_id=sender.player_track_id,
+                    to_player_track_id=contact.player_track_id,
+                    confidence=0.6,
+                    details=(
+                        "A sharp opponent aerial contact interrupted the "
+                        "apparent same-team transfer and established control."
+                    ),
+                    completion_seconds=round(contact.clip_seconds, 3),
+                ),
+                PredictedEvent(
+                    event_type="turnover_candidate",
+                    clip_seconds=round(contact.clip_seconds, 3),
+                    team=contact.team,
+                    from_player_track_id=contact.player_track_id,
+                    to_player_track_id=event.to_player_track_id,
+                    confidence=event.confidence,
+                    details=(
+                        "The original team regained control after the "
+                        "opponent's controlled aerial contact."
+                    ),
+                    completion_seconds=round(completion, 3),
+                ),
+            ]
+        )
+    return _deduplicate_receptions(reconciled)
+
+
+def reconcile_track_identity_team_switches(
+    events: Iterable[PredictedEvent],
+    players: dict[int, list[dict[str, Any]]],
+    *,
+    maximum_chain_seconds: float,
+    evidence_window_seconds: float = 0.8,
+    minimum_evidence_points: int = 3,
+) -> list[PredictedEvent]:
+    if maximum_chain_seconds < 0:
+        raise ValueError("Maximum chain duration cannot be negative")
+    if evidence_window_seconds <= 0:
+        raise ValueError("Evidence window must be positive")
+    if minimum_evidence_points <= 0:
+        raise ValueError("Minimum evidence points must be positive")
+
+    teams = {
+        str(player.get("team"))
+        for frame_players in players.values()
+        for player in frame_players
+    }
+    if teams & {"red", "black"}:
+        team_pair = ("red", "black")
+        team_profile = "red-black"
+    elif teams & {"blue", "white"}:
+        team_pair = ("blue", "white")
+        team_profile = "blue-white"
+    else:
+        return list(events)
+
+    points_by_track: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    for frame_players in players.values():
+        for player in frame_players:
+            points_by_track[int(player["track_id"])].append(player)
+
+    def local_team(track_id: int | None, timestamp: float | None) -> str | None:
+        if track_id is None or timestamp is None:
+            return None
+        labels: list[str] = []
+        for point in points_by_track.get(track_id, []):
+            if (
+                abs(float(point["clip_seconds"]) - timestamp)
+                > evidence_window_seconds
+            ):
+                continue
+            scores = point.get("color_scores")
+            if not isinstance(scores, dict):
+                continue
+            label = classify_color_scores(scores, team_profile=team_profile)
+            if label in team_pair:
+                labels.append(label)
+        if len(labels) < minimum_evidence_points:
+            return None
+        label, count = Counter(labels).most_common(1)[0]
+        return label if count / len(labels) >= 0.6 else None
+
+    def other_team(team: str | None) -> str | None:
+        if team == team_pair[0]:
+            return team_pair[1]
+        if team == team_pair[1]:
+            return team_pair[0]
+        return None
+
+    corrected: list[PredictedEvent] = []
+    for event in sorted(events, key=lambda item: item.clip_seconds):
+        sender_team = event.team
+        chain_anchor = next(
+            (
+                prior
+                for prior in reversed(corrected)
+                if (
+                    prior.details.startswith(
+                        "Frame-level jersey evidence corrected"
+                    )
+                    or prior.details.startswith(
+                        "Track-switch possession continuity preserved"
+                    )
+                )
+                and event.from_player_track_id is not None
+                and prior.to_player_track_id == event.from_player_track_id
+                and prior.completion_seconds is not None
+                and 0
+                <= event.clip_seconds - prior.completion_seconds
+                <= maximum_chain_seconds
+            ),
+            None,
+        )
+        if chain_anchor is not None:
+            sender_team = (
+                chain_anchor.team
+                if chain_anchor.event_type
+                in {"pass_candidate", "restart_pass_candidate"}
+                else other_team(chain_anchor.team)
+            )
+
+        receiver_team = local_team(
+            event.to_player_track_id,
+            event.completion_seconds,
+        )
+        if receiver_team is None or sender_team not in team_pair:
+            corrected.append(event)
+            continue
+        implied_receiver_team = (
+            sender_team
+            if event.event_type in {"pass_candidate", "restart_pass_candidate"}
+            else other_team(sender_team)
+        )
+        if chain_anchor is None and (
+            event.event_type != "turnover_candidate"
+            or receiver_team != sender_team
+        ):
+            corrected.append(event)
+            continue
+
+        event_type = (
+            "pass_candidate"
+            if receiver_team == sender_team
+            else "turnover_candidate"
+        )
+        corrected.append(
+            replace(
+                event,
+                event_type=event_type,
+                team=sender_team,
+                details=(
+                    "Track-switch possession continuity preserved using "
+                    "frame-level jersey evidence."
+                    if chain_anchor is not None
+                    else (
+                        "Frame-level jersey evidence corrected a cross-team "
+                        "player-track identity switch."
+                    )
+                ),
+            )
+        )
+    return _deduplicate_receptions(corrected)
+
+
+def infer_deferred_contested_turnovers(
+    events: Iterable[PredictedEvent],
+    players: dict[int, list[dict[str, Any]]],
+    balls: dict[int, list[dict[str, Any]]],
+    *,
+    minimum_speed_pixels_per_second: float,
+    receiver_window_seconds: float = 0.4,
+    contact_lookback_seconds: float = 6.0,
+) -> list[PredictedEvent]:
+    source = list(events)
+    motion = _ball_motion_evidence(balls)
+    inferred: list[PredictedEvent] = []
+    corrected_ids: set[int] = set()
+    for event_index, event in enumerate(source):
+        if event.event_type != "pass_candidate":
+            continue
+        receiver_team, confidence, support = _receiver_team_evidence(
+            players,
+            balls,
+            event.completion_seconds,
+            window_seconds=receiver_window_seconds,
+        )
+        if (
+            receiver_team is None
+            or receiver_team == event.team
+            or confidence < 0.8
+            or support < 3.0
+        ):
+            continue
+        completion = event.completion_seconds or event.clip_seconds
+        contact_seconds = _contested_contact_seconds(
+            players,
+            balls,
+            motion,
+            first_seconds=completion - contact_lookback_seconds,
+            last_seconds=event.clip_seconds,
+            first_team=event.team,
+            second_team=receiver_team,
+            minimum_speed_pixels_per_second=(
+                minimum_speed_pixels_per_second
+            ),
+        )
+        if contact_seconds is None:
+            continue
+        if any(
+            prior.event_type == "turnover_candidate"
+            and abs(
+                (prior.completion_seconds or prior.clip_seconds)
+                - contact_seconds
+            )
+            <= 1.0
+            for prior in [*source, *inferred]
+        ):
+            continue
+        inferred.append(
+            PredictedEvent(
+                event_type="turnover_candidate",
+                clip_seconds=round(contact_seconds, 3),
+                team=event.team,
+                from_player_track_id=None,
+                to_player_track_id=None,
+                confidence=0.6,
+                details=(
+                    "A contested direction-changing contact was resolved "
+                    "retrospectively by sustained opposing-team control."
+                ),
+                completion_seconds=round(contact_seconds, 3),
+            )
+        )
+        spanning_events = [
+            candidate
+            for candidate in source
+            if candidate.event_type == "pass_candidate"
+            and candidate.completion_seconds is not None
+            and candidate.clip_seconds
+            < contact_seconds
+            < candidate.completion_seconds
+        ]
+        for spanning in spanning_events:
+            replacement_seconds = next(
+                (
+                    float(ball["clip_seconds"])
+                    for source_frame, frame_balls in sorted(balls.items())
+                    for ball in frame_balls
+                    if spanning.clip_seconds
+                    <= float(ball["clip_seconds"])
+                    < contact_seconds
+                    and spanning.team
+                    in _nearby_ball_teams(
+                        players.get(source_frame, []),
+                        ball,
+                        maximum_box_distance_heights=0.25,
+                    )
+                ),
+                None,
+            )
+            if replacement_seconds is not None:
+                inferred.append(
+                    replace(
+                        spanning,
+                        to_player_track_id=None,
+                        completion_seconds=round(replacement_seconds, 3),
+                        details=(
+                            "Receiver validation recovered the controlled "
+                            "touch before a later contested turnover."
+                        ),
+                    )
+                )
+        source[event_index] = replace(
+            event,
+            team=receiver_team,
+            details=(
+                "Deferred receiver validation confirmed the new possession "
+                f"team. {event.details}"
+            ),
+        )
+        corrected_ids.add(event_index)
+        prior_track_id: int | None = None
+        prior_contact_seconds = contact_seconds
+        for source_frame, frame_balls in sorted(balls.items()):
+            for ball in frame_balls:
+                timestamp = float(ball["clip_seconds"])
+                if (
+                    timestamp < contact_seconds + 0.8
+                    or timestamp > completion - 0.8
+                ):
+                    continue
+                receiver_track_id = _nearby_ball_team_track(
+                    players.get(source_frame, []),
+                    ball,
+                    receiver_team,
+                    maximum_box_distance_heights=0.25,
+                )
+                if (
+                    receiver_track_id is None
+                    or receiver_track_id == prior_track_id
+                    or timestamp - prior_contact_seconds < 0.6
+                ):
+                    continue
+                inferred.append(
+                    PredictedEvent(
+                        event_type="pass_candidate",
+                        clip_seconds=round(timestamp, 3),
+                        team=receiver_team,
+                        from_player_track_id=prior_track_id,
+                        to_player_track_id=receiver_track_id,
+                        confidence=0.55,
+                        details=(
+                            "Deferred possession validation recovered an "
+                            "intermediate same-team receiver contact."
+                        ),
+                        completion_seconds=round(timestamp, 3),
+                    )
+                )
+                prior_track_id = receiver_track_id
+                prior_contact_seconds = timestamp
+
+    turnover_times = [
+        event.completion_seconds or event.clip_seconds
+        for event in inferred
+        if event.event_type == "turnover_candidate"
+    ]
+    accepted = [
+        event
+        for index, event in enumerate(source)
+        if index in corrected_ids
+        or not (
+            event.event_type == "pass_candidate"
+            and event.completion_seconds is not None
+            and any(
+                event.clip_seconds < turnover < event.completion_seconds
+                for turnover in turnover_times
+            )
+        )
+    ]
+    return _deduplicate_receptions([*accepted, *inferred])
+
+
+def propagate_deferred_possession_chains(
+    events: Iterable[PredictedEvent],
+    players: dict[int, list[dict[str, Any]]],
+    balls: dict[int, list[dict[str, Any]]],
+    *,
+    minimum_speed_pixels_per_second: float,
+) -> list[PredictedEvent]:
+    source = sorted(events, key=lambda event: event.clip_seconds)
+    motion = _ball_motion_evidence(balls)
+    additions: list[PredictedEvent] = []
+    for anchor_index, anchor in enumerate(source):
+        if not anchor.details.startswith("Deferred receiver validation"):
+            continue
+        possession_team = anchor.team
+        previous = anchor
+        for event_index in range(anchor_index + 1, len(source)):
+            event = source[event_index]
+            if event.event_type == "turnover_candidate":
+                if event.team == possession_team:
+                    break
+                continue
+            if event.event_type != "pass_candidate":
+                continue
+            chain_continues = (
+                event.from_player_track_id is not None
+                and (
+                    event.from_player_track_id
+                    == previous.to_player_track_id
+                    or (
+                        previous.to_player_track_id is None
+                        and event.from_player_track_id
+                        == previous.from_player_track_id
+                    )
+                )
+            )
+            if not chain_continues:
+                break
+            if event.team != possession_team:
+                opposing_team = event.team
+                contact_seconds = _contested_contact_seconds(
+                    players,
+                    balls,
+                    motion,
+                    first_seconds=(
+                        (previous.completion_seconds or previous.clip_seconds)
+                        - 1.0
+                    ),
+                    last_seconds=event.clip_seconds,
+                    first_team=possession_team,
+                    second_team=opposing_team,
+                    minimum_speed_pixels_per_second=(
+                        minimum_speed_pixels_per_second
+                    ),
+                )
+                if contact_seconds is not None:
+                    source[event_index] = replace(
+                        event,
+                        team=possession_team,
+                        details=(
+                            "The incoming pass completed before the linked "
+                            f"contested turnover. {event.details}"
+                        ),
+                    )
+                    additions.append(
+                        PredictedEvent(
+                            event_type="turnover_candidate",
+                            clip_seconds=round(contact_seconds, 3),
+                            team=possession_team,
+                            from_player_track_id=(
+                                previous.to_player_track_id
+                            ),
+                            to_player_track_id=event.from_player_track_id,
+                            confidence=0.6,
+                            details=(
+                                "A linked possession chain ended at a "
+                                "contested direction-changing contact."
+                            ),
+                            completion_seconds=round(contact_seconds, 3),
+                        )
+                    )
+                    break
+                source[event_index] = replace(
+                    event,
+                    team=possession_team,
+                    details=(
+                        "Possession-chain validation prevented a silent team "
+                        f"change. {event.details}"
+                    ),
+                )
+                event = source[event_index]
+            previous = event
+    return _deduplicate_receptions([*source, *additions])
+
+
+def suppress_overlapping_opponent_handoffs(
+    events: Iterable[PredictedEvent],
+    players: dict[int, list[dict[str, Any]]],
+    balls: dict[int, list[dict[str, Any]]],
+    *,
+    maximum_box_distance_heights: float = 1.2,
+) -> list[PredictedEvent]:
+    accepted: list[PredictedEvent] = []
+    for event in events:
+        completion = event.completion_seconds
+        if (
+            event.event_type != "pass_candidate"
+            or completion is None
+            or event.from_player_track_id is None
+            or event.to_player_track_id is None
+            or not event.details.startswith(
+                "Possession-chain validation prevented a silent team change"
+            )
+        ):
+            accepted.append(event)
+            continue
+        release_ball = min(
+            (
+                ball
+                for frame_balls in balls.values()
+                for ball in frame_balls
+            ),
+            key=lambda ball: abs(float(ball["clip_seconds"]) - event.clip_seconds),
+        )
+        completion_ball = min(
+            (
+                ball
+                for frame_balls in balls.values()
+                for ball in frame_balls
+            ),
+            key=lambda ball: abs(float(ball["clip_seconds"]) - completion),
+        )
+        sender_team = next(
+            (
+                str(player["team"])
+                for player in players.get(
+                    int(release_ball["source_frame"]), []
+                )
+                if int(player["track_id"]) == event.from_player_track_id
+            ),
+            None,
+        )
+        receiver_team = next(
+            (
+                str(player["team"])
+                for player in players.get(
+                    int(completion_ball["source_frame"]), []
+                )
+                if int(player["track_id"]) == event.to_player_track_id
+            ),
+            None,
+        )
+        nearby_team_tracks = [
+            (
+                hypot(
+                    max(
+                        float(player["x1"]) - float(completion_ball["x"]),
+                        0.0,
+                        float(completion_ball["x"]) - float(player["x2"]),
+                    ),
+                    max(
+                        float(player["y1"]) - float(completion_ball["y"]),
+                        0.0,
+                        float(completion_ball["y"]) - float(player["y2"]),
+                    ),
+                )
+                / max(1.0, float(player["y2"]) - float(player["y1"])),
+                int(player["track_id"]),
+            )
+            for player in players.get(int(completion_ball["source_frame"]), [])
+            if str(player.get("team")) == event.team
+        ]
+        nearby_team_track = next(
+            (
+                track_id
+                for distance, track_id in sorted(nearby_team_tracks)
+                if distance <= maximum_box_distance_heights
+            ),
+            None,
+        )
+        if (
+            sender_team != event.team
+            and receiver_team != event.team
+            and nearby_team_track is not None
+            and nearby_team_track != event.to_player_track_id
+        ):
+            continue
+        accepted.append(event)
+    return accepted
+
+
+def reconcile_delayed_turnover_chains(
+    events: Iterable[PredictedEvent],
+    players: dict[int, list[dict[str, Any]]],
+    balls: dict[int, list[dict[str, Any]]],
+    *,
+    minimum_speed_pixels_per_second: float,
+    maximum_lookback_seconds: float = 6.0,
+    minimum_supported_intermediary_events: int = 1,
+) -> list[PredictedEvent]:
+    source = sorted(events, key=lambda event: event.clip_seconds)
+    motion = _ball_motion_evidence(balls)
+    teams = {
+        str(player.get("team"))
+        for frame_players in players.values()
+        for player in frame_players
+    }
+    team_pair = (
+        ("red", "black")
+        if teams & {"red", "black"}
+        else ("blue", "white")
+    )
+
+    def other_team(team: str | None) -> str | None:
+        if team == team_pair[0]:
+            return team_pair[1]
+        if team == team_pair[1]:
+            return team_pair[0]
+        return None
+
+    def local_track_team(track_id: int | None, timestamp: float | None) -> str | None:
+        if track_id is None or timestamp is None:
+            return None
+        labels: list[str] = []
+        profile = "red-black" if team_pair == ("red", "black") else "blue-white"
+        for frame_players in players.values():
+            for player in frame_players:
+                if (
+                    int(player["track_id"]) != track_id
+                    or abs(float(player["clip_seconds"]) - timestamp) > 0.3
+                ):
+                    continue
+                scores = player.get("color_scores")
+                if not isinstance(scores, dict):
+                    continue
+                label = classify_color_scores(scores, team_profile=profile)
+                if label in team_pair:
+                    labels.append(label)
+        if not labels:
+            return None
+        label, count = Counter(labels).most_common(1)[0]
+        return label if count / len(labels) >= 0.6 else None
+
+    for turnover_index, turnover in enumerate(source):
+        if (
+            turnover.event_type != "turnover_candidate"
+            or turnover.team not in team_pair
+            or turnover.to_player_track_id is None
+            or turnover.completion_seconds is None
+        ):
+            continue
+        winner = other_team(turnover.team)
+        if winner is None:
+            continue
+        completion = turnover.completion_seconds
+        intermediary_indices = [
+            index
+            for index, event in enumerate(source)
+            if event.event_type == "pass_candidate"
+            and event.team == turnover.team
+            and event.completion_seconds is not None
+            and completion - maximum_lookback_seconds
+            <= event.clip_seconds
+            < completion
+        ]
+        if not intermediary_indices:
+            continue
+        supported = sum(
+            local_track_team(source[index].from_player_track_id, source[index].clip_seconds)
+            == winner
+            or local_track_team(
+                source[index].to_player_track_id,
+                source[index].completion_seconds,
+            )
+            == winner
+            for index in intermediary_indices
+        )
+        if supported < minimum_supported_intermediary_events:
+            continue
+        first_release = min(source[index].clip_seconds for index in intermediary_indices)
+        contact_candidates: list[tuple[float, float]] = []
+        for (ball_track_id, source_frame), (speed, direction_cosine) in motion.items():
+            ball = next(
+                (
+                    point
+                    for point in balls.get(source_frame, [])
+                    if int(point["track_id"]) == ball_track_id
+                ),
+                None,
+            )
+            if ball is None:
+                continue
+            timestamp = float(ball["clip_seconds"])
+            if (
+                timestamp < completion - maximum_lookback_seconds
+                or timestamp > first_release
+                or speed < minimum_speed_pixels_per_second
+                or direction_cosine > 0.5
+                or winner
+                not in _nearby_ball_teams(
+                    players.get(source_frame, []),
+                    ball,
+                    maximum_box_distance_heights=0.25,
+                )
+            ):
+                continue
+            contact_candidates.append((timestamp, direction_cosine))
+        if not contact_candidates:
+            continue
+        contact = min(contact_candidates)[0]
+        source[turnover_index] = replace(
+            turnover,
+            clip_seconds=round(contact, 3),
+            completion_seconds=round(contact, 3),
+            details=(
+                "Earlier direction-changing control resolved a delayed "
+                f"possession-team transition. {turnover.details}"
+            ),
+        )
+        for index in intermediary_indices:
+            source[index] = replace(
+                source[index],
+                team=winner,
+                details=(
+                    "Possession-chain validation corrected a delayed team "
+                    f"transition. {source[index].details}"
+                ),
+            )
+    return _deduplicate_receptions(source)
+
+
+def reconcile_unconfirmed_turnovers(
+    events: Iterable[PredictedEvent],
+    possession_segments: Iterable[PossessionSegment],
+    *,
+    maximum_receiver_control_ratio: float = 1.0,
+    minimum_unconfirmed_seconds: float = 0.8,
+) -> list[PredictedEvent]:
+    """Keep possession with the releasing team until opponent control is clear."""
+    segments = list(possession_segments)
+    reconciled: list[PredictedEvent] = []
+    for event in events:
+        if (
+            event.event_type != "turnover_candidate"
+            or event.to_player_track_id is None
+            or event.completion_seconds is None
+        ):
+            reconciled.append(event)
+            continue
+        receiver = next(
+            (
+                segment
+                for segment in segments
+                if (
+                    segment.player_track_id == event.to_player_track_id
+                    and segment.start_seconds
+                    <= event.completion_seconds
+                    <= segment.end_seconds
+                )
+            ),
+            None,
+        )
+        if (
+            receiver is None
+            or receiver.end_seconds - receiver.start_seconds
+            < minimum_unconfirmed_seconds - 1e-9
+            or any(
+                observation.control_ratio <= maximum_receiver_control_ratio
+                for observation in receiver.observations
+            )
+        ):
+            reconciled.append(event)
+            continue
+        reconciled.append(
+            replace(
+                event,
+                event_type="pass_candidate",
+                to_player_track_id=None,
+                details=(
+                    "Opponent proximity never became controlled possession; "
+                    f"the releasing {event.team} team retained the ball. "
+                    f"{event.details}"
+                ),
+            )
+        )
+    return _deduplicate_receptions(
+        [
+            event
+            for event in reconciled
+            if not (
+                event.event_type == "pass_candidate"
+                and event.to_player_track_id is not None
+                and any(
+                    retained.details.startswith(
+                        "Opponent proximity never became controlled"
+                    )
+                    and retained.from_player_track_id
+                    == event.to_player_track_id
+                    and abs(retained.clip_seconds - (event.completion_seconds or -1))
+                    <= 0.04
+                    for retained in reconciled
+                )
+            )
+        ]
+    )
+
+
+def reconcile_deflected_turnover_sequences(
+    events: Iterable[PredictedEvent],
+    possession_segments: Iterable[PossessionSegment],
+    *,
+    maximum_sequence_seconds: float = 1.8,
+    maximum_control_ratio: float = 0.35,
+) -> list[PredictedEvent]:
+    """Move a premature contested turnover to the opponent's first clear control."""
+    source = list(events)
+    segments = list(possession_segments)
+    removed: set[int] = set()
+    replacements: dict[int, PredictedEvent] = {}
+
+    for turnover_index, turnover in enumerate(source):
+        turnover_time = turnover.completion_seconds
+        if (
+            turnover.event_type != "turnover_candidate"
+            or turnover_time is None
+        ):
+            continue
+        retained = next(
+            (
+                event
+                for event in source
+                if event.event_type == "pass_candidate"
+                and event.team == turnover.team
+                and event.completion_seconds is not None
+                and turnover_time < event.completion_seconds
+                <= turnover_time + maximum_sequence_seconds
+            ),
+            None,
+        )
+        if retained is None:
+            continue
+        retained_time = retained.completion_seconds
+        gained_index = next(
+            (
+                index
+                for index, event in enumerate(source)
+                if event.event_type == "pass_candidate"
+                and event.team != turnover.team
+                and event.to_player_track_id is not None
+                and event.completion_seconds is not None
+                and retained_time <= event.completion_seconds
+                <= turnover_time + maximum_sequence_seconds
+                and event.from_player_track_id == retained.from_player_track_id
+            ),
+            None,
+        )
+        if gained_index is None:
+            continue
+        gained = source[gained_index]
+        gained_time = gained.completion_seconds
+        controlled = any(
+            segment.team == gained.team
+            and segment.player_track_id == gained.to_player_track_id
+            and segment.start_seconds <= gained_time <= segment.end_seconds
+            and any(
+                observation.control_ratio <= maximum_control_ratio
+                for observation in segment.observations
+                if abs(observation.clip_seconds - gained_time) <= 0.2
+            )
+            for segment in segments
+        )
+        if not controlled:
+            continue
+        removed.add(turnover_index)
+        replacements[gained_index] = replace(
+            gained,
+            event_type="turnover_candidate",
+            clip_seconds=round(gained_time, 3),
+            team=turnover.team,
+            details=(
+                "An initial opponent deflection did not end possession; "
+                "the turnover occurred at the opponent's first controlled touch."
+            ),
+        )
+
+    return [
+        replacements.get(index, event)
+        for index, event in enumerate(source)
+        if index not in removed
+    ]
+
+
+def suppress_uncontrolled_opponent_turnovers(
+    events: Iterable[PredictedEvent],
+    players: dict[int, list[dict[str, Any]]],
+    balls: dict[int, list[dict[str, Any]]],
+    *,
+    maximum_box_distance_heights: float = 0.25,
+    maximum_continuity_seconds: float = 2.0,
+) -> list[PredictedEvent]:
+    """Reject turnovers where only the current team remains in direct contact."""
+    accepted: list[PredictedEvent] = []
+    retained_team: str | None = None
+    retained_at: float | None = None
+    for event in events:
+        completion = event.completion_seconds
+        if (
+            retained_team is not None
+            and retained_at is not None
+            and event.event_type == "pass_candidate"
+            and event.team != retained_team
+            and event.clip_seconds - retained_at <= maximum_continuity_seconds
+        ):
+            event = replace(
+                event,
+                team=retained_team,
+                details=(
+                    "Possession continuity prevented a silent team change after "
+                    f"the prior turnover was rejected. {event.details}"
+                ),
+            )
+            retained_team = None
+            retained_at = None
+        if (
+            event.event_type != "turnover_candidate"
+            or event.to_player_track_id is None
+            or completion is None
+        ):
+            accepted.append(event)
+            continue
+        ball_and_players = next(
+            (
+                (ball, players.get(source_frame, []))
+                for source_frame, frame_balls in balls.items()
+                for ball in frame_balls
+                if abs(float(ball["clip_seconds"]) - completion) <= 0.04
+            ),
+            None,
+        )
+        if ball_and_players is None:
+            accepted.append(event)
+            continue
+        ball, frame_players = ball_and_players
+        nearby_teams: set[str] = set()
+        for player in frame_players:
+            height = max(1.0, float(player["y2"]) - float(player["y1"]))
+            horizontal = max(
+                float(player["x1"]) - float(ball["x"]),
+                0.0,
+                float(ball["x"]) - float(player["x2"]),
+            )
+            vertical = max(
+                float(player["y1"]) - float(ball["y"]),
+                0.0,
+                float(ball["y"]) - float(player["y2"]),
+            )
+            if hypot(horizontal, vertical) / height <= maximum_box_distance_heights:
+                nearby_teams.add(str(player.get("team")))
+        if nearby_teams == {event.team}:
+            retained_team = event.team
+            retained_at = completion
+            continue
+        accepted.append(event)
+    return accepted
+
+
+def _contested_contact_seconds(
+    players: dict[int, list[dict[str, Any]]],
+    balls: dict[int, list[dict[str, Any]]],
+    motion: dict[tuple[int, int], tuple[float, float]],
+    *,
+    first_seconds: float,
+    last_seconds: float,
+    first_team: str,
+    second_team: str,
+    minimum_speed_pixels_per_second: float,
+) -> float | None:
+    candidates: list[tuple[float, float]] = []
+    for (track_id, source_frame), (speed, direction_cosine) in motion.items():
+        ball = next(
+            (
+                candidate
+                for candidate in balls.get(source_frame, [])
+                if int(candidate["track_id"]) == track_id
+            ),
+            None,
+        )
+        if ball is None:
+            continue
+        timestamp = float(ball["clip_seconds"])
+        if (
+            timestamp < first_seconds
+            or timestamp > last_seconds
+            or speed < minimum_speed_pixels_per_second
+            or direction_cosine > 0.5
+        ):
+            continue
+        nearby_teams = _nearby_ball_teams(
+            players.get(source_frame, []),
+            ball,
+            maximum_box_distance_heights=0.25,
+        )
+        if first_team in nearby_teams and second_team in nearby_teams:
+            candidates.append((direction_cosine, timestamp))
+    return min(candidates)[1] if candidates else None
+
+
+def _receiver_team_evidence(
+    players: dict[int, list[dict[str, Any]]],
+    balls: dict[int, list[dict[str, Any]]],
+    timestamp: float | None,
+    *,
+    window_seconds: float,
+) -> tuple[str | None, float, float]:
+    if timestamp is None:
+        return None, 0.0, 0.0
+    teams = {
+        str(player.get("team"))
+        for frame_players in players.values()
+        for player in frame_players
+    }
+    team_profile = (
+        "red-black"
+        if teams & {"red", "black"}
+        else "blue-white"
+    )
+    eligible_teams = (
+        {"red", "black"}
+        if team_profile == "red-black"
+        else {"blue", "white"}
+    )
+    scores: dict[str, float] = defaultdict(float)
+    for source_frame, frame_balls in balls.items():
+        for ball in frame_balls:
+            if abs(float(ball["clip_seconds"]) - timestamp) > window_seconds:
+                continue
+            for player in players.get(source_frame, []):
+                height = max(
+                    1.0,
+                    float(player["y2"]) - float(player["y1"]),
+                )
+                ratio = hypot(
+                    (float(player["x1"]) + float(player["x2"])) / 2
+                    - float(ball["x"]),
+                    float(player["y2"]) - float(ball["y"]),
+                ) / height
+                if ratio > 1.8:
+                    continue
+                color_scores = player.get("color_scores")
+                local_team = (
+                    classify_color_scores(
+                        color_scores,
+                        team_profile=team_profile,
+                    )
+                    if isinstance(color_scores, dict)
+                    else "unknown"
+                )
+                if local_team in eligible_teams:
+                    scores[local_team] += 1 / max(0.25, ratio) ** 2
+    if not scores:
+        return None, 0.0, 0.0
+    team = max(scores, key=scores.get)
+    support = sum(scores.values())
+    return team, scores[team] / support, support
+
+
+def _nearby_ball_teams(
+    players: Iterable[dict[str, Any]],
+    ball: dict[str, Any],
+    *,
+    maximum_box_distance_heights: float,
+) -> set[str]:
+    source = list(players)
+    teams = {str(player.get("team")) for player in source}
+    team_profile = (
+        "red-black"
+        if teams & {"red", "black"}
+        else "blue-white"
+    )
+    eligible_teams = (
+        {"red", "black"}
+        if team_profile == "red-black"
+        else {"blue", "white"}
+    )
+    nearby: set[str] = set()
+    for player in source:
+        height = max(1.0, float(player["y2"]) - float(player["y1"]))
+        horizontal = max(
+            float(player["x1"]) - float(ball["x"]),
+            0.0,
+            float(ball["x"]) - float(player["x2"]),
+        )
+        vertical = max(
+            float(player["y1"]) - float(ball["y"]),
+            0.0,
+            float(ball["y"]) - float(player["y2"]),
+        )
+        if hypot(horizontal, vertical) / height > maximum_box_distance_heights:
+            continue
+        color_scores = player.get("color_scores")
+        local_team = (
+            classify_color_scores(color_scores, team_profile=team_profile)
+            if isinstance(color_scores, dict)
+            else "unknown"
+        )
+        team = (
+            local_team
+            if local_team in eligible_teams
+            else str(player.get("team"))
+        )
+        if team in eligible_teams:
+            nearby.add(team)
+    return nearby
+
+
+def _nearby_ball_team_track(
+    players: Iterable[dict[str, Any]],
+    ball: dict[str, Any],
+    team: str,
+    *,
+    maximum_box_distance_heights: float,
+) -> int | None:
+    team_profile = (
+        "red-black"
+        if team in {"red", "black"}
+        else "blue-white"
+    )
+    candidates: list[tuple[float, int]] = []
+    for player in players:
+        color_scores = player.get("color_scores")
+        local_team = (
+            classify_color_scores(color_scores, team_profile=team_profile)
+            if isinstance(color_scores, dict)
+            else "unknown"
+        )
+        if local_team != team:
+            continue
+        height = max(1.0, float(player["y2"]) - float(player["y1"]))
+        horizontal = max(
+            float(player["x1"]) - float(ball["x"]),
+            0.0,
+            float(ball["x"]) - float(player["x2"]),
+        )
+        vertical = max(
+            float(player["y1"]) - float(ball["y"]),
+            0.0,
+            float(ball["y"]) - float(player["y2"]),
+        )
+        distance = hypot(horizontal, vertical) / height
+        if distance <= maximum_box_distance_heights:
+            candidates.append((distance, int(player["track_id"])))
+    return min(candidates)[1] if candidates else None
 
 
 def infer_flight_transfer_events(
@@ -792,6 +2563,1215 @@ def infer_flight_transfer_events(
             )
         )
     return _deduplicate_receptions(events)
+
+
+def refine_weak_reception_completion_times(
+    events: Iterable[PredictedEvent],
+    possession_segments: Iterable[PossessionSegment],
+    *,
+    maximum_confirmation_seconds: float = 0.6,
+    maximum_turnover_confirmation_seconds: float = 1.2,
+    maximum_strong_control_ratio: float = 0.1,
+) -> list[PredictedEvent]:
+    source = list(events)
+    segments = list(possession_segments)
+    refined: list[PredictedEvent] = []
+    for event in source:
+        segment = next(
+            (
+                candidate
+                for candidate in segments
+                if event.to_player_track_id == candidate.player_track_id
+                and event.completion_seconds == candidate.start_seconds
+                and candidate.observations[0].control_ratio > 1.0
+            ),
+            None,
+        )
+        if segment is None:
+            refined.append(event)
+            continue
+        strong_controls = [
+            observation
+            for observation in segment.observations
+            if observation.clip_seconds
+            <= segment.start_seconds
+            + (
+                maximum_turnover_confirmation_seconds
+                if event.event_type == "turnover_candidate"
+                else maximum_confirmation_seconds
+            )
+            and observation.control_ratio
+            <= (
+                0.5
+                if event.event_type == "turnover_candidate"
+                else maximum_strong_control_ratio
+            )
+        ]
+        if not strong_controls:
+            refined.append(event)
+            continue
+        completion = strong_controls[0].clip_seconds
+        if event.event_type == "turnover_candidate":
+            outgoing = next(
+                (
+                    candidate
+                    for candidate in source
+                    if candidate.event_type == "pass_candidate"
+                    and candidate.team == segment.team
+                    and candidate.from_player_track_id == event.to_player_track_id
+                    and completion < candidate.clip_seconds
+                    <= completion + maximum_turnover_confirmation_seconds
+                ),
+                None,
+            )
+            definitive_control_before_release = any(
+                observation.control_ratio <= 0.35
+                and observation.clip_seconds <= outgoing.clip_seconds
+                for observation in segment.observations
+            ) if outgoing is not None else True
+            if outgoing is not None and not definitive_control_before_release:
+                completion = outgoing.clip_seconds
+        refined.append(
+            replace(
+                event,
+                completion_seconds=round(completion, 3),
+                details=(
+                    f"{event.details} Completion was refined from weak "
+                    "proximity to the first clear controlled touch."
+                ),
+            )
+        )
+    return refined
+
+
+def refine_delayed_turnovers_to_contested_decelerations(
+    events: Iterable[PredictedEvent],
+    players: dict[int, list[dict[str, Any]]],
+    balls: dict[int, list[dict[str, Any]]],
+    *,
+    minimum_speed_pixels_per_second: float,
+    maximum_lookback_seconds: float = 6.0,
+    maximum_outgoing_speed_ratio: float = 0.35,
+    nearby_window_seconds: float = 0.21,
+    maximum_box_distance_heights: float = 1.5,
+) -> list[PredictedEvent]:
+    """Move delayed turnovers back to an earlier contested ball-stopping touch."""
+    source = sorted(events, key=lambda event: event.clip_seconds)
+    ball_points = sorted(
+        (
+            point
+            for frame_points in balls.values()
+            for point in frame_points
+            if not point.get("interpolated", False)
+        ),
+        key=lambda point: float(point["clip_seconds"]),
+    )
+    refined: list[PredictedEvent] = []
+    for event in source:
+        completion = event.completion_seconds
+        if (
+            event.event_type != "turnover_candidate"
+            or event.team not in {"red", "black", "blue", "white"}
+            or completion is None
+            or completion - event.clip_seconds < 1.0
+        ):
+            refined.append(event)
+            continue
+        winning_team = (
+            "black"
+            if event.team == "red"
+            else "red"
+            if event.team == "black"
+            else "white"
+            if event.team == "blue"
+            else "blue"
+        )
+        prior_completions = [
+            prior.completion_seconds or prior.clip_seconds
+            for prior in source
+            if prior.team == event.team
+            and (prior.completion_seconds or prior.clip_seconds) < completion
+        ]
+        search_start = max(
+            completion - maximum_lookback_seconds,
+            max(prior_completions) if prior_completions else 0.0,
+        )
+        candidates: list[tuple[float, int]] = []
+        for previous, current, following in zip(
+            ball_points,
+            ball_points[1:],
+            ball_points[2:],
+        ):
+            timestamp = float(current["clip_seconds"])
+            incoming_seconds = timestamp - float(previous["clip_seconds"])
+            outgoing_seconds = float(following["clip_seconds"]) - timestamp
+            if (
+                timestamp < search_start
+                or timestamp >= completion
+                or incoming_seconds <= 0
+                or outgoing_seconds <= 0
+                or incoming_seconds > 0.3
+                or outgoing_seconds > 0.3
+            ):
+                continue
+            incoming_speed = hypot(
+                float(current["x"]) - float(previous["x"]),
+                float(current["y"]) - float(previous["y"]),
+            ) / incoming_seconds
+            outgoing_speed = hypot(
+                float(following["x"]) - float(current["x"]),
+                float(following["y"]) - float(current["y"]),
+            ) / outgoing_seconds
+            if (
+                incoming_speed < minimum_speed_pixels_per_second * 2
+                or outgoing_speed
+                > incoming_speed * maximum_outgoing_speed_ratio
+            ):
+                continue
+            nearby_teams: set[str] = set()
+            winning_tracks: list[int] = []
+            for source_frame, frame_players in players.items():
+                frame_balls = balls.get(source_frame, [])
+                if not frame_balls or abs(
+                    float(frame_balls[0]["clip_seconds"]) - timestamp
+                ) > nearby_window_seconds:
+                    continue
+                nearby_teams.update(
+                    _nearby_ball_teams(
+                        frame_players,
+                        frame_balls[0],
+                        maximum_box_distance_heights=(
+                            maximum_box_distance_heights
+                        ),
+                    )
+                )
+                winning_track = _nearby_ball_team_track(
+                    frame_players,
+                    frame_balls[0],
+                    winning_team,
+                    maximum_box_distance_heights=maximum_box_distance_heights,
+                )
+                if winning_track is not None:
+                    winning_tracks.append(winning_track)
+            if (
+                event.team in nearby_teams
+                and winning_team in nearby_teams
+                and winning_tracks
+            ):
+                winner = Counter(winning_tracks).most_common(1)[0][0]
+                candidates.append((timestamp, winner))
+        if not candidates:
+            refined.append(event)
+            continue
+        contact_seconds, receiver_track_id = min(candidates)
+        refined.append(
+            replace(
+                event,
+                clip_seconds=round(contact_seconds, 3),
+                completion_seconds=round(contact_seconds, 3),
+                to_player_track_id=receiver_track_id,
+                details=(
+                    "A contested ball deceleration located the possession "
+                    f"change before later {winning_team} control."
+                ),
+            )
+        )
+    return _deduplicate_receptions(refined)
+
+
+def infer_opening_aerial_reception(
+    events: Iterable[PredictedEvent],
+    observations: Iterable[PossessionObservation],
+    rejected_boundary_intervals: Iterable[dict[str, Any]],
+    *,
+    maximum_reception_after_reentry_seconds: float = 1.0,
+    maximum_following_turnover_seconds: float = 2.0,
+    maximum_exchange_seconds: float = 3.0,
+    maximum_exchange_control_ratio: float = 0.8,
+) -> list[PredictedEvent]:
+    """Recover a reception when a clip opens during an active aerial delivery."""
+    source = list(events)
+    opening_flight = next(
+        (
+            interval
+            for interval in rejected_boundary_intervals
+            if interval.get("starts_outside")
+            and interval.get("reason") == "continuous_flight"
+            and float(interval["start_seconds"]) <= 1e-9
+            and interval.get("resumed_seconds") is not None
+        ),
+        None,
+    )
+    if opening_flight is None:
+        return source
+    resumed = float(opening_flight["resumed_seconds"])
+    receivers = [
+        observation
+        for observation in observations
+        if resumed
+        <= observation.clip_seconds
+        <= resumed + maximum_reception_after_reentry_seconds
+    ]
+    if not receivers:
+        return source
+    receiver = min(receivers, key=lambda observation: observation.clip_seconds)
+    following_turnover = next(
+        (
+            event
+            for event in sorted(source, key=lambda event: event.clip_seconds)
+            if event.event_type == "turnover_candidate"
+            and event.team == receiver.team
+            and receiver.clip_seconds
+            <= event.clip_seconds
+            <= receiver.clip_seconds + maximum_following_turnover_seconds
+        ),
+        None,
+    )
+    if following_turnover is None:
+        return source
+    opponent_team = (
+        "black"
+        if receiver.team == "red"
+        else "red"
+        if receiver.team == "black"
+        else "white"
+        if receiver.team == "blue"
+        else "blue"
+    )
+    opponent_controls = sorted(
+        (
+            observation
+            for observation in observations
+            if observation.team == opponent_team
+            and receiver.clip_seconds < observation.clip_seconds
+            <= receiver.clip_seconds + maximum_exchange_seconds
+            and observation.control_ratio <= maximum_exchange_control_ratio
+        ),
+        key=lambda observation: observation.clip_seconds,
+    )
+    opponent_segments: list[list[PossessionObservation]] = []
+    for observation in opponent_controls:
+        if (
+            opponent_segments
+            and opponent_segments[-1][-1].player_track_id
+            == observation.player_track_id
+        ):
+            opponent_segments[-1].append(observation)
+        else:
+            opponent_segments.append([observation])
+    if (
+        len(opponent_controls) < 3
+        or len({item.player_track_id for item in opponent_controls}) < 2
+        or len(opponent_segments) < 3
+    ):
+        return source
+    first_opponent_control = opponent_segments[0][0]
+    source = [
+        (
+            replace(
+                event,
+                completion_seconds=round(
+                    first_opponent_control.clip_seconds, 3
+                ),
+                to_player_track_id=first_opponent_control.player_track_id,
+                details=(
+                    f"{event.details} Completion moved to the first "
+                    "supported opponent control in the opening exchange."
+                ),
+            )
+            if event is following_turnover
+            else event
+        )
+        for event in source
+    ]
+    opening_pass = PredictedEvent(
+        event_type="pass_candidate",
+        clip_seconds=0.0,
+        team=receiver.team,
+        from_player_track_id=None,
+        to_player_track_id=receiver.player_track_id,
+        confidence=0.6,
+        details=(
+            "The clip opened during a continuous aerial delivery; the first "
+            "controlled teammate contact completed the inherited pass."
+        ),
+        completion_seconds=round(receiver.clip_seconds, 3),
+    )
+    exchange_passes = [
+        PredictedEvent(
+            event_type="pass_candidate",
+            clip_seconds=round(previous[-1].clip_seconds, 3),
+            team=opponent_team,
+            from_player_track_id=previous[-1].player_track_id,
+            to_player_track_id=current[0].player_track_id,
+            confidence=0.6,
+            details=(
+                "Consecutive direction-supported controls recovered a short "
+                "same-team exchange after the opening aerial challenge."
+            ),
+            completion_seconds=round(current[0].clip_seconds, 3),
+        )
+        for previous, current in zip(
+            opponent_segments,
+            opponent_segments[1:],
+        )
+    ]
+    return _deduplicate_receptions(
+        [opening_pass, *source, *exchange_passes]
+    )
+
+
+def refine_one_touch_acceleration_receptions(
+    events: Iterable[PredictedEvent],
+    players: dict[int, list[dict[str, Any]]],
+    balls: dict[int, list[dict[str, Any]]],
+    *,
+    minimum_speed_pixels_per_second: float,
+    minimum_transfer_seconds: float = 1.0,
+    minimum_acceleration_ratio: float = 1.5,
+    minimum_speed_multiplier: float = 2.0,
+    minimum_speed_heights_per_second: float = 3.0,
+    maximum_receiver_distance_heights: float = 1.5,
+) -> list[PredictedEvent]:
+    """Use an immediate receiver acceleration as a one-touch completion."""
+    motion = _ball_motion_evidence(balls)
+    ordered_frames = sorted(balls)
+    prior_frame = {
+        frame: ordered_frames[index - 1]
+        for index, frame in enumerate(ordered_frames)
+        if index
+    }
+    refined: list[PredictedEvent] = []
+    for event in events:
+        completion = event.completion_seconds
+        if (
+            event.event_type != "pass_candidate"
+            or completion is None
+            or event.to_player_track_id is None
+            or completion - event.clip_seconds < minimum_transfer_seconds
+        ):
+            refined.append(event)
+            continue
+        contact = next(
+            (
+                (source_frame, ball, player)
+                for source_frame, frame_balls in balls.items()
+                for ball in frame_balls
+                if abs(float(ball["clip_seconds"]) - event.clip_seconds) <= 0.04
+                for player in players.get(source_frame, [])
+                if int(player["track_id"]) == event.to_player_track_id
+                and str(player.get("team")) == event.team
+            ),
+            None,
+        )
+        if contact is None:
+            refined.append(event)
+            continue
+        source_frame, ball, player = contact
+        previous_frame = prior_frame.get(source_frame)
+        current_motion = motion.get((int(ball["track_id"]), source_frame))
+        previous_motion = (
+            next(
+                (
+                    value
+                    for (_, frame), value in motion.items()
+                    if frame == previous_frame
+                ),
+                None,
+            )
+            if previous_frame is not None
+            else None
+        )
+        height = max(1.0, float(player["y2"]) - float(player["y1"]))
+        receiver_distance = hypot(
+            (float(player["x1"]) + float(player["x2"])) / 2
+            - float(ball["x"]),
+            float(player["y2"]) - float(ball["y"]),
+        ) / height
+        if (
+            current_motion is None
+            or previous_motion is None
+            or current_motion[0]
+            < minimum_speed_pixels_per_second * minimum_speed_multiplier
+            or current_motion[0] / height
+            < minimum_speed_heights_per_second
+            or current_motion[0]
+            < previous_motion[0] * minimum_acceleration_ratio
+            or receiver_distance > maximum_receiver_distance_heights
+        ):
+            refined.append(event)
+            continue
+        refined.append(
+            replace(
+                event,
+                completion_seconds=round(event.clip_seconds, 3),
+                details=(
+                    "A same-team receiver immediately accelerated the ball, "
+                    "confirming a one-touch completion. "
+                    f"{event.details}"
+                ),
+            )
+        )
+    return refined
+
+
+def refine_receptions_to_sharp_contacts(
+    events: Iterable[PredictedEvent],
+    observations: Iterable[PossessionObservation],
+    balls: dict[int, list[dict[str, Any]]],
+    *,
+    minimum_speed_pixels_per_second: float,
+    maximum_delay_seconds: float = 1.2,
+    maximum_direction_cosine: float = -0.8,
+) -> list[PredictedEvent]:
+    source = list(events)
+    controls = list(observations)
+    motion = _ball_motion_evidence(balls)
+    motion_by_seconds = {
+        round(float(point["clip_seconds"]), 3): motion.get(
+            (int(point["track_id"]), int(point["source_frame"]))
+        )
+        for frame_points in balls.values()
+        for point in frame_points
+    }
+    refined: list[PredictedEvent] = []
+    for event in source:
+        if (
+            event.event_type != "pass_candidate"
+            or event.completion_seconds is None
+            or event.completion_seconds - event.clip_seconds > 0.6
+            or "Control transferred after" not in event.details
+        ):
+            refined.append(event)
+            continue
+        completion_motion = motion_by_seconds.get(
+            round(event.completion_seconds, 3)
+        )
+        if (
+            completion_motion is not None
+            and completion_motion[1] <= maximum_direction_cosine
+        ):
+            refined.append(event)
+            continue
+        candidates: list[PossessionObservation] = []
+        for observation in controls:
+            delay = observation.clip_seconds - event.completion_seconds
+            if (
+                observation.team != event.team
+                or observation.player_track_id == event.to_player_track_id
+                or delay < 0.2
+                or delay > maximum_delay_seconds
+                or observation.control_ratio > 1.2
+            ):
+                continue
+            evidence = next(
+                (
+                    value
+                    for (track_id, frame), value in motion.items()
+                    if frame == observation.source_frame
+                ),
+                None,
+            )
+            if (
+                evidence is not None
+                and evidence[0] >= minimum_speed_pixels_per_second
+                and evidence[1] <= maximum_direction_cosine
+            ):
+                candidates.append(observation)
+        if not candidates:
+            refined.append(event)
+            continue
+        contact = min(candidates, key=lambda observation: observation.clip_seconds)
+        if any(
+            other is not event
+            and other.team == event.team
+            and other.completion_seconds is not None
+            and abs(other.completion_seconds - contact.clip_seconds) <= 0.2
+            for other in source
+        ):
+            refined.append(event)
+            continue
+        refined.append(
+            replace(
+                event,
+                to_player_track_id=contact.player_track_id,
+                completion_seconds=round(contact.clip_seconds, 3),
+                details=(
+                    f"{event.details} Reception moved from a tracker handoff "
+                    "to the next sharp ball-direction change at a teammate."
+                ),
+            )
+        )
+    return _deduplicate_receptions(refined)
+
+
+def infer_short_exchange_receptions(
+    events: Iterable[PredictedEvent],
+    observations: Iterable[PossessionObservation],
+    balls: dict[int, list[dict[str, Any]]],
+    *,
+    minimum_speed_pixels_per_second: float,
+    maximum_prior_reception_seconds: float,
+    maximum_release_lead_seconds: float = 0.8,
+    nearby_control_seconds: float = 0.4,
+) -> list[PredictedEvent]:
+    source = list(events)
+    controls = list(observations)
+    motion = _ball_motion_evidence(balls)
+    inferred: list[PredictedEvent] = []
+    for outgoing in source:
+        if outgoing.event_type != "pass_candidate":
+            continue
+        candidates: list[tuple[float, PossessionObservation]] = []
+        for observation in controls:
+            lead = outgoing.clip_seconds - observation.clip_seconds
+            if (
+                observation.team != outgoing.team
+                or observation.control_ratio > 0.35
+                or lead < 0.2
+                or lead > maximum_release_lead_seconds
+            ):
+                continue
+            evidence = motion.get(
+                (next(
+                    (
+                        int(ball["track_id"])
+                        for ball in balls.get(observation.source_frame, [])
+                    ),
+                    -1,
+                ), observation.source_frame)
+            )
+            if (
+                evidence is None
+                or evidence[0] < minimum_speed_pixels_per_second
+                or evidence[1] > 0.25
+            ):
+                continue
+            nearby_tracks = {
+                nearby.player_track_id
+                for nearby in controls
+                if nearby.team == outgoing.team
+                and abs(
+                    nearby.clip_seconds - observation.clip_seconds
+                )
+                <= nearby_control_seconds
+                and nearby.control_ratio <= 0.35
+            }
+            if len(nearby_tracks) < 2:
+                continue
+            prior_receptions = [
+                event
+                for event in source
+                if event.team == outgoing.team
+                and event.completion_seconds is not None
+                and 0.8
+                <= observation.clip_seconds - event.completion_seconds
+                <= maximum_prior_reception_seconds
+            ]
+            if not prior_receptions:
+                continue
+            if any(
+                event.team == outgoing.team
+                and event.completion_seconds is not None
+                and abs(
+                    event.completion_seconds - observation.clip_seconds
+                )
+                <= maximum_release_lead_seconds
+                for event in source
+            ):
+                continue
+            candidates.append((observation.control_ratio, observation))
+        if not candidates:
+            continue
+        _, contact = min(candidates, key=lambda item: item[0])
+        prior = max(
+            (
+                event
+                for event in source
+                if event.team == outgoing.team
+                and event.completion_seconds is not None
+                and 0.8
+                <= contact.clip_seconds - event.completion_seconds
+                <= maximum_prior_reception_seconds
+            ),
+            key=lambda event: event.completion_seconds or 0,
+        )
+        inferred.append(
+            PredictedEvent(
+                event_type="pass_candidate",
+                clip_seconds=round(contact.clip_seconds, 3),
+                team=outgoing.team,
+                from_player_track_id=prior.to_player_track_id,
+                to_player_track_id=contact.player_track_id,
+                confidence=0.6,
+                details=(
+                    "A sharp controlled contact between co-visible teammates "
+                    "completed a short exchange before the next pass."
+                ),
+                completion_seconds=round(contact.clip_seconds, 3),
+            )
+        )
+    return _deduplicate_receptions([*source, *inferred])
+
+
+def infer_unresolved_direction_change_receptions(
+    events: Iterable[PredictedEvent],
+    observations: Iterable[PossessionObservation],
+    balls: dict[int, list[dict[str, Any]]],
+    *,
+    minimum_speed_pixels_per_second: float,
+    maximum_direction_cosine: float = -0.25,
+    maximum_control_ratio: float = 0.5,
+    event_exclusion_seconds: float = 1.0,
+) -> list[PredictedEvent]:
+    source = list(events)
+    motion = _ball_motion_evidence(balls)
+    inferred: list[PredictedEvent] = []
+    for observation in observations:
+        if observation.control_ratio > maximum_control_ratio:
+            continue
+        evidence = next(
+            (
+                value
+                for (track_id, frame), value in motion.items()
+                if frame == observation.source_frame
+            ),
+            None,
+        )
+        if (
+            evidence is None
+            or evidence[0] < minimum_speed_pixels_per_second
+            or evidence[1] > maximum_direction_cosine
+            or any(
+                event.completion_seconds is not None
+                and abs(event.completion_seconds - observation.clip_seconds)
+                <= event_exclusion_seconds
+                for event in [*source, *inferred]
+            )
+        ):
+            continue
+        prior_events = [
+            event
+            for event in source
+            if (event.completion_seconds or event.clip_seconds)
+            < observation.clip_seconds
+        ]
+        following_events = [
+            event
+            for event in source
+            if (event.completion_seconds or event.clip_seconds)
+            > observation.clip_seconds
+        ]
+        prior = (
+            max(
+                prior_events,
+                key=lambda event: event.completion_seconds or event.clip_seconds,
+            )
+            if prior_events
+            else None
+        )
+        following = (
+            min(
+                following_events,
+                key=lambda event: event.completion_seconds or event.clip_seconds,
+            )
+            if following_events
+            else None
+        )
+        linked_to_possession = (
+            following is not None
+            and following.team == observation.team
+            and following.from_player_track_id == observation.player_track_id
+            and (
+                prior is not None
+                and prior.team == observation.team
+                and prior.event_type == "pass_candidate"
+                or following.event_type == "pass_candidate"
+            )
+        ) or (
+            prior is not None
+            and following is not None
+            and prior.team == observation.team == following.team
+            and prior.event_type == following.event_type == "pass_candidate"
+            and observation.clip_seconds <= following.clip_seconds
+            and following.clip_seconds - observation.clip_seconds <= 0.6
+        )
+        known_owner_track_ids = {
+            track_id
+            for track_id in (
+                prior.to_player_track_id if prior is not None else None,
+                following.from_player_track_id
+                if following is not None
+                else None,
+            )
+            if track_id is not None
+        }
+        same_tracked_owner = observation.player_track_id in known_owner_track_ids
+        if (
+            not linked_to_possession
+            or same_tracked_owner
+            and evidence[0] < minimum_speed_pixels_per_second * 2
+        ):
+            continue
+        inferred.append(
+            PredictedEvent(
+                event_type="pass_candidate",
+                clip_seconds=round(observation.clip_seconds, 3),
+                team=observation.team,
+                from_player_track_id=None,
+                to_player_track_id=observation.player_track_id,
+                confidence=0.55,
+                details=(
+                    "A strong controlled touch and sharp ball-direction change "
+                    "resolved a same-team reception hidden by track continuity."
+                ),
+                completion_seconds=round(observation.clip_seconds, 3),
+            )
+        )
+    return _deduplicate_receptions([*source, *inferred])
+
+
+def refine_aerial_challenged_receiver_receptions(
+    events: Iterable[PredictedEvent],
+    observations: Iterable[PossessionObservation],
+    aerial_boundary_intervals: Iterable[dict[str, Any]],
+    players: dict[int, list[dict[str, Any]]],
+    balls: dict[int, list[dict[str, Any]]],
+    *,
+    minimum_delay_seconds: float = 0.6,
+    maximum_delay_seconds: float = 4.0,
+    maximum_candidate_control_ratio: float = 0.75,
+    opponent_overlap_seconds: float = 0.21,
+    confirmation_seconds: float = 1.2,
+    maximum_proximity_ratio: float = 0.75,
+) -> list[PredictedEvent]:
+    source = list(events)
+    controls = list(observations)
+    aerial_intervals = list(aerial_boundary_intervals)
+    refined: list[PredictedEvent] = []
+    for event in source:
+        completion = event.completion_seconds
+        if (
+            event.event_type != "pass_candidate"
+            or completion is None
+            or event.to_player_track_id is None
+            or not any(
+                float(interval["start_seconds"])
+                <= event.clip_seconds
+                <= float(interval.get("resumed_seconds") or interval["end_seconds"])
+                for interval in aerial_intervals
+            )
+        ):
+            refined.append(event)
+            continue
+        candidates = [
+            observation
+            for observation in controls
+            if observation.team == event.team
+            and observation.player_track_id != event.to_player_track_id
+            and minimum_delay_seconds
+            <= observation.clip_seconds - completion
+            <= maximum_delay_seconds
+            and observation.control_ratio <= maximum_candidate_control_ratio
+            and any(
+                confirmation.player_track_id == observation.player_track_id
+                and observation.clip_seconds
+                < confirmation.clip_seconds
+                <= observation.clip_seconds + confirmation_seconds
+                for confirmation in controls
+            )
+            and any(
+                abs(opponent.clip_seconds - observation.clip_seconds)
+                <= opponent_overlap_seconds
+                and opponent.team != event.team
+                for opponent in controls
+            )
+        ]
+        if not candidates:
+            refined.append(event)
+            continue
+        candidate = min(candidates, key=lambda observation: observation.clip_seconds)
+        first_proximity = candidate.clip_seconds
+        for source_frame, frame_balls in balls.items():
+            frame_players = [
+                player
+                for player in players.get(source_frame, [])
+                if int(player["track_id"]) == candidate.player_track_id
+            ]
+            if not frame_players:
+                continue
+            for ball in frame_balls:
+                timestamp = float(ball["clip_seconds"])
+                if not completion < timestamp <= candidate.clip_seconds:
+                    continue
+                for player in frame_players:
+                    height = max(1.0, float(player["y2"]) - float(player["y1"]))
+                    player_x = (float(player["x1"]) + float(player["x2"])) / 2
+                    player_y = float(player["y2"])
+                    proximity_ratio = (
+                        hypot(
+                            float(ball["x"]) - player_x,
+                            float(ball["y"]) - player_y,
+                        )
+                        / height
+                    )
+                    if proximity_ratio <= maximum_proximity_ratio:
+                        first_proximity = min(first_proximity, timestamp)
+        refined.append(
+            replace(
+                event,
+                to_player_track_id=candidate.player_track_id,
+                completion_seconds=round(first_proximity, 3),
+                details=(
+                    f"{event.details} A later same-team receiver retained the "
+                    "ball through an overlapping opponent challenge."
+                ),
+            )
+        )
+
+    accepted: list[PredictedEvent] = []
+    for event in refined:
+        if (
+            event.event_type == "pass_candidate"
+            and event.to_player_track_id is None
+            and event.from_player_track_id is not None
+            and event.completion_seconds is not None
+            and any(
+                following is not event
+                and following.event_type == "pass_candidate"
+                and following.from_player_track_id == event.from_player_track_id
+                and 0
+                <= following.clip_seconds - event.completion_seconds
+                <= 1.0
+                for following in refined
+            )
+        ):
+            continue
+        accepted.append(event)
+    return _deduplicate_receptions(accepted)
+
+
+def infer_occluded_exchange_receptions(
+    events: Iterable[PredictedEvent],
+    balls: dict[int, list[dict[str, Any]]],
+    *,
+    minimum_speed_pixels_per_second: float,
+    maximum_direction_cosine: float = -0.8,
+    minimum_event_separation_seconds: float = 0.8,
+    minimum_exchange_span_seconds: float = 2.2,
+    maximum_contact_leg_seconds: float = 1.5,
+) -> list[PredictedEvent]:
+    source = sorted(events, key=lambda event: event.completion_seconds or event.clip_seconds)
+    motion = _ball_motion_evidence(balls)
+    inferred: list[PredictedEvent] = []
+    for previous, following in zip(source, source[1:]):
+        previous_completion = previous.completion_seconds
+        following_completion = following.completion_seconds
+        if (
+            previous.event_type != "pass_candidate"
+            or following.event_type != "pass_candidate"
+            or previous.team != following.team
+            or previous_completion is None
+            or following_completion is None
+            or following_completion - previous_completion
+            < minimum_exchange_span_seconds
+        ):
+            continue
+        candidates: list[tuple[float, float]] = []
+        for (track_id, source_frame), (speed, direction_cosine) in motion.items():
+            ball = next(
+                (
+                    point
+                    for point in balls.get(source_frame, [])
+                    if int(point["track_id"]) == track_id
+                ),
+                None,
+            )
+            if ball is None:
+                continue
+            timestamp = float(ball["clip_seconds"])
+            if (
+                timestamp < previous_completion + minimum_event_separation_seconds
+                or timestamp
+                > following_completion - minimum_event_separation_seconds
+                or timestamp - previous_completion > maximum_contact_leg_seconds
+                or following_completion - timestamp > maximum_contact_leg_seconds
+                or speed < minimum_speed_pixels_per_second
+                or direction_cosine > maximum_direction_cosine
+            ):
+                continue
+            candidates.append((direction_cosine, timestamp))
+        if not candidates:
+            continue
+        _, contact = min(candidates)
+        inferred.append(
+            PredictedEvent(
+                event_type="pass_candidate",
+                clip_seconds=round(contact, 3),
+                team=previous.team,
+                from_player_track_id=previous.to_player_track_id,
+                to_player_track_id=None,
+                confidence=0.5,
+                details=(
+                    "A sharp reversal between linked same-team receptions "
+                    "recovered an occluded rapid exchange."
+                ),
+                completion_seconds=round(contact, 3),
+            )
+        )
+    return _deduplicate_receptions([*source, *inferred])
+
+
+def infer_unobserved_chain_contacts(
+    events: Iterable[PredictedEvent],
+    observations: Iterable[PossessionObservation],
+    balls: dict[int, list[dict[str, Any]]],
+    *,
+    minimum_speed_pixels_per_second: float,
+    minimum_gap_seconds: float = 4.0,
+    contact_group_seconds: float = 1.0,
+) -> list[PredictedEvent]:
+    """Recover contacts hidden by an extended gap in an otherwise stable attack."""
+    source = sorted(
+        events,
+        key=lambda event: event.completion_seconds or event.clip_seconds,
+    )
+    controls = list(observations)
+    motion = _ball_motion_evidence(balls)
+    inferred: list[PredictedEvent] = []
+    for previous, following in zip(source, source[1:]):
+        previous_completion = previous.completion_seconds
+        following_completion = following.completion_seconds
+        if (
+            previous.event_type != "pass_candidate"
+            or following.event_type != "pass_candidate"
+            or previous.team != following.team
+            or previous.team is None
+            or previous_completion is None
+            or following_completion is None
+            or following_completion - previous_completion
+            < minimum_gap_seconds
+        ):
+            continue
+        candidates: list[tuple[float, float, float]] = []
+        for (track_id, source_frame), (speed, direction_cosine) in motion.items():
+            ball = next(
+                (
+                    point
+                    for point in balls.get(source_frame, [])
+                    if int(point["track_id"]) == track_id
+                ),
+                None,
+            )
+            if ball is None:
+                continue
+            timestamp = float(ball["clip_seconds"])
+            sharp_reversal = direction_cosine <= -0.7
+            if (
+                timestamp <= previous_completion + 0.4
+                or timestamp >= following_completion - 0.4
+                or (
+                    not sharp_reversal
+                    and (
+                        speed < minimum_speed_pixels_per_second * 9
+                        or direction_cosine > 0.25
+                    )
+                )
+            ):
+                continue
+            candidates.append((timestamp, direction_cosine, speed))
+        if not any(
+            direction_cosine <= -0.7
+            for _, direction_cosine, _ in candidates
+        ):
+            continue
+        grouped: list[list[tuple[float, float, float]]] = []
+        for candidate in sorted(candidates):
+            if (
+                grouped
+                and candidate[0] - grouped[-1][-1][0] <= contact_group_seconds
+            ):
+                grouped[-1].append(candidate)
+            else:
+                grouped.append([candidate])
+        if (
+            len(grouped) == 1
+            and max(speed for _, _, speed in grouped[0])
+            < minimum_speed_pixels_per_second * 9
+        ):
+            continue
+        for group in grouped:
+            nearby_controls = [
+                control
+                for control in controls
+                if control.team == previous.team
+                and control.control_ratio <= 0.5
+                and not (
+                    previous.to_player_track_id is not None
+                    and previous.to_player_track_id
+                    == following.from_player_track_id
+                    == control.player_track_id
+                )
+                and any(
+                    abs(control.clip_seconds - timestamp) <= 0.25
+                    for timestamp, _, _ in group
+                )
+            ]
+            if nearby_controls:
+                contact = min(
+                    nearby_controls,
+                    key=lambda control: control.control_ratio,
+                ).clip_seconds
+            else:
+                if (
+                    previous.to_player_track_id is not None
+                    and previous.to_player_track_id
+                    == following.from_player_track_id
+                ):
+                    continue
+                _, contact, _ = min(
+                    (direction_cosine, timestamp, speed)
+                    for timestamp, direction_cosine, speed in group
+                )
+            if any(
+                event.completion_seconds is not None
+                and abs(event.completion_seconds - contact) < 0.4
+                for event in [*source, *inferred]
+            ):
+                continue
+            inferred.append(
+                PredictedEvent(
+                    event_type="pass_candidate",
+                    clip_seconds=round(contact, 3),
+                    team=previous.team,
+                    from_player_track_id=None,
+                    to_player_track_id=None,
+                    confidence=0.5,
+                    details=(
+                        "Ball-direction evidence recovered a contact hidden "
+                        "inside a prolonged same-team possession chain."
+                    ),
+                    completion_seconds=round(contact, 3),
+                )
+            )
+    accepted: list[PredictedEvent] = []
+    for event in source:
+        prior_hidden_contacts = [
+            prior
+            for prior in source
+            if prior.details.startswith("A strong controlled touch")
+            and prior.completion_seconds is not None
+            and 0 < event.clip_seconds - prior.completion_seconds <= 3.0
+        ]
+        receiver_controls = [
+            control
+            for control in controls
+            if (
+                event.to_player_track_id is not None
+                and control.player_track_id == event.to_player_track_id
+                and event.completion_seconds is not None
+                and 0
+                <= control.clip_seconds - event.completion_seconds
+                <= 0.8
+            )
+        ]
+        if (
+            event.event_type == "pass_candidate"
+            and event.details.startswith("Ball release")
+            and prior_hidden_contacts
+            and (
+                not any(
+                    prior.to_player_track_id == event.from_player_track_id
+                    for prior in prior_hidden_contacts
+                )
+            )
+            and receiver_controls
+            and min(control.control_ratio for control in receiver_controls) > 0.5
+        ):
+            continue
+        accepted.append(event)
+    return _deduplicate_receptions([*accepted, *inferred])
+
+
+def suppress_redundant_retained_possession_links(
+    events: Iterable[PredictedEvent],
+) -> list[PredictedEvent]:
+    """Collapse an inferred handoff superseded by retained-team possession."""
+    source = list(events)
+    retained_links = [
+        event
+        for event in source
+        if event.details.startswith(
+            "Opponent proximity never became controlled possession"
+        )
+    ]
+    clustered_hidden_contacts = [
+        hidden
+        for hidden in source
+        if hidden.details.startswith("A strong controlled touch")
+        and hidden.completion_seconds is not None
+        and any(
+            chain.details.startswith("Ball-direction evidence")
+            and chain.completion_seconds is not None
+            and 0 < hidden.completion_seconds - chain.completion_seconds <= 1.2
+            for chain in source
+        )
+    ]
+    return _deduplicate_receptions(
+        [
+            event
+            for event in source
+            if not (
+                event.event_type == "pass_candidate"
+                and event.to_player_track_id is not None
+                and event.completion_seconds is not None
+                and any(
+                    retained.team == event.team
+                    and retained.from_player_track_id == event.to_player_track_id
+                    and abs(retained.clip_seconds - event.completion_seconds)
+                    <= 0.04
+                    for retained in retained_links
+                )
+                or event.event_type == "pass_candidate"
+                and event.details.startswith("Ball release")
+                and any(
+                    hidden.team == event.team
+                    and hidden.to_player_track_id == event.from_player_track_id
+                    and hidden.completion_seconds is not None
+                    and 0 < event.clip_seconds - hidden.completion_seconds <= 3.0
+                    for hidden in clustered_hidden_contacts
+                )
+            )
+        ]
+    )
+
+
+def filter_disconnected_low_confidence_startup(
+    events: Iterable[PredictedEvent],
+    *,
+    maximum_low_confidence: float = 0.55,
+    minimum_following_gap_seconds: float = 4.0,
+) -> list[PredictedEvent]:
+    source = sorted(events, key=lambda event: event.clip_seconds)
+    first_trusted_index = next(
+        (
+            index
+            for index, event in enumerate(source)
+            if event.confidence >= maximum_low_confidence
+            or event.event_type != "pass_candidate"
+        ),
+        None,
+    )
+    if first_trusted_index in {None, 0}:
+        return source
+    startup = source[:first_trusted_index]
+    first_trusted = source[first_trusted_index]
+    last_completion = max(
+        event.completion_seconds or event.clip_seconds for event in startup
+    )
+    if first_trusted.clip_seconds - last_completion < minimum_following_gap_seconds:
+        return source
+    return source[first_trusted_index:]
 
 
 def infer_deceleration_transfer_events(
@@ -957,6 +3937,7 @@ def _deduplicate_receptions(
     events: Iterable[PredictedEvent],
     *,
     completion_tolerance_seconds: float = 0.25,
+    cross_sender_completion_tolerance_seconds: float = 0.04,
 ) -> list[PredictedEvent]:
     accepted: list[PredictedEvent] = []
     for event in sorted(events, key=lambda item: item.clip_seconds):
@@ -964,18 +3945,26 @@ def _deduplicate_receptions(
             (
                 index
                 for index, prior in enumerate(accepted)
-                if prior.from_player_track_id == event.from_player_track_id
+                if prior.event_type == event.event_type
+                and prior.team == event.team
                 and prior.to_player_track_id == event.to_player_track_id
                 and prior.completion_seconds is not None
                 and event.completion_seconds is not None
                 and abs(prior.completion_seconds - event.completion_seconds)
-                <= completion_tolerance_seconds
+                <= (
+                    completion_tolerance_seconds
+                    if prior.from_player_track_id == event.from_player_track_id
+                    else cross_sender_completion_tolerance_seconds
+                )
             ),
             None,
         )
         if duplicate_index is None:
             accepted.append(event)
-        else:
+        elif (
+            accepted[duplicate_index].from_player_track_id
+            == event.from_player_track_id
+        ):
             accepted[duplicate_index] = event
     return accepted
 
@@ -987,12 +3976,16 @@ def infer_boundary_turnovers(
     prior_events: Iterable[PredictedEvent] = (),
     ownership_lookback_seconds: float = 2.0,
     event_deduplication_seconds: float = 3.0,
+    startup_restart_max_seconds: float | None = None,
 ) -> list[PredictedEvent]:
     segments = list(possession_segments)
     existing = list(prior_events)
     events: list[PredictedEvent] = []
     for interval in intervals:
-        if interval.get("starts_outside"):
+        if (
+            interval.get("starts_outside")
+            or interval.get("stoppage_kind") == "stationary_ball_restart"
+        ):
             continue
         start = float(interval["start_seconds"])
         effective_lookback = _boundary_ownership_lookback(
@@ -1007,6 +4000,13 @@ def infer_boundary_turnovers(
         if not owners:
             continue
         owner = max(owners, key=lambda segment: segment.end_seconds)
+        if _same_team_restart_receiver(
+            interval,
+            segments,
+            owner,
+            startup_restart_max_seconds=startup_restart_max_seconds,
+        ) is not None:
+            continue
         if any(
             event.event_type == "turnover_candidate"
             and event.team == owner.team
@@ -1037,7 +4037,7 @@ def filter_aerial_boundary_intervals(
     intervals: Iterable[dict[str, Any]],
     possession_segments: Iterable[PossessionSegment],
     *,
-    maximum_prior_gap_seconds: float = 0.5,
+    maximum_prior_gap_seconds: float = 1.0,
     maximum_resume_gap_seconds: float = 1.2,
     maximum_crossing_span_seconds: float = 4.0,
 ) -> list[dict[str, Any]]:
@@ -1127,6 +4127,128 @@ def annotate_restart_releases(
     return source
 
 
+def extend_restarts_through_ball_setup(
+    intervals: Iterable[dict[str, Any]],
+    possession_segments: Iterable[PossessionSegment],
+    ball_points: Iterable[dict[str, Any]],
+    *,
+    maximum_receiver_delay_seconds: float = 2.0,
+    minimum_setup_control_seconds: float = 1.0,
+    settled_speed_pixels_per_second: float = 100.0,
+    minimum_settled_seconds: float = 0.4,
+    minimum_restart_speed_pixels_per_second: float = 200.0,
+    maximum_restart_search_seconds: float = 2.0,
+) -> list[dict[str, Any]]:
+    """Keep play stopped when an apparent restart only relocates the ball."""
+    segments = list(possession_segments)
+    balls_by_seconds: dict[float, dict[str, Any]] = {}
+    for point in ball_points:
+        if point.get("interpolated", False):
+            continue
+        seconds = float(point["clip_seconds"])
+        previous = balls_by_seconds.get(seconds)
+        if previous is None or float(point.get("confidence", 0)) > float(
+            previous.get("confidence", 0)
+        ):
+            balls_by_seconds[seconds] = point
+    balls = [balls_by_seconds[key] for key in sorted(balls_by_seconds)]
+    ball_steps: list[tuple[float, float, float]] = []
+    for first, second in zip(balls, balls[1:]):
+        start = float(first["clip_seconds"])
+        end = float(second["clip_seconds"])
+        elapsed = end - start
+        if elapsed <= 0 or elapsed > 0.3:
+            continue
+        speed = hypot(
+            float(second["x"]) - float(first["x"]),
+            float(second["y"]) - float(first["y"]),
+        ) / elapsed
+        ball_steps.append((start, end, speed))
+
+    extended: list[dict[str, Any]] = []
+    for source_interval in intervals:
+        interval = dict(source_interval)
+        release_value = interval.get("play_resumed_seconds")
+        if (
+            interval.get("stoppage_kind") != "stationary_ball_restart"
+            or release_value is None
+        ):
+            extended.append(interval)
+            continue
+        release = float(release_value)
+        setup_controls = [
+            segment
+            for segment in segments
+            if release < segment.start_seconds
+            <= release + maximum_receiver_delay_seconds
+            and segment.end_seconds - segment.start_seconds
+            >= minimum_setup_control_seconds
+        ]
+        if not setup_controls:
+            extended.append(interval)
+            continue
+        setup = min(setup_controls, key=lambda segment: segment.start_seconds)
+        search_end = setup.end_seconds + maximum_restart_search_seconds
+        latest_restart = None
+        settled_start = None
+        settled_end = None
+        for index, (start, end, speed) in enumerate(ball_steps):
+            if end < setup.start_seconds - 1e-9 or start > search_end + 1e-9:
+                continue
+            if settled_end is not None and start - settled_end > 0.3:
+                settled_start = None
+                settled_end = None
+            if speed <= settled_speed_pixels_per_second:
+                if settled_start is None:
+                    settled_start = start
+                settled_end = end
+                continue
+            was_settled = (
+                settled_start is not None
+                and settled_end is not None
+                and settled_end - settled_start
+                >= minimum_settled_seconds - 1e-9
+            )
+            following_speeds = [
+                candidate[2] for candidate in ball_steps[index : index + 3]
+            ]
+            if (
+                was_settled
+                and speed >= minimum_restart_speed_pixels_per_second
+                and sum(
+                    candidate >= settled_speed_pixels_per_second
+                    for candidate in following_speeds
+                )
+                >= 2
+            ):
+                latest_restart = start
+            settled_start = None
+            settled_end = None
+        resumed = latest_restart if latest_restart is not None else setup.end_seconds
+        interval["play_resumed_seconds"] = round(resumed, 3)
+        interval["end_seconds"] = round(resumed, 3)
+        interval["duration_seconds"] = round(
+            resumed - float(interval["start_seconds"]),
+            3,
+        )
+        evidence = dict(interval.get("movement_evidence", {}))
+        evidence["discarded_repositioning_release_seconds"] = round(
+            release, 3
+        )
+        evidence["setup_control_start_seconds"] = round(
+            setup.start_seconds, 3
+        )
+        evidence["setup_control_end_seconds"] = round(setup.end_seconds, 3)
+        evidence["confirmed_restart_release_seconds"] = round(resumed, 3)
+        interval["movement_evidence"] = evidence
+        interval["release_confidence"] = min(
+            float(interval.get("release_confidence", 0.85)),
+            0.75,
+        )
+        extended.append(interval)
+    return extended
+
+
 def infer_initial_possession_transfer(
     initial_team: str,
     possession_segments: Iterable[PossessionSegment],
@@ -1155,9 +4277,11 @@ def infer_initial_possession_transfer(
 def _event_released_outside(
     event: PredictedEvent,
     intervals: Iterable[dict[str, Any]],
+    observations: Iterable[PossessionObservation] = (),
 ) -> bool:
     if event.event_type != "pass_candidate":
         return False
+    controls = list(observations)
     for interval in intervals:
         if interval.get("starts_outside"):
             continue
@@ -1171,6 +4295,20 @@ def _event_released_outside(
             else float("inf")
         )
         if start <= event.clip_seconds <= end:
+            geometric_resume = interval.get("resumed_seconds")
+            sender_controlled_after_reentry = (
+                geometric_resume is not None
+                and event.from_player_track_id is not None
+                and any(
+                    observation.player_track_id == event.from_player_track_id
+                    and float(geometric_resume)
+                    <= observation.clip_seconds
+                    < event.clip_seconds
+                    for observation in controls
+                )
+            )
+            if sender_controlled_after_reentry:
+                return False
             return True
     return False
 
@@ -1223,9 +4361,12 @@ def infer_restart_passes(
     ownership_lookback_seconds: float = 2.0,
     maximum_reception_seconds: float = 8.0,
     balls: dict[int, list[dict[str, Any]]] | None = None,
+    startup_restart_max_seconds: float | None = None,
+    control_observations: Iterable[PossessionObservation] = (),
 ) -> list[PredictedEvent]:
     segments = list(possession_segments)
     existing = list(prior_events)
+    raw_controls = list(control_observations)
     events: list[PredictedEvent] = []
     for interval in intervals:
         resumed_value = interval.get(
@@ -1247,6 +4388,59 @@ def infer_restart_passes(
         if not owners:
             continue
         owner = max(owners, key=lambda segment: segment.end_seconds)
+        geometric_resume = float(interval.get("resumed_seconds", resumed))
+        raw_receivers = [
+            observation
+            for observation in raw_controls
+            if geometric_resume
+            <= observation.clip_seconds
+            <= geometric_resume + maximum_reception_seconds
+            and observation.player_track_id != owner.player_track_id
+            and any(
+                later.player_track_id == observation.player_track_id
+                and 0
+                < later.clip_seconds - observation.clip_seconds
+                <= 0.64
+                for later in raw_controls
+            )
+        ]
+        stable_receivers = [
+            segment
+            for segment in segments
+            if resumed
+            <= segment.start_seconds
+            <= resumed + maximum_reception_seconds
+            and segment.player_track_id != owner.player_track_id
+        ]
+        first_stable_receiver = (
+            min(stable_receivers, key=lambda segment: segment.start_seconds)
+            if stable_receivers
+            else None
+        )
+        raw_receiver = (
+            min(raw_receivers, key=lambda observation: observation.clip_seconds)
+            if raw_receivers
+            else None
+        )
+        if (
+            raw_receiver is not None
+            and (
+                first_stable_receiver is None
+                or raw_receiver.team == first_stable_receiver.team
+                or not 0
+                <= first_stable_receiver.start_seconds
+                - raw_receiver.clip_seconds
+                <= 0.64
+            )
+        ):
+            raw_receiver = None
+        same_team_restart_receiver = _same_team_restart_receiver(
+            interval,
+            segments,
+            owner,
+            startup_restart_max_seconds=startup_restart_max_seconds,
+            maximum_reception_seconds=maximum_reception_seconds,
+        )
         receiver_confirmed_turnover = any(
             event.event_type == "turnover_candidate"
             and event.team == owner.team
@@ -1256,19 +4450,32 @@ def infer_restart_passes(
         )
         if receiver_confirmed_turnover:
             continue
-        receivers = [
-            segment
-            for segment in segments
-            if resumed <= segment.start_seconds <= resumed + maximum_reception_seconds
-            and segment.team != owner.team
-        ]
-        if not receivers:
-            continue
-        receiver = min(receivers, key=lambda segment: segment.start_seconds)
+        if raw_receiver is not None:
+            receiver = PossessionSegment(
+                raw_receiver.team,
+                raw_receiver.player_track_id,
+                [raw_receiver],
+            )
+        elif same_team_restart_receiver is not None:
+            receiver = same_team_restart_receiver
+        else:
+            receivers = [
+                segment
+                for segment in stable_receivers
+                if segment.team != owner.team
+            ]
+            if not receivers:
+                continue
+            receiver = min(receivers, key=lambda segment: segment.start_seconds)
+        reception_search_start = (
+            float(interval.get("resumed_seconds", resumed))
+            if same_team_restart_receiver is not None
+            else resumed
+        )
         completion = (
             _restart_reception_seconds(
                 balls,
-                resumed_seconds=resumed,
+                resumed_seconds=reception_search_start,
                 latest_seconds=receiver.start_seconds,
             )
             if balls is not None
@@ -1286,20 +4493,89 @@ def infer_restart_passes(
         events.append(
             PredictedEvent(
                 event_type="restart_pass_candidate",
-                clip_seconds=round(resumed, 3),
+                clip_seconds=round(
+                    float(interval.get("end_seconds", resumed))
+                    if same_team_restart_receiver is not None
+                    else resumed,
+                    3,
+                ),
                 team=receiver.team,
                 from_player_track_id=None,
                 to_player_track_id=receiver.player_track_id,
                 confidence=0.55,
                 details=(
-                    f"After {owner.team} put the ball outside, play resumed and "
-                    f"the opposing {receiver.team} team made the first detected "
-                    "controlled touch. Restart taker is not visible."
+                    (
+                        f"The segment opened during a {owner.team} restart; "
+                        f"the receiving {receiver.team} player made the first "
+                        "detected controlled touch."
+                    )
+                    if same_team_restart_receiver is not None
+                    and startup_restart_max_seconds is not None
+                    and start <= startup_restart_max_seconds
+                    else (
+                        f"After play resumed, the receiving {receiver.team} "
+                        "player made the first repeatedly detected controlled "
+                        "touch."
+                    )
+                    if raw_receiver is not None
+                    and receiver.team == owner.team
+                    else (
+                        f"A {owner.team} player controlled the ball near the "
+                        "upper body at the boundary; the receiving teammate "
+                        "made the first detected controlled touch."
+                    )
+                    if same_team_restart_receiver is not None
+                    else (
+                        f"After {owner.team} put the ball outside, play resumed "
+                        f"and the opposing {receiver.team} team made the first "
+                        "detected controlled touch. Restart taker is not visible."
+                    )
                 ),
                 completion_seconds=round(completion, 3),
             )
         )
     return events
+
+
+def _same_team_restart_receiver(
+    interval: dict[str, Any],
+    segments: Iterable[PossessionSegment],
+    owner: PossessionSegment,
+    *,
+    startup_restart_max_seconds: float | None,
+    maximum_reception_seconds: float = 8.0,
+) -> PossessionSegment | None:
+    resumed_value = interval.get(
+        "play_resumed_seconds", interval.get("resumed_seconds")
+    )
+    if resumed_value is None:
+        return None
+    opens_during_restart = (
+        startup_restart_max_seconds is not None
+        and float(interval["start_seconds"]) <= startup_restart_max_seconds
+    )
+    held_near_upper_body = sum(
+        1
+        for observation in owner.observations
+        if (
+            observation.player_y - observation.ball_y
+        ) / max(1.0, observation.player_height)
+        >= 0.65
+        and observation.control_ratio <= 1.6
+    ) >= 2
+    if not opens_during_restart and not held_near_upper_body:
+        return None
+    resumed = float(resumed_value)
+    receivers = [
+        segment
+        for segment in segments
+        if resumed <= segment.start_seconds <= resumed + maximum_reception_seconds
+        and segment.player_track_id != owner.player_track_id
+    ]
+    if not receivers:
+        return None
+    receiver = min(receivers, key=lambda segment: segment.start_seconds)
+    return receiver if receiver.team == owner.team else None
 
 
 def _restart_reception_seconds(
@@ -1867,6 +5143,7 @@ def _load_player_points(
             value = dict(point)
             value["team"] = point_team
             value["track_id"] = int(track["track_id"])
+            value["role"] = track.get("role", "player")
             points[int(point["source_frame"])].append(value)
     return points
 

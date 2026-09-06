@@ -6,6 +6,11 @@ import subprocess
 import sys
 from pathlib import Path
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+LOCAL_SOURCE = PROJECT_ROOT / "src"
+if str(LOCAL_SOURCE) not in sys.path:
+    sys.path.insert(0, str(LOCAL_SOURCE))
+
 from football_poc.alfheim_profile import ALFHEIM_POSSESSION_ARGUMENTS
 from football_poc.demo import prepare_demo_video
 
@@ -15,6 +20,11 @@ def main() -> None:
         description="Build cached player tracking and events for an Alfheim segment."
     )
     parser.add_argument("segment", type=Path)
+    parser.add_argument(
+        "--events-only",
+        action="store_true",
+        help="Rerun possession and event inference from existing tracking data.",
+    )
     args = parser.parse_args()
     segment = args.segment.resolve()
     manifest = segment / "manifest.json"
@@ -24,7 +34,7 @@ def main() -> None:
     ball_tracks = segment / "ground-truth-ball-tracks.json"
     boundary_events = segment / "boundary-events.json"
     status_path = segment / "analysis-status.json"
-    workspace = Path.cwd().resolve()
+    workspace = PROJECT_ROOT
 
     def status(stage: str, message: str) -> None:
         status_path.write_text(
@@ -40,85 +50,100 @@ def main() -> None:
         )
 
     try:
-        status("detecting", "Detecting players on every fifth video frame.")
-        run(
-            "-m",
-            "football_poc.benchmark_cli",
-            str(manifest),
-            "--output",
-            str(cache),
-            "--model",
-            r".\yolo11n.pt",
-            "--confidence",
-            "0.12",
-            "--image-size",
-            "960",
-            "--stride",
-            "5",
-            "--tile-width",
-            "1484",
-            "--overlap",
-            "0.1",
+        if args.events_only:
+            required = [
+                results / "player-tracks.json",
+                ball_tracks,
+                boundary_events,
+            ]
+            missing = [path.name for path in required if not path.is_file()]
+            if missing:
+                raise FileNotFoundError(
+                    "Cannot rerun event logic without " + ", ".join(missing)
+                )
+        else:
+            status("detecting", "Detecting players on every fifth video frame.")
+            run(
+                "-m",
+                "football_poc.benchmark_cli",
+                str(manifest),
+                "--output",
+                str(cache),
+                "--model",
+                r".\yolo11n.pt",
+                "--confidence",
+                "0.12",
+                "--image-size",
+                "960",
+                "--stride",
+                "5",
+                "--tile-width",
+                "1484",
+                "--overlap",
+                "0.1",
+            )
+            status("ball_track", "Converting supplied ball labels.")
+            run(
+                str(workspace / "scripts" / "build-alfheim-ball-track.py"),
+                "--manifest",
+                str(manifest),
+                "--ground-truth",
+                str(labels),
+                "--output",
+                str(ball_tracks),
+                "--stride",
+                "5",
+            )
+            status("boundary", "Applying the saved camera pitch calibration.")
+            run(
+                str(workspace / "scripts" / "analyze-alfheim-boundary.py"),
+                "--ground-truth",
+                str(labels),
+                "--calibration",
+                str(
+                    workspace
+                    / "benchmarks"
+                    / "alfheim"
+                    / "window-555"
+                    / "pitch-calibration.json"
+                ),
+                "--output",
+                str(boundary_events),
+            )
+            status("tracking", "Associating players and classifying teams.")
+            run(
+                "-m",
+                "football_poc.player_tracking_cli",
+                str(manifest),
+                "--player-cache",
+                str(cache / "detections.jsonl"),
+                "--ball-tracks",
+                str(ball_tracks),
+                "--output",
+                str(results),
+                "--confidence",
+                "0.2",
+                "--max-gap",
+                "0.5",
+                "--max-speed",
+                "700",
+                "--minimum-track-points",
+                "3",
+                "--team-profile",
+                "red-black",
+                "--goalkeeper-affiliations",
+                str(
+                    workspace
+                    / "benchmarks"
+                    / "alfheim"
+                    / "window-555"
+                    / "goalkeeper-affiliations.json"
+                ),
+            )
+        status(
+            "events",
+            "Inferring match state, possession, passes, and turnovers.",
         )
-        status("ball_track", "Converting supplied ball labels.")
-        run(
-            str(workspace / "scripts" / "build-alfheim-ball-track.py"),
-            "--manifest",
-            str(manifest),
-            "--ground-truth",
-            str(labels),
-            "--output",
-            str(ball_tracks),
-            "--stride",
-            "5",
-        )
-        status("boundary", "Applying the saved camera pitch calibration.")
-        run(
-            str(workspace / "scripts" / "analyze-alfheim-boundary.py"),
-            "--ground-truth",
-            str(labels),
-            "--calibration",
-            str(
-                workspace
-                / "benchmarks"
-                / "alfheim"
-                / "window-555"
-                / "pitch-calibration.json"
-            ),
-            "--output",
-            str(boundary_events),
-        )
-        status("tracking", "Associating players and classifying teams.")
-        run(
-            "-m",
-            "football_poc.player_tracking_cli",
-            str(manifest),
-            "--player-cache",
-            str(cache / "detections.jsonl"),
-            "--ball-tracks",
-            str(ball_tracks),
-            "--output",
-            str(results),
-            "--confidence",
-            "0.2",
-            "--max-gap",
-            "0.5",
-            "--max-speed",
-            "700",
-            "--minimum-track-points",
-            "3",
-            "--team-profile",
-            "red-black",
-            "--goalkeeper-affiliations",
-            str(
-                workspace
-                / "benchmarks"
-                / "alfheim"
-                / "window-555"
-                / "goalkeeper-affiliations.json"
-            ),
-        )
-        status("events", "Inferring possession, passes, and turnovers.")
         run(
             "-m",
             "football_poc.possession_cli",
@@ -133,7 +158,7 @@ def main() -> None:
             "--boundary-events",
             str(boundary_events),
         )
-        status("publishing", "Preparing browser tracking video and live chunks.")
+        status("publishing", "Preparing live event chunks.")
         run(
             "-m",
             "football_poc.chunk_simulator_cli",
@@ -143,10 +168,11 @@ def main() -> None:
             "--output",
             str(results / "chunk-simulation.json"),
         )
-        prepare_demo_video(
-            source=results / "tracking-verification.mp4",
-            output=results / "tracking-verification.webm",
-        )
+        if not args.events_only:
+            prepare_demo_video(
+                source=results / "tracking-verification.mp4",
+                output=results / "tracking-verification.webm",
+            )
         status("ready", "AI tracking and event counters are ready.")
     except Exception as error:
         status("failed", str(error))

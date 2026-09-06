@@ -89,6 +89,69 @@ def test_goalkeeper_affiliation_inherits_team() -> None:
     assert track.points[0].team == "black"
 
 
+def test_goalkeeper_affiliation_corrects_misclassified_official() -> None:
+    track = PlayerTrack(
+        8,
+        [
+            PlayerPoint(1, 0.0, 0.9, 3500, 750, 3600, 900, team="official"),
+            PlayerPoint(2, 12.0, 0.9, 3520, 750, 3620, 900, team="official"),
+        ],
+        team="official",
+    )
+
+    apply_goalkeeper_affiliations(
+        [track],
+        [
+            {
+                "team": "red",
+                "eligible_teams": ["unknown", "official"],
+                "minimum_track_seconds": 10,
+                "region": {
+                    "x_min": 3400,
+                    "x_max": 3800,
+                    "y_min": 700,
+                    "y_max": 1100,
+                },
+            }
+        ],
+    )
+
+    assert track.team == "red"
+    assert track.role == "goalkeeper"
+    assert track.points[0].team == "red"
+
+
+def test_goalkeeper_affiliation_rejects_short_false_detection() -> None:
+    track = PlayerTrack(
+        9,
+        [
+            PlayerPoint(1, 0.0, 0.9, 3500, 750, 3600, 900, team="official"),
+            PlayerPoint(2, 2.0, 0.9, 3520, 750, 3620, 900, team="official"),
+        ],
+        team="official",
+    )
+
+    apply_goalkeeper_affiliations(
+        [track],
+        [
+            {
+                "team": "red",
+                "eligible_teams": ["unknown", "official"],
+                "minimum_track_seconds": 10,
+                "region": {
+                    "x_min": 3400,
+                    "x_max": 3800,
+                    "y_min": 700,
+                    "y_max": 1100,
+                },
+            }
+        ],
+    )
+
+    assert track.team == "official"
+    assert track.role == "player"
+
+
 def test_track_team_is_stable_across_all_points() -> None:
     track = PlayerTrack(
         9,
