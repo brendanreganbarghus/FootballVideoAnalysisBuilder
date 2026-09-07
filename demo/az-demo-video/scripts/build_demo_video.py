@@ -17,14 +17,17 @@ Run with (from repo root):
 Requires: imageio_ffmpeg (bundled ffmpeg), Pillow.
 
 External inputs not shipped in this repo (large/gitignored generated media):
-  - RAW_MATCH_MP4 / TRACKING_MP4 below point at the Alfheim segment-0300-020
-    benchmark clips generated locally by the benchmark pipeline (see
-    docs/RULES_ENGINE_ARCHITECTURE.md and benchmarks/alfheim/). Regenerate
-    them locally, or point the constants at your own copies, before running.
+  - RAW_MATCH_MP4 / TRACKING_MP4 below default to this worktree's own
+    REPO/benchmarks/alfheim/generated/segment-0300-020 output (see
+    docs/RULES_ENGINE_ARCHITECTURE.md and benchmarks/alfheim/). Set the
+    FOOTBALL_DEMO_SEGMENT_ROOT environment variable to point at a different
+    checkout instead (e.g. a sibling worktree), or regenerate the benchmark
+    locally.
 """
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -49,8 +52,14 @@ AUDIO.mkdir(parents=True, exist_ok=True)
 OUT_DIR = DEMO_DIR
 
 # --- External, machine-local benchmark footage (not shipped in the repo) ---
-# Adjust these to your own local benchmarks/alfheim/generated/... checkout.
-_DEFAULT_SEGMENT = Path(r"D:\Projects\Xebia\FootballVideoAnalysisBuilder-worktrees\pass-shot-validation\benchmarks\alfheim\generated\segment-0300-020")
+# Defaults to REPO/benchmarks/alfheim/generated/segment-0300-020 (this
+# worktree's own benchmark output). Override with the FOOTBALL_DEMO_SEGMENT_ROOT
+# environment variable to point at a different checkout, e.g. a sibling
+# worktree where the benchmark clips were generated.
+_DEFAULT_SEGMENT = Path(
+    os.environ.get("FOOTBALL_DEMO_SEGMENT_ROOT")
+    or (REPO / "benchmarks" / "alfheim" / "generated" / "segment-0300-020")
+)
 RAW_MATCH_MP4 = _DEFAULT_SEGMENT / "alfheim-window-playable.mp4"
 TRACKING_MP4 = _DEFAULT_SEGMENT / "analytics-data" / "tracking-verification.mp4"
 

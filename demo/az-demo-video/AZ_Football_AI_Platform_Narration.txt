@@ -117,11 +117,12 @@ Notes
   proposal that did not correspond to a distinct engine event was
   excluded from the published statistics, and the foul/stoppage
   match-state annotation stayed out of the analytics reference too.
-  The narration deliberately avoids labeling that excluded proposal
-  "accepted" or "rejected": the live review canvas decision badge and
-  the stored Copilot review conversation gave conflicting signals on
-  that specific label, so only the auditable, doubly-confirmed outcome
-  (excluded from the 14 published events) is stated as fact.
+  The authoritative durable review state is unambiguous: C10 (a
+  proposed black completed pass) was rejected as a false proposal, and
+  the separate unmatched E10 (a red/white turnover) was independently
+  confirmed. The spoken narration and captions deliberately avoid
+  naming "C10" or restating the accepted/rejected label directly, and
+  no rebuild is required on this account.
 - The "Match Replay Preview" / sequential-minute stats panel shown in
   Scene 6 was verified as a genuinely working feature, not a static
   mock: clicking Play sequence actually advances real video playback

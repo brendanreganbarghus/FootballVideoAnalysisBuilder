@@ -106,9 +106,9 @@ the final cut:
 
 See the "Notes" section at the end of
 `AZ_Football_AI_Platform_Narration.txt` for the specific factual claims this
-video makes, the evidence behind them, and one explicitly documented
-evidence conflict (whether an excluded review proposal in the 15:00–16:00
-segment was ultimately "accepted" or "rejected" — the narration deliberately
-uses neutral wording that is true under either reading, since the live
-review canvas and the stored review conversation gave conflicting signals on
-that specific label).
+video makes and the evidence behind them. For the 15:00–16:00 reviewed
+segment: C10 (a proposed black completed pass) was rejected as a false
+proposal, and the separate unmatched E10 (a red/white turnover) was
+independently confirmed — this is the authoritative durable review state.
+The spoken narration and captions avoid naming "C10"/"E10" directly and
+require no rebuild on this account.
