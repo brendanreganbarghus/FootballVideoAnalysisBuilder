@@ -270,6 +270,12 @@ The **Football Event Review** canvas enforces this sequence:
 6. Capture a new engine fingerprint and rerun the focused and protected tests.
 7. Mark the event `Implemented · Regression Verified` only when the accepted
    behavior matches and every protected test passes.
+8. After every proposal has a final decision, publish through the guarded
+   Canvas action. It excludes rejected and match-state-only proposals, includes
+   independently confirmed unmatched engine events, reruns protected
+   regressions, and requires a dynamic one-to-one reference/output match.
+9. Mark the segment `Passed` and lock it only after the published manual
+   reference is reloaded and independently reported as validated.
 
 Engine snapshots contain:
 

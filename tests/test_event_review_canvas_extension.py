@@ -11,6 +11,7 @@ EXTENSION = (
 )
 RENDERER = EXTENSION.with_name("renderer.mjs")
 FRESHNESS = EXTENSION.with_name("engine-freshness.mjs")
+PUBLICATION_GATE = EXTENSION.with_name("publication-gate.mjs")
 
 
 def test_canvas_reviews_the_prepared_segment_catalog() -> None:
@@ -424,6 +425,160 @@ def test_user_can_verify_and_accept_events_as_one_batch() -> None:
     assert "Verify &amp; Accept All Events (Autopilot)" in renderer
     assert "async function requestCopilotAcceptanceAll()" in renderer
     assert 'fetch("/api/copilot-accept-all"' in renderer
+
+
+def test_completed_review_can_publish_only_through_the_final_gate() -> None:
+    extension = EXTENSION.read_text(encoding="utf-8")
+    renderer = RENDERER.read_text(encoding="utf-8")
+
+    assert 'url.pathname === "/api/publish-reference"' in extension
+    assert 'name: "publish_validated_reference"' in extension
+    assert "publicationAuthorization" in extension
+    assert "publicationFingerprint(" in extension
+    assert "buildPublicationPlan(" in extension
+    assert 'blocker.includes("fresh engine receipt")' in extension
+    assert "decision.engineVerification = engineVerificationReceipt(" in extension
+    assert "writeJsonAtomically(path, reference)" in extension
+    assert "previousReference" in extension
+    assert "writeTextAtomically(path, previousReference)" in extension
+    assert "publishedSegment?.validated" in extension
+    assert "state.publishedReference && !selected.validated" in extension
+    assert "{...selected, validated: true}" in extension
+    assert "review.state.publishedReference" in extension
+    assert "reference_publication_blocked" in extension
+    assert 'validationStatus: "passed"' in extension
+    assert 'id="publish-reference"' in renderer
+    assert "Publish Validated Reference (Autopilot)" in renderer
+    assert "Boolean(state.publication?.reviewComplete)" in renderer
+    assert "function referenceLocked()" in renderer
+    assert "const canPublish =" in renderer
+    assert 'fetch("/api/publish-reference"' in renderer
+    assert "Running protected regressions and the final exact-match gate" in renderer
+
+
+def test_publication_gate_excludes_rejections_and_match_state_annotations() -> None:
+    script = """
+      import assert from "node:assert/strict";
+      const {buildPublicationPlan} = await import(process.argv[1]);
+
+      const current = {
+        fingerprint: {contentHash: "code"},
+        outputHash: "output",
+      };
+      const receipt = {
+        status: "already_agrees",
+        engineContentHash: "code",
+        outputHash: "output",
+      };
+      const drafts = [
+        {seconds: 10, team: "black", type: "completed_pass"},
+        {seconds: 20, team: "black", type: "completed_pass"},
+        {seconds: 30, team: "red", type: "foul"},
+      ];
+      const decisions = {
+        "0": {status: "accepted", engineVerification: receipt},
+        "1": {status: "rejected"},
+        "2": {status: "accepted", engineVerification: receipt},
+      };
+      const engineEvents = [
+        {
+          seconds: 10,
+          team: "black",
+          type: "completed_pass",
+          reviewKey: "pass",
+        },
+        {
+          seconds: 22,
+          team: "red",
+          type: "turnover",
+          reviewKey: "engine-only",
+        },
+      ];
+      const engineEventReviews = {
+        "engine-only": {
+          status: "confirmed",
+          engineContentHash: "code",
+          outputHash: "output",
+        },
+      };
+      const verificationIsCurrent = (candidate) =>
+        candidate?.engineContentHash === "code"
+        && candidate?.outputHash === "output";
+      const plan = buildPublicationPlan({
+        drafts,
+        decisions,
+        engineEvents,
+        engineEventReviews,
+        current,
+        snapshotMatches: true,
+        verificationIsCurrent,
+        regressionFresh: true,
+      });
+      assert.equal(plan.ready, true);
+      assert.equal(plan.engineEventCount, 2);
+      assert.deepEqual(plan.referenceEvents, [
+        {
+          clip_seconds: 10,
+          team: "black",
+          event_type: "completed_pass",
+        },
+        {
+          clip_seconds: 22,
+          team: "red",
+          event_type: "turnover",
+        },
+      ]);
+
+      const staleRegression = buildPublicationPlan({
+        drafts,
+        decisions,
+        engineEvents,
+        engineEventReviews,
+        current,
+        snapshotMatches: true,
+        verificationIsCurrent,
+        regressionFresh: false,
+      });
+      assert.equal(staleRegression.ready, false);
+      assert.match(staleRegression.blockers.join(" "), /regressions/);
+
+      const rejectedStillEmitted = buildPublicationPlan({
+        drafts,
+        decisions,
+        engineEvents: [
+          ...engineEvents,
+          {
+            seconds: 20,
+            team: "black",
+            type: "completed_pass",
+            reviewKey: "rejected",
+          },
+        ],
+        engineEventReviews: {
+          ...engineEventReviews,
+          rejected: {
+            status: "confirmed",
+            engineContentHash: "code",
+            outputHash: "output",
+          },
+        },
+        current,
+        snapshotMatches: true,
+        verificationIsCurrent,
+        regressionFresh: true,
+      });
+      assert.equal(rejectedStillEmitted.ready, false);
+      assert.match(
+        rejectedStillEmitted.blockers.join(" "),
+        /Rejected C2 is still emitted/,
+      );
+    """
+    result = subprocess.run(
+        ["node", "--input-type=module", "-e", script, PUBLICATION_GATE.as_uri()],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 def test_clip_conversation_stays_separate_and_can_report_an_omission() -> None:

@@ -75,6 +75,19 @@ Acceptance must follow the guarded review workflow in
 - record synchronization only after the accepted behavior appears in engine
   output and all required tests pass.
 
+Publish a completed segment only through the Canvas final publication gate:
+
+- require every `C#` proposal to have an accepted or rejected decision;
+- exclude rejected proposals and match-state annotations from the analytics
+  reference;
+- include an unmatched `E#` only after its independent confirmation receipt
+  matches the current engine source and cached-output hashes;
+- rerun and record the protected regressions against those same hashes;
+- write the manual reference only when its dynamic event count and one-to-one
+  event matches exactly equal current engine output;
+- mark the segment **Passed** and lock it only after the local validation API
+  confirms the published reference.
+
 The fingerprint proves version identity, not football correctness. Correctness
 comes from independent `C#`/`E#` construction, targeted evidence review, and
 regression protection.

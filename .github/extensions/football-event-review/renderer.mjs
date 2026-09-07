@@ -422,6 +422,15 @@ export function renderHtml() {
       grid-column: 1 / -1;
       border-color: var(--true-color-green, #238636);
     }
+    .publish-reference {
+      grid-column: 1 / -1;
+      border-color: var(--true-color-blue, #58a6ff);
+      background: color-mix(
+        in srgb,
+        var(--background-color-muted, #21262d) 72%,
+        var(--true-color-blue-muted, #1f6feb) 28%
+      );
+    }
     .workflow-hints {
       padding: 10px 12px;
       border: 1px solid var(--border-color-default, #30363d);
@@ -1426,6 +1435,10 @@ export function renderHtml() {
         <button class="accept-all-events" id="accept-all-events" type="button">
           Verify &amp; Accept All Events (Autopilot)
         </button>
+        <button class="publish-reference" id="publish-reference" type="button"
+          hidden>
+          Publish Validated Reference (Autopilot)
+        </button>
           </nav>
 
           <details class="workflow-hints" open>
@@ -1644,6 +1657,7 @@ export function renderHtml() {
     function statusLabel(status) {
       return {
         passed: "Passed",
+        published_stale: "Published · engine changed",
         in_review: "In review",
         ai_ready: "AI ready",
         prepared: "Prepared",
@@ -1652,6 +1666,13 @@ export function renderHtml() {
         building: "Building events",
         failed: "AI failed"
       }[status] || status.replaceAll("_", " ");
+    }
+
+    function referenceLocked() {
+      return Boolean(
+        state.publication?.published
+        || state.segment?.validationStatus === "passed"
+      );
     }
 
     function syncStartInputs(segment) {
@@ -1792,10 +1813,10 @@ export function renderHtml() {
         confirm.hidden = !candidate.supported;
         confirm.disabled =
           reviewBusy
-          || state.segment.validationStatus === "passed"
+          || referenceLocked()
           || Boolean(candidate.autopilotAuthorizedAt);
       }
-      if (state.segment.validationStatus === "passed" && candidate?.supported) {
+      if (referenceLocked() && candidate?.supported) {
         document.getElementById("missing-event-status").textContent =
           "This passed reference is locked; reopen it before adding a proposal.";
       }
@@ -2133,7 +2154,7 @@ export function renderHtml() {
         rejected.className = "comparison-rejected";
         rejected.textContent = "✕ Rejected";
         cell.append(rejected);
-      } else if (state.segment.validationStatus !== "passed") {
+      } else if (!referenceLocked()) {
         const actions = document.createElement("div");
         actions.className = "comparison-actions";
         const accept = document.createElement("button");
@@ -2192,7 +2213,7 @@ export function renderHtml() {
         cell.append(reviewed);
       } else if (
         !row.review
-        && state.segment.validationStatus !== "passed"
+        && !referenceLocked()
       ) {
         const confirm = document.createElement("button");
         confirm.type = "button";
@@ -2241,7 +2262,7 @@ export function renderHtml() {
         if (
           row.review
           && !row.review.decision?.status
-          && state.segment.validationStatus !== "passed"
+          && !referenceLocked()
         ) {
           item.classList.add("has-review-actions");
         }
@@ -2565,10 +2586,32 @@ export function renderHtml() {
       renderReplayCatalog();
       renderFullscreenEvents();
       const hasDraft = Boolean(draft);
-      document.getElementById("event-nav").hidden = !hasDraft;
+      const lockedReference = referenceLocked();
+      const reviewBusy = state.activity?.state === "working";
+      const remainingCount = state.drafts.filter(
+        candidate => !candidate.decision
+      ).length;
+      const canPublish =
+        !lockedReference && Boolean(state.publication?.reviewComplete);
+      document.getElementById("event-nav").hidden = !hasDraft && !canPublish;
+      document.getElementById("previous-event").hidden = !hasDraft;
+      document.getElementById("next-event").hidden = !hasDraft;
+      document.querySelector(".event-position").hidden = !hasDraft;
+      const acceptAll = document.getElementById("accept-all-events");
+      acceptAll.hidden = !hasDraft || lockedReference || remainingCount === 0;
+      acceptAll.disabled = reviewBusy || remainingCount === 0;
+      acceptAll.textContent = remainingCount
+        ? "Verify & Accept All " + remainingCount + " Remaining Events (Autopilot)"
+        : "All Events Accepted";
       document.getElementById("proposal").hidden = !hasDraft;
       document.getElementById("empty-review").hidden = hasDraft;
       document.getElementById("composer").hidden = !hasDraft;
+      const publishReference = document.getElementById("publish-reference");
+      publishReference.hidden = !canPublish;
+      publishReference.disabled = reviewBusy;
+      publishReference.title = state.publication?.regressionFresh
+        ? "Run the final exact-match gate and publish this reference"
+        : "Run protected regressions, then publish only if every gate passes";
       if (!draft) {
         const emptyTitle = document.getElementById("empty-review-title");
         const emptyDetail = document.getElementById("empty-review-detail");
@@ -2593,8 +2636,6 @@ export function renderHtml() {
         updateLiveStatistics(video.currentTime || 0);
         return;
       }
-      const lockedReference =
-        state.segment.validationStatus === "passed";
       const engineCandidate = draft.source === "engine_output";
       const adjustedProposal = draft.source === "adjusted_proposal";
       const userReported = draft.source === "user_reported";
@@ -2634,16 +2675,6 @@ export function renderHtml() {
       const accepted = decision?.status === "accepted";
       const rejected = decision?.status === "rejected";
       const finalized = accepted || rejected;
-      const reviewBusy = state.activity?.state === "working";
-      const remainingCount = state.drafts.filter(
-        candidate => !candidate.decision
-      ).length;
-      const acceptAll = document.getElementById("accept-all-events");
-      acceptAll.hidden = lockedReference;
-      acceptAll.disabled = reviewBusy || remainingCount === 0;
-      acceptAll.textContent = remainingCount
-        ? "Verify & Accept All " + remainingCount + " Remaining Events (Autopilot)"
-        : "All Events Accepted";
       document.getElementById("proposal").classList.toggle("accepted", accepted);
       document.getElementById("proposal").classList.toggle("rejected", rejected);
       document.getElementById("accept").hidden = finalized;
@@ -2975,6 +3006,33 @@ export function renderHtml() {
       }
     }
 
+    async function requestReferencePublication() {
+      const button = document.getElementById("publish-reference");
+      const status = document.getElementById("missing-event-status");
+      button.disabled = true;
+      status.textContent =
+        "Running protected regressions and the final exact-match gate…";
+      try {
+        const response = await fetch("/api/publish-reference", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({segment: selectedSegmentKey()})
+        });
+        const result = await response.json();
+        if (!response.ok) {
+          throw new Error(result.error || "Final publication failed");
+        }
+        document.getElementById("clip-conversation-panel").scrollIntoView({
+          behavior: "smooth",
+          block: "nearest"
+        });
+        await loadState();
+      } catch (error) {
+        status.textContent = error.message;
+        button.disabled = false;
+      }
+    }
+
     async function requestAdjustment() {
       const textarea = document.getElementById("message");
       const note = textarea.value.trim();
@@ -3184,6 +3242,9 @@ export function renderHtml() {
     );
     document.getElementById("accept-all-events").addEventListener(
       "click", requestCopilotAcceptanceAll
+    );
+    document.getElementById("publish-reference").addEventListener(
+      "click", requestReferencePublication
     );
     document.getElementById("adjust").addEventListener(
       "click", requestAdjustment

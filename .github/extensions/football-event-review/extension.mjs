@@ -5,6 +5,7 @@ import {
   mkdir,
   readFile,
   rename,
+  unlink,
   writeFile,
 } from "node:fs/promises";
 import { createServer } from "node:http";
@@ -33,6 +34,7 @@ import {
   requiresEngineImplementationChange,
   storedSnapshots,
 } from "./engine-freshness.mjs";
+import { buildPublicationPlan } from "./publication-gate.mjs";
 import { renderHtml } from "./renderer.mjs";
 
 const extensionRoot = dirname(fileURLToPath(import.meta.url));
@@ -580,6 +582,16 @@ async function readJson(path, fallback) {
   }
 }
 
+async function writeTextAtomically(path, content) {
+  const temporaryPath = `${path}.${process.pid}.tmp`;
+  await writeFile(temporaryPath, content, "utf8");
+  await rename(temporaryPath, path);
+}
+
+async function writeJsonAtomically(path, payload) {
+  await writeTextAtomically(path, `${JSON.stringify(payload, null, 2)}\n`);
+}
+
 async function engineFingerprint() {
   const hash = createHash("sha256");
   for (const relativePath of engineFiles) {
@@ -646,7 +658,9 @@ async function loadState(segment, segmentInfo, drafts) {
     state.engineEventReviewAuthorizations ||= {};
     state.pendingMissingCandidate ||= null;
     state.pendingClipRequest ||= null;
-    if (segmentInfo.validated) {
+    state.publicationAuthorization ||= null;
+    state.publishedReference ||= null;
+    if (segmentInfo.validated && !state.publishedReference) {
       drafts.forEach((_, index) => {
         if (state.decisions[String(index)]?.status === "accepted") return;
         state.decisions[String(index)] = {
@@ -687,6 +701,8 @@ async function loadState(segment, segmentInfo, drafts) {
     engineEventReviewAuthorizations: {},
     pendingMissingCandidate: null,
     pendingClipRequest: null,
+    publicationAuthorization: null,
+    publishedReference: null,
   };
   await saveState(segment, initial);
   return initial;
@@ -935,6 +951,52 @@ function acceptedEngineComparison(draft, state, decision, current) {
   return compareWithEngine(draft, state.engineAfter || state.engineBefore);
 }
 
+function publicationFingerprint(drafts, state) {
+  return createHash("sha256").update(JSON.stringify(
+    drafts.map((draft, index) => ({
+      proposal: proposalFingerprint(draft),
+      decision: state.decisions[String(index)]?.status || null,
+    })),
+  )).digest("hex");
+}
+
+function publicationPlan(drafts, state, current) {
+  const engineEvents = snapshotEvents(current).map((event) => ({
+    ...event,
+    reviewKey: engineEventReviewKey(event),
+  }));
+  const decisions = Object.fromEntries(
+    Object.entries(state.decisions).map(([index, decision]) => [
+      index,
+      decision?.status !== "accepted"
+        ? decision
+        : {
+            ...decision,
+            engineVerification: {
+              ...decision.engineVerification,
+              status: compareWithEngine(
+                drafts[Number(index)],
+                current,
+              ).status,
+            },
+          },
+    ]),
+  );
+  return buildPublicationPlan({
+    drafts,
+    decisions,
+    engineEvents,
+    engineEventReviews: state.engineEventReviews || {},
+    current,
+    snapshotMatches: Boolean(matchingStoredSnapshot(current, state)),
+    verificationIsCurrent: isVerificationCurrent,
+    regressionFresh: Boolean(
+      state.regression?.passed
+      && isRegressionCurrent(state.regression, current)
+    ),
+  });
+}
+
 async function reviewContext(requestedSegment = defaultSegment) {
   const segments = await loadPreparedSegments();
   const selected = segments.find(
@@ -961,11 +1023,18 @@ async function reviewContext(requestedSegment = defaultSegment) {
       ? `${localServer}${status.tracking_url}`
       : null;
   }
-  const drafts = await loadDrafts(selected.key, selected);
+  let drafts = await loadDrafts(selected.key, selected);
   const state = await loadState(selected.key, selected, drafts);
+  if (state.publishedReference && !selected.validated) {
+    drafts = await loadDrafts(
+      selected.key,
+      {...selected, validated: true},
+    );
+  }
   if (
     selected.state === "ready"
     && !selected.validated
+    && !state.publishedReference
     && selected.key !== defaultSegment
   ) {
     const snapshot = await captureEngineSnapshot(selected.key);
@@ -1026,6 +1095,9 @@ async function reviewContext(requestedSegment = defaultSegment) {
 async function publicState(requestedSegment = defaultSegment) {
   const context = await reviewContext(requestedSegment);
   const { segments, selected, drafts, state, actionFocuses } = context;
+  if (state.publishedReference && !selected.validated) {
+    selected.validationStatus = "published_stale";
+  }
   const currentEngine = await captureEngineSnapshot(requestedSegment);
   const regressionFresh = isRegressionCurrent(
     state.regression,
@@ -1048,11 +1120,19 @@ async function publicState(requestedSegment = defaultSegment) {
         : null,
     };
   });
+  const publication = publicationPlan(drafts, state, currentEngine);
   return {
     segment: selected,
     segments,
     drafts: drafts.map((draft, index) => {
-      const decision = state.decisions[String(index)] || null;
+      const decision = state.publishedReference
+        ? {
+            status: "accepted",
+            note: "Published validated reference",
+            decidedAt: state.publishedReference.publishedAt,
+            source: "published_reference",
+          }
+        : state.decisions[String(index)] || null;
       return {
         ...draft,
         index,
@@ -1084,6 +1164,16 @@ async function publicState(requestedSegment = defaultSegment) {
       : null,
     conversation: state.conversation,
     pendingMissingCandidate: state.pendingMissingCandidate,
+    publication: {
+      reviewComplete: publication.reviewComplete,
+      regressionFresh: publication.regressionFresh,
+      ready: publication.ready,
+      blockers: publication.blockers,
+      referenceEventCount: publication.referenceEvents.length,
+      engineEventCount: publication.engineEventCount,
+      published: Boolean(state.publishedReference || selected.validated),
+      currentlyValidated: Boolean(selected.validated),
+    },
     activeConversation: reviewRequestPending ? lastConversationContext : null,
     activity,
     replayRuns: await buildReplayRuns(segments),
@@ -1265,6 +1355,34 @@ function confirmMissingEventPrompt(segment, candidate) {
       + "publish_review_response with the returned event index. Do not edit "
       + "the rules engine yet; the newly added event must still pass its own "
       + "Verify, Accept & Sync Engine handover.",
+  ].join("\n");
+}
+
+function publishValidatedReferencePrompt(segment) {
+  return [
+    "[Football Event Review Canvas - approved final publication]",
+    `Publish only prepared segment ${segment.timeLabel} (${segment.key}).`,
+    projectRulesInstruction,
+    "The user explicitly authorized the final validation gate through the "
+      + "Publish Validated Reference button. Do not review another segment.",
+    "Run the protected match-state, possession, and blind-minute regression "
+      + "tests once with: $env:PYTHONPATH=\"$PWD\\src\"; python -m pytest "
+      + "tests\\test_match_state.py tests\\test_possession.py "
+      + "tests\\test_alfheim_blind_regressions.py -q",
+    "If they pass, call football-event-review refresh_engine_snapshot for "
+      + `segment ${segment.key} without an event index, then call `
+      + "record_regression_result with passed=true, the segment, and the exact "
+      + "test summary. Then call publish_validated_reference.",
+    "The publication action must enforce every gate: all proposals finalized, "
+      + "accepted C# events fresh and matched, rejected proposals excluded, "
+      + "unmatched E# events independently confirmed, exact reference/output "
+      + "counts, and a fresh passing regression receipt. Do not write the "
+      + "reference manually or bypass a failed gate.",
+    "Do not rerun detection, tracking, or event building and do not edit the "
+      + "rules engine during final publication. If any gate fails, stop and "
+      + "report the blocker.",
+    "Before ending, call football-event-review publish_review_response without "
+      + "an event index so the result appears in the general clip conversation.",
   ].join("\n");
 }
 
@@ -1636,7 +1754,10 @@ async function handleRequest(request, response) {
       sendJson(response, 400, { error: "Select a draft event first" });
       return;
     }
-    if (context.selected.validated) {
+    if (
+      context.selected.validated
+      || context.state.publishedReference
+    ) {
       sendJson(response, 409, {
         error: "Published passed references are already locked",
       });
@@ -1711,7 +1832,10 @@ async function handleRequest(request, response) {
     const body = await readBody(request);
     const segment = requestedSegment(url, body);
     const context = await reviewContext(segment);
-    if (context.selected.validated) {
+    if (
+      context.selected.validated
+      || context.state.publishedReference
+    ) {
       sendJson(response, 409, {
         error: "Published passed references are already locked",
       });
@@ -1785,6 +1909,100 @@ async function handleRequest(request, response) {
         setActivity(
           "error",
           "The batch event review could not be completed",
+          error.message,
+        );
+      });
+    }, 0);
+    return;
+  }
+  if (
+    request.method === "POST"
+    && url.pathname === "/api/publish-reference"
+  ) {
+    if (reviewRequestPending) {
+      sendJson(response, 409, {
+        error: "Copilot is already handling a review request",
+      });
+      return;
+    }
+    const body = await readBody(request);
+    const segment = requestedSegment(url, body);
+    const context = await reviewContext(segment);
+    if (
+      context.selected.validated
+      || context.state.publishedReference
+    ) {
+      sendJson(response, 409, {
+        error: "This reference has already passed and is locked",
+      });
+      return;
+    }
+    const current = await captureEngineSnapshot(segment);
+    const plan = publicationPlan(context.drafts, context.state, current);
+    if (!plan.reviewComplete) {
+      sendJson(response, 409, {
+        error: "Review every proposal before publishing the reference",
+      });
+      return;
+    }
+    const preRegressionBlockers = plan.blockers.filter((blocker) =>
+      !blocker.includes("regressions")
+      && !blocker.includes("fresh engine receipt")
+    );
+    if (preRegressionBlockers.length) {
+      sendJson(response, 409, {
+        error: preRegressionBlockers.join(" "),
+      });
+      return;
+    }
+    context.state.publicationAuthorization = {
+      grantedAt: new Date().toISOString(),
+      reviewFingerprint: publicationFingerprint(
+        context.drafts,
+        context.state,
+      ),
+      engineContentHash: current.fingerprint.contentHash,
+      outputHash: current.outputHash,
+    };
+    context.state.conversation.push({
+      role: "user",
+      content: (
+        "Final publication handover granted: run protected regressions and "
+        + "publish the completed accepted reference only if every gate passes."
+      ),
+      eventIndex: null,
+      timestamp: context.state.publicationAuthorization.grantedAt,
+    });
+    await saveState(segment, context.state);
+    lastConversationContext = { segment, eventIndex: null };
+    reviewRequestPending = true;
+    setActivity(
+      "working",
+      "Copilot is running final validation",
+      "Protected regressions and exact reference/output matching are required.",
+    );
+    sendJson(response, 202, { sent: true });
+    setTimeout(() => {
+      session.send({
+        prompt: publishValidatedReferencePrompt(context.selected),
+        displayPrompt: (
+          `Run the final validation gate and publish ${context.selected.timeLabel}.`
+        ),
+        agentMode: "autopilot",
+      }).catch(async (error) => {
+        reviewRequestPending = false;
+        const failedReview = await reviewContext(segment);
+        failedReview.state.publicationAuthorization = null;
+        failedReview.state.conversation.push({
+          role: "system",
+          content: `Final publication failed: ${error.message}`,
+          eventIndex: null,
+          timestamp: new Date().toISOString(),
+        });
+        await saveState(segment, failedReview.state);
+        setActivity(
+          "error",
+          "The final validation gate could not complete",
           error.message,
         );
       });
@@ -2287,7 +2505,10 @@ session = await joinSession({
             const segment = String(context.input.segment);
             const index = Number(context.input.index);
             const review = await reviewContext(segment);
-            if (review.selected.validated) {
+            if (
+              review.selected.validated
+              || review.state.publishedReference
+            ) {
               throw new CanvasError(
                 "validated_reference_locked",
                 "Published passed references are already locked.",
@@ -2406,7 +2627,10 @@ session = await joinSession({
             const segment = String(context.input.segment);
             const index = Number(context.input.index);
             const review = await reviewContext(segment);
-            if (review.selected.validated) {
+            if (
+              review.selected.validated
+              || review.state.publishedReference
+            ) {
               throw new CanvasError(
                 "validated_reference_locked",
                 "Published passed references must be deliberately reopened before editing.",
@@ -2605,7 +2829,10 @@ session = await joinSession({
           handler: async (context) => {
             const segment = String(context.input.segment);
             const review = await reviewContext(segment);
-            if (review.selected.validated) {
+            if (
+              review.selected.validated
+              || review.state.publishedReference
+            ) {
               throw new CanvasError(
                 "validated_reference_locked",
                 "Published passed references must be deliberately reopened before adding events.",
@@ -2684,8 +2911,133 @@ session = await joinSession({
           },
         },
         {
+          name: "publish_validated_reference",
+          description: "Publish and lock a completed review only after every final validation gate passes.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              segment: { type: "string" },
+            },
+            required: ["segment"],
+            additionalProperties: false,
+          },
+          handler: async (context) => {
+            const segment = String(context.input.segment);
+            const review = await reviewContext(segment);
+            if (
+              review.selected.validated
+              || review.state.publishedReference
+            ) {
+              throw new CanvasError(
+                "reference_already_published",
+                "This reference has already passed and is locked.",
+              );
+            }
+            const authorization = review.state.publicationAuthorization;
+            if (!authorization) {
+              throw new CanvasError(
+                "reference_publication_not_authorized",
+                "Use Publish Validated Reference in the Canvas first.",
+              );
+            }
+            const current = await captureEngineSnapshot(segment);
+            if (
+              authorization.reviewFingerprint
+                !== publicationFingerprint(review.drafts, review.state)
+              || authorization.engineContentHash
+                !== current.fingerprint.contentHash
+              || authorization.outputHash !== current.outputHash
+            ) {
+              throw new CanvasError(
+                "reference_publication_stale",
+                "Review decisions, engine code, or cached output changed after publication was authorized.",
+              );
+            }
+            const storedSnapshot = matchingStoredSnapshot(
+              current,
+              review.state,
+            );
+            Object.entries(review.state.decisions).forEach(
+              ([index, decision]) => {
+                if (decision?.status !== "accepted") return;
+                decision.engineVerification = engineVerificationReceipt(
+                  current,
+                  storedSnapshot?.[1],
+                  storedSnapshot?.[0],
+                );
+              },
+            );
+            const plan = publicationPlan(
+              review.drafts,
+              review.state,
+              current,
+            );
+            if (!plan.ready) {
+              throw new CanvasError(
+                "reference_publication_blocked",
+                plan.blockers.join(" "),
+              );
+            }
+            const reference = {
+              schema_version: 2,
+              video: segment,
+              source_start_seconds: review.selected.startSeconds,
+              duration_seconds: review.selected.durationSeconds,
+              definition: (
+                "Same-team first controlled touch completes a pass, including "
+                + "legal restarts. A turnover completes only when an opponent "
+                + "establishes control. Match-state stoppages suppress ordinary "
+                + "events and are not analytics events."
+              ),
+              exported_at: new Date().toISOString(),
+              events: plan.referenceEvents,
+            };
+            const path = join(segmentRoot(segment), "manual-reference.json");
+            const previousReference = existsSync(path)
+              ? await readFile(path, "utf8")
+              : null;
+            await writeJsonAtomically(path, reference);
+            const publishedSegment = (await loadPreparedSegments()).find(
+              (candidate) => candidate.key === segment,
+            );
+            if (!publishedSegment?.validated) {
+              if (previousReference === null) {
+                await unlink(path).catch(() => {});
+              } else {
+                await writeTextAtomically(path, previousReference);
+              }
+              throw new CanvasError(
+                "reference_exact_match_failed",
+                "The published reference did not exactly match current engine output.",
+              );
+            }
+            review.state.publicationAuthorization = null;
+            review.state.publishedReference = {
+              publishedAt: reference.exported_at,
+              eventCount: reference.events.length,
+              engineContentHash: current.fingerprint.contentHash,
+              outputHash: current.outputHash,
+              regressionRecordedAt: review.state.regression.recordedAt,
+            };
+            await saveState(segment, review.state);
+            setActivity(
+              "working",
+              "Validated reference published",
+              `${reference.events.length} events passed exact engine validation.`,
+            );
+            return {
+              segment,
+              published: true,
+              validationStatus: "passed",
+              eventCount: reference.events.length,
+              engineEventCount: plan.engineEventCount,
+              referencePath: relative(projectRoot, path),
+            };
+          },
+        },
+        {
           name: "refresh_engine_snapshot",
-          description: "Capture one segment's current engine fingerprint and output after an implementation change.",
+          description: "Capture one segment's current engine fingerprint and output for regression verification.",
           inputSchema: {
             type: "object",
             properties: {
