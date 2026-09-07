@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Future platform &amp; scaling</title>
+<style>
+  :root{
+    color-scheme: dark;
+    font-family: Inter, "Segoe UI", system-ui, sans-serif;
+    background:#0d1117; color:#f0f6fc;
+    --blue:#39a0ff; --green:#56d364; --grey:#8b949e; --panel:#161b22; --line:#30363d;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;}
+  main{max-width:1180px; margin:auto; padding:34px 28px 10px;}
+  .eyebrow{color:var(--blue); letter-spacing:.08em; text-transform:uppercase; font-size:.78rem; font-weight:800; margin:0 0 8px;}
+  h1{font-size:2rem; margin:0 0 22px;}
+  .grid{display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:26px;}
+  .card{background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px;}
+  .card h3{margin:0 0 8px; font-size:.95rem; color:var(--blue);}
+  .card ul{margin:0; padding-left:16px; color:var(--grey); font-size:.85rem; line-height:1.6;}
+  .tag{display:inline-block; font-size:.68rem; color:var(--grey); border:1px solid var(--line); border-radius:999px; padding:2px 8px; margin-bottom:8px;}
+  .deploy{display:flex; align-items:center; gap:10px; flex-wrap:wrap; background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px 18px; margin-bottom:26px; font-size:.92rem; color:#e6edf3;}
+  .deploy b{color:var(--green);}
+  .arrow{color:var(--blue);}
+  .xebia{background:linear-gradient(135deg,#161b22,#12161c); border:1px solid var(--line); border-radius:14px; padding:22px 26px;}
+  .xebia p{color:#e6edf3; line-height:1.6; margin:0 0 0;}
+  .xebia .brand{color:var(--blue); font-weight:800;}
+  .cameras{background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:18px 20px; margin-bottom:26px;}
+  .cameras h3{margin:0 0 6px; font-size:.98rem; color:var(--blue);}
+  .cameras .tag{margin-bottom:10px;}
+  .rig{display:flex; align-items:center; justify-content:center; gap:10px; flex-wrap:wrap; margin:14px 0;}
+  .cam{background:#0d1117; border:1px solid var(--line); border-radius:8px; padding:8px 12px; font-size:.82rem; color:#e6edf3; text-align:center;}
+  .cam.main{border-color:var(--green); color:var(--green); font-weight:700;}
+  .link{color:var(--grey); font-size:.78rem;}
+  .cameras p{color:var(--grey); font-size:.88rem; line-height:1.55; margin:8px 0 0;}
+</style>
+</head>
+<body>
+<main>
+  <p class="eyebrow">Future platform</p>
+  <h1>The same foundation can extend across the whole football program</h1>
+  <div class="grid">
+    <div class="card"><span class="tag">Roadmap</span><h3>Match analysis</h3>
+      <ul><li>Shots &amp; shots on target</li><li>Shot placement on goal &amp; attribution (by player)</li><li>Pitch zone identification</li><li>Passing accuracy</li><li>Tactical patterns</li><li>Defensive actions</li></ul></div>
+    <div class="card"><span class="tag">Roadmap</span><h3>Player analysis</h3>
+      <ul><li>Player performance</li><li>Development tracking</li><li>Decision making</li><li>Position-specific view</li><li>Player heat maps</li></ul></div>
+    <div class="card"><span class="tag">Roadmap</span><h3>Scouting</h3>
+      <ul><li>Player comparison</li><li>Player recommendations</li><li>Opposition analysis</li></ul></div>
+    <div class="card"><span class="tag">Roadmap</span><h3>Tactical analysis</h3>
+      <ul><li>Formation analysis</li><li>Formation vs. formation</li><li>Strengths / weaknesses</li></ul></div>
+  </div>
+  <p class="link" style="color:var(--grey); font-size:.82rem; margin:-14px 0 26px; line-height:1.55;">
+    Heat maps, zone identification, shot placement, and individual player marking would be
+    produced from the full recorded video clip in post-processing &mdash; they are not required
+    for, or part of, the live statistics screening view.</p>
+  <div class="deploy">
+    <span>Club video</span><span class="arrow">&rarr;</span>
+    <span><b>Private / on-premises</b> environment (architectural option)</span><span class="arrow">&rarr;</span>
+    <span>AI / computer vision</span><span class="arrow">&rarr;</span>
+    <span>Rules engine</span><span class="arrow">&rarr;</span>
+    <span>Validated data</span><span class="arrow">&rarr;</span>
+    <span>Copilot / AI</span>
+  </div>
+  <div class="cameras">
+    <span class="tag">Future concept &middot; not implemented</span>
+    <h3>Multi-camera coverage for larger stadiums &mdash; &ldquo;Query by Probability&rdquo;</h3>
+    <div class="rig">
+      <div class="cam">Goal-end camera A</div>
+      <span class="link">&harr;</span>
+      <div class="cam main">Main touchline camera</div>
+      <span class="link">&harr;</span>
+      <div class="cam">Goal-end camera B</div>
+    </div>
+    <div class="rig" style="margin-top:-4px;">
+      <span class="link">&uarr;&nbsp;query on low confidence&nbsp;&uarr;</span>
+    </div>
+    <div class="rig" style="margin-top:-4px;">
+      <div class="cam">Opposite touchline camera</div>
+    </div>
+    <p>The manifest format already supports multiple synchronized camera streams with
+      independent time offsets and calibration; cross-camera fusion is the next planned
+      pipeline stage. The idea: one main panoramic camera per side plus goal-end cameras,
+      where the primary camera queries the neighbouring feeds only when its own detection
+      confidence is low, to corroborate a decision rather than replace the main view.
+      For larger matches this runs on a local, on-premises server &mdash; not a cloud
+      dependency &mdash; keeping club video under club control.</p>
+  </div>
+  <div class="xebia">
+    <p>This prototype was developed by a focused team to prove the concept quickly and honestly.
+      If AZ Alkmaar wants to take the platform further, <span class="brand">Xebia Netherlands</span>
+      can bring additional AI and engineering capacity &mdash; across AI, Microsoft/Azure, Copilot,
+      agentic AI and enterprise architecture &mdash; so the team can scale to match the ambition
+      and timeline of the next phase.</p>
+  </div>
+</main>
+</body>
+</html>

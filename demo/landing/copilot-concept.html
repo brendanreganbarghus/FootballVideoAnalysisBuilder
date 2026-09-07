@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Copilot over validated football data</title>
+<style>
+  :root{
+    color-scheme: dark;
+    font-family: Inter, "Segoe UI", system-ui, sans-serif;
+    background:#0d1117; color:#f0f6fc;
+    --blue:#39a0ff; --green:#56d364; --grey:#8b949e; --panel:#161b22; --line:#30363d;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;}
+  main{max-width:980px; margin:auto; padding:36px 28px;}
+  .badge{display:inline-block; font-size:.72rem; letter-spacing:.06em; text-transform:uppercase;
+    color:#0d1117; background:var(--blue); padding:4px 10px; border-radius:999px; font-weight:800; margin-bottom:14px;}
+  h1{font-size:1.7rem; margin:0 0 6px;}
+  .sub{color:var(--grey); margin:0 0 26px;}
+  .chat{background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:22px; }
+  .turn{margin-bottom:22px;}
+  .turn:last-child{margin-bottom:0;}
+  .q{color:var(--blue); font-weight:700; margin:0 0 8px;}
+  .a{background:#0d1117; border:1px solid var(--line); border-radius:10px; padding:14px 16px; color:#e6edf3; line-height:1.55;}
+  .a b{color:var(--green);}
+  .source{margin-top:8px; font-size:.78rem; color:var(--grey);}
+  footer{max-width:980px; margin:auto; padding:0 28px 40px; color:var(--grey); font-size:.82rem;}
+</style>
+</head>
+<body>
+<main>
+  <span class="badge">Illustrative concept &middot; not a shipped feature</span>
+  <h1>Copilot reasoning over validated football data</h1>
+  <p class="sub">Answers are grounded only in structured events that already passed rules validation
+    for the reviewed segment (Alfheim, match minute 15:00&ndash;16:00). No future capability is implied.</p>
+  <div class="chat">
+    <div class="turn">
+      <p class="q">&ldquo;How many passes were completed in this segment, and how sure are we?&rdquo;</p>
+      <div class="a"><b>9 completed passes</b> were validated in the 15:00&ndash;16:00 segment,
+        alongside 5 turnovers &mdash; 14 events in total. Every one of them matches the
+        rules engine output exactly (E1&ndash;E14) after independent review.</div>
+      <div class="source">Source: analytics-data/predicted-events.json &middot; manual-reference.json (segment-0300-020)</div>
+    </div>
+    <div class="turn">
+      <p class="q">&ldquo;Can I trust this segment&rsquo;s statistics?&rdquo;</p>
+      <div class="a">Yes for this segment: 15 candidate proposals were reviewed, 14 were
+        accepted and one was correctly rejected and excluded. All <b>105 protected regression
+        tests</b> passed before the reference was published and locked.</div>
+      <div class="source">Source: Football Event Review &middot; guarded publication gate</div>
+    </div>
+    <div class="turn">
+      <p class="q">&ldquo;What about shots and shots on target?&rdquo;</p>
+      <div class="a">Those are still <b>in review</b> across the wider benchmark (shot precision
+        around 25% on the current three-window baseline), so I won&rsquo;t report them as
+        reliable statistics yet &mdash; that is next in the validation queue, not a finished number.</div>
+      <div class="source">Source: window-555 analytics benchmark</div>
+    </div>
+    <div class="turn">
+      <p class="q">&ldquo;Which players were most influential?&rdquo; <span style="color:var(--grey); font-weight:400;">(future capability)</span></p>
+      <div class="a" style="color:var(--grey);">Player-level influence requires player and formation
+        statistics, which are still in development. This is roadmap, not available today.</div>
+    </div>
+  </div>
+</main>
+<footer>Prototype mockup for internal review &middot; figures pulled from real project data, dialogue is illustrative.</footer>
+</body>
+</html>
