@@ -138,13 +138,12 @@ in `demo/landing/`. Notable ones used in the final cut:
   (segment builder / preparation area). Used for the Scene 1 reveal and the
   Scene 3 segment-builder shot, **replacing** the old, obsolete manual-click
   "Validation Lab" screen (`validation-lab.png`, no longer referenced).
-- `review-canvas-timeline-accept.png` — the maximized ("Enlarge Review")
-  Copilot-proposal vs rules-engine comparison timeline for the reviewed
-  15:00–16:00 segment, showing real Accept/Reject decision badges and the
-  "Engine already agrees" panel. The default-theme capture includes the
-  saved, camera-calibrated pitch boundary and goal-frame outlines.
-- `review-canvas-zoomed-action.png` — the focused action view with the same
-  saved camera calibration projected over the footage.
+- `review-canvas-timeline-accept.png` — the clean maximized ("Enlarge Review")
+  Copilot-proposal vs rules-engine comparison timeline used in the videos.
+- `review-canvas-timeline-calibrated.png` — the same review state with the
+  saved pitch and goal calibration projected for static website explanations.
+- `review-canvas-zoomed-action.png` — the clean focused action view used in
+  the videos.
 - `tests-105-passed.png` — the 105 protected regression tests passing before
   publication.
 - `match-replay-playing-crop.png` — the "Match Replay Preview" panel captured

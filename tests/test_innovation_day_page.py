@@ -147,7 +147,7 @@ def test_default_platform_board_is_distinct_and_landscape() -> None:
     assert "105" in html
     assert "Query By Probability" in html
     assert "Stable Full-Pitch Frames" in html
-    assert "review-canvas-timeline-accept.png" in html
+    assert "review-canvas-timeline-calibrated.png" in html
     assert "Xebia" not in html
 
 
@@ -167,20 +167,26 @@ def test_demo_keeps_calibrated_stills_static_and_limits_other_motion() -> None:
 def test_review_workflow_board_explains_every_guard_and_opens_chat() -> None:
     html = REVIEW_WORKFLOW.read_text(encoding="utf-8")
 
-    assert "aspect-ratio: 16 / 9" in html
     assert "@page { size: A3 landscape; margin: 0; }" in html
-    assert "Review Canvas for Beginners" in html
-    assert "Build C# Alone" in html
-    assert "Accepted C# + Exact Fresh E# → No Code Change" in html
-    assert "Accepted Event Missing from E# → General Rule Change" in html
-    assert "Rejected C# → Exclude the Proposal Only" in html
-    assert "Unmatched E# → Verify It Independently" in html
-    assert "Every C# has a decision" in html
-    assert "Source hash is current" in html
-    assert "Output hash is current" in html
-    assert "Protected tests pass" in html
-    assert "Event count &amp; matches are exact" in html
+    assert "Review Canvas in 4 Steps" in html
+    assert "Inspect the Evidence" in html
+    assert "Copilot Decides Independently" in html
+    assert "How Canvas, Copilot &amp; the Repository Connect" in html
+    assert "current GitHub Copilot session" in html
+    assert "selected segment, event, timestamp, evidence scope" in html
+    assert "current branch’s rules, cached evidence, tests, and review state" in html
+    assert "MATCH_LAW_PROFILE" in html
+    assert "project’s analytics definitions" in html
+    assert "Refuses to invent a touch, player, control state, or referee decision" in html
+    assert "You Make the Decision" in html
+    assert "Verify the Engine" in html
+    assert "No Change" in html
+    assert "Change Required" in html
+    assert "Keep Separate" in html
+    assert "Every proposal has a decision" in html
+    assert "Source and output hashes are current" in html
+    assert "Protected regressions pass" in html
+    assert "Event counts and matches are exact" in html
     assert 'href="../../review-canvas?theme=default"' in html
-    assert 'href="../../review-canvas?theme=innovation"' in html
     assert 'class="skip"' in html
     assert "prefers-reduced-motion" in html
