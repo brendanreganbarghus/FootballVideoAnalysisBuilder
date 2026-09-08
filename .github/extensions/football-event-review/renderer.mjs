@@ -1,10 +1,12 @@
-export function renderHtml() {
+export function renderHtml({ theme = "default" } = {}) {
+  const appTheme = theme === "innovation" ? "innovation" : "default";
+  const themeColor = appTheme === "innovation" ? "#100d12" : "#0d1117";
   return `<!doctype html>
-<html lang="en">
+<html lang="en" data-app-theme="${appTheme}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#0d1117">
+  <meta name="theme-color" content="${themeColor}">
   <title>Football Event Review</title>
   <style>
     :root { color-scheme: dark; }
@@ -58,6 +60,15 @@ export function renderHtml() {
       font-size: 12px;
       font-weight: var(--font-weight-semibold, 600);
       white-space: nowrap;
+    }
+    .innovation-brand {
+      display: none;
+      margin-top: 5px;
+      color: #f0b7e6;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: .14em;
+      text-transform: uppercase;
     }
     .activity {
       display: flex;
@@ -266,6 +277,46 @@ export function renderHtml() {
       stroke: var(--color-white, #fff);
       stroke-width: 3;
       vector-effect: non-scaling-stroke;
+    }
+    .innovation-pitch-overlay {
+      position: absolute;
+      z-index: 1;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      opacity: 0;
+    }
+    .innovation-pitch-line,
+    .innovation-halfway-line {
+      fill: none;
+      stroke: #a63f98;
+      stroke-width: 7;
+      vector-effect: non-scaling-stroke;
+    }
+    .innovation-halfway-line {
+      stroke: #cf6fbe;
+      stroke-width: 9;
+    }
+    .innovation-goal {
+      fill: rgb(216 151 207 / 12%);
+      stroke: #e4a5da;
+      stroke-width: 9;
+      vector-effect: non-scaling-stroke;
+    }
+    .innovation-guide-label {
+      display: none;
+      position: absolute;
+      z-index: 2;
+      right: 12px;
+      bottom: 12px;
+      padding: 4px 8px;
+      border: 1px solid rgb(228 165 218 / 66%);
+      border-radius: 999px;
+      color: #f7d8f2;
+      background: rgb(16 13 18 / 76%);
+      font-size: 11px;
+      pointer-events: none;
     }
     .view-modes {
       display: flex;
@@ -1203,6 +1254,70 @@ export function renderHtml() {
       .review-progress-dot { animation: none; }
       video { transition: none; }
     }
+    html[data-app-theme="innovation"] {
+      --background-color-default: #100d12;
+      --background-color-muted: #2a1c2c;
+      --background-color-subtle: #19131b;
+      --border-color-default: #4b354d;
+      --text-color-default: #fbf8fb;
+      --text-color-muted: #c5bac6;
+      --color-focus-outline: #cf6fbe;
+      --true-color-green: #68e0c1;
+      --true-color-blue: #ba4ca6;
+      --true-color-blue-muted: #6c1d5f;
+    }
+    html[data-app-theme="innovation"] body {
+      background:
+        radial-gradient(circle at 84% 2%, rgb(108 29 95 / 32%), transparent 34rem),
+        linear-gradient(145deg, #100d12, #0c090e 74%);
+    }
+    html[data-app-theme="innovation"] header {
+      border-bottom-color: rgb(186 76 166 / 42%);
+      background: rgb(16 13 18 / 92%);
+    }
+    html[data-app-theme="innovation"] .scope {
+      border-color: #ba4ca6;
+      color: #f0b7e6;
+      background: rgb(108 29 95 / 18%);
+    }
+    html[data-app-theme="innovation"] .innovation-brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+    html[data-app-theme="innovation"] .innovation-brand::before {
+      width: 18px;
+      height: 3px;
+      content: "";
+      background: linear-gradient(90deg, #ba4ca6 0 46%, transparent 46% 54%, #68e0c1 54%);
+    }
+    html[data-app-theme="innovation"] button:hover,
+    html[data-app-theme="innovation"] .comparison-event:hover,
+    html[data-app-theme="innovation"] .comparison-event:focus-visible {
+      border-color: #cf6fbe;
+      background: rgb(108 29 95 / 34%);
+    }
+    html[data-app-theme="innovation"] .comparison-event.current,
+    html[data-app-theme="innovation"] .comparison-row.matched .comparison-event {
+      border-color: #ba4ca6;
+      background: rgb(108 29 95 / 38%);
+    }
+    html[data-app-theme="innovation"] .comparison-number,
+    html[data-app-theme="innovation"] .current-event-label,
+    html[data-app-theme="innovation"] .event-source {
+      color: #df8fd2;
+    }
+    html[data-app-theme="innovation"] .innovation-pitch-overlay {
+      opacity: .72;
+    }
+    html[data-app-theme="innovation"] .innovation-guide-label {
+      display: block;
+    }
+    html[data-app-theme="innovation"] .video-shell {
+      border-color: rgb(186 76 166 / 58%);
+      box-shadow: 0 0 0 1px rgb(186 76 166 / 18%),
+        0 18px 50px rgb(0 0 0 / 34%);
+    }
   </style>
 </head>
 <body>
@@ -1210,6 +1325,7 @@ export function renderHtml() {
     <div>
       <h1>Football Event Review</h1>
       <div class="muted">Prepared segment → reference review → engine check</div>
+      <div class="innovation-brand">Xebia · Innovation Day</div>
     </div>
     <span class="scope">30–60 second segments</span>
   </header>
@@ -1268,6 +1384,20 @@ export function renderHtml() {
             <circle class="ball-marker" id="ball-marker" r="30"></circle>
             <path class="ball-crosshair" id="ball-crosshair"></path>
           </svg>
+          <svg class="innovation-pitch-overlay" viewBox="0 0 1920 840"
+            preserveAspectRatio="none" aria-hidden="true">
+            <path class="innovation-pitch-line"
+              d="M70 62H1850V778H70Z M960 62V778
+                 M70 230H280V610H70 M1850 230H1640V610H1850
+                 M280 310H405V530H280 M1640 310H1515V530H1640
+                 M960 300A120 120 0 1 0 960 540A120 120 0 1 0 960 300"/>
+            <path class="innovation-halfway-line" d="M960 62V778"/>
+            <path class="innovation-goal"
+              d="M70 350H20V490H70 M1850 350H1900V490H1850"/>
+          </svg>
+          <span class="innovation-guide-label">
+            Innovation theme · illustrative pitch guides
+          </span>
           <div class="event-trigger" id="event-trigger" hidden
             role="status" aria-live="polite">
             <span class="event-trigger-dot" aria-hidden="true"></span>

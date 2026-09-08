@@ -1512,7 +1512,11 @@ async function localJson(path, options = {}) {
 async function handleRequest(request, response) {
   const url = new URL(request.url, "http://127.0.0.1");
   if (request.method === "GET" && url.pathname === "/") {
-    const html = renderHtml();
+    const html = renderHtml({
+      theme: url.searchParams.get("theme") === "innovation"
+        ? "innovation"
+        : "default",
+    });
     response.writeHead(200, {
       "Cache-Control": "no-store",
       "Content-Type": "text/html; charset=utf-8",
@@ -2333,6 +2337,7 @@ session = await joinSession({
         type: "object",
         properties: {
           segment: { type: "string" },
+          theme: { type: "string", enum: ["default", "innovation"] },
         },
         additionalProperties: false,
       },
@@ -3180,6 +3185,9 @@ session = await joinSession({
       ],
       open: async (context) => {
         const segment = String(context.input?.segment || defaultSegment);
+        const theme = context.input?.theme === "innovation"
+          ? "innovation"
+          : "default";
         const review = await reviewContext(segment);
         let entry = servers.get(context.instanceId);
         if (!entry) {
@@ -3191,7 +3199,9 @@ session = await joinSession({
           status: `${review.selected.timeLabel} · ${
             review.selected.validationStatus.replaceAll("_", " ")
           }`,
-          url: `${entry.url}?segment=${encodeURIComponent(segment)}`,
+          url: `${entry.url}?segment=${encodeURIComponent(segment)}&theme=${
+            encodeURIComponent(theme)
+          }`,
         };
       },
       onClose: async (context) => {

@@ -33,6 +33,27 @@ def test_canvas_reviews_the_prepared_segment_catalog() -> None:
     assert "Rules Engine" not in renderer
 
 
+def test_canvas_uses_one_logic_path_with_url_driven_innovation_theme() -> None:
+    extension = EXTENSION.read_text(encoding="utf-8")
+    renderer = RENDERER.read_text(encoding="utf-8")
+
+    assert 'theme: { type: "string", enum: ["default", "innovation"] }' in extension
+    assert 'context.input?.theme === "innovation"' in extension
+    assert 'url.searchParams.get("theme") === "innovation"' in extension
+    assert "renderHtml({ theme = \"default\" } = {})" in renderer
+    assert 'data-app-theme="${appTheme}"' in renderer
+    assert 'html[data-app-theme="innovation"]' in renderer
+    assert 'class="innovation-pitch-overlay"' in renderer
+    assert 'class="innovation-pitch-line"' in renderer
+    assert 'class="innovation-goal"' in renderer
+    assert "Innovation theme · illustrative pitch guides" in renderer
+    assert "Xebia · Innovation Day" in renderer
+    assert "#a63f98" in renderer
+    assert "#e4a5da" in renderer
+    assert renderer.count('id="video-shell"') == 1
+    assert renderer.count('id="segment-builder-panel"') == 1
+
+
 def test_engine_result_is_revealed_only_after_acceptance() -> None:
     extension = EXTENSION.read_text(encoding="utf-8")
     renderer = RENDERER.read_text(encoding="utf-8")
