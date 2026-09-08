@@ -278,7 +278,7 @@ def main():
     reveal1 = min(6.0, d1 * 0.35)
     scenes[0].shots = [
         VideoShot(RAW_MATCH_MP4, duration=d1 - reveal1, start=5.0),
-        ImageShot(SHOTS / "review-canvas-base.png", duration=reveal1, focus=(0.5, 0.42), zoom_end=1.12),
+        ImageShot(SHOTS / "review-canvas-timeline-accept.png", duration=reveal1, focus=(0.5, 0.42), zoom_end=1.12),
     ]
 
     # Scene 3: segment builder concept -- replaces the old, obsolete
@@ -288,7 +288,7 @@ def main():
     d3 = ffprobe_duration(a(3))
     clip3 = min(4.0, d3 * 0.35)
     scenes[2].shots = [
-        ImageShot(SHOTS / "review-canvas-base.png", duration=d3 - clip3, focus=(0.5, 0.35), zoom_end=1.2),
+        ImageShot(SHOTS / "review-canvas-timeline-accept.png", duration=d3 - clip3, focus=(0.5, 0.35), zoom_end=1.2),
         VideoShot(RAW_MATCH_MP4, duration=clip3, start=20.0),
     ]
 
