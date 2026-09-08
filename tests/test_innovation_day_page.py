@@ -198,6 +198,11 @@ def test_review_workflow_board_explains_every_guard_and_opens_chat() -> None:
     assert "How the Frameworks Work Together" in html
     assert "Ultralytics YOLO11" in html
     assert "PyTorch" in html
+    assert "Open and decode football video files" in html
+    assert "Extract jersey-colour samples" in html
+    assert "Apply pitch calibration and homography" in html
+    assert "Draw player boxes, tracks, pitch overlays, and labels" in html
+    assert "Create tracking-verification videos" in html
     assert "ByteTrack Route" in html
     assert "Possible future use:" in html
     assert "ByteTrack for local continuity plus jersey number, team, appearance, roster, and spatial evidence for durable identity" in html

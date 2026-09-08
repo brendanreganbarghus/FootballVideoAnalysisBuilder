@@ -349,6 +349,14 @@
     }
     .flow-node h3 { color: var(--text); }
     .flow-node p { margin: 8px 0 0; font-size: .8rem; }
+    .node-list {
+      margin: 10px 0 0;
+      padding-left: 17px;
+      color: var(--muted);
+      font-size: .7rem;
+      line-height: 1.35;
+    }
+    .node-list li + li { margin-top: 4px; }
     .flow-node small {
       display: block;
       margin-top: 9px;
@@ -726,6 +734,15 @@
             <article class="flow-node" data-title="OpenCV decodes the segment" data-copy="OpenCV opens the recorded file, reads the selected 30–60 second window, and supplies sampled frames to the detector.">
               <h3>Video Frames</h3>
               <p><span translate="no">OpenCV</span> decodes the controlled segment and samples the panorama.</p>
+              <ul class="node-list" aria-label="OpenCV responsibilities">
+                <li>Open and decode football video files.</li>
+                <li>Read individual frames.</li>
+                <li>Crop and resize images for detection.</li>
+                <li>Extract jersey-colour samples.</li>
+                <li>Apply pitch calibration and homography.</li>
+                <li>Draw player boxes, tracks, pitch overlays, and labels.</li>
+                <li>Create tracking-verification videos.</li>
+              </ul>
             </article>
             <article class="flow-node" data-title="YOLO detects visible objects" data-copy="Ultralytics loads YOLO11; PyTorch executes inference. Panoramic frames are tiled, duplicate overlap boxes are removed, and detections are cached.">
               <h3>Object Detection</h3>
