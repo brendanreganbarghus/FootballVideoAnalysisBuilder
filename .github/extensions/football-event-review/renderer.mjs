@@ -1,6 +1,12 @@
 export function renderHtml({ theme = "default" } = {}) {
   const appTheme = theme === "innovation" ? "innovation" : "default";
   const themeColor = appTheme === "innovation" ? "#100d12" : "#0d1117";
+  const homeUrl = appTheme === "innovation"
+    ? "http://127.0.0.1:8080/showcase/innovation-day/"
+    : "http://127.0.0.1:8080/";
+  const homeLabel = appTheme === "innovation"
+    ? "Back to Innovation Day"
+    : "Back to Product Home";
   return `<!doctype html>
 <html lang="en" data-app-theme="${appTheme}">
 <head>
@@ -45,6 +51,31 @@ export function renderHtml({ theme = "default" } = {}) {
       align-items: center;
       padding: 14px 18px;
       border-bottom: 1px solid var(--border-color-default, #30363d);
+    }
+    .header-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+      justify-content: flex-end;
+    }
+    .home-link {
+      display: inline-flex;
+      min-height: 40px;
+      align-items: center;
+      padding: 8px 12px;
+      border: 1px solid var(--border-color-default, #30363d);
+      border-radius: 8px;
+      color: var(--text-color-default, #f0f6fc);
+      background: var(--background-color-muted, #21262d);
+      font-weight: 600;
+      text-decoration: none;
+      touch-action: manipulation;
+    }
+    .home-link:hover { border-color: var(--text-color-muted, #8b949e); }
+    .home-link:focus-visible {
+      outline: 3px solid var(--color-focus-outline, #58a6ff);
+      outline-offset: 2px;
     }
     h1, h2, h3 { margin: 0; text-wrap: balance; }
     h1 { font-size: var(--text-title-medium, 20px); }
@@ -278,45 +309,41 @@ export function renderHtml({ theme = "default" } = {}) {
       stroke-width: 3;
       vector-effect: non-scaling-stroke;
     }
-    .innovation-pitch-overlay {
+    .geometry-overlay {
       position: absolute;
       z-index: 1;
       inset: 0;
       width: 100%;
       height: 100%;
       pointer-events: none;
-      opacity: 0;
     }
-    .innovation-pitch-line,
-    .innovation-halfway-line {
-      fill: none;
-      stroke: #a63f98;
-      stroke-width: 7;
-      vector-effect: non-scaling-stroke;
+    .geometry-overlay.editing {
+      z-index: 4;
+      cursor: crosshair;
+      pointer-events: auto;
     }
-    .innovation-halfway-line {
-      stroke: #cf6fbe;
-      stroke-width: 9;
+    .calibration-tools {
+      display: grid;
+      grid-template-columns: minmax(180px, 1fr) repeat(5, auto);
+      gap: 8px;
+      align-items: end;
     }
-    .innovation-goal {
-      fill: rgb(216 151 207 / 12%);
-      stroke: #e4a5da;
-      stroke-width: 9;
-      vector-effect: non-scaling-stroke;
+    .calibration-visibility {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+      margin-bottom: 12px;
     }
-    .innovation-guide-label {
-      display: none;
-      position: absolute;
-      z-index: 2;
-      right: 12px;
-      bottom: 12px;
-      padding: 4px 8px;
-      border: 1px solid rgb(228 165 218 / 66%);
-      border-radius: 999px;
-      color: #f7d8f2;
-      background: rgb(16 13 18 / 76%);
-      font-size: 11px;
-      pointer-events: none;
+    .calibration-visibility label {
+      display: inline-flex;
+      gap: 7px;
+      align-items: center;
+    }
+    .calibration-visibility input { accent-color: var(--true-color-blue, #1f6feb); }
+    .calibration-rule { margin-bottom: 0; }
+    @media (max-width: 900px) {
+      .calibration-tools { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .calibration-tools label { grid-column: 1 / -1; }
     }
     .view-modes {
       display: flex;
@@ -1307,12 +1334,6 @@ export function renderHtml({ theme = "default" } = {}) {
     html[data-app-theme="innovation"] .event-source {
       color: #df8fd2;
     }
-    html[data-app-theme="innovation"] .innovation-pitch-overlay {
-      opacity: .72;
-    }
-    html[data-app-theme="innovation"] .innovation-guide-label {
-      display: block;
-    }
     html[data-app-theme="innovation"] .video-shell {
       border-color: rgb(186 76 166 / 58%);
       box-shadow: 0 0 0 1px rgb(186 76 166 / 18%),
@@ -1327,7 +1348,10 @@ export function renderHtml({ theme = "default" } = {}) {
       <div class="muted">Prepared segment → reference review → engine check</div>
       <div class="innovation-brand">Xebia · Innovation Day</div>
     </div>
-    <span class="scope">30–60 second segments</span>
+    <div class="header-actions">
+      <a class="home-link" href="${homeUrl}">${homeLabel}</a>
+      <span class="scope">30–60 second segments</span>
+    </div>
   </header>
   <p class="activity ready" id="activity" aria-live="polite">
     <span class="activity-dot" aria-hidden="true"></span>
@@ -1367,6 +1391,49 @@ export function renderHtml({ theme = "default" } = {}) {
             aria-live="polite">Select an existing segment or prepare a new minute.</p>
         </div>
       </details>
+      <details class="segment-builder camera-geometry" id="geometry-panel">
+        <summary>
+          <h2>Camera Calibration & Overlays</h2>
+          <span class="muted">Saved pitch edges and goal frames</span>
+        </summary>
+        <div class="segment-builder-body">
+          <div class="calibration-visibility">
+            <label>
+              <input id="show-pitch" type="checkbox" checked>
+              Calibrated pitch boundary
+            </label>
+            <label>
+              <input id="show-goals" type="checkbox" checked>
+              Calibrated goal frames
+            </label>
+          </div>
+          <div class="calibration-tools">
+            <label for="geometry-feature">Feature to calibrate
+              <select id="geometry-feature">
+                <option value="near_touchline">Near long side</option>
+                <option value="far_touchline">Far long side</option>
+                <option value="left_goal_line">Left narrow side</option>
+                <option value="right_goal_line">Right narrow side</option>
+                <option value="left_goal_mouth">Left goal posts</option>
+                <option value="right_goal_mouth">Right goal posts</option>
+              </select>
+            </label>
+            <button id="edit-geometry" type="button">Redraw</button>
+            <button id="undo-geometry" type="button">Undo point</button>
+            <button id="finish-geometry" type="button">Finish</button>
+            <button id="restore-geometry" type="button">Restore saved</button>
+            <button id="export-geometry" type="button">Download</button>
+          </div>
+          <p class="muted" id="geometry-status" aria-live="polite">
+            Loading the saved camera calibration…
+          </p>
+          <p class="muted calibration-rule">
+            <strong>Line rule:</strong> trace the outer edge of each painted
+            white line—the edge furthest from the playing area. For a goal,
+            click all four visible goal-frame corners clockwise.
+          </p>
+        </div>
+      </details>
       <div class="segment-picker">
         <label for="segment-select">Prepared segment
           <select id="segment-select" autocomplete="off"></select>
@@ -1384,20 +1451,8 @@ export function renderHtml({ theme = "default" } = {}) {
             <circle class="ball-marker" id="ball-marker" r="30"></circle>
             <path class="ball-crosshair" id="ball-crosshair"></path>
           </svg>
-          <svg class="innovation-pitch-overlay" viewBox="0 0 1920 840"
-            preserveAspectRatio="none" aria-hidden="true">
-            <path class="innovation-pitch-line"
-              d="M70 62H1850V778H70Z M960 62V778
-                 M70 230H280V610H70 M1850 230H1640V610H1850
-                 M280 310H405V530H280 M1640 310H1515V530H1640
-                 M960 300A120 120 0 1 0 960 540A120 120 0 1 0 960 300"/>
-            <path class="innovation-halfway-line" d="M960 62V778"/>
-            <path class="innovation-goal"
-              d="M70 350H20V490H70 M1850 350H1900V490H1850"/>
-          </svg>
-          <span class="innovation-guide-label">
-            Innovation theme · illustrative pitch guides
-          </span>
+          <canvas class="geometry-overlay" id="geometry-overlay"
+            aria-label="Calibrated pitch and goal outlines"></canvas>
           <div class="event-trigger" id="event-trigger" hidden
             role="status" aria-live="polite">
             <span class="event-trigger-dot" aria-hidden="true"></span>
@@ -1758,6 +1813,14 @@ export function renderHtml({ theme = "default" } = {}) {
     let playbackFrameRequest = null;
     let replayRunId = null;
     let replaySegmentIndex = 0;
+    let repositoryGeometry = null;
+    let geometry = {
+      image_width: 4450,
+      image_height: 2000,
+      features: {},
+    };
+    let editingFeature = null;
+    const geometryStorageKey = "alfheim-camera-setting-2-geometry-v1";
     const video = document.getElementById("video");
     const timeline = document.getElementById("timeline");
     const videoShell = document.getElementById("video-shell");
@@ -1775,6 +1838,9 @@ export function renderHtml({ theme = "default" } = {}) {
     const processButton = document.getElementById("process-segment");
     const segmentProgress = document.getElementById("segment-progress");
     const segmentRunStatus = document.getElementById("segment-run-status");
+    const geometryCanvas = document.getElementById("geometry-overlay");
+    const geometryContext = geometryCanvas.getContext("2d");
+    const geometryStatus = document.getElementById("geometry-status");
     const replayRunSelect = document.getElementById("replay-run");
     const replayVideo = document.getElementById("replay-video");
 
@@ -1782,6 +1848,138 @@ export function renderHtml({ theme = "default" } = {}) {
       return state?.segment?.key ||
         new URLSearchParams(location.search).get("segment") ||
         "segment-0300-020";
+    }
+
+    function cloneGeometry(value) {
+      return JSON.parse(JSON.stringify(value));
+    }
+
+    function mediaLayout() {
+      const widthAvailable = geometryCanvas.clientWidth;
+      const heightAvailable = geometryCanvas.clientHeight;
+      const mediaAspect = (video.videoWidth || geometry.image_width) /
+        (video.videoHeight || geometry.image_height);
+      const stageAspect = widthAvailable / Math.max(1, heightAvailable);
+      const width = stageAspect > mediaAspect
+        ? heightAvailable * mediaAspect
+        : widthAvailable;
+      const height = stageAspect > mediaAspect
+        ? heightAvailable
+        : widthAvailable / mediaAspect;
+      return {
+        x: (widthAvailable - width) / 2,
+        y: (heightAvailable - height) / 2,
+        width,
+        height,
+        widthAvailable,
+        heightAvailable,
+      };
+    }
+
+    function drawGeometry() {
+      const layout = mediaLayout();
+      if (!layout.widthAvailable || !layout.heightAvailable) return;
+      const ratio = window.devicePixelRatio || 1;
+      geometryCanvas.width = Math.max(
+        1,
+        Math.round(layout.widthAvailable * ratio),
+      );
+      geometryCanvas.height = Math.max(
+        1,
+        Math.round(layout.heightAvailable * ratio),
+      );
+      geometryContext.setTransform(ratio, 0, 0, ratio, 0, 0);
+      geometryContext.clearRect(
+        0,
+        0,
+        layout.widthAvailable,
+        layout.heightAvailable,
+      );
+      const project = (point) => [
+        layout.x + point[0] * layout.width / geometry.image_width,
+        layout.y + point[1] * layout.height / geometry.image_height,
+      ];
+      const innovation =
+        document.documentElement.dataset.appTheme === "innovation";
+      const touchlineColor = innovation ? "#a63f98" : "#ffd33d";
+      const goalLineColor = innovation ? "#a63f98" : "#ff9f1c";
+      const goalFrameColor = innovation ? "#e4a5da" : "#00e5ff";
+      const drawLine = (
+        points,
+        color,
+        width,
+        dashed = false,
+        closed = false,
+      ) => {
+        if (!Array.isArray(points) || points.length < 2) return;
+        geometryContext.strokeStyle = color;
+        geometryContext.lineWidth = width;
+        geometryContext.setLineDash(dashed ? [8, 5] : []);
+        geometryContext.beginPath();
+        points.forEach((point, index) => {
+          const [x, y] = project(point);
+          if (index === 0) geometryContext.moveTo(x, y);
+          else geometryContext.lineTo(x, y);
+        });
+        if (closed) geometryContext.closePath();
+        geometryContext.stroke();
+        geometryContext.setLineDash([]);
+        points.forEach((point) => {
+          const [x, y] = project(point);
+          geometryContext.fillStyle = color;
+          geometryContext.beginPath();
+          geometryContext.arc(x, y, editingFeature ? 2.5 : 1.5, 0, Math.PI * 2);
+          geometryContext.fill();
+        });
+      };
+      if (document.getElementById("show-pitch").checked) {
+        drawLine(geometry.features.near_touchline, touchlineColor, 2, true);
+        drawLine(geometry.features.far_touchline, touchlineColor, 2, true);
+        drawLine(geometry.features.left_goal_line, goalLineColor, 2, true);
+        drawLine(geometry.features.right_goal_line, goalLineColor, 2, true);
+      }
+      if (document.getElementById("show-goals").checked) {
+        drawLine(
+          geometry.features.left_goal_mouth,
+          goalFrameColor,
+          2.5,
+          false,
+          true,
+        );
+        drawLine(
+          geometry.features.right_goal_mouth,
+          goalFrameColor,
+          2.5,
+          false,
+          true,
+        );
+      }
+    }
+
+    function saveGeometry() {
+      localStorage.setItem(geometryStorageKey, JSON.stringify(geometry));
+      drawGeometry();
+    }
+
+    async function loadGeometry() {
+      try {
+        const response = await fetch("/api/calibration", {cache: "no-store"});
+        const payload = await response.json();
+        if (!response.ok) {
+          throw new Error(payload.error || "Calibration is unavailable");
+        }
+        repositoryGeometry = payload;
+        const saved = localStorage.getItem(geometryStorageKey);
+        geometry = saved ? JSON.parse(saved) : cloneGeometry(repositoryGeometry);
+        geometry.features ||= {};
+        geometryStatus.textContent = saved
+          ? "Loaded your locally saved camera calibration."
+          : "Loaded the repository camera calibration.";
+        drawGeometry();
+      } catch (error) {
+        geometryStatus.textContent =
+          "Camera calibration unavailable: " + error.message;
+      }
     }
 
     function statusLabel(status) {
@@ -3414,6 +3612,85 @@ export function renderHtml({ theme = "default" } = {}) {
       playbackFrameRequest = null;
     });
     video.addEventListener("seeked", updateBallMarker);
+    video.addEventListener("loadedmetadata", drawGeometry);
+    ["show-pitch", "show-goals"].forEach((id) => {
+      document.getElementById(id).addEventListener("change", drawGeometry);
+    });
+    document.getElementById("edit-geometry").addEventListener("click", () => {
+      editingFeature = document.getElementById("geometry-feature").value;
+      geometry.features[editingFeature] = [];
+      geometryCanvas.classList.add("editing");
+      geometryStatus.textContent =
+        "Click points for " + editingFeature.replaceAll("_", " ") +
+        ". Trace the outer edge of painted pitch lines. For a goal, click " +
+        "all four visible goal-frame corners clockwise.";
+      drawGeometry();
+    });
+    document.getElementById("undo-geometry").addEventListener("click", () => {
+      if (!editingFeature) return;
+      geometry.features[editingFeature].pop();
+      drawGeometry();
+    });
+    document.getElementById("finish-geometry").addEventListener("click", () => {
+      if (!editingFeature) return;
+      const minimumPoints = editingFeature.endsWith("goal_mouth") ? 4 : 2;
+      if (geometry.features[editingFeature].length < minimumPoints) {
+        geometryStatus.textContent =
+          "Add at least " + minimumPoints + " points before finishing.";
+        return;
+      }
+      const completed = editingFeature;
+      editingFeature = null;
+      geometryCanvas.classList.remove("editing");
+      saveGeometry();
+      geometryStatus.textContent =
+        completed.replaceAll("_", " ") +
+        " saved locally for this camera.";
+    });
+    document.getElementById("restore-geometry").addEventListener(
+      "click",
+      () => {
+        if (!repositoryGeometry) return;
+        geometry = cloneGeometry(repositoryGeometry);
+        editingFeature = null;
+        geometryCanvas.classList.remove("editing");
+        localStorage.removeItem(geometryStorageKey);
+        geometryStatus.textContent =
+          "Restored the repository camera calibration.";
+        drawGeometry();
+      },
+    );
+    geometryCanvas.addEventListener("click", (event) => {
+      if (!editingFeature) return;
+      const layout = mediaLayout();
+      const rect = geometryCanvas.getBoundingClientRect();
+      const displayX =
+        (event.clientX - rect.left) * geometryCanvas.clientWidth / rect.width;
+      const displayY =
+        (event.clientY - rect.top) * geometryCanvas.clientHeight / rect.height;
+      const x = displayX - layout.x;
+      const y = displayY - layout.y;
+      if (x < 0 || y < 0 || x > layout.width || y > layout.height) return;
+      geometry.features[editingFeature].push([
+        Math.round(x * geometry.image_width / layout.width),
+        Math.round(y * geometry.image_height / layout.height),
+      ]);
+      drawGeometry();
+    });
+    document.getElementById("export-geometry").addEventListener(
+      "click",
+      () => {
+        const link = document.createElement("a");
+        link.href = URL.createObjectURL(new Blob(
+          [JSON.stringify(geometry, null, 2)],
+          {type: "application/json"},
+        ));
+        link.download =
+          (geometry.camera_id || "camera") + "-pitch-calibration.json";
+        link.click();
+        URL.revokeObjectURL(link.href);
+      },
+    );
     document.querySelectorAll("[data-view-mode]").forEach(button => {
       button.addEventListener("click", () => {
         setViewMode(button.dataset.viewMode);
@@ -3455,7 +3732,9 @@ export function renderHtml({ theme = "default" } = {}) {
         document.fullscreenElement === videoShell
           ? "Exit Full Screen"
           : "Enlarge Review";
+      drawGeometry();
     });
+    window.addEventListener("resize", drawGeometry);
 
     replayRunSelect.addEventListener("change", () => {
       replayVideo.pause();
@@ -3530,6 +3809,7 @@ export function renderHtml({ theme = "default" } = {}) {
     events.addEventListener("state", loadState);
     events.addEventListener("conversation", loadState);
     events.addEventListener("activity", loadState);
+    void loadGeometry();
     loadState().then(() => {
       if (state.drafts.length) selectEvent(0);
     }).catch(error => {

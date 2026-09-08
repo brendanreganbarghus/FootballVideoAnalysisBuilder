@@ -107,3 +107,42 @@ def test_html_and_json_responses_disable_browser_caching() -> None:
         "Cache-Control",
         "no-store, no-cache, must-revalidate",
     ) in headers
+
+
+def test_review_canvas_launcher_redirects_to_registered_local_url(
+    tmp_path: Path, monkeypatch
+) -> None:
+    generated = tmp_path / "benchmarks" / "alfheim" / "generated"
+    generated.mkdir(parents=True)
+    (generated / ".football-event-review-urls.json").write_text(
+        json.dumps(
+            {
+                "default": (
+                    "http://127.0.0.1:54321/"
+                    "?segment=segment-0300-020&theme=default"
+                )
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(SERVE_LOCAL, "PROJECT_ROOT", tmp_path)
+
+    handler = object.__new__(SERVE_LOCAL.RangeRequestHandler)
+    handler.path = "/review-canvas?theme=default"
+    response: dict[str, object] = {}
+    handler.send_response = lambda status: response.update(status=status)
+    handler.send_header = (
+        lambda name, value: response.setdefault("headers", []).append(
+            (name, value)
+        )
+    )
+    handler.end_headers = lambda: None
+
+    handler.do_GET()
+
+    assert response["status"] == 302
+    assert (
+        "Location",
+        "http://127.0.0.1:54321/"
+        "?segment=segment-0300-020&theme=default",
+    ) in response["headers"]

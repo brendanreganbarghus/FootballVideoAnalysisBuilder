@@ -69,6 +69,13 @@ const engineFiles = [
   "scripts/process-alfheim-segment.py",
 ];
 const servers = new Map();
+const launcherRegistryPath = join(
+  projectRoot,
+  "benchmarks",
+  "alfheim",
+  "generated",
+  ".football-event-review-urls.json",
+);
 const eventStreams = new Set();
 let lastConversationContext = null;
 let activity = {
@@ -1525,6 +1532,24 @@ async function handleRequest(request, response) {
     response.end(html);
     return;
   }
+  if (request.method === "GET" && url.pathname === "/api/calibration") {
+    const calibration = await readJson(
+      join(
+        projectRoot,
+        "benchmarks",
+        "alfheim",
+        "window-555",
+        "pitch-calibration.json",
+      ),
+      null,
+    );
+    if (!calibration) {
+      sendJson(response, 404, {error: "Pitch calibration is unavailable"});
+      return;
+    }
+    sendJson(response, 200, calibration);
+    return;
+  }
   if (request.method === "GET" && url.pathname === "/api/state") {
     sendJson(
       response,
@@ -2318,6 +2343,7 @@ async function startServer(instanceId) {
     if (error?.code !== "EADDRINUSE") throw error;
     await listen(0);
   }
+
   const address = server.address();
   const port = typeof address === "object" && address ? address.port : 0;
   return {
@@ -2325,6 +2351,17 @@ async function startServer(instanceId) {
     url: `http://127.0.0.1:${port}/`,
     instanceId,
   };
+}
+
+async function registerLauncherUrl(theme, url) {
+  const registry = await readJson(launcherRegistryPath, {});
+  registry[theme] = url;
+  await mkdir(dirname(launcherRegistryPath), {recursive: true});
+  await writeFile(
+    launcherRegistryPath,
+    `${JSON.stringify(registry, null, 2)}\n`,
+    "utf8",
+  );
 }
 
 session = await joinSession({
@@ -3194,14 +3231,16 @@ session = await joinSession({
           entry = await startServer(context.instanceId);
           servers.set(context.instanceId, entry);
         }
+        const url = `${entry.url}?segment=${encodeURIComponent(segment)}&theme=${
+          encodeURIComponent(theme)
+        }`;
+        await registerLauncherUrl(theme, url);
         return {
           title: "Football Event Review",
           status: `${review.selected.timeLabel} · ${
             review.selected.validationStatus.replaceAll("_", " ")
           }`,
-          url: `${entry.url}?segment=${encodeURIComponent(segment)}&theme=${
-            encodeURIComponent(theme)
-          }`,
+          url,
         };
       },
       onClose: async (context) => {

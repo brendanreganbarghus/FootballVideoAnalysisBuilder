@@ -294,16 +294,67 @@ Test-Path $reviewState
             </div>
           </div>
           <p>
-            In GitHub Copilot, open <strong>Football Event Review</strong> with
-            segment <code>segment-0300-020</code> and theme
-            <code>innovation</code>. The theme changes the Xebia presentation,
-            purple pitch guides, and lighter-purple goals only. It does not fork
-            or alter review logic, engine output, decisions, or publication gates.
+            Use <strong>Open Live Review Canvas</strong> on the product or
+            Innovation Day landing page. The local launcher redirects to the
+            correct running Canvas and selects the matching theme automatically.
+            You do not need to ask Copilot each time or know its temporary port.
+          </p>
+          <p>
+            On a fresh checkout, Copilot must start the extension once before a
+            browser can redirect to it. If the launcher reports that no Canvas
+            is registered, use this one-time recovery prompt:
+          </p>
+          <pre>Open the Football Event Review Canvas for segment-0300-020
+with the innovation theme.</pre>
+          <p>
+            After that first opening, the landing-page button is the normal
+            entry point. The generic and Innovation launchers use the same Canvas
+            implementation and governed review state.
+          </p>
+          <div class="grid">
+            <div class="mini">
+              <b>Default Theme Prompt</b>
+              <code>Open Football Event Review for segment-0300-020 with theme default.</code>
+            </div>
+            <div class="mini">
+              <b>Innovation Theme Prompt</b>
+              <code>Open Football Event Review for segment-0300-020 with theme innovation.</code>
+            </div>
+          </div>
+          <p>
+            Open <strong>Camera Calibration &amp; Overlays</strong> to show,
+            redraw, undo, finish, restore, or download the actual camera-mapped
+            pitch boundary and goal frames. The Innovation theme renders those
+            same calibrated features in purple and lighter purple; it does not
+            fork or alter geometry, review logic, engine output, decisions, or
+            publication gates.
           </p>
           <p>
             New prepared segments and all AI outputs stay under
             <code>benchmarks\alfheim\generated\</code>. This directory is ignored
             by Git.
+          </p>
+        </div>
+      </article>
+
+      <article id="copilot-review">
+        <div>
+          <span class="tag">Copilot Canvas workflow</span>
+          <h2>Use Copilot as an independent reviewer, not an engine echo</h2>
+          <p>The app-native Copilot panel keeps the conversation beside the selected video evidence and current review context.</p>
+          <ol>
+            <li><strong>Prepare &amp; run:</strong> select an existing 30–60 second segment or prepare a new one, then run the cached AI pipeline.</li>
+            <li><strong>Inspect evidence:</strong> use Normal, Labelled ball, or AI tracking views; seek by frame; enlarge the review when needed.</li>
+            <li><strong>Review C#:</strong> select a Copilot proposal and use Plan mode to explain or Autopilot only when you intend to authorize a recorded action.</li>
+            <li><strong>Compare afterward:</strong> C# proposals and E# engine events are matched only after Copilot finishes its independent construction.</li>
+            <li><strong>Handle unmatched E#:</strong> verify it independently through the clip conversation; rejecting a nearby C# never confirms it.</li>
+            <li><strong>Publish:</strong> the final gate requires every C# decision, current source/output hashes, exact event matching, and protected regressions.</li>
+          </ol>
+          <p>
+            The general Canvas conversation supports the entire prepared clip or
+            the current time ±2 seconds. Event conversations stay attached to the
+            selected proposal so evidence, corrections, and authorization remain
+            traceable.
           </p>
         </div>
       </article>

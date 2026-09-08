@@ -43,8 +43,14 @@ Here is the segment builder inside the Football Event Review workflow,
 running against real Alfheim match footage. An operator prepares a segment,
 this one, fifteen to sixteen minutes in. The platform extracts frames,
 caches detections, and lays out video, tracking, evidence, and review, side
-by side. Segment length is configurable, typically thirty or sixty seconds,
-so every result traces back to an exact slice of video.
+by side. The calibrated outlines map the real pitch boundary and goal frames
+onto the video, and the operator can redraw or restore that camera geometry
+in the same review screen. A fixed panoramic camera does not automatically
+improve sensor quality. Its advantage is continuous full pitch coverage and
+stable geometry. Unlike a camera that constantly pans and zooms, consistent
+panoramic frames can be calibrated once, then cropped, compared, and
+transformed more reliably. Segment length is configurable, typically thirty
+or sixty seconds, so every result traces back to an exact slice of video.
 
 ================================================================
 SCENE 4 — AI event detection

@@ -29,13 +29,13 @@ demo/az-demo-video/
   Football_AI_Platform_Demo.srt           # caption track, fast pace
   Football_AI_Platform_Demo_relaxed.srt   # caption track, relaxed pace
   STORYBOARD.md                           # scene -> visual -> timing map
-  assets/shots/                           # real screenshots used as B-roll / Ken Burns stills
+  assets/shots/                           # real screenshots used as calibrated or presentation B-roll
   scripts/
     scenes.json                           # narration source text per scene (id, title, text)
     synthesize_narration_edge.py          # PRIMARY: edge-tts neural voice -> WAV per scene, per pace
     synthesize_narration.ps1              # FALLBACK: WinRT (Windows.Media.SpeechSynthesis) "Mark" voice
     generate_srt.py                       # builds the .srt from scenes.json + rendered WAV durations
-    build_demo_video.py                   # assembles the final MP4 (Ken Burns stills + real clips + audio + captions)
+    build_demo_video.py                   # assembles the final MP4 (selective HD motion + real clips + audio + captions)
 demo/landing/                             # standalone HTML mockups used to capture some of the shots
     index.html, copilot-concept.html, future-vision.html, query-by-probability.html
 ```
@@ -96,8 +96,9 @@ Do not use paid ElevenLabs or unauthorized cloned voices for this narration.
    python demo\az-demo-video\scripts\build_demo_video.py --pace fast
    python demo\az-demo-video\scripts\build_demo_video.py --pace relaxed
    ```
-   Renders each of the 10 scenes (Ken Burns pans over the real screenshots in
-   `assets/shots/`, plus short real match-footage clips), concatenates video
+   Renders each of the 10 scenes (static calibrated screenshots and restrained
+   motion on presentation graphics from `assets/shots/`, plus short real
+   match-footage clips), concatenates video
    and audio as separate safe passes (PCM WAV audio concat + H.264 video-only
    concat, to avoid AAC bitstream corruption from concatenating
    independently-encoded AAC segments), muxes once, encodes AAC once, and
@@ -105,6 +106,10 @@ Do not use paid ElevenLabs or unauthorized cloned voices for this narration.
    `demo/az-demo-video/Football_AI_Platform_Demo_<pace-suffix>.mp4`, and for
    the `fast` pace additionally writes the canonical
    `Football_AI_Platform_Demo.mp4` copy.
+
+   Calibrated pitch and goal screenshots intentionally remain fixed. Other
+   presentation graphics use only a 3–4% slow zoom, rendered from a
+   Lanczos-scaled 4K working frame to keep the 1080p output clean.
 
 ### External, machine-local inputs (not shipped in the repo)
 
@@ -136,7 +141,10 @@ in `demo/landing/`. Notable ones used in the final cut:
 - `review-canvas-timeline-accept.png` — the maximized ("Enlarge Review")
   Copilot-proposal vs rules-engine comparison timeline for the reviewed
   15:00–16:00 segment, showing real Accept/Reject decision badges and the
-  "Engine already agrees" panel.
+  "Engine already agrees" panel. The default-theme capture includes the
+  saved, camera-calibrated pitch boundary and goal-frame outlines.
+- `review-canvas-zoomed-action.png` — the focused action view with the same
+  saved camera calibration projected over the footage.
 - `tests-105-passed.png` — the 105 protected regression tests passing before
   publication.
 - `match-replay-playing-crop.png` — the "Match Replay Preview" panel captured

@@ -1,8 +1,8 @@
 """Build the Football AI Platform demo video (reproducible copy).
 
 Pipeline:
-  1. Renders per-scene Ken Burns clips from the real screenshots in
-     assets/shots/, and/or trims real match footage clips.
+  1. Renders static calibrated screenshots and subtle high-quality motion for
+     presentation graphics in assets/shots/, and/or trims real match footage.
   2. Muxes each scene's visuals (silent) with its pre-rendered narration
      audio (see synthesize_narration_edge.py / scenes.json) using fades.
   3. Concatenates video-only streams and audio (WAV) tracks SEPARATELY, then
@@ -104,8 +104,8 @@ def ffprobe_duration(path: Path) -> float:
 class ImageShot:
     src: Path
     duration: float
+    zoom_end: float = 1.0
     focus: tuple[float, float] = (0.5, 0.5)
-    zoom_end: float = 1.18
 
 
 @dataclass
@@ -124,16 +124,23 @@ class Scene:
 
 
 def make_image_clip(shot: ImageShot, out_path: Path):
-    fx, fy = shot.focus
-    frames = max(2, int(round(shot.duration * FPS)))
-    zexpr = f"min(zoom+{(shot.zoom_end - 1.0) / frames:.6f},{shot.zoom_end})"
-    xexpr = f"(iw-iw/zoom)*{fx}"
-    yexpr = f"(ih-ih/zoom)*{fy}"
-    vf = (
-        f"scale=2560:-1,"
-        f"zoompan=z='{zexpr}':x='{xexpr}':y='{yexpr}':d={frames}:s={W}x{H}:fps={FPS},"
-        f"format=yuv420p"
-    )
+    if shot.zoom_end > 1.0:
+        frames = max(2, int(round(shot.duration * FPS)))
+        zexpr = f"min(zoom+{(shot.zoom_end - 1.0) / frames:.8f},{shot.zoom_end})"
+        fx, fy = shot.focus
+        vf = (
+            f"scale=3840:2160:force_original_aspect_ratio=decrease:flags=lanczos,"
+            f"pad=3840:2160:(ow-iw)/2:(oh-ih)/2:color=black,"
+            f"zoompan=z='{zexpr}':x='(iw-iw/zoom)*{fx}':"
+            f"y='(ih-ih/zoom)*{fy}':d={frames}:s={W}x{H}:fps={FPS},"
+            f"format=yuv420p"
+        )
+    else:
+        vf = (
+            f"scale={W}:{H}:force_original_aspect_ratio=decrease:flags=lanczos,"
+            f"pad={W}:{H}:(ow-iw)/2:(oh-ih)/2:color=black,"
+            f"format=yuv420p"
+        )
     cmd = [
         FFMPEG, "-y", "-loop", "1", "-i", str(shot.src),
         "-vf", vf, "-t", f"{shot.duration:.3f}",
@@ -260,12 +267,12 @@ def main():
 
     scenes = [
         Scene(1, titles[1], a(1), None),
-        Scene(2, titles[2], a(2), [ImageShot(SHOTS / "landing.png", duration=ffprobe_duration(a(2)), focus=(0.5, 0.30), zoom_end=1.22)]),
+        Scene(2, titles[2], a(2), [ImageShot(SHOTS / "landing.png", duration=ffprobe_duration(a(2)), zoom_end=1.04, focus=(0.5, 0.3))]),
         Scene(3, titles[3], a(3), None),
         Scene(4, titles[4], a(4), None),
         Scene(5, titles[5], a(5), None),
         Scene(6, titles[6], a(6), None),
-        Scene(7, titles[7], a(7), [ImageShot(SHOTS / "copilot-concept.png", duration=ffprobe_duration(a(7)), focus=(0.5, 0.35), zoom_end=1.16)]),
+        Scene(7, titles[7], a(7), [ImageShot(SHOTS / "copilot-concept.png", duration=ffprobe_duration(a(7)), zoom_end=1.04, focus=(0.5, 0.35))]),
         Scene(8, titles[8], a(8), None),
         Scene(9, titles[9], a(9), None),
         Scene(10, titles[10], a(10), None),
@@ -278,7 +285,7 @@ def main():
     reveal1 = min(6.0, d1 * 0.35)
     scenes[0].shots = [
         VideoShot(RAW_MATCH_MP4, duration=d1 - reveal1, start=5.0),
-        ImageShot(SHOTS / "review-canvas-timeline-accept.png", duration=reveal1, focus=(0.5, 0.42), zoom_end=1.12),
+        ImageShot(SHOTS / "review-canvas-timeline-accept.png", duration=reveal1),
     ]
 
     # Scene 3: segment builder concept -- replaces the old, obsolete
@@ -288,14 +295,14 @@ def main():
     d3 = ffprobe_duration(a(3))
     clip3 = min(4.0, d3 * 0.35)
     scenes[2].shots = [
-        ImageShot(SHOTS / "review-canvas-timeline-accept.png", duration=d3 - clip3, focus=(0.5, 0.35), zoom_end=1.2),
+        ImageShot(SHOTS / "review-canvas-timeline-accept.png", duration=d3 - clip3),
         VideoShot(RAW_MATCH_MP4, duration=clip3, start=20.0),
     ]
 
     d4 = ffprobe_duration(a(4))
     scenes[3].shots = [
         VideoShot(TRACKING_MP4, duration=min(18.0, d4)),
-        ImageShot(SHOTS / "review-canvas-zoomed-action.png", duration=d4 - min(18.0, d4), focus=(0.35, 0.55), zoom_end=1.2),
+        ImageShot(SHOTS / "review-canvas-zoomed-action.png", duration=d4 - min(18.0, d4)),
     ]
 
     # Scene 5: the guarded review/publication gate. Lead with the maximized
@@ -305,8 +312,8 @@ def main():
     d5 = ffprobe_duration(a(5))
     part_a = d5 * 0.6
     scenes[4].shots = [
-        ImageShot(SHOTS / "review-canvas-timeline-accept.png", duration=part_a, focus=(0.5, 0.42), zoom_end=1.14),
-        ImageShot(SHOTS / "tests-105-passed.png", duration=d5 - part_a, focus=(0.5, 0.45), zoom_end=1.14),
+        ImageShot(SHOTS / "review-canvas-timeline-accept.png", duration=part_a),
+        ImageShot(SHOTS / "tests-105-passed.png", duration=d5 - part_a),
     ]
 
     # Scene 6: statistics/maturity dashboard, then real mid-playback footage
@@ -316,34 +323,30 @@ def main():
     part_a6 = d6 * 0.42
     part_b6 = d6 * 0.30
     scenes[5].shots = [
-        ImageShot(SHOTS / "stats-dashboard.png", duration=part_a6, focus=(0.5, 0.35), zoom_end=1.18),
-        ImageShot(SHOTS / "match-replay-playing-crop.png", duration=part_b6, focus=(0.5, 0.5), zoom_end=1.12),
-        ImageShot(SHOTS / "landing.png", duration=d6 - part_a6 - part_b6, focus=(0.5, 0.72), zoom_end=1.22),
+        ImageShot(SHOTS / "stats-dashboard.png", duration=part_a6, zoom_end=1.04, focus=(0.5, 0.35)),
+        ImageShot(SHOTS / "match-replay-playing-crop.png", duration=part_b6),
+        ImageShot(SHOTS / "landing.png", duration=d6 - part_a6 - part_b6, zoom_end=1.04, focus=(0.5, 0.7)),
     ]
 
-    # Scene 8 (Future vision and continuous processing): pan across the
-    # future-vision page's roadmap and continuous-processing cards. Keep
-    # this crop focused on the top/middle of the page (roadmap + continuous
-    # processing); the bottom Xebia partnership card is reserved for Scene 10.
+    # Scene 8 uses restrained motion on a presentation graphic. Calibrated
+    # review screenshots remain static elsewhere so their overlays stay crisp.
     d8 = ffprobe_duration(a(8))
     half8 = d8 / 2.0
     scenes[7].shots = [
-        ImageShot(SHOTS / "future-vision.png", duration=half8, focus=(0.5, 0.14), zoom_end=1.16),
-        ImageShot(SHOTS / "future-vision.png", duration=d8 - half8, focus=(0.5, 0.42), zoom_end=1.16),
+        ImageShot(SHOTS / "future-vision.png", duration=half8, zoom_end=1.04, focus=(0.5, 0.25)),
+        ImageShot(SHOTS / "future-vision.png", duration=d8 - half8, zoom_end=1.04, focus=(0.5, 0.55)),
     ]
 
     # Scene 9: dedicated Query By Probability architecture graphic.
     d9 = ffprobe_duration(a(9))
     scenes[8].shots = [
-        ImageShot(SHOTS / "query-by-probability.png", duration=d9, focus=(0.5, 0.45), zoom_end=1.10),
+        ImageShot(SHOTS / "query-by-probability.png", duration=d9, zoom_end=1.03, focus=(0.5, 0.45)),
     ]
 
-    # Scene 10 (Partnership): focus tightly on the future-vision page's
-    # bottom Xebia Netherlands card (stylized wordmark, not the trademarked
-    # logo artwork) since that's where "Xebia Netherlands" is named on screen.
+    # Scene 10 uses the same restrained presentation-graphic motion.
     d10 = ffprobe_duration(a(10))
     scenes[9].shots = [
-        ImageShot(SHOTS / "future-vision.png", duration=d10, focus=(0.5, 0.92), zoom_end=1.22),
+        ImageShot(SHOTS / "future-vision.png", duration=d10, zoom_end=1.04, focus=(0.5, 0.8)),
     ]
 
     scene_results = [build_scene_video(s, work) for s in scenes]

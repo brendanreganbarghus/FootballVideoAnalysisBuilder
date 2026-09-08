@@ -1,0 +1,285 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Landscape Football Intelligence Platform board with current validation proof and future architecture.">
+  <meta name="theme-color" content="#07120f">
+  <title>Football Intelligence Platform | Board</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --surface: #102019;
+      --line: #315447;
+      --text: #f1fbf6;
+      --muted: #aac1b7;
+      --green: #68e0aa;
+      --blue: #78bfff;
+      --amber: #f3c96b;
+      font-family: Inter, "Segoe UI", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    html, body { min-height: 100%; margin: 0; }
+    body {
+      display: grid;
+      min-height: 100svh;
+      place-items: center;
+      overflow: auto;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 18% 18%, rgb(104 224 170 / 18%), transparent 28rem),
+        radial-gradient(circle at 84% 76%, rgb(120 191 255 / 13%), transparent 32rem),
+        linear-gradient(145deg, #0b1c16, #050a08 72%);
+    }
+    a:focus-visible { outline: 3px solid var(--blue); outline-offset: 4px; }
+    .board {
+      container-type: inline-size;
+      position: relative;
+      width: min(100vw, 177.78vh);
+      aspect-ratio: 16 / 9;
+      overflow: hidden;
+      padding: 2.1cqw;
+      background:
+        radial-gradient(circle at 82% 8%, rgb(120 191 255 / 18%), transparent 28%),
+        radial-gradient(circle at 8% 88%, rgb(104 224 170 / 14%), transparent 30%),
+        linear-gradient(135deg, #0c1d17, #07120f 52%, #06100d);
+      box-shadow: 0 0 80px rgb(0 0 0 / 58%);
+    }
+    .board::before {
+      position: absolute;
+      inset: 0;
+      content: "";
+      pointer-events: none;
+      opacity: .15;
+      background-image:
+        linear-gradient(rgb(255 255 255 / 5%) 1px, transparent 1px),
+        linear-gradient(90deg, rgb(255 255 255 / 5%) 1px, transparent 1px);
+      background-size: 3cqw 3cqw;
+      mask-image: linear-gradient(to bottom, black, transparent 78%);
+    }
+    .topbar {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      height: 5.3cqw;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid rgb(255 255 255 / 11%);
+    }
+    .brand strong, .brand span { display: block; }
+    .brand strong { font-size: 1.45cqw; letter-spacing: -.04em; }
+    .brand strong em { color: var(--green); font-style: normal; }
+    .brand span { margin-top: .35cqw; color: var(--muted); font-size: .72cqw; }
+    .status {
+      padding: .52cqw .9cqw;
+      border: 1px solid var(--green);
+      border-radius: 999px;
+      color: var(--green);
+      font-size: .7cqw;
+      font-weight: 800;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+    .content {
+      position: relative;
+      z-index: 1;
+      display: grid;
+      height: calc(100% - 5.3cqw);
+      grid-template-columns: 1.03fr .97fr;
+      gap: 1.5cqw;
+      padding-top: 1.4cqw;
+    }
+    .left, .right { display: grid; min-width: 0; gap: 1cqw; }
+    .left { grid-template-rows: auto 1fr auto; }
+    .right { grid-template-rows: auto 1fr auto; }
+    .eyebrow {
+      margin: 0 0 .45cqw;
+      color: var(--green);
+      font-size: .65cqw;
+      font-weight: 900;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+    }
+    h1, h2, h3 { margin: 0; line-height: 1.08; text-wrap: balance; }
+    h1 { max-width: 38cqw; font-size: 2.65cqw; letter-spacing: -.055em; }
+    h2 { font-size: 1.18cqw; }
+    h3 { font-size: .92cqw; }
+    p { margin: .5cqw 0 0; color: var(--muted); font-size: .72cqw; line-height: 1.48; }
+    .review {
+      position: relative;
+      overflow: hidden;
+      margin: 0;
+      border: 1px solid var(--line);
+      border-radius: 1cqw;
+      background: #030806;
+    }
+    .review img { display: block; width: 100%; height: 100%; object-fit: contain; }
+    .review figcaption {
+      position: absolute;
+      right: .75cqw;
+      bottom: .75cqw;
+      left: .75cqw;
+      display: flex;
+      justify-content: space-between;
+      gap: 1cqw;
+      padding: .65cqw .8cqw;
+      border: 1px solid rgb(255 255 255 / 12%);
+      border-radius: .65cqw;
+      background: rgb(4 12 9 / 86%);
+      backdrop-filter: blur(6px);
+      font-size: .64cqw;
+    }
+    .review figcaption span { color: var(--muted); }
+    .flow, .proof, .maturity { display: grid; gap: .65cqw; }
+    .flow { grid-template-columns: repeat(4, 1fr); }
+    .flow div, .proof article, .maturity article {
+      padding: .8cqw;
+      border: 1px solid var(--line);
+      border-radius: .7cqw;
+      background: rgb(16 32 25 / 82%);
+    }
+    .flow b { color: var(--green); font-size: .65cqw; }
+    .flow span { display: block; margin-top: .3cqw; color: var(--muted); font-size: .57cqw; }
+    .proof { grid-template-columns: repeat(3, 1fr); }
+    .proof strong {
+      display: block;
+      color: var(--green);
+      font-size: 1.55cqw;
+      font-variant-numeric: tabular-nums;
+      line-height: 1;
+    }
+    .proof span { display: block; margin-top: .35cqw; color: var(--muted); font-size: .58cqw; }
+    .maturity { grid-template-columns: repeat(2, 1fr); }
+    .maturity article { min-height: 4.15cqw; }
+    .maturity small { color: var(--amber); font-size: .55cqw; font-weight: 800; text-transform: uppercase; }
+    .maturity h3 { margin-top: .32cqw; }
+    .maturity p { font-size: .57cqw; }
+    .maturity .qbp { border-color: rgb(120 191 255 / 42%); }
+    .cameras { display: grid; grid-template-columns: 1fr 1.2fr 1fr; gap: .55cqw; margin-top: .6cqw; }
+    .camera {
+      padding: .58cqw;
+      border: 1px solid var(--line);
+      border-radius: .55cqw;
+      color: var(--blue);
+      font-size: .58cqw;
+      font-weight: 800;
+      text-align: center;
+    }
+    .camera.main { border-color: var(--green); color: var(--green); }
+    .trigger {
+      margin-top: .55cqw;
+      padding: .45cqw;
+      border: 1px solid var(--amber);
+      border-radius: 999px;
+      color: var(--amber);
+      font-size: .55cqw;
+      font-weight: 800;
+      text-align: center;
+    }
+    .footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1cqw;
+      color: var(--muted);
+      font-size: .57cqw;
+    }
+    .footer a { color: var(--green); font-weight: 800; text-decoration: none; }
+    @page { size: A3 landscape; margin: 0; }
+    @media print {
+      body { background: white; }
+      .board { width: 420mm; height: 236.25mm; box-shadow: none; print-color-adjust: exact; }
+    }
+    @media (max-aspect-ratio: 4 / 3) {
+      body { display: block; }
+      .board { width: 100%; min-width: 980px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      * { scroll-behavior: auto !important; }
+    }
+  </style>
+</head>
+<body>
+  <main class="board">
+    <header class="topbar">
+      <div class="brand">
+        <strong>Football <em>Intelligence</em> Platform</strong>
+        <span>Evidence-led event analysis · calibrated video · guarded publication</span>
+      </div>
+      <span class="status">Working Local Prototype</span>
+    </header>
+    <div class="content">
+      <section class="left">
+        <div>
+          <p class="eyebrow">From match video to trusted events</p>
+          <h1>Make every football statistic answerable to evidence.</h1>
+          <p>Segment the match, map the real camera geometry, build independent conclusions, and publish only after exact validation.</p>
+        </div>
+        <figure class="review">
+          <img src="../../demo/az-demo-video/assets/shots/review-canvas-timeline-accept.png"
+            width="1920" height="1080"
+            alt="Football Event Review with calibrated pitch and goal outlines">
+          <figcaption>
+            <strong>One Controlled Review Workspace</strong>
+            <span>Calibration · C# proposals · E# events · publication gate</span>
+          </figcaption>
+        </figure>
+        <div class="flow" aria-label="Platform workflow">
+          <div><b>01 · Segment</b><span>30–60 second evidence windows</span></div>
+          <div><b>02 · Detect</b><span>Tracking, control & match state</span></div>
+          <div><b>03 · Review</b><span>Independent C# adjudication</span></div>
+          <div><b>04 · Publish</b><span>Exact match & regressions</span></div>
+        </div>
+      </section>
+      <section class="right">
+        <div class="proof" aria-label="Current validation proof">
+          <article><strong>14 / 14</strong><span>Published events matched exactly</span></article>
+          <article><strong>105</strong><span>Protected regressions passed</span></article>
+          <article><strong>1</strong><span>Unsupported C# rejected</span></article>
+        </div>
+        <div class="maturity">
+          <article>
+            <small>Implemented & validating</small>
+            <h3>Passes, Turnovers & Possession</h3>
+            <p>Published references and protected state-machine behavior.</p>
+          </article>
+          <article>
+            <small>Current review focus</small>
+            <h3>Shots & Shots on Target</h3>
+            <p>More independently reviewed windows before broader claims.</p>
+          </article>
+          <article>
+            <small>Independent roles</small>
+            <h3>Rules Engine E# + Copilot C#</h3>
+            <p>Shared definitions, separate reasoning, comparison afterward.</p>
+          </article>
+          <article>
+            <small>Camera geometry</small>
+            <h3>Real Pitch & Goal Calibration</h3>
+            <p>Show, redraw, restore, and reuse stable camera coordinates.</p>
+          </article>
+          <article class="qbp">
+            <p class="eyebrow">Future Architecture · Query By Probability</p>
+            <h2>Query another view only when confidence drops.</h2>
+            <div class="cameras">
+              <div class="camera">Goal-End Query</div>
+              <div class="camera main">Continuous Main Camera</div>
+              <div class="camera">Touchline Query</div>
+            </div>
+            <div class="trigger">Relevant Frames or Short Window Only → Evidence Fusion</div>
+          </article>
+          <article>
+            <small>Why fixed panoramic footage?</small>
+            <h3>Stable Full-Pitch Frames</h3>
+            <p>Continuous coverage and reusable geometry make frames easier to crop, compare, and transform than operator-driven pan/zoom footage.</p>
+          </article>
+        </div>
+        <div class="footer">
+          <span>Working prototype · Statistics remain provisional until validation passes.</span>
+          <a href="../../">Open Product Home →</a>
+        </div>
+      </section>
+    </div>
+  </main>
+</body>
+</html>

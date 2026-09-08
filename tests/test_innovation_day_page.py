@@ -7,6 +7,8 @@ SHOWCASE = ROOT / "showcase" / "innovation-day"
 LANDING = SHOWCASE / "index.html"
 GUIDE = SHOWCASE / "developer-guide" / "index.html"
 BOARD = SHOWCASE / "board" / "index.html"
+PLATFORM_BOARD = ROOT / "showcase" / "platform-board" / "index.html"
+VIDEO_BUILDER = ROOT / "demo" / "az-demo-video" / "scripts" / "build_demo_video.py"
 
 
 def test_product_landing_explains_current_review_and_future_concept() -> None:
@@ -14,13 +16,28 @@ def test_product_landing_explains_current_review_and_future_concept() -> None:
 
     assert "Football Intelligence Platform" in html
     assert "Independent conclusions. One validation gate." in html
+    assert "A published reference, not a polished guess." in html
+    assert "14 / 14" in html
+    assert "105" in html
+    assert "Map the real pitch—not a generic football diagram." in html
+    assert "show, redraw, undo, restore, and download" in html
+    assert "Shots & Shots on Target" in html
     assert "Query By Probability" in html
+    assert 'class="qbp-diagram"' in html
+    assert "query-by-probability.png" not in html
+    assert "Continuous Primary Stream" in html
+    assert "Targeted Query Only" in html
     assert "Future architecture" in html
     assert "Secondary streams are not" in html
     assert 'href="showcase/innovation-day/"' in html
     assert "Football_AI_Platform_Demo.mp4" in html
+    assert "Open Live Review Canvas" in html
+    assert 'href="review-canvas?theme=default"' in html
+    assert "How to Use the Canvas" in html
+    assert 'href="showcase/platform-board/"' in html
     assert 'class="skip"' in html
     assert "prefers-reduced-motion" in html
+    assert "object-fit: cover" not in html
 
 
 def test_innovation_landing_links_to_current_surfaces() -> None:
@@ -30,7 +47,8 @@ def test_innovation_landing_links_to_current_surfaces() -> None:
     assert '<a class="button" href="board/">Innovation board</a>' in html
     assert 'href="../../"' in html
     assert "Football_AI_Platform_Demo.mp4" in html
-    assert "Open live review instructions" in html
+    assert "Open the live Review Canvas" in html
+    assert '../../review-canvas?theme=innovation' in html
     assert "One review workspace. Two independent conclusions." in html
     assert "Query By Probability" in html
     assert "manual-review/" not in html
@@ -51,9 +69,16 @@ def test_developer_guide_matches_current_local_artifact_flow() -> None:
     assert "benchmarks\\alfheim\\generated\\" in html
     assert "feature/pass-shot-validation" in html
     assert "segment-0300-020" in html
-    assert "<code>innovation</code>" in html
+    assert "theme innovation" in html
     assert "Do not inspect locked blind references" in html
     assert "evaluation-only" in html
+    assert "app-native Copilot panel" in html
+    assert "You do not need to ask Copilot each time" in html
+    assert "one-time recovery prompt" in html
+    assert "Default Theme Prompt" in html
+    assert "Innovation Theme Prompt" in html
+    assert 'id="copilot-review"' in html
+    assert "Use Copilot as an independent reviewer" in html
     assert "not copied from OneDrive" in html
     assert "manual-review/" not in html
     assert "validation-lab/" not in html
@@ -108,3 +133,30 @@ def test_landscape_board_uses_current_product_images() -> None:
             "innovation-overview.png",
         )
     )
+
+
+def test_default_platform_board_is_distinct_and_landscape() -> None:
+    html = PLATFORM_BOARD.read_text(encoding="utf-8")
+
+    assert "aspect-ratio: 16 / 9" in html
+    assert "@page { size: A3 landscape; margin: 0; }" in html
+    assert "Football <em>Intelligence</em> Platform" in html
+    assert "14 / 14" in html
+    assert "105" in html
+    assert "Query By Probability" in html
+    assert "Stable Full-Pitch Frames" in html
+    assert "review-canvas-timeline-accept.png" in html
+    assert "Xebia" not in html
+
+
+def test_demo_keeps_calibrated_stills_static_and_limits_other_motion() -> None:
+    source = VIDEO_BUILDER.read_text(encoding="utf-8")
+
+    assert "zoompan" in source
+    assert "scale=3840:2160:force_original_aspect_ratio=decrease:flags=lanczos" in source
+    assert "zoom_end=1.04" in source
+    assert "zoom_end=1.18" not in source
+    assert "force_original_aspect_ratio=decrease" in source
+    assert "pad={W}:{H}:(ow-iw)/2:(oh-ih)/2:color=black" in source
+    assert 'ImageShot(SHOTS / "review-canvas-timeline-accept.png", duration=reveal1)' in source
+    assert 'ImageShot(SHOTS / "review-canvas-zoomed-action.png", duration=d4 - min(18.0, d4))' in source

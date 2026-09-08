@@ -41,6 +41,39 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
 
     def do_GET(self) -> None:
         request = urlparse(self.path)
+        if request.path == "/review-canvas":
+            theme = parse_qs(request.query).get("theme", ["default"])[0]
+            if theme not in {"default", "innovation"}:
+                self.send_error(400, "Invalid review theme")
+                return
+            registry_path = (
+                PROJECT_ROOT
+                / "benchmarks"
+                / "alfheim"
+                / "generated"
+                / ".football-event-review-urls.json"
+            )
+            try:
+                registry = json.loads(registry_path.read_text(encoding="utf-8"))
+                target = str(registry[theme])
+                parsed_target = urlparse(target)
+                if (
+                    parsed_target.scheme != "http"
+                    or parsed_target.hostname != "127.0.0.1"
+                    or not parsed_target.port
+                ):
+                    raise ValueError("Invalid registered Canvas URL")
+            except (FileNotFoundError, KeyError, TypeError, ValueError):
+                self.send_error(
+                    503,
+                    "Open Football Event Review in Copilot once, then retry.",
+                )
+                return
+            self.send_response(302)
+            self.send_header("Location", target)
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            return
         if request.path == "/api/alfheim/info":
             try:
                 self._send_json(

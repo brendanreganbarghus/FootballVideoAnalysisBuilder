@@ -42,11 +42,21 @@ def test_canvas_uses_one_logic_path_with_url_driven_innovation_theme() -> None:
     assert 'url.searchParams.get("theme") === "innovation"' in extension
     assert "renderHtml({ theme = \"default\" } = {})" in renderer
     assert 'data-app-theme="${appTheme}"' in renderer
+    assert "Back to Product Home" in renderer
+    assert "Back to Innovation Day" in renderer
+    assert "http://127.0.0.1:8080/showcase/innovation-day/" in renderer
+    assert 'href="${homeUrl}"' in renderer
     assert 'html[data-app-theme="innovation"]' in renderer
-    assert 'class="innovation-pitch-overlay"' in renderer
-    assert 'class="innovation-pitch-line"' in renderer
-    assert 'class="innovation-goal"' in renderer
-    assert "Innovation theme · illustrative pitch guides" in renderer
+    assert 'id="geometry-overlay"' in renderer
+    assert 'id="geometry-feature"' in renderer
+    assert 'id="edit-geometry"' in renderer
+    assert 'id="restore-geometry"' in renderer
+    assert 'fetch("/api/calibration"' in renderer
+    assert 'url.pathname === "/api/calibration"' in extension
+    assert ".football-event-review-urls.json" in extension
+    assert "registerLauncherUrl(theme, url)" in extension
+    assert "innovation-pitch-overlay" not in renderer
+    assert "illustrative pitch guides" not in renderer
     assert "Xebia · Innovation Day" in renderer
     assert "#a63f98" in renderer
     assert "#e4a5da" in renderer

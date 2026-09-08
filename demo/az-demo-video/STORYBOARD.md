@@ -20,15 +20,15 @@ rendered WAV durations at build time.
 |---|---|---|---|---|---|
 | — | Title card | 0:00 | 4.0s | "Football Intelligence Platform" title card | Generated (PIL) |
 | 1 | Opening | 0:04 | 18.6s | Real Alfheim match footage (opening wide shot) → reveal of the current Football Event Review Canvas | `alfheim-window-playable.mp4` + `assets/shots/review-canvas-base.png` |
-| 2 | Segmentation and ongoing evaluation | 0:23 | 23.8s | Landing page hero (Ken Burns) | `assets/shots/landing.png` |
-| 3 | Segment builder | 0:46 | 23.1s | Current Football Event Review Canvas segment builder (Ken Burns) → real ~4s match clip (segment window @ 20s in) | `assets/shots/review-canvas-base.png` + `alfheim-window-playable.mp4` |
+| 2 | Segmentation and ongoing evaluation | 0:23 | 23.8s | Landing page hero with restrained HD motion | `assets/shots/landing.png` |
+| 3 | Segment builder | 0:46 | 23.1s | Static current Football Event Review Canvas segment builder → real ~4s match clip (segment window @ 20s in) | `assets/shots/review-canvas-base.png` + `alfheim-window-playable.mp4` |
 | 4 | AI event detection | 1:09 | 25.3s | AI tracking overlay clip → zoomed review-canvas action shot | `tracking-verification.mp4` + `assets/shots/review-canvas-zoomed-action.png` |
 | 5 | Rules Reviewer and passed gate | 1:35 | 40.8s | Maximized accept/validate C#↔E# comparison timeline (60%) → 105-tests-passed screen (40%) | `assets/shots/review-canvas-timeline-accept.png` + `assets/shots/tests-105-passed.png` |
 | 6 | Statistics and maturity | 2:15 | 24.3s | Stats dashboard (42%) → real mid-playback Match Replay Preview w/ live stats (30%) → maturity roadmap grid (28%) | `assets/shots/stats-dashboard.png` + `assets/shots/match-replay-playing-crop.png` + `assets/shots/landing.png` |
-| 7 | Copilot over validated data | 2:39 | 16.3s | Copilot concept mockup (Ken Burns) | `assets/shots/copilot-concept.png` |
-| 8 | Future vision and continuous processing | 2:56 | 30.7s | Future-vision roadmap/continuous-processing mockup, two pans (top/middle) | `assets/shots/future-vision.png` |
+| 7 | Copilot over validated data | 2:39 | 16.3s | Copilot concept mockup with restrained HD motion | `assets/shots/copilot-concept.png` |
+| 8 | Future vision and continuous processing | 2:56 | 30.7s | Future-vision roadmap/continuous-processing mockup with restrained HD motion | `assets/shots/future-vision.png` |
 | 9 | Query By Probability | 3:26 | 32.1s | Dedicated Query By Probability architecture graphic | `assets/shots/query-by-probability.png` |
-| 10 | Partnership | 3:58 | 16.7s | Future-vision mockup, bottom crop (Xebia Netherlands wordmark card) | `assets/shots/future-vision.png` |
+| 10 | Partnership | 3:58 | 16.7s | Future-vision mockup with restrained HD motion | `assets/shots/future-vision.png` |
 | — | Closing card | 4:15 | 6.0s | "Football Intelligence Platform · Xebia Netherlands" closing card | Generated (PIL) |
 
 ## Notable real-footage / real-data moments (not mockups)
@@ -82,4 +82,3 @@ re-running `synthesize_narration_edge.py --pace <pace>` and
 `generate_srt.py --pace <pace>`, re-run `build_demo_video.py --pace <pace>`
 — its console output prints each scene's actual rendered duration, which can
 be used to update the table above.
-
