@@ -199,7 +199,10 @@ def test_review_workflow_board_explains_every_guard_and_opens_chat() -> None:
     assert "Ultralytics YOLO11" in html
     assert "PyTorch" in html
     assert "ByteTrack Route" in html
-    assert "not the current Alfheim benchmark tracker" in html
+    assert "aggregate jersey-number readings across a track" in html
+    assert "Number recognition is not implemented" in html
+    assert "YOLO detects the player; ByteTrack links detections over time" in html
+    assert "A future number detector or OCR model—not ByteTrack" in html
     assert "their ball trajectory comes from supplied labels" in html
     assert "MATCH_LAW_PROFILE" in html
     assert "predicted-events.json" in html

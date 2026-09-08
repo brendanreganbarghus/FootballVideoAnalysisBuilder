@@ -679,10 +679,10 @@
               <p>Cached detections become player IDs, positions, roles, and provisional team labels.</p>
               <small>Current Review Canvas path: custom conservative association.</small>
             </article>
-            <article class="flow-node" data-title="ByteTrack serves the pilot runner" data-copy="The separate single-video pilot runner passes bytetrack.yaml to model.track. IDs can still change after occlusion, cuts, interruption, or chunk restarts.">
+            <article class="flow-node" data-title="ByteTrack serves the pilot runner" data-copy="The separate single-video pilot runner passes bytetrack.yaml to model.track. In a future jersey-number stage, its tracks could collect the best shirt crops for repeated number recognition, but ByteTrack would not read the number itself.">
               <h3>ByteTrack Route</h3>
               <p><span translate="no">ByteTrack</span> links detections in the single-video pilot architecture.</p>
-              <small>Implemented pilot route; not the current Alfheim benchmark tracker.</small>
+              <small>Future: aggregate jersey-number readings across a track. Number recognition is not implemented.</small>
             </article>
             <article class="flow-node" data-title="Ball movement and pitch geometry become evidence" data-copy="The current Alfheim demo converts supplied ball labels into a trajectory and applies saved pitch calibration. General cached tracking can filter ball candidates and conservatively interpolate short gaps.">
               <h3>Ball &amp; Pitch</h3>
@@ -710,7 +710,7 @@
             <span class="step-counter" id="pipeline-counter">Step 0 of 8</span>
           </div>
 
-          <p class="accuracy-note"><strong>Important:</strong> The visual model distinguishes shipped paths. ByteTrack is used by the single-video pilot runner. The high-resolution Alfheim segments currently shown in the Review Canvas use cached YOLO detections with custom association, and their ball trajectory comes from supplied labels.</p>
+          <p class="accuracy-note"><strong>Important:</strong> YOLO detects the player; ByteTrack links detections over time. A future number detector or OCR model—not ByteTrack—would read jersey crops and vote across that track. Jersey-number recognition is not implemented. The high-resolution Alfheim segments currently shown in the Review Canvas use cached YOLO detections with custom association, and their ball trajectory comes from supplied labels.</p>
         </div>
       </div>
     </dialog>
