@@ -392,6 +392,60 @@
       background: rgb(243 201 107 / 7%);
       font-size: .8rem;
     }
+    .licensing-panel {
+      margin-top: 18px;
+      padding: 18px;
+      border: 1px solid rgb(243 201 107 / 52%);
+      border-radius: 14px;
+      background:
+        radial-gradient(circle at 100% 0, rgb(243 201 107 / 10%), transparent 48%),
+        var(--surface);
+    }
+    .licensing-heading {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .licensing-heading h3 { color: var(--amber); }
+    .licence-alert {
+      padding: 6px 9px;
+      border: 1px solid var(--amber);
+      border-radius: 999px;
+      color: var(--amber);
+      font-size: .7rem;
+      font-weight: 900;
+      letter-spacing: .08em;
+    }
+    .licensing-intro { margin: 7px 0 14px; font-size: .82rem; }
+    .licence-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+    }
+    .licence-item {
+      min-width: 0;
+      padding: 11px 12px;
+      border-radius: 9px;
+      background: var(--surface-2);
+    }
+    .licence-item b {
+      display: flex;
+      gap: 8px;
+      align-items: baseline;
+      justify-content: space-between;
+      color: var(--text);
+      font-size: .78rem;
+    }
+    .licence-item b span { color: var(--green); font-size: .68rem; }
+    .licence-item.warning b span { color: var(--amber); }
+    .licence-item p { margin: 5px 0 0; font-size: .72rem; }
+    .rights-gate {
+      margin: 12px 0 0;
+      color: var(--text);
+      font-size: .78rem;
+    }
     .decision-panel, .copilot-panel {
       padding: 24px;
       border: 1px solid var(--line);
@@ -499,6 +553,7 @@
       .pipeline-button { justify-self: start; }
       .flow { grid-template-columns: 1fr 1fr; }
       .flow-node:not(:nth-child(4n))::after { display: none; }
+      .licence-grid { grid-template-columns: 1fr 1fr; }
       .gate { grid-template-columns: 1fr; gap: 12px; }
       .gate h2 { white-space: normal; }
       .checks { grid-template-columns: 1fr 1fr; }
@@ -512,6 +567,7 @@
       .dialog-header, .pipeline-body { padding-right: 16px; padding-left: 16px; }
       .flow { grid-template-columns: 1fr; }
       .step-counter { width: 100%; margin-left: 0; }
+      .licence-grid { grid-template-columns: 1fr; }
     }
     @media (prefers-reduced-motion: reduce) {
       html { scroll-behavior: auto; }
@@ -658,6 +714,7 @@
             <span translate="no">ByteTrack pilot</span>
             <span>Python rules engine</span>
             <span translate="no">JSON cache</span>
+            <span class="licence-alert">Licence Review Required</span>
           </div>
 
           <div class="pipeline-status" aria-live="polite">
@@ -682,7 +739,7 @@
             <article class="flow-node" data-title="ByteTrack serves the pilot runner" data-copy="The separate single-video pilot runner passes bytetrack.yaml to model.track. In a future jersey-number stage, its tracks could collect the best shirt crops for repeated number recognition, but ByteTrack would not read the number itself.">
               <h3>ByteTrack Route</h3>
               <p><span translate="no">ByteTrack</span> links detections in the single-video pilot architecture.</p>
-              <small>Future: aggregate jersey-number readings across a track. Number recognition is not implemented.</small>
+              <small><strong>Possible future use:</strong> ByteTrack for local continuity plus jersey number, team, appearance, roster, and spatial evidence for durable identity. Jersey recognition strengthens tracking; it does not replace tracking. Number recognition is not implemented.</small>
             </article>
             <article class="flow-node" data-title="Ball movement and pitch geometry become evidence" data-copy="The current Alfheim demo converts supplied ball labels into a trajectory and applies saved pitch calibration. General cached tracking can filter ball candidates and conservatively interpolate short gaps.">
               <h3>Ball &amp; Pitch</h3>
@@ -709,6 +766,41 @@
             <button class="player-control secondary" id="replay-pipeline" type="button">Replay</button>
             <span class="step-counter" id="pipeline-counter">Step 0 of 8</span>
           </div>
+
+          <section class="licensing-panel" aria-labelledby="licensing-title">
+            <div class="licensing-heading">
+              <h3 id="licensing-title">Licensing Gate Before a Paid Pilot</h3>
+              <span class="licence-alert">Commercial Sign-Off Required</span>
+            </div>
+            <p class="licensing-intro">Open source does not mean unrestricted use. Preserve notices, satisfy each licence, and review distribution and service obligations before deployment.</p>
+            <div class="licence-grid">
+              <article class="licence-item">
+                <b><span translate="no">OpenCV</span><span>Apache-2.0</span></b>
+                <p>Permissive use with licence and notice obligations.</p>
+              </article>
+              <article class="licence-item warning">
+                <b><span translate="no">Ultralytics YOLO</span><span>AGPL-3.0 / Enterprise</span></b>
+                <p>For a closed commercial product, obtain legal approval for AGPL compliance or an appropriate Ultralytics enterprise licence.</p>
+              </article>
+              <article class="licence-item">
+                <b><span translate="no">PyTorch</span><span>BSD-style</span></b>
+                <p>Permissive terms; retain the required copyright and licence notices.</p>
+              </article>
+              <article class="licence-item">
+                <b><span translate="no">NumPy</span><span>BSD-3-Clause</span></b>
+                <p>Permissive terms with attribution and notice conditions.</p>
+              </article>
+              <article class="licence-item">
+                <b><span translate="no">ByteTrack</span><span>MIT</span></b>
+                <p>Permissive use; include its copyright and licence notice.</p>
+              </article>
+              <article class="licence-item">
+                <b><span translate="no">LAP</span><span>BSD-2-Clause</span></b>
+                <p>Tracking dependency with permissive notice requirements.</p>
+              </article>
+            </div>
+            <p class="rights-gate"><strong>Separate rights gate:</strong> Approve the exact model checkpoint, training-data provenance, dataset terms, recorded-video permission, player privacy, and any roster or jersey-identity data. Exporting a model to ONNX does not remove its original obligations.</p>
+          </section>
 
           <p class="accuracy-note"><strong>Important:</strong> YOLO detects the player; ByteTrack links detections over time. A future number detector or OCR model—not ByteTrack—would read jersey crops and vote across that track. Jersey-number recognition is not implemented. The high-resolution Alfheim segments currently shown in the Review Canvas use cached YOLO detections with custom association, and their ball trajectory comes from supplied labels.</p>
         </div>

@@ -199,11 +199,23 @@ def test_review_workflow_board_explains_every_guard_and_opens_chat() -> None:
     assert "Ultralytics YOLO11" in html
     assert "PyTorch" in html
     assert "ByteTrack Route" in html
-    assert "aggregate jersey-number readings across a track" in html
+    assert "Possible future use:" in html
+    assert "ByteTrack for local continuity plus jersey number, team, appearance, roster, and spatial evidence for durable identity" in html
+    assert "Jersey recognition strengthens tracking; it does not replace tracking" in html
     assert "Number recognition is not implemented" in html
     assert "YOLO detects the player; ByteTrack links detections over time" in html
     assert "A future number detector or OCR model—not ByteTrack" in html
     assert "their ball trajectory comes from supplied labels" in html
+    assert "Licensing Gate Before a Paid Pilot" in html
+    assert "Commercial Sign-Off Required" in html
+    assert "AGPL-3.0 / Enterprise" in html
+    assert "Apache-2.0" in html
+    assert "BSD-3-Clause" in html
+    assert "BSD-2-Clause" in html
+    assert "ByteTrack" in html and "MIT" in html
+    assert "Exporting a model to ONNX does not remove its original obligations" in html
+    assert "training-data provenance" in html
+    assert "player privacy" in html
     assert "MATCH_LAW_PROFILE" in html
     assert "predicted-events.json" in html
     assert 'aria-live="polite"' in html
