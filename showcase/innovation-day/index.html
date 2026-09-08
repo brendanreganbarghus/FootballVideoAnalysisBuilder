@@ -499,6 +499,43 @@
       font-size: .82rem;
     }
 
+    .rules-engine-panel {
+      margin-top: 22px;
+      padding: 24px;
+      border: 1px solid rgba(104, 224, 193, .38);
+      border-radius: 14px;
+      background:
+        radial-gradient(circle at 100% 0, rgba(104, 224, 193, .08), transparent 40%),
+        var(--surface);
+    }
+
+    .rules-engine-head {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 24px;
+      margin-bottom: 18px;
+    }
+
+    .rules-engine-head p { max-width: 720px; margin: 7px 0 0; color: var(--muted); }
+    .rules-engine-head a { color: var(--mint); font-weight: 800; white-space: nowrap; }
+
+    .rules-engine-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+    }
+
+    .rules-engine-part {
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      background: rgba(12, 10, 13, .42);
+    }
+
+    .rules-engine-part b { display: block; color: var(--mint); }
+    .rules-engine-part span { display: block; margin-top: 5px; color: var(--muted); font-size: .84rem; line-height: 1.45; }
+
     .budget-layout {
       display: grid;
       grid-template-columns: .8fr 1.2fr;
@@ -689,6 +726,7 @@
       .hero-copy { max-width: 820px; }
       .section-head { grid-template-columns: 1fr; gap: 12px; }
       .grid, .stack { grid-template-columns: repeat(2, 1fr); }
+      .rules-engine-grid { grid-template-columns: repeat(2, 1fr); }
       .obstacles, .roadmap { grid-template-columns: repeat(2, 1fr); }
       .architecture { grid-template-columns: 1fr; }
       .arch-node { min-height: 110px; }
@@ -706,7 +744,9 @@
       h1 { font-size: clamp(2.8rem, 15vw, 4.6rem); }
       section { padding: 64px 0; }
       .grid, .positioning, .status-grid, .obstacles, .stack,
-      .roadmap, .demo-panel, .sources { grid-template-columns: 1fr; }
+      .roadmap, .demo-panel, .sources, .rules-engine-grid { grid-template-columns: 1fr; }
+      .rules-engine-head { display: block; }
+      .rules-engine-head a { display: inline-block; margin-top: 12px; white-space: normal; }
       .scoreboard { border-radius: 12px; }
       .metrics { grid-template-columns: 1fr; }
       .metric { display: flex; justify-content: space-between; align-items: center; }
@@ -1034,6 +1074,45 @@
           <div class="stack-item"><b>Browser UI</b><span>Local replay, review and scoreboard</span></div>
           <div class="stack-item"><b>pytest</b><span>Unit and saved-reel regression gates</span></div>
         </div>
+        <section class="rules-engine-panel" aria-labelledby="rules-engine-title">
+          <div class="rules-engine-head">
+            <div>
+              <h3 id="rules-engine-title">What the Football Rules Engine Contains</h3>
+              <p>
+                A deterministic domain layer turns observable video evidence into
+                match state and analytics events. It does not learn from manual
+                review labels or contain clip-specific exceptions.
+              </p>
+            </div>
+            <a href="../review-workflow/">See the review &amp; validation process</a>
+          </div>
+          <div class="rules-engine-grid">
+            <article class="rules-engine-part">
+              <b>1 · IFAB Law Profile</b>
+              <span><code>MATCH_LAW_PROFILE</code> records the reviewed Laws for match state, ball in/out, fouls, and legal restart families.</span>
+            </article>
+            <article class="rules-engine-part">
+              <b>2 · Evidence Adapters</b>
+              <span>Tracking, ball motion, pitch calibration, boundaries, team classification, and control observations feed the domain logic.</span>
+            </article>
+            <article class="rules-engine-part">
+              <b>3 · Match-State Machine</b>
+              <span>Transitions between in play, possible stoppage, out of play, restart pending, and period ended.</span>
+            </article>
+            <article class="rules-engine-part">
+              <b>4 · Analytics Definitions</b>
+              <span>Project contracts define completed passes, turnovers, possession, and shot outcomes because IFAB does not define statistics.</span>
+            </article>
+            <article class="rules-engine-part">
+              <b>5 · Event State Machines</b>
+              <span>Control, release, flight, reception, interruption, and restart evidence produce reproducible E# events.</span>
+            </article>
+            <article class="rules-engine-part">
+              <b>6 · Validation Guards</b>
+              <span>Source/output fingerprints, exact event comparison, cached rebuilds, and protected regressions prevent unsafe publication.</span>
+            </article>
+          </div>
+        </section>
       </div>
     </section>
 
@@ -1235,7 +1314,7 @@
           </div>
         </div>
         <div class="demo-panel">
-          <a class="demo-link" href="../../demo/az-demo-video/Football_AI_Platform_Demo.mp4">
+          <a class="demo-link" href="../../demo/az-demo-video/Football_AI_Platform_Demo_4m48s.mp4">
             <span>See the current review workflow and future platform vision.</span>
             <b>Watch the platform demo</b>
             <i>Play &rarr;</i>

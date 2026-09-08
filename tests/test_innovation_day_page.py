@@ -31,7 +31,7 @@ def test_product_landing_explains_current_review_and_future_concept() -> None:
     assert "Future architecture" in html
     assert "Secondary streams are not" in html
     assert 'href="showcase/innovation-day/"' in html
-    assert "Football_AI_Platform_Demo.mp4" in html
+    assert "Football_AI_Platform_Demo_4m48s.mp4" in html
     assert "Open Live Review Canvas" in html
     assert 'href="review-canvas?theme=default"' in html
     assert "How to Use the Canvas" in html
@@ -48,11 +48,19 @@ def test_innovation_landing_links_to_current_surfaces() -> None:
     assert 'href="developer-guide/"' in html
     assert '<a class="button" href="board/">Innovation board</a>' in html
     assert 'href="../../"' in html
-    assert "Football_AI_Platform_Demo.mp4" in html
+    assert "Football_AI_Platform_Demo_4m48s.mp4" in html
     assert "Open the live Review Canvas" in html
     assert '../../review-canvas?theme=innovation' in html
     assert "One review workspace. Two independent conclusions." in html
     assert "Query By Probability" in html
+    assert "What the Football Rules Engine Contains" in html
+    assert "MATCH_LAW_PROFILE" in html
+    assert "Evidence Adapters" in html
+    assert "Match-State Machine" in html
+    assert "Analytics Definitions" in html
+    assert "Event State Machines" in html
+    assert "Validation Guards" in html
+    assert 'href="../review-workflow/"' in html
     assert "manual-review/" not in html
     assert "validation-lab/" not in html
     assert 'class="skip-link"' in html
@@ -178,6 +186,13 @@ def test_review_workflow_board_explains_every_guard_and_opens_chat() -> None:
     assert "MATCH_LAW_PROFILE" in html
     assert "project’s analytics definitions" in html
     assert "Refuses to invent a touch, player, control state, or referee decision" in html
+    assert "Inside the Rules Engine" in html
+    assert "Match-State Machine — What Is Its Purpose?" in html
+    assert "Possible Stoppage" in html
+    assert "Restart Pending" in html
+    assert "Analytics Event Machines" in html
+    assert "Deterministic Output" in html
+    assert "Regression Protection" in html
     assert "You Make the Decision" in html
     assert "Verify the Engine" in html
     assert "No Change" in html

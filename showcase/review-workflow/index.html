@@ -157,6 +157,48 @@
       font-size: .82rem;
     }
     .connection-step p { margin: 6px 0 0; font-size: .82rem; }
+    .engine {
+      margin-top: 14px;
+      padding: 22px 24px;
+      border: 1px solid rgb(104 224 170 / 40%);
+      border-radius: 18px;
+      background: rgb(12 27 21 / 88%);
+    }
+    .engine-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 16px;
+    }
+    .engine-part {
+      min-width: 0;
+      padding: 14px;
+      border-radius: 10px;
+      background: var(--surface-2);
+    }
+    .engine-part b {
+      display: block;
+      color: var(--green);
+      font-size: .82rem;
+    }
+    .engine-part p { margin: 6px 0 0; font-size: .82rem; }
+    .engine-part.state-machine {
+      grid-column: span 2;
+      border: 1px solid rgb(120 191 255 / 40%);
+    }
+    .states {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 10px;
+    }
+    .states span {
+      padding: 5px 8px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: var(--blue);
+      font-size: .7rem;
+    }
     .decision-panel, .copilot-panel {
       padding: 24px;
       border: 1px solid var(--line);
@@ -258,6 +300,8 @@
       .number { margin-bottom: 12px; }
       .decision { grid-template-columns: 1fr; gap: 6px; }
       .connection-flow { grid-template-columns: 1fr 1fr; }
+      .engine-grid { grid-template-columns: 1fr 1fr; }
+      .engine-part.state-machine { grid-column: span 2; }
       .gate { grid-template-columns: 1fr; gap: 12px; }
       .gate h2 { white-space: normal; }
       .checks { grid-template-columns: 1fr 1fr; }
@@ -266,6 +310,8 @@
       .topbar { display: grid; }
       .checks { grid-template-columns: 1fr; }
       .connection-flow { grid-template-columns: 1fr; }
+      .engine-grid { grid-template-columns: 1fr; }
+      .engine-part.state-machine { grid-column: auto; }
     }
     @media (prefers-reduced-motion: reduce) {
       html { scroll-behavior: auto; }
@@ -334,6 +380,45 @@
         <article class="connection-step">
           <b>4 · Results Return to Canvas</b>
           <p>The explanation appears in the matching clip or event conversation. Authorized actions update review state and refresh the screen.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="engine" aria-labelledby="engine-title">
+      <p class="eyebrow">Inside the Rules Engine</p>
+      <h2 id="engine-title">Small components turn observations into explainable football events.</h2>
+      <div class="engine-grid">
+        <article class="engine-part">
+          <b>IFAB Law Profile</b>
+          <p>Defines legal match state, ball in/out, fouls, and restart families using the reviewed official Laws.</p>
+        </article>
+        <article class="engine-part">
+          <b>Evidence Adapters</b>
+          <p>Convert detections, tracks, ball movement, teams, and pitch geometry into observations the rules can use.</p>
+        </article>
+        <article class="engine-part">
+          <b>Control &amp; Possession</b>
+          <p>Determine credible player control and team ownership over time without treating every nearby player as a touch.</p>
+        </article>
+        <article class="engine-part state-machine">
+          <b>Match-State Machine — What Is Its Purpose?</b>
+          <p>It remembers the football context across frames. This prevents a pass, turnover, or shot from being counted while play is stopped or waiting for a legal restart.</p>
+          <div class="states" aria-label="Match-state sequence">
+            <span>Unknown</span><span>In Play</span><span>Possible Stoppage</span>
+            <span>Out of Play</span><span>Restart Pending</span><span>Period Ended</span>
+          </div>
+        </article>
+        <article class="engine-part">
+          <b>Analytics Event Machines</b>
+          <p>Combine release, flight, reception, interruption, and outcome evidence into passes, turnovers, possession, and shots.</p>
+        </article>
+        <article class="engine-part">
+          <b>Deterministic Output</b>
+          <p>Writes reproducible E# events, match-state intervals, timestamps, teams, confidence, and the active law profile.</p>
+        </article>
+        <article class="engine-part">
+          <b>Regression Protection</b>
+          <p>Compares accepted references, fingerprints source and output, and blocks publication when previous behavior breaks.</p>
         </article>
       </div>
     </section>

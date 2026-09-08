@@ -58,10 +58,9 @@ OUT_NAMES = {
     "fast": "Football_AI_Platform_Demo_4min.mp4",
     "relaxed": "Football_AI_Platform_Demo_4m48s.mp4",
 }
-# The "fast" pace is the primary, canonically-named deliverable requested by
-# the brief (Football_AI_Platform_Demo.mp4); "relaxed" is the alternate for
-# side-by-side pacing review.
-PRIMARY_PACE = "fast"
+# The relaxed pace is the presentation default at the stable canonical URL.
+# The fast cut remains available under its explicit 4min filename.
+PRIMARY_PACE = "relaxed"
 
 # --- External, machine-local benchmark footage (not shipped in the repo) ---
 # Defaults to REPO/benchmarks/alfheim/generated/segment-0300-020 (this

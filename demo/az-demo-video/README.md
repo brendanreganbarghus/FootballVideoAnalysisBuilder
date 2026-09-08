@@ -14,9 +14,9 @@ source text (see `scripts/synthesize_narration_edge.py`):
 
 | File | Pace | Description |
 |---|---|---|
-| `Football_AI_Platform_Demo.mp4` | fast | Canonical deliverable. 1920x1080, 30fps, h264/aac, ~4:00–4:22, burned-in captions. |
-| `Football_AI_Platform_Demo_4min.mp4` | fast | Same render as above, explicit pace-named copy. |
-| `Football_AI_Platform_Demo_4m48s.mp4` | relaxed | Slightly more deliberately paced alternate cut, ~4:40–4:48, for side-by-side review. |
+| `Football_AI_Platform_Demo.mp4` | relaxed | Canonical landing-page deliverable. 1920x1080, 30fps, h264/aac, 5:25 with the current narration. |
+| `Football_AI_Platform_Demo_4min.mp4` | fast | Explicit fast alternative, 4:45 with the current narration. |
+| `Football_AI_Platform_Demo_4m48s.mp4` | relaxed | Deliberately paced presentation cut, 5:25 with the current narration; legacy filename retained for compatibility. |
 | `Football_AI_Platform_Demo.srt` | fast | Caption track for the fast cut (committed — small text file). |
 | `Football_AI_Platform_Demo_relaxed.srt` | relaxed | Caption track for the relaxed cut (committed). |
 | `Football_AI_Platform_Narration.txt` | — | Exact narration text per scene, both presets share this text (committed). |
