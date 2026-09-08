@@ -8,6 +8,7 @@ LANDING = SHOWCASE / "index.html"
 GUIDE = SHOWCASE / "developer-guide" / "index.html"
 BOARD = SHOWCASE / "board" / "index.html"
 PLATFORM_BOARD = ROOT / "showcase" / "platform-board" / "index.html"
+REVIEW_WORKFLOW = ROOT / "showcase" / "review-workflow" / "index.html"
 VIDEO_BUILDER = ROOT / "demo" / "az-demo-video" / "scripts" / "build_demo_video.py"
 
 
@@ -35,6 +36,7 @@ def test_product_landing_explains_current_review_and_future_concept() -> None:
     assert 'href="review-canvas?theme=default"' in html
     assert "How to Use the Canvas" in html
     assert 'href="showcase/platform-board/"' in html
+    assert 'href="showcase/review-workflow/"' in html
     assert 'class="skip"' in html
     assert "prefers-reduced-motion" in html
     assert "object-fit: cover" not in html
@@ -160,3 +162,25 @@ def test_demo_keeps_calibrated_stills_static_and_limits_other_motion() -> None:
     assert "pad={W}:{H}:(ow-iw)/2:(oh-ih)/2:color=black" in source
     assert 'ImageShot(SHOTS / "review-canvas-timeline-accept.png", duration=reveal1)' in source
     assert 'ImageShot(SHOTS / "review-canvas-zoomed-action.png", duration=d4 - min(18.0, d4))' in source
+
+
+def test_review_workflow_board_explains_every_guard_and_opens_chat() -> None:
+    html = REVIEW_WORKFLOW.read_text(encoding="utf-8")
+
+    assert "aspect-ratio: 16 / 9" in html
+    assert "@page { size: A3 landscape; margin: 0; }" in html
+    assert "Review Canvas for Beginners" in html
+    assert "Build C# Alone" in html
+    assert "Accepted C# + Exact Fresh E# → No Code Change" in html
+    assert "Accepted Event Missing from E# → General Rule Change" in html
+    assert "Rejected C# → Exclude the Proposal Only" in html
+    assert "Unmatched E# → Verify It Independently" in html
+    assert "Every C# has a decision" in html
+    assert "Source hash is current" in html
+    assert "Output hash is current" in html
+    assert "Protected tests pass" in html
+    assert "Event count &amp; matches are exact" in html
+    assert 'href="../../review-canvas?theme=default"' in html
+    assert 'href="../../review-canvas?theme=innovation"' in html
+    assert 'class="skip"' in html
+    assert "prefers-reduced-motion" in html
