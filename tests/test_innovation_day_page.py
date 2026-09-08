@@ -193,6 +193,20 @@ def test_review_workflow_board_explains_every_guard_and_opens_chat() -> None:
     assert "Analytics Event Machines" in html
     assert "Deterministic Output" in html
     assert "Regression Protection" in html
+    assert "Play the AI Pipeline" in html
+    assert 'id="pipeline-dialog"' in html
+    assert "How the Frameworks Work Together" in html
+    assert "Ultralytics YOLO11" in html
+    assert "PyTorch" in html
+    assert "ByteTrack Route" in html
+    assert "not the current Alfheim benchmark tracker" in html
+    assert "their ball trajectory comes from supplied labels" in html
+    assert "MATCH_LAW_PROFILE" in html
+    assert "predicted-events.json" in html
+    assert 'aria-live="polite"' in html
+    assert "prefers-reduced-motion: reduce" in html
+    assert "Pause" in html
+    assert "#ai-pipeline" in html
     assert "You Make the Decision" in html
     assert "Verify the Engine" in html
     assert "No Change" in html
