@@ -94,3 +94,45 @@ regression protection.
 
 Keep manual review labels evaluation-only. They must never become inference
 inputs, thresholds, or hidden special cases.
+
+## Query By Probability (future architecture — not implemented)
+
+**Query By Probability** is Brendan's forward-looking architectural concept
+for multi-camera coverage. It is documented here as a durable design note, not
+as shipped or partially-shipped behavior:
+
+- One strong primary camera (the "Main Camera") continuously covers the main
+  stream for the whole segment or match. It is the default and only source of
+  evidence in normal operation.
+- The system only reaches for other cameras when the Main Camera's own
+  ball/player detection confidence drops below a decision threshold for
+  particular frames or a short window. At that point it queries the *relevant*
+  secondary/query cameras only — e.g. a goal-end camera or a touchline camera
+  whose field of view actually covers the ambiguous moment — never every
+  secondary stream, and never for the full match.
+- The targeted evidence from those query cameras is fused with the Main
+  Camera's evidence to strengthen the probability/decision for that specific
+  low-confidence moment, then the system reverts to relying on the Main Camera
+  stream.
+- This is explicitly a future concept for larger-stadium, multi-camera
+  deployments. It must never be described or implied as current pipeline
+  behavior, and it is not a patentability claim — do not mention patents when
+  discussing it.
+
+### Continuous, incremental review cadence (future architecture — not implemented)
+
+A related future-facing idea, also not implemented today: the same
+30–60-second controlled-segment discipline is designed to eventually run
+continuously and configurably (e.g. rolling 30-second or 60-second chunks)
+through the existing law-grounded match-state engine and its analytics event
+state machines (`src/football_poc/match_state.py`), appending newly validated
+statistics to the screen as more of a match is processed, rather than
+requiring a human to hand-pick each window. In the same future vision, the
+rules engine itself would be refreshed on a regular (e.g. daily) cadence as
+more segments are independently reviewed — but every refresh must still follow
+the guarded review workflow above: general, evidence-based rule changes only,
+never a timestamp/segment/label-specific exception, and always re-verified
+against the full protected regression suite before publication. Manual review
+labels remain evaluation-only under this future cadence exactly as they are
+today — they never become inference inputs, and a "daily" cadence is a
+scheduling idea, not a license to skip regression protection.

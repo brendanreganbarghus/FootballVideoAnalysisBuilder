@@ -2,41 +2,51 @@
   {
     "id": 1,
     "title": "Opening",
-    "text": "Clubs generate huge amounts of match video, but turning that footage into reliable, structured information is still hard. This is a football intelligence platform for AZ Alkmaar: a pipeline that takes raw match video and turns it into validated, structured football data, and eventually, football intelligence you can act on."
+    "text": "Clubs generate huge amounts of match video. But turning that footage into reliable, structured information is still hard. This is a football intelligence platform: a pipeline that turns raw match video into validated football data, and eventually, intelligence you can act on. Here's the current review workflow, running on real match footage."
   },
   {
     "id": 2,
-    "title": "Segmentation principle",
-    "text": "We don't ask an AI model to watch an entire ninety minute match and guess what happened. Instead, the platform divides video into controlled, thirty to sixty second segments. Each segment is small enough to trace, test, and validate independently, the discipline that turns a demo trick into an engineering pipeline you can actually trust."
+    "title": "Segmentation and ongoing evaluation",
+    "text": "We don't ask an AI model to watch a ninety minute match and guess what happened. Instead, the platform divides video into controlled, thirty to sixty second segments, small enough to trace, test, and validate independently. Many segments get reviewed over time. Not to train the engine on manual clicks, but to expose where its football logic is weak. Manual labels stay strictly evaluation only: never inference inputs, never a timestamp exception."
   },
   {
     "id": 3,
     "title": "Segment builder",
-    "text": "Here is the segment builder, running against real Alfheim match footage. An operator selects a starting point and duration, and the platform prepares a playable window, this one, fifteen to sixteen minutes into the match. Behind the scenes it extracts frames, caches detections, and prepares everything the analysis pipeline needs. Segments can be grouped, replayed, and reprocessed independently, so every result traces back to an exact, reproducible slice of video."
+    "text": "Here is the segment builder inside the Football Event Review workflow, running against real Alfheim match footage. An operator prepares a segment, this one, fifteen to sixteen minutes in. The platform extracts frames, caches detections, and lays out video, tracking, evidence, and review, side by side. Segment length is configurable, typically thirty or sixty seconds, so every result traces back to an exact slice of video."
   },
   {
     "id": 4,
     "title": "AI event detection",
-    "text": "Inside each segment, computer vision detects players, the ball, and team shape, and proposes candidate football events, passes, turnovers, shots, fouls, each with a timestamp, a team, and a confidence score. But a raw AI prediction is a proposal, not a fact. Every candidate still has to earn its place in the statistics by passing through football rules validation. That principle sits underneath everything else you'll see: predictions get questioned, never assumed."
+    "text": "Inside each segment, computer vision detects players, the ball, and team shape, and proposes candidate events. Passes, turnovers, shots, fouls, each with a timestamp, a team, and a confidence score. A raw AI prediction is a proposal, not a fact. Every candidate is independently reconstructed from the video before it's compared to the engine's output, and only then does it earn its place in the statistics. Predictions get questioned, never assumed."
   },
   {
     "id": 5,
     "title": "Rules Reviewer and passed gate",
-    "text": "This is the Global Football Rules Reviewer. Every candidate event is checked against the actual I-FAB Laws of the Game and the project's own analytics definitions, then independently reconstructed from the video before it's compared to the engine's output. In this fifteen to sixteen minute segment, fifteen proposals were reviewed. Fourteen ended up matching confirmed engine events exactly, most lined up directly, and one engine event was independently verified after its proposal didn't correspond to it. The one remaining proposal that didn't match a distinct engine event was excluded from the published statistics, and match state annotations stayed out of the numbers too. All one hundred and five protected regression tests passed before this segment was published and locked."
+    "text": "This is the Global Football Rules Reviewer. Every candidate event is checked against the actual I-FAB Laws of the Game, and the project's own analytics definitions. Then independently reconstructed from the video, before it's compared to the engine's output. In this fifteen to sixteen minute segment, fifteen proposals were reviewed. Fourteen matched confirmed engine events exactly. Most lined up directly, and one engine event was independently verified after its proposal didn't correspond to it. The one remaining proposal that didn't match a distinct engine event was excluded from the published statistics. And match state annotations stayed out of the numbers too. All one hundred and five protected regression tests passed, before this segment was published and locked."
   },
   {
     "id": 6,
     "title": "Statistics and maturity",
-    "text": "Only validated events feed the statistics layer. Possession, passes, pass completion, fouls, and interceptions are implemented and undergoing thorough validation. Shots and shots on target are currently in review. Corners are near completion. Offsides, attacking and defensive actions, and player, team, and formation statistics are still in development. We would rather show you exactly where each statistic stands than call everything finished."
+    "text": "Only validated events feed the statistics layer. Possession, passes, pass completion, fouls, and interceptions are implemented and undergoing thorough validation. Shots and shots on target are currently in review. Corners are near completion. Offsides, attacking and defensive actions, and player, team, and formation statistics are still in development. We'd rather show exactly where each statistic stands, than call everything finished."
   },
   {
     "id": 7,
     "title": "Copilot over validated data",
-    "text": "Once data is validated, Copilot can reason over it directly, how many passes were completed, how sure are we, what still needs review. Because it is answering from validated structured events rather than raw predictions, the insight is only as reliable as the validation behind it. That is exactly the point."
+    "text": "Once data is validated, Copilot can reason over it directly. How many passes completed, how sure we are, what still needs review. Because it answers from validated structured events rather than raw predictions, the insight is only as reliable as the validation behind it. That's exactly the point."
   },
   {
     "id": 8,
-    "title": "Future vision and Xebia",
-    "text": "The same architecture can extend to tactical patterns, scouting, and player development, including post processed views like player heat maps, pitch zone identification, and shot placement and attribution by player, built from the full recorded clip rather than the live statistics screen. It can also run in a private, on premises environment where that's required, including a future concept where a main camera queries neighbouring goal end and touchline cameras for a second opinion when its own confidence is low, all on local infrastructure rather than the cloud. This prototype was built by a focused team to prove the concept quickly. If AZ wants to take it further, Xebia Netherlands can bring additional AI and engineering capacity to scale the next phase."
+    "title": "Future vision and continuous processing",
+    "text": "The same architecture can extend to tactical patterns, scouting, and player development. Including heat maps and pitch zone views, built from the full recorded clip. Further ahead, the same segmented, state machine driven review is designed to eventually run continuously. Configurable thirty or sixty second chunks, feeding the same law grounded match state engine, appending validated statistics to the screen as more of a match is processed. The rules engine itself could then refresh on a regular, even daily, cadence. Always through the same evidence based, regression protected process."
+  },
+  {
+    "id": 9,
+    "title": "Query By Probability",
+    "text": "One further concept worth naming on its own: Query By Probability. One strong primary camera handles the main stream continuously. Only when its own detection confidence drops, for particular frames or a short window, does the system query the specific secondary camera that actually covers that moment. A goal end or touchline camera, fusing its evidence back in to strengthen the decision, then reverting to the main view. It never watches every secondary stream for the whole match. This is architecture we're exploring for larger, multi camera venues. A future concept, not current behaviour."
+  },
+  {
+    "id": 10,
+    "title": "Partnership",
+    "text": "This prototype was built by a focused team, to prove the concept quickly and honestly. Showing each statistic at its real stage of validation, rather than dressed up as finished. If you want to take it further, Xebia Netherlands, shown here, can bring additional AI and engineering capacity, to help scale the next phase."
   }
 ]

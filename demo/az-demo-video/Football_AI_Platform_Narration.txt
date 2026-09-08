@@ -1,0 +1,174 @@
+Football AI Platform — Demo Narration
+Voice: Microsoft Edge neural TTS, en-GB-RyanNeural (calm, professional UK male
+consultant voice), synthesized sentence-by-sentence via scripts/
+synthesize_narration_edge.py with calibrated pauses and subtle per-sentence
+rate/pitch variation for natural grammar, pacing, and light emotional
+emphasis (not a flat, non-stop machine read). Falls back to the local WinRT
+"Microsoft Mark" voice (scripts/synthesize_narration.ps1) if edge-tts or
+internet access is unavailable — see README.md.
+Audience: general — a reusable pitch-deck / capability demo, not tied to any
+one club.
+Total scenes: 10. Two narration-pace presets are produced from the same
+script text (see scripts/synthesize_narration_edge.py PACE_PRESETS):
+  - "fast"    ~4:00–4:22 total video  -> Football_AI_Platform_Demo.mp4 /
+              Football_AI_Platform_Demo_4min.mp4
+  - "relaxed" ~4:40–4:48 total video  -> Football_AI_Platform_Demo_4m48s.mp4
+Both are generated for side-by-side review; "fast" is the canonical default
+deliverable name.
+
+================================================================
+SCENE 1 — Opening
+================================================================
+Clubs generate huge amounts of match video. But turning that footage into
+reliable, structured information is still hard. This is a football
+intelligence platform: a pipeline that turns raw match video into validated
+football data, and eventually, intelligence you can act on. Here's the
+current review workflow, running on real match footage.
+
+================================================================
+SCENE 2 — Segmentation and ongoing evaluation
+================================================================
+We don't ask an AI model to watch a ninety minute match and guess what
+happened. Instead, the platform divides video into controlled, thirty to
+sixty second segments, small enough to trace, test, and validate
+independently. Many segments get reviewed over time. Not to train the engine
+on manual clicks, but to expose where its football logic is weak. Manual
+labels stay strictly evaluation only: never inference inputs, never a
+timestamp exception.
+
+================================================================
+SCENE 3 — Segment builder
+================================================================
+Here is the segment builder inside the Football Event Review workflow,
+running against real Alfheim match footage. An operator prepares a segment,
+this one, fifteen to sixteen minutes in. The platform extracts frames,
+caches detections, and lays out video, tracking, evidence, and review, side
+by side. Segment length is configurable, typically thirty or sixty seconds,
+so every result traces back to an exact slice of video.
+
+================================================================
+SCENE 4 — AI event detection
+================================================================
+Inside each segment, computer vision detects players, the ball, and team
+shape, and proposes candidate events. Passes, turnovers, shots, fouls, each
+with a timestamp, a team, and a confidence score. A raw AI prediction is a
+proposal, not a fact. Every candidate is independently reconstructed from
+the video before it's compared to the engine's output, and only then does it
+earn its place in the statistics. Predictions get questioned, never assumed.
+
+================================================================
+SCENE 5 — Rules Reviewer and passed gate
+================================================================
+This is the Global Football Rules Reviewer. Every candidate event is
+checked against the actual I-FAB Laws of the Game, and the project's own
+analytics definitions. Then independently reconstructed from the video,
+before it's compared to the engine's output. In this fifteen to sixteen
+minute segment, fifteen proposals were reviewed. Fourteen matched confirmed
+engine events exactly. Most lined up directly, and one engine event was
+independently verified after its proposal didn't correspond to it. The one
+remaining proposal that didn't match a distinct engine event was excluded
+from the published statistics. And match state annotations stayed out of the
+numbers too. All one hundred and five protected regression tests passed,
+before this segment was published and locked.
+
+================================================================
+SCENE 6 — Statistics and maturity
+================================================================
+Only validated events feed the statistics layer. Possession, passes, pass
+completion, fouls, and interceptions are implemented and undergoing
+thorough validation. Shots and shots on target are currently in review.
+Corners are near completion. Offsides, attacking and defensive actions, and
+player, team, and formation statistics are still in development. We'd
+rather show exactly where each statistic stands, than call everything
+finished.
+
+================================================================
+SCENE 7 — Copilot over validated data
+================================================================
+Once data is validated, Copilot can reason over it directly. How many
+passes completed, how sure we are, what still needs review. Because it
+answers from validated structured events rather than raw predictions, the
+insight is only as reliable as the validation behind it. That's exactly the
+point.
+
+================================================================
+SCENE 8 — Future vision and continuous processing
+================================================================
+The same architecture can extend to tactical patterns, scouting, and player
+development. Including heat maps and pitch zone views, built from the full
+recorded clip. Further ahead, the same segmented, state machine driven
+review is designed to eventually run continuously. Configurable thirty or
+sixty second chunks, feeding the same law grounded match state engine,
+appending validated statistics to the screen as more of a match is
+processed. The rules engine itself could then refresh on a regular, even
+daily, cadence. Always through the same evidence based, regression
+protected process.
+
+================================================================
+SCENE 9 — Query By Probability
+================================================================
+One further concept worth naming on its own: Query By Probability. One
+strong primary camera handles the main stream continuously. Only when its
+own detection confidence drops, for particular frames or a short window,
+does the system query the specific secondary camera that actually covers
+that moment. A goal end or touchline camera, fusing its evidence back in to
+strengthen the decision, then reverting to the main view. It never watches
+every secondary stream for the whole match. This is architecture we're
+exploring for larger, multi camera venues. A future concept, not current
+behaviour.
+
+================================================================
+SCENE 10 — Partnership
+================================================================
+This prototype was built by a focused team, to prove the concept quickly
+and honestly. Showing each statistic at its real stage of validation,
+rather than dressed up as finished. If you want to take it further, Xebia
+Netherlands, shown here, can bring additional AI and engineering capacity,
+to help scale the next phase.
+
+================================================================
+Notes
+================================================================
+- This is a generalized, reusable pitch-deck demo. All spoken and visual
+  references to any single club have been removed from the title card,
+  closing card, narration, captions, and the screenshots/mockups used in the
+  cut (see README.md's "no legacy club references" verification note).
+- No accuracy figures are claimed as achieved; validation maturity is stated
+  per-statistic (see Scene 6), not as a single blanket confidence number.
+- Passes, pass completion, fouls, possession, and interceptions are
+  described as "implemented, undergoing validation," not "production-ready."
+  Shots / shots on target: "in review." Corners: "near completion."
+  Offsides, attacks, dangerous attacks, defensive actions, player/team/
+  formation stats: "in development" / future.
+- The 15:00-16:00 segment result is stated precisely and is unchanged from
+  the original review: 15 proposals reviewed, 14 matched confirmed engine
+  events (E1-E14) exactly, one proposal that did not correspond to a
+  distinct engine event was excluded from the published statistics, and the
+  foul/stoppage match-state annotation stayed out of the analytics
+  reference too. The separate unmatched E10 was independently confirmed.
+  All 105 protected regression tests passed before the segment was
+  published and locked. The narration and captions deliberately avoid
+  naming "C10"/"E10" directly.
+- Query By Probability (Scene 9) and the continuous/daily-refresh processing
+  concept (Scene 8) are explicitly narrated and captioned as future
+  architecture, not current behaviour, and are not framed as a patentability
+  claim anywhere in the video. See the durable "Query By Probability" section
+  in .github/copilot-instructions.md and docs/RULES_ENGINE_ARCHITECTURE.md
+  section 11 for the authoritative constraints on both concepts (they must
+  never be assumed implemented, and manual review labels must never become
+  inference inputs or timestamp/segment exceptions in the real engine).
+- Xebia Netherlands (Scene 10) is named as optional scalable AI/engineering
+  capacity for a next phase, with no prices or contract terms mentioned. The
+  on-screen wordmark badge is a stylized, non-trademarked "X" monogram
+  created for this video, not a reproduction of Xebia's official logo
+  artwork.
+- The "Match Replay Preview" / sequential-minute stats panel shown in
+  Scene 6 was verified as a genuinely working feature, not a static mock:
+  clicking Play sequence actually advances real video playback and
+  accumulates real per-team pass/turnover/shot counters sourced from event
+  files already written to disk (confirmed live: currentTime advancing,
+  non-zero counters after a few seconds of playback). It runs on a separate
+  consecutive-minute window (27:45 onward) than the reviewed/published
+  15:00-16:00 segment shown in Scene 5 — it demonstrates the multi-minute
+  chaining capability, not additional statistics for that specific reviewed
+  segment.

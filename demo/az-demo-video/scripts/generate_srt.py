@@ -1,13 +1,16 @@
-"""Generate the burned-in caption track (SRT) for the AZ demo video (reproducible copy).
+"""Generate the burned-in caption track (SRT) for the Football AI Platform demo
+video (reproducible copy).
 
 Captions are split into short readable chunks per scene, timed proportionally
 by word count across each scene's real narration audio duration, and offset
 by each scene's actual position in the final concatenated timeline (title
-card + 8 scenes + closing card).
+card + 10 scenes + closing card).
 
 Run with (from repo root):
-    python demo/az-demo-video/scripts/generate_srt.py
+    python demo/az-demo-video/scripts/generate_srt.py --pace fast
+    python demo/az-demo-video/scripts/generate_srt.py --pace relaxed
 """
+import argparse
 import json
 import re
 import subprocess
@@ -18,7 +21,7 @@ import imageio_ffmpeg
 FFMPEG = imageio_ffmpeg.get_ffmpeg_exe()
 SCRIPT_DIR = Path(__file__).resolve().parent
 DEMO_DIR = SCRIPT_DIR.parent
-AUDIO = DEMO_DIR / "build" / "audio"
+BUILD = DEMO_DIR / "build"
 
 TITLE_DURATION = 4.0
 CLOSING_DURATION = 6.0
@@ -59,12 +62,17 @@ def srt_time(t: float) -> str:
 
 
 def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--pace", choices=["fast", "relaxed"], default="fast")
+    args = ap.parse_args()
+    audio_dir = BUILD / "audio" / args.pace
+
     scenes = json.loads((SCRIPT_DIR / "scenes.json").read_text())
-    entries = [(0.3, TITLE_DURATION - 0.3, "AZ Alkmaar \u2014 Football Intelligence Platform")]
+    entries = [(0.3, TITLE_DURATION - 0.3, "Football Intelligence Platform \u2014 From match video to validated football intelligence")]
 
     cursor = TITLE_DURATION
     for scene in scenes:
-        wav = AUDIO / f"scene{scene['id']:02d}.wav"
+        wav = audio_dir / f"scene{scene['id']:02d}.wav"
         dur = ffprobe_duration(wav)
         chunks = chunk_text(scene["text"], max_words=11)
         total_words = sum(len(c.split()) for c in chunks)
@@ -80,7 +88,8 @@ def main():
                      "Xebia Netherlands \u2014 scalable AI & engineering capacity for a next phase"))
     cursor += CLOSING_DURATION
 
-    srt_path = DEMO_DIR / "AZ_Football_AI_Platform_Demo.srt"
+    suffix = "" if args.pace == "fast" else f"_{args.pace}"
+    srt_path = DEMO_DIR / f"Football_AI_Platform_Demo{suffix}.srt"
     with open(srt_path, "w", encoding="utf-8") as f:
         for i, (start, end, text) in enumerate(entries, start=1):
             f.write(f"{i}\n{srt_time(start)} --> {srt_time(end)}\n{text}\n\n")

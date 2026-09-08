@@ -1,0 +1,332 @@
+1
+00:00:00,300 --> 00:00:03,700
+Football Intelligence Platform — From match video to validated football intelligence
+
+2
+00:00:04,000 --> 00:00:06,875
+Clubs generate huge amounts of match video.
+
+3
+00:00:06,875 --> 00:00:11,394
+But turning that footage into reliable, structured information is still hard.
+
+4
+00:00:11,394 --> 00:00:13,858
+This is a football intelligence platform:
+
+5
+00:00:13,858 --> 00:00:18,377
+a pipeline that turns raw match video into validated football data,
+
+6
+00:00:18,377 --> 00:00:21,252
+and eventually, intelligence you can act on.
+
+7
+00:00:21,252 --> 00:00:25,360
+Here's the current review workflow, running on real match footage.
+
+8
+00:00:25,360 --> 00:00:31,418
+We don't ask an AI model to watch a ninety minute match and guess what happened.
+
+9
+00:00:31,418 --> 00:00:34,068
+Instead, the platform divides video into controlled,
+
+10
+00:00:34,068 --> 00:00:37,854
+thirty to sixty second segments, small enough to trace, test,
+
+11
+00:00:37,854 --> 00:00:41,262
+and validate independently. Many segments get reviewed over time.
+
+12
+00:00:41,262 --> 00:00:44,291
+Not to train the engine on manual clicks,
+
+13
+00:00:44,291 --> 00:00:47,698
+but to expose where its football logic is weak.
+
+14
+00:00:47,698 --> 00:00:51,106
+Manual labels stay strictly evaluation only: never inference inputs,
+
+15
+00:00:51,106 --> 00:00:52,620
+never a timestamp exception.
+
+16
+00:00:52,620 --> 00:00:57,012
+Here is the segment builder inside the Football Event Review workflow,
+
+17
+00:00:57,012 --> 00:01:01,403
+running against real Alfheim match footage. An operator prepares a segment,
+
+18
+00:01:01,403 --> 00:01:05,795
+this one, fifteen to sixteen minutes in. The platform extracts frames,
+
+19
+00:01:05,795 --> 00:01:09,787
+caches detections, and lays out video, tracking, evidence, and review,
+
+20
+00:01:09,787 --> 00:01:12,582
+side by side. Segment length is configurable,
+
+21
+00:01:12,582 --> 00:01:14,578
+typically thirty or sixty seconds,
+
+22
+00:01:14,578 --> 00:01:18,970
+so every result traces back to an exact slice of video.
+
+23
+00:01:18,970 --> 00:01:22,636
+Inside each segment, computer vision detects players, the ball,
+
+24
+00:01:22,636 --> 00:01:27,116
+and team shape, and proposes candidate events. Passes, turnovers, shots, fouls,
+
+25
+00:01:27,116 --> 00:01:31,190
+each with a timestamp, a team, and a confidence score.
+
+26
+00:01:31,190 --> 00:01:35,263
+A raw AI prediction is a proposal, not a fact.
+
+27
+00:01:35,263 --> 00:01:41,373
+Every candidate is independently reconstructed from the video before it's compared to the engine's output,
+
+28
+00:01:41,373 --> 00:01:45,853
+and only then does it earn its place in the statistics.
+
+29
+00:01:45,853 --> 00:01:47,890
+Predictions get questioned, never assumed.
+
+30
+00:01:47,890 --> 00:01:50,682
+This is the Global Football Rules Reviewer.
+
+31
+00:01:50,682 --> 00:01:55,866
+Every candidate event is checked against the actual I-FAB Laws of the Game,
+
+32
+00:01:55,866 --> 00:01:58,259
+and the project's own analytics definitions.
+
+33
+00:01:58,259 --> 00:02:00,652
+Then independently reconstructed from the video,
+
+34
+00:02:00,652 --> 00:02:03,443
+before it's compared to the engine's output.
+
+35
+00:02:03,443 --> 00:02:07,830
+In this fifteen to sixteen minute segment, fifteen proposals were reviewed.
+
+36
+00:02:07,830 --> 00:02:11,818
+Fourteen matched confirmed engine events exactly. Most lined up directly,
+
+37
+00:02:11,818 --> 00:02:17,401
+and one engine event was independently verified after its proposal didn't correspond to it.
+
+38
+00:02:17,401 --> 00:02:24,181
+The one remaining proposal that didn't match a distinct engine event was excluded from the published statistics.
+
+39
+00:02:24,181 --> 00:02:28,169
+And match state annotations stayed out of the numbers too.
+
+40
+00:02:28,169 --> 00:02:31,758
+All one hundred and five protected regression tests passed,
+
+41
+00:02:31,758 --> 00:02:34,550
+before this segment was published and locked.
+
+42
+00:02:34,550 --> 00:02:39,665
+Only validated events feed the statistics layer. Possession, passes, pass completion,
+
+43
+00:02:39,665 --> 00:02:43,850
+fouls, and interceptions are implemented and undergoing thorough validation.
+
+44
+00:02:43,850 --> 00:02:48,035
+Shots and shots on target are currently in review.
+
+45
+00:02:48,035 --> 00:02:53,150
+Corners are near completion. Offsides, attacking and defensive actions, and player,
+
+46
+00:02:53,150 --> 00:02:56,870
+team, and formation statistics are still in development.
+
+47
+00:02:56,870 --> 00:03:00,590
+We'd rather show exactly where each statistic stands,
+
+48
+00:03:00,590 --> 00:03:02,450
+than call everything finished.
+
+49
+00:03:02,450 --> 00:03:06,329
+Once data is validated, Copilot can reason over it directly.
+
+50
+00:03:06,329 --> 00:03:09,433
+How many passes completed, how sure we are,
+
+51
+00:03:09,433 --> 00:03:10,984
+what still needs review.
+
+52
+00:03:10,984 --> 00:03:15,251
+Because it answers from validated structured events rather than raw predictions,
+
+53
+00:03:15,251 --> 00:03:19,518
+the insight is only as reliable as the validation behind it.
+
+54
+00:03:19,518 --> 00:03:21,070
+That's exactly the point.
+
+55
+00:03:21,070 --> 00:03:24,618
+The same architecture can extend to tactical patterns, scouting,
+
+56
+00:03:24,618 --> 00:03:28,561
+and player development. Including heat maps and pitch zone views,
+
+57
+00:03:28,561 --> 00:03:32,898
+built from the full recorded clip. Further ahead, the same segmented,
+
+58
+00:03:32,898 --> 00:03:36,841
+state machine driven review is designed to eventually run continuously.
+
+59
+00:03:36,841 --> 00:03:39,206
+Configurable thirty or sixty second chunks,
+
+60
+00:03:39,206 --> 00:03:42,361
+feeding the same law grounded match state engine,
+
+61
+00:03:42,361 --> 00:03:47,486
+appending validated statistics to the screen as more of a match is processed.
+
+62
+00:03:47,486 --> 00:03:51,429
+The rules engine itself could then refresh on a regular,
+
+63
+00:03:51,429 --> 00:03:54,977
+even daily, cadence. Always through the same evidence based,
+
+64
+00:03:54,977 --> 00:03:56,160
+regression protected process.
+
+65
+00:03:56,160 --> 00:04:00,465
+One further concept worth naming on its own: Query By Probability.
+
+66
+00:04:00,465 --> 00:04:03,988
+One strong primary camera handles the main stream continuously.
+
+67
+00:04:03,988 --> 00:04:06,727
+Only when its own detection confidence drops,
+
+68
+00:04:06,727 --> 00:04:09,467
+for particular frames or a short window,
+
+69
+00:04:09,467 --> 00:04:14,555
+does the system query the specific secondary camera that actually covers that moment.
+
+70
+00:04:14,555 --> 00:04:16,903
+A goal end or touchline camera,
+
+71
+00:04:16,903 --> 00:04:20,426
+fusing its evidence back in to strengthen the decision,
+
+72
+00:04:20,426 --> 00:04:22,774
+then reverting to the main view.
+
+73
+00:04:22,774 --> 00:04:26,688
+It never watches every secondary stream for the whole match.
+
+74
+00:04:26,688 --> 00:04:30,602
+This is architecture we're exploring for larger, multi camera venues.
+
+75
+00:04:30,602 --> 00:04:32,950
+A future concept, not current behaviour.
+
+76
+00:04:32,950 --> 00:04:35,775
+This prototype was built by a focused team,
+
+77
+00:04:35,775 --> 00:04:38,247
+to prove the concept quickly and honestly.
+
+78
+00:04:38,247 --> 00:04:41,426
+Showing each statistic at its real stage of validation,
+
+79
+00:04:41,426 --> 00:04:43,544
+rather than dressed up as finished.
+
+80
+00:04:43,544 --> 00:04:47,429
+If you want to take it further, Xebia Netherlands, shown here,
+
+81
+00:04:47,429 --> 00:04:49,901
+can bring additional AI and engineering capacity,
+
+82
+00:04:49,901 --> 00:04:52,020
+to help scale the next phase.
+
+83
+00:04:52,320 --> 00:04:57,720
+Xebia Netherlands — scalable AI & engineering capacity for a next phase
+

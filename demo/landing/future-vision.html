@@ -27,14 +27,18 @@
   .xebia{background:linear-gradient(135deg,#161b22,#12161c); border:1px solid var(--line); border-radius:14px; padding:22px 26px;}
   .xebia p{color:#e6edf3; line-height:1.6; margin:0 0 0;}
   .xebia .brand{color:var(--blue); font-weight:800;}
-  .cameras{background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:18px 20px; margin-bottom:26px;}
-  .cameras h3{margin:0 0 6px; font-size:.98rem; color:var(--blue);}
-  .cameras .tag{margin-bottom:10px;}
-  .rig{display:flex; align-items:center; justify-content:center; gap:10px; flex-wrap:wrap; margin:14px 0;}
-  .cam{background:#0d1117; border:1px solid var(--line); border-radius:8px; padding:8px 12px; font-size:.82rem; color:#e6edf3; text-align:center;}
-  .cam.main{border-color:var(--green); color:var(--green); font-weight:700;}
-  .link{color:var(--grey); font-size:.78rem;}
-  .cameras p{color:var(--grey); font-size:.88rem; line-height:1.55; margin:8px 0 0;}
+  .xebia-header{display:flex; align-items:center; gap:12px; margin-bottom:14px;}
+  .xebia-mark{width:40px; height:40px; border-radius:9px; background:linear-gradient(135deg,#39a0ff,#1f6feb); display:flex; align-items:center; justify-content:center; font-weight:900; font-size:1.3rem; color:#0d1117; flex:none;}
+  .xebia-wordmark{font-weight:800; font-size:1.05rem; color:#f0f6fc; letter-spacing:.01em;}
+  .xebia-wordmark span{color:var(--grey); font-weight:600; font-size:.82rem; display:block; margin-top:1px;}
+  .continuous{background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:18px 20px; margin-bottom:26px;}
+  .continuous h3{margin:0 0 6px; font-size:.98rem; color:var(--blue);}
+  .continuous .tag{margin-bottom:10px;}
+  .continuous p{color:var(--grey); font-size:.88rem; line-height:1.6; margin:8px 0 0;}
+  .chain{display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin:12px 0 4px;}
+  .chain .node{background:#0d1117; border:1px solid var(--line); border-radius:8px; padding:7px 12px; font-size:.82rem; color:#e6edf3;}
+  .chain .node.accent{border-color:var(--green); color:var(--green); font-weight:700;}
+  .chain .sep{color:var(--blue);}
 </style>
 </head>
 <body>
@@ -63,33 +67,34 @@
     <span>Validated data</span><span class="arrow">&rarr;</span>
     <span>Copilot / AI</span>
   </div>
-  <div class="cameras">
+  <div class="continuous">
     <span class="tag">Future concept &middot; not implemented</span>
-    <h3>Multi-camera coverage for larger stadiums &mdash; &ldquo;Query by Probability&rdquo;</h3>
-    <div class="rig">
-      <div class="cam">Goal-end camera A</div>
-      <span class="link">&harr;</span>
-      <div class="cam main">Main touchline camera</div>
-      <span class="link">&harr;</span>
-      <div class="cam">Goal-end camera B</div>
+    <h3>Continuous, incremental processing</h3>
+    <div class="chain">
+      <div class="node">Configurable 30s or 60s segment chunks</div>
+      <span class="sep">&rarr;</span>
+      <div class="node accent">Law-grounded match-state engine</div>
+      <span class="sep">&rarr;</span>
+      <div class="node">Statistics screen, appended as processed</div>
     </div>
-    <div class="rig" style="margin-top:-4px;">
-      <span class="link">&uarr;&nbsp;query on low confidence&nbsp;&uarr;</span>
-    </div>
-    <div class="rig" style="margin-top:-4px;">
-      <div class="cam">Opposite touchline camera</div>
-    </div>
-    <p>The manifest format already supports multiple synchronized camera streams with
-      independent time offsets and calibration; cross-camera fusion is the next planned
-      pipeline stage. The idea: one main panoramic camera per side plus goal-end cameras,
-      where the primary camera queries the neighbouring feeds only when its own detection
-      confidence is low, to corroborate a decision rather than replace the main view.
-      For larger matches this runs on a local, on-premises server &mdash; not a cloud
-      dependency &mdash; keeping club video under club control.</p>
+    <p>The same controlled-segment discipline shown earlier can eventually run
+      continuously and configurably &mdash; rolling 30-second or 60-second
+      chunks processed one after another through the existing law-grounded
+      match-state engine and its analytics event state machines &mdash;
+      appending newly validated statistics to the screen as more of a match
+      is processed, instead of a human hand-picking every window. In this
+      future vision the rules engine itself would also be refreshed on a
+      regular, e.g. daily, cadence as more segments are independently
+      reviewed &mdash; always through the same general, evidence-based,
+      regression-protected process, never a per-segment shortcut.</p>
   </div>
   <div class="xebia">
+    <div class="xebia-header">
+      <div class="xebia-mark">X</div>
+      <div class="xebia-wordmark">Xebia Netherlands<span>Scalable AI &amp; engineering capacity</span></div>
+    </div>
     <p>This prototype was developed by a focused team to prove the concept quickly and honestly.
-      If AZ Alkmaar wants to take the platform further, <span class="brand">Xebia Netherlands</span>
+      To take the platform further, <span class="brand">Xebia Netherlands</span>
       can bring additional AI and engineering capacity &mdash; across AI, Microsoft/Azure, Copilot,
       agentic AI and enterprise architecture &mdash; so the team can scale to match the ambition
       and timeline of the next phase.</p>

@@ -7,10 +7,20 @@ param(
   [int[]]$OnlyIds = $null
 )
 
-# Generates one WAV narration file per scene using the WinRT
-# Windows.Media.SpeechSynthesis API (gives access to the modern "Microsoft
-# Mark" OneCore voice, which the older System.Speech/SAPI5 desktop API
-# cannot select on this platform).
+# FALLBACK narration synthesizer. Generates one WAV narration file per scene
+# using the WinRT Windows.Media.SpeechSynthesis API (gives access to the
+# modern "Microsoft Mark" OneCore voice, which the older System.Speech/SAPI5
+# desktop API cannot select on this platform).
+#
+# This is the offline fallback: it needs no internet access, unlike the
+# PRIMARY synthesizer, scripts/synthesize_narration_edge.py, which uses the
+# `edge-tts` Python package for a more natural, expressive Microsoft neural
+# voice (default en-GB-RyanNeural) but requires internet access to
+# Microsoft's Edge TTS endpoint at synthesis time. Use this script only if
+# edge-tts / that internet access is unavailable -- the resulting "Mark"
+# voice is functional but noticeably more flat/robotic than the neural
+# voice, and this script only supports the single pace built into
+# scenes.json (no fast/relaxed pace-preset split).
 #
 # IMPORTANT: this WinRT type-literal projection
 # ([Type,Assembly,ContentType=WindowsRuntime]) only resolves under Windows

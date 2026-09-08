@@ -359,3 +359,27 @@ Every rules-engine change must state which category it belongs to:
 Do not silently mix categories. Update this document, the law-profile metadata,
 or the analytics definition before changing behavior when the contract itself
 changes.
+
+## 11. Future architecture concepts (not implemented)
+
+These are durable design notes for forward-looking ideas. Neither is shipped,
+partially shipped, or assumed implemented anywhere in this codebase; both are
+described in full, with their guardrails, in `.github/copilot-instructions.md`
+("Query By Probability" section) and must be kept consistent with it:
+
+- **Query By Probability** — a single primary ("Main") camera covers the
+  normal stream; only when its own detection confidence drops for a
+  particular frame or short window does the system query the specific
+  secondary camera(s) whose field of view covers that moment (e.g. a
+  goal-end or touchline camera), fusing that targeted evidence to strengthen
+  the decision, then reverting to the Main Camera. It never processes every
+  secondary stream for the whole match, and it is not a patentability claim.
+- **Continuous, incremental review cadence** — running the existing
+  30–60-second controlled-segment discipline as configurable, rolling chunks
+  (e.g. 30s or 60s) through the law-grounded match-state engine and its
+  analytics event state machines continuously, appending newly validated
+  statistics to the screen as more of a match is processed, alongside a
+  regularly (e.g. daily) refreshed rules engine. Any such refresh must still
+  go through Section 7's guarded review workflow and Section 8's full
+  regression suite — general, evidence-based rule changes only, never a
+  timestamp/segment/label-specific exception.

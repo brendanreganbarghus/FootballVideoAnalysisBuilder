@@ -1,10 +1,10 @@
-"""Build the AZ Alkmaar Football AI Platform demo video (reproducible copy).
+"""Build the Football AI Platform demo video (reproducible copy).
 
 Pipeline:
   1. Renders per-scene Ken Burns clips from the real screenshots in
      assets/shots/, and/or trims real match footage clips.
   2. Muxes each scene's visuals (silent) with its pre-rendered narration
-     audio (see synthesize_narration.ps1 / scenes.json) using fades.
+     audio (see synthesize_narration_edge.py / scenes.json) using fades.
   3. Concatenates video-only streams and audio (WAV) tracks SEPARATELY, then
      muxes once at the end. This avoids AAC bitstream corruption that occurs
      if you `-c copy` concat multiple independently-encoded AAC segments.
@@ -12,7 +12,13 @@ Pipeline:
   5. Encodes the final 1920x1080 16:9 h264/aac MP4.
 
 Run with (from repo root):
-    python demo/az-demo-video/scripts/build_demo_video.py
+    python demo/az-demo-video/scripts/build_demo_video.py --pace fast
+    python demo/az-demo-video/scripts/build_demo_video.py --pace relaxed
+
+Both narration pace presets (see synthesize_narration_edge.py PACE_PRESETS)
+read from their own build/audio/<pace>/ folder and write to their own
+differently-named output MP4, so both can be generated and compared without
+re-running narration synthesis.
 
 Requires: imageio_ffmpeg (bundled ffmpeg), Pillow.
 
@@ -26,6 +32,7 @@ External inputs not shipped in this repo (large/gitignored generated media):
 """
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import subprocess
@@ -44,12 +51,17 @@ REPO = DEMO_DIR.parent.parent          # repo root
 
 SHOTS = DEMO_DIR / "assets" / "shots"
 BUILD = DEMO_DIR / "build"             # local scratch dir (gitignored: *.mp4/*.wav)
-AUDIO = BUILD / "audio"
-WORK = BUILD / "work"
-WORK.mkdir(parents=True, exist_ok=True)
-AUDIO.mkdir(parents=True, exist_ok=True)
 
 OUT_DIR = DEMO_DIR
+
+OUT_NAMES = {
+    "fast": "Football_AI_Platform_Demo_4min.mp4",
+    "relaxed": "Football_AI_Platform_Demo_4m48s.mp4",
+}
+# The "fast" pace is the primary, canonically-named deliverable requested by
+# the brief (Football_AI_Platform_Demo.mp4); "relaxed" is the alternate for
+# side-by-side pacing review.
+PRIMARY_PACE = "fast"
 
 # --- External, machine-local benchmark footage (not shipped in the repo) ---
 # Defaults to REPO/benchmarks/alfheim/generated/segment-0300-020 (this
@@ -199,9 +211,9 @@ def fade_video(in_path: Path, out_path: Path, duration: float, fade_in: bool, fa
     run([FFMPEG, "-y", "-i", str(in_path), "-vf", ",".join(filters), "-c:v", "libx264", "-pix_fmt", "yuv420p", str(out_path)])
 
 
-def build_scene_video(scene: Scene) -> tuple[Path, float]:
+def build_scene_video(scene: Scene, work: Path) -> tuple[Path, float]:
     """Returns (faded video-only clip path, duration)."""
-    scene_dir = WORK / f"scene{scene.id:02d}"
+    scene_dir = work / f"scene{scene.id:02d}"
     scene_dir.mkdir(parents=True, exist_ok=True)
     audio_dur = ffprobe_duration(scene.audio)
     clip_paths = []
@@ -226,14 +238,28 @@ def build_scene_video(scene: Scene) -> tuple[Path, float]:
 
 
 def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--pace", choices=list(OUT_NAMES.keys()), default=PRIMARY_PACE)
+    args = ap.parse_args()
+    pace = args.pace
+
+    audio_dir = BUILD / "audio" / pace
+    work = BUILD / "work" / pace
+    work.mkdir(parents=True, exist_ok=True)
+    if not audio_dir.exists():
+        raise RuntimeError(
+            f"No narration audio found at {audio_dir}. Run "
+            f"synthesize_narration_edge.py --pace {pace} first."
+        )
+
     scenes_json = json.loads((SCRIPT_DIR / "scenes.json").read_text())
     titles = {s["id"]: s["title"] for s in scenes_json}
 
     def a(n):
-        return AUDIO / f"scene{n:02d}.wav"
+        return audio_dir / f"scene{n:02d}.wav"
 
     scenes = [
-        Scene(1, titles[1], a(1), [VideoShot(RAW_MATCH_MP4, duration=ffprobe_duration(a(1)))]),
+        Scene(1, titles[1], a(1), None),
         Scene(2, titles[2], a(2), [ImageShot(SHOTS / "landing.png", duration=ffprobe_duration(a(2)), focus=(0.5, 0.30), zoom_end=1.22)]),
         Scene(3, titles[3], a(3), None),
         Scene(4, titles[4], a(4), None),
@@ -241,14 +267,28 @@ def main():
         Scene(6, titles[6], a(6), None),
         Scene(7, titles[7], a(7), [ImageShot(SHOTS / "copilot-concept.png", duration=ffprobe_duration(a(7)), focus=(0.5, 0.35), zoom_end=1.16)]),
         Scene(8, titles[8], a(8), None),
+        Scene(9, titles[9], a(9), None),
+        Scene(10, titles[10], a(10), None),
     ]
 
-    # Scene 3: segment builder concept, then a short real clip of the raw
-    # match footage being windowed into the controlled 30-60s segment.
+    # Scene 1 (Opening): real match footage first, then a reveal of the
+    # current all-in-one Football Event Review Canvas -- this is the current
+    # POC workflow, not the old manual-click Validation Lab screen.
+    d1 = ffprobe_duration(a(1))
+    reveal1 = min(6.0, d1 * 0.35)
+    scenes[0].shots = [
+        VideoShot(RAW_MATCH_MP4, duration=d1 - reveal1, start=5.0),
+        ImageShot(SHOTS / "review-canvas-base.png", duration=reveal1, focus=(0.5, 0.42), zoom_end=1.12),
+    ]
+
+    # Scene 3: segment builder concept -- replaces the old, obsolete
+    # Validation Lab screenshot with the current Canvas's segment-building
+    # / preparation area, then a short real clip of the raw match footage
+    # being windowed into the controlled 30-60s segment.
     d3 = ffprobe_duration(a(3))
     clip3 = min(4.0, d3 * 0.35)
     scenes[2].shots = [
-        ImageShot(SHOTS / "validation-lab.png", duration=d3 - clip3, focus=(0.5, 0.35), zoom_end=1.2),
+        ImageShot(SHOTS / "review-canvas-base.png", duration=d3 - clip3, focus=(0.5, 0.35), zoom_end=1.2),
         VideoShot(RAW_MATCH_MP4, duration=clip3, start=20.0),
     ]
 
@@ -281,64 +321,84 @@ def main():
         ImageShot(SHOTS / "landing.png", duration=d6 - part_a6 - part_b6, focus=(0.5, 0.72), zoom_end=1.22),
     ]
 
+    # Scene 8 (Future vision and continuous processing): pan across the
+    # future-vision page's roadmap and continuous-processing cards. Keep
+    # this crop focused on the top/middle of the page (roadmap + continuous
+    # processing); the bottom Xebia partnership card is reserved for Scene 10.
     d8 = ffprobe_duration(a(8))
-    third = d8 / 3.0
+    half8 = d8 / 2.0
     scenes[7].shots = [
-        ImageShot(SHOTS / "future-vision.png", duration=third, focus=(0.5, 0.20), zoom_end=1.16),
-        ImageShot(SHOTS / "future-vision.png", duration=third, focus=(0.5, 0.55), zoom_end=1.16),
-        ImageShot(SHOTS / "future-vision.png", duration=d8 - 2 * third, focus=(0.5, 0.85), zoom_end=1.14),
+        ImageShot(SHOTS / "future-vision.png", duration=half8, focus=(0.5, 0.14), zoom_end=1.16),
+        ImageShot(SHOTS / "future-vision.png", duration=d8 - half8, focus=(0.5, 0.42), zoom_end=1.16),
     ]
 
-    scene_results = [build_scene_video(s) for s in scenes]
+    # Scene 9: dedicated Query By Probability architecture graphic.
+    d9 = ffprobe_duration(a(9))
+    scenes[8].shots = [
+        ImageShot(SHOTS / "query-by-probability.png", duration=d9, focus=(0.5, 0.45), zoom_end=1.10),
+    ]
 
-    # Title + closing cards
-    title_video = WORK / "title_faded.mp4"
+    # Scene 10 (Partnership): focus tightly on the future-vision page's
+    # bottom Xebia Netherlands card (stylized wordmark, not the trademarked
+    # logo artwork) since that's where "Xebia Netherlands" is named on screen.
+    d10 = ffprobe_duration(a(10))
+    scenes[9].shots = [
+        ImageShot(SHOTS / "future-vision.png", duration=d10, focus=(0.5, 0.92), zoom_end=1.22),
+    ]
+
+    scene_results = [build_scene_video(s, work) for s in scenes]
+
+    # Title + closing cards -- generic, reusable pitch-deck framing with no
+    # AZ Alkmaar branding.
+    title_video = work / "title_faded.mp4"
     make_title_card(
-        [("AZ ALKMAAR", 64, (240, 246, 252)), ("Football Intelligence Platform", 40, (88, 166, 255))],
-        duration=4.0, out_path=WORK / "title_card.mp4",
+        [("Football Intelligence Platform", 56, (240, 246, 252))],
+        duration=4.0, out_path=work / "title_card.mp4",
         subtitle="From match video to validated football intelligence",
     )
-    fade_video(WORK / "title_card.mp4", title_video, 4.0, fade_in=True, fade_out=True)
-    title_silence = WORK / "title_silence.wav"
+    fade_video(work / "title_card.mp4", title_video, 4.0, fade_in=True, fade_out=True)
+    title_silence = work / "title_silence.wav"
     silence_wav(4.0, title_silence)
 
-    closing_video = WORK / "closing_faded.mp4"
+    closing_video = work / "closing_faded.mp4"
     make_title_card(
-        [("Xebia Netherlands", 52, (88, 166, 255)), ("Scalable AI & engineering capacity", 32, (230, 237, 243)),
-         ("for a next phase with AZ Alkmaar", 32, (230, 237, 243))],
-        duration=6.0, out_path=WORK / "closing_card.mp4",
+        [("Football Intelligence Platform", 44, (240, 246, 252)),
+         ("Xebia Netherlands", 34, (88, 166, 255)),
+         ("Scalable AI & engineering capacity for a next phase", 28, (230, 237, 243))],
+        duration=6.0, out_path=work / "closing_card.mp4",
         subtitle="Prototype build \u00b7 internal review candidate",
     )
-    fade_video(WORK / "closing_card.mp4", closing_video, 6.0, fade_in=True, fade_out=True)
-    closing_silence = WORK / "closing_silence.wav"
+    fade_video(work / "closing_card.mp4", closing_video, 6.0, fade_in=True, fade_out=True)
+    closing_silence = work / "closing_silence.wav"
     silence_wav(6.0, closing_silence)
 
     # 1) Concatenate VIDEO-ONLY streams (safe: consistent h264 encode params).
     all_video = [title_video] + [v for v, _ in scene_results] + [closing_video]
-    video_full = WORK / "video_full.mp4"
+    video_full = work / "video_full.mp4"
     concat_copy(all_video, video_full)
 
     # 2) Concatenate AUDIO as PCM WAV (safe: no AAC splice corruption).
     norm_scene_audio = []
     for i, scene in enumerate(scenes, start=1):
-        norm = WORK / f"scene{i:02d}_audio_norm.wav"
+        norm = work / f"scene{i:02d}_audio_norm.wav"
         normalize_wav(scene.audio, norm)
         norm_scene_audio.append(norm)
     all_audio = [title_silence] + norm_scene_audio + [closing_silence]
-    audio_full = WORK / "audio_full.wav"
+    audio_full = work / "audio_full.wav"
     concat_copy(all_audio, audio_full)
 
     # 3) Mux once, encoding audio to AAC a single time.
-    muxed = WORK / "muxed_final.mp4"
+    muxed = work / "muxed_final.mp4"
     run([
         FFMPEG, "-y", "-i", str(video_full), "-i", str(audio_full),
         "-map", "0:v:0", "-map", "1:a:0",
         "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", str(muxed),
     ])
 
-    # 4) Burn in captions (run scripts/generate_srt.py first to produce the SRT).
-    srt_path = DEMO_DIR / "AZ_Football_AI_Platform_Demo.srt"
-    final_out = OUT_DIR / "AZ_Football_AI_Platform_Demo.mp4"
+    # 4) Burn in captions (run scripts/generate_srt.py --pace <pace> first).
+    srt_suffix = "" if pace == "fast" else f"_{pace}"
+    srt_path = DEMO_DIR / f"Football_AI_Platform_Demo{srt_suffix}.srt"
+    final_out = OUT_DIR / OUT_NAMES[pace]
     if srt_path.exists():
         srt_escaped = str(srt_path).replace("\\", "/").replace(":", "\\:")
         style = (
@@ -356,7 +416,14 @@ def main():
         print("No SRT found; copying muxed video without burned-in captions. Run generate_srt.py first.")
         run([FFMPEG, "-y", "-i", str(muxed), "-c", "copy", str(final_out)])
 
-    print(f"\nFINAL VIDEO: {final_out}")
+    # Also drop a copy at the canonical primary name for the pace that is
+    # meant to be the default deliverable.
+    if pace == PRIMARY_PACE:
+        canonical = OUT_DIR / "Football_AI_Platform_Demo.mp4"
+        run([FFMPEG, "-y", "-i", str(final_out), "-c", "copy", str(canonical)])
+        print(f"Also wrote canonical copy: {canonical}")
+
+    print(f"\nFINAL VIDEO ({pace}): {final_out}")
     print(f"Total duration: {ffprobe_duration(final_out):.2f}s")
 
 
