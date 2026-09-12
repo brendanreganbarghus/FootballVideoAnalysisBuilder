@@ -31,7 +31,18 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-gap", type=float, default=0.56)
     parser.add_argument("--max-speed", type=float, default=1600.0)
     parser.add_argument("--minimum-track-points", type=int, default=3)
-    parser.add_argument("--event-tolerance", type=float, default=0.32)
+    parser.add_argument(
+        "--analysis-start-seconds",
+        type=float,
+        default=None,
+        help="Optional inclusive start for an isolated cached-analysis window.",
+    )
+    parser.add_argument(
+        "--analysis-end-seconds",
+        type=float,
+        default=None,
+        help="Optional exclusive end for an isolated cached-analysis window.",
+    )
     return parser
 
 
@@ -46,7 +57,8 @@ def main() -> None:
         max_gap_seconds=args.max_gap,
         max_speed_pixels_per_second=args.max_speed,
         minimum_track_points=args.minimum_track_points,
-        event_tolerance_seconds=args.event_tolerance,
+        analysis_start_seconds=args.analysis_start_seconds,
+        analysis_end_seconds=args.analysis_end_seconds,
     )
 
 

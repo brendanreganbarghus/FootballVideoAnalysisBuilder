@@ -4,7 +4,7 @@ import hashlib
 import json
 import math
 import time
-from collections import Counter
+from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Iterable
@@ -31,10 +31,11 @@ class BenchmarkManifest:
     fps: float
     start_frame: int
     end_frame: int
-    action_counts: dict[str, int]
-    actions: tuple[dict[str, Any], ...]
     camera_streams: tuple[CameraStream, ...]
     primary_camera_id: str
+    half: int | None
+    source_start_seconds: float
+    starts_at_kickoff: bool
 
     @classmethod
     def load(cls, path: str | Path) -> BenchmarkManifest:
@@ -44,6 +45,7 @@ class BenchmarkManifest:
         payload = json.loads(manifest_path.read_text(encoding="utf-8"))
         if not isinstance(payload, dict):
             raise ValueError("Benchmark manifest must be a JSON object")
+        _reject_evaluation_inputs(payload)
 
         camera_streams, primary_camera_id = _load_camera_streams(payload)
         video = next(
@@ -59,20 +61,29 @@ class BenchmarkManifest:
         if start_frame < 0 or end_frame <= start_frame:
             raise ValueError("Benchmark frame range is invalid")
 
-        action_counts = payload.get("action_counts", {})
-        actions = payload.get("actions", [])
-        if not isinstance(action_counts, dict) or not isinstance(actions, list):
-            raise ValueError("Benchmark actions and action_counts must be collections")
         return cls(
             path=manifest_path.resolve(),
             video=video.resolve(),
             fps=fps,
             start_frame=start_frame,
             end_frame=end_frame,
-            action_counts={str(key): int(value) for key, value in action_counts.items()},
-            actions=tuple(action for action in actions if isinstance(action, dict)),
             camera_streams=camera_streams,
             primary_camera_id=primary_camera_id,
+            half=(
+                int(payload["half"])
+                if payload.get("half") is not None
+                else None
+            ),
+            source_start_seconds=float(
+                payload.get("start_seconds", start_frame / fps)
+            ),
+            starts_at_kickoff=bool(
+                payload.get(
+                    "starts_at_kickoff",
+                    float(payload.get("start_seconds", start_frame / fps))
+                    <= 5.0,
+                )
+            ),
         )
 
     @property
@@ -82,6 +93,28 @@ class BenchmarkManifest:
     @property
     def sha256(self) -> str:
         return hashlib.sha256(self.path.read_bytes()).hexdigest()
+
+
+def _reject_evaluation_inputs(payload: dict[str, Any]) -> None:
+    fields = (
+        "actions",
+        "action_counts",
+        "annotations",
+        "events",
+        "labels",
+        "ball_ground_truth",
+        "manual_reference",
+    )
+    present = [
+        field
+        for field in fields
+        if payload.get(field) not in (None, "", [], {})
+    ]
+    if present:
+        raise ValueError(
+            "Runtime manifest must not contain evaluation inputs: "
+            + ", ".join(present)
+        )
 
 
 def _load_camera_streams(
@@ -173,6 +206,41 @@ def horizontal_tiles(
     return tuple(Tile(x, 0, x + tile_width, height) for x in starts)
 
 
+def grid_tiles(
+    width: int,
+    height: int,
+    *,
+    tile_width: int,
+    tile_height: int | None,
+    overlap: float,
+) -> tuple[Tile, ...]:
+    if tile_height is None or tile_height >= height:
+        return horizontal_tiles(
+            width,
+            height,
+            tile_width=tile_width,
+            overlap=overlap,
+        )
+    if tile_height <= 0:
+        raise ValueError("Tile height must be greater than zero")
+    horizontal = horizontal_tiles(
+        width,
+        height,
+        tile_width=tile_width,
+        overlap=overlap,
+    )
+    step = max(1, round(tile_height * (1 - overlap)))
+    starts = list(range(0, height - tile_height + 1, step))
+    final_start = height - tile_height
+    if starts[-1] != final_start:
+        starts.append(final_start)
+    return tuple(
+        Tile(tile.x1, y, tile.x2, y + tile_height)
+        for y in starts
+        for tile in horizontal
+    )
+
+
 def class_aware_nms(
     detections: Iterable[Detection], *, iou_threshold: float = 0.5
 ) -> list[Detection]:
@@ -206,9 +274,12 @@ def run_detection_cache(
     device: str | None,
     stride: int,
     tile_width: int,
+    tile_height: int | None,
     overlap: float,
     nms_iou: float,
     max_frames: int | None,
+    frame_batch_size: int = 4,
+    reuse_cache: bool = False,
 ) -> Path:
     manifest = BenchmarkManifest.load(manifest_path)
     _validate_run_options(
@@ -216,9 +287,11 @@ def run_detection_cache(
         image_size=image_size,
         stride=stride,
         tile_width=tile_width,
+        tile_height=tile_height,
         overlap=overlap,
         nms_iou=nms_iou,
         max_frames=max_frames,
+        frame_batch_size=frame_batch_size,
     )
     output.mkdir(parents=True, exist_ok=True)
     cache_path = output / "detections.jsonl"
@@ -231,10 +304,15 @@ def run_detection_cache(
         "image_size": image_size,
         "stride": stride,
         "tile_width": tile_width,
+        "tile_height": tile_height,
         "overlap": overlap,
         "nms_iou": nms_iou,
     }
-    processed = _prepare_cache(cache_path, metadata)
+    processed = _prepare_cache(
+        cache_path,
+        metadata,
+        reuse_cache=reuse_cache,
+    )
     expected_frames = math.ceil(manifest.source_frame_count / stride)
     remaining_frames = max(0, expected_frames - len(processed))
     if max_frames is not None:
@@ -246,7 +324,7 @@ def run_detection_cache(
 
     print(
         f"Loading {model_name}. Caching {remaining_frames} new benchmark frames "
-        f"with horizontal {tile_width}px tiles."
+        f"with {tile_width}x{tile_height or 'full-height'}px tiles."
     )
     model = YOLO(model_name)
     class_ids = _wanted_class_ids(model.names)
@@ -258,8 +336,12 @@ def run_detection_cache(
         raise ValueError(f"Could not open benchmark video: {manifest.video}")
     width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    tiles = horizontal_tiles(
-        width, height, tile_width=tile_width, overlap=overlap
+    tiles = grid_tiles(
+        width,
+        height,
+        tile_width=tile_width,
+        tile_height=tile_height,
+        overlap=overlap,
     )
     pending_frames = [
         frame
@@ -273,71 +355,104 @@ def run_detection_cache(
 
     try:
         with cache_path.open("a", encoding="utf-8") as cache:
-            for source_frame in pending_frames:
-                while next_source_frame < source_frame:
-                    if not capture.grab():
+            for offset in range(0, len(pending_frames), frame_batch_size):
+                source_frames = pending_frames[offset : offset + frame_batch_size]
+                frames: list[tuple[int, np.ndarray]] = []
+                for source_frame in source_frames:
+                    while next_source_frame < source_frame:
+                        if not capture.grab():
+                            raise RuntimeError(
+                                f"Could not skip to source frame {source_frame} in "
+                                f"{manifest.video}"
+                            )
+                        next_source_frame += 1
+                    ok, frame = capture.read()
+                    if not ok:
                         raise RuntimeError(
-                            f"Could not skip to source frame {source_frame} in "
+                            f"Could not read source frame {source_frame} from "
                             f"{manifest.video}"
                         )
-                    next_source_frame += 1
-                ok, frame = capture.read()
-                if not ok:
-                    raise RuntimeError(
-                        f"Could not read source frame {source_frame} from "
-                        f"{manifest.video}"
-                    )
-                next_source_frame = source_frame + 1
-                crops = [frame[tile.y1 : tile.y2, tile.x1 : tile.x2] for tile in tiles]
+                    next_source_frame = source_frame + 1
+                    frames.append((source_frame, frame))
+                crops = [
+                    frame[tile.y1 : tile.y2, tile.x1 : tile.x2]
+                    for _, frame in frames
+                    for tile in tiles
+                ]
                 options: dict[str, Any] = {
                     "source": crops,
                     "classes": class_ids,
                     "conf": confidence,
                     "imgsz": image_size,
                     "verbose": False,
+                    "batch": len(crops),
                 }
                 if device:
                     options["device"] = device
                 results = model.predict(**options)
-                detections: list[Detection] = []
-                for tile, result in zip(tiles, results, strict=True):
-                    detections.extend(
+                detections_by_frame: dict[int, list[Detection]] = defaultdict(list)
+                owners = [
+                    (source_frame, tile)
+                    for source_frame, _ in frames
+                    for tile in tiles
+                ]
+                for (source_frame, tile), result in zip(
+                    owners, results, strict=True
+                ):
+                    detections_by_frame[source_frame].extend(
                         _offset_detection(detection, tile)
                         for detection in _extract_detections(result, model.names)
                     )
-                detections = class_aware_nms(
-                    detections, iou_threshold=nms_iou
-                )
-                cache.write(
-                    json.dumps(
-                        {
-                            "type": "frame",
-                            "source_frame": source_frame,
-                            "clip_seconds": round(
-                                (source_frame - manifest.start_frame) / manifest.fps,
-                                3,
-                            ),
-                            "detections": [
-                                asdict(detection) for detection in detections
-                            ],
-                        }
+                for source_frame, _ in frames:
+                    detections = class_aware_nms(
+                        detections_by_frame[source_frame],
+                        iou_threshold=nms_iou,
                     )
-                    + "\n"
-                )
+                    cache.write(
+                        json.dumps(
+                            {
+                                "type": "frame",
+                                "source_frame": source_frame,
+                                "clip_seconds": round(
+                                    (source_frame - manifest.start_frame)
+                                    / manifest.fps,
+                                    3,
+                                ),
+                                "detections": [
+                                    asdict(detection) for detection in detections
+                                ],
+                            }
+                        )
+                        + "\n"
+                    )
+                    completed += 1
+                    _print_progress(
+                        completed,
+                        remaining_frames,
+                        started_at,
+                        completed=completed == remaining_frames,
+                    )
                 cache.flush()
-                completed += 1
-                _print_progress(
-                    completed,
-                    remaining_frames,
-                    started_at,
-                    completed=completed == remaining_frames,
-                )
     except KeyboardInterrupt:
         print("\nStopped by user; cached frames have been preserved.")
     finally:
         capture.release()
 
-    _write_summary(output, manifest, metadata, cache_path)
+    elapsed_seconds = time.perf_counter() - started_at
+    _write_summary(
+        output,
+        manifest,
+        metadata,
+        cache_path,
+        run_metrics={
+            "processed_frames": completed,
+            "elapsed_seconds": round(elapsed_seconds, 3),
+            "frames_per_second": round(completed / elapsed_seconds, 3)
+            if elapsed_seconds > 0
+            else None,
+            "cold_path": len(processed) == 0,
+        },
+    )
     print(f"Detection cache written to {cache_path.resolve()}")
     return cache_path
 
@@ -368,8 +483,13 @@ def _intersection_over_union(first: Detection, second: Detection) -> float:
     return intersection / union if union > 0 else 0.0
 
 
-def _prepare_cache(cache_path: Path, metadata: dict[str, Any]) -> set[int]:
-    if not cache_path.exists():
+def _prepare_cache(
+    cache_path: Path,
+    metadata: dict[str, Any],
+    *,
+    reuse_cache: bool,
+) -> set[int]:
+    if not cache_path.exists() or not reuse_cache:
         cache_path.write_text(json.dumps(metadata) + "\n", encoding="utf-8")
         return set()
 
@@ -395,6 +515,7 @@ def _write_summary(
     manifest: BenchmarkManifest,
     metadata: dict[str, Any],
     cache_path: Path,
+    run_metrics: dict[str, Any] | None = None,
 ) -> None:
     frame_count = 0
     frames_with_ball = 0
@@ -418,7 +539,7 @@ def _write_summary(
         "manifest": str(manifest.path),
         "cache": str(cache_path.resolve()),
         "configuration": metadata,
-        "ground_truth_action_counts": manifest.action_counts,
+        "last_run": run_metrics,
         "expected_frames": expected_frames,
         "processed_frames": frame_count,
         "complete": frame_count == expected_frames,
@@ -429,8 +550,8 @@ def _write_summary(
             round(frames_with_ball / frame_count, 4) if frame_count else 0.0
         ),
         "next_stage": (
-            "Tracking and event inference must consume this cache before action "
-            "precision and recall can be calculated."
+            "Tracking and event inference consume this cache without "
+            "evaluation labels."
         ),
     }
     (output / "detection-summary.json").write_text(
@@ -444,9 +565,11 @@ def _validate_run_options(
     image_size: int,
     stride: int,
     tile_width: int,
+    tile_height: int | None,
     overlap: float,
     nms_iou: float,
     max_frames: int | None,
+    frame_batch_size: int,
 ) -> None:
     if not 0 < confidence <= 1:
         raise ValueError("--confidence must be greater than 0 and at most 1")
@@ -454,8 +577,16 @@ def _validate_run_options(
         raise ValueError("--image-size must be at least 32")
     if stride < 1:
         raise ValueError("--stride must be at least 1")
-    horizontal_tiles(1, 1, tile_width=tile_width, overlap=overlap)
+    grid_tiles(
+        1,
+        1,
+        tile_width=tile_width,
+        tile_height=tile_height,
+        overlap=overlap,
+    )
     if not 0 <= nms_iou <= 1:
         raise ValueError("--nms-iou must be between 0 and 1")
     if max_frames is not None and max_frames < 1:
         raise ValueError("--max-frames must be at least 1")
+    if frame_batch_size < 1:
+        raise ValueError("--frame-batch-size must be at least 1")

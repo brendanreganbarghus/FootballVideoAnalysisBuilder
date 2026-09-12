@@ -39,8 +39,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--minimum-track-points", type=int, default=8)
     parser.add_argument(
         "--team-profile",
-        choices=("blue-white", "red-black"),
-        default="blue-white",
+        choices=("auto", "blue-white", "red-black"),
+        default="auto",
     )
     parser.add_argument("--goalkeeper-affiliations", type=Path, default=None)
     parser.add_argument(

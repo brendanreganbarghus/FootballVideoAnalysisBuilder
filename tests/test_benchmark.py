@@ -6,7 +6,9 @@ import pytest
 from football_poc.actions import Detection
 from football_poc.benchmark import (
     BenchmarkManifest,
+    _prepare_cache,
     class_aware_nms,
+    grid_tiles,
     horizontal_tiles,
 )
 from football_poc.cli import _normalized_class_name, _wanted_class_ids
@@ -29,6 +31,31 @@ def test_horizontal_tiles_cover_panorama_with_overlap() -> None:
     assert [tile.x1 for tile in tiles] == [0, 1024, 2048, 2816]
     assert tiles[-1].x2 == 4096
     assert all(tile.y2 == 1080 for tile in tiles)
+
+
+def test_grid_tiles_cover_panorama_in_both_dimensions() -> None:
+    tiles = grid_tiles(
+        4450,
+        2000,
+        tile_width=1484,
+        tile_height=1200,
+        overlap=0.1,
+    )
+
+    assert {tile.x1 for tile in tiles} == {0, 1336, 2672, 2966}
+    assert {tile.y1 for tile in tiles} == {0, 800}
+    assert max(tile.x2 for tile in tiles) == 4450
+    assert max(tile.y2 for tile in tiles) == 2000
+
+
+def test_grid_tiles_preserve_horizontal_mode_without_tile_height() -> None:
+    assert grid_tiles(
+        4096,
+        1080,
+        tile_width=1280,
+        tile_height=None,
+        overlap=0.2,
+    ) == horizontal_tiles(4096, 1080, tile_width=1280, overlap=0.2)
 
 
 def test_nms_removes_same_class_overlap_only() -> None:
@@ -57,8 +84,6 @@ def test_manifest_validates_and_loads_frame_range(tmp_path: Path) -> None:
                 "fps": 25,
                 "start_frame": 100,
                 "end_frame": 200,
-                "action_counts": {"pass": 3},
-                "actions": [],
             }
         ),
         encoding="utf-8",
@@ -67,9 +92,29 @@ def test_manifest_validates_and_loads_frame_range(tmp_path: Path) -> None:
     manifest = BenchmarkManifest.load(path)
 
     assert manifest.source_frame_count == 100
-    assert manifest.action_counts == {"pass": 3}
     assert manifest.primary_camera_id == "primary"
     assert manifest.camera_streams[0].video == video.resolve()
+
+
+def test_manifest_rejects_nonempty_evaluation_inputs(tmp_path: Path) -> None:
+    video = tmp_path / "video.mp4"
+    video.touch()
+    path = tmp_path / "manifest.json"
+    path.write_text(
+        json.dumps(
+            {
+                "video": str(video),
+                "fps": 25,
+                "start_frame": 0,
+                "end_frame": 100,
+                "actions": [{"label": "pass", "clip_seconds": 12.0}],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="evaluation inputs"):
+        BenchmarkManifest.load(path)
 
 
 def test_manifest_loads_synchronized_camera_streams(tmp_path: Path) -> None:
@@ -179,3 +224,44 @@ def test_football_model_classes_are_normalized() -> None:
         "person",
         "person",
     ]
+
+
+def test_detection_cache_is_fresh_unless_reuse_is_explicit(
+    tmp_path: Path,
+) -> None:
+    cache = tmp_path / "detections.jsonl"
+    metadata = {"type": "metadata", "stride": 5}
+    cache.write_text(
+        "\n".join(
+            [
+                json.dumps(metadata),
+                json.dumps({"type": "frame", "source_frame": 0}),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    processed = _prepare_cache(cache, metadata, reuse_cache=False)
+
+    assert processed == set()
+    assert cache.read_text(encoding="utf-8") == json.dumps(metadata) + "\n"
+
+
+def test_detection_cache_reuse_requires_matching_metadata(
+    tmp_path: Path,
+) -> None:
+    cache = tmp_path / "detections.jsonl"
+    metadata = {"type": "metadata", "stride": 5}
+    cache.write_text(
+        "\n".join(
+            [
+                json.dumps(metadata),
+                json.dumps({"type": "frame", "source_frame": 10}),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    assert _prepare_cache(cache, metadata, reuse_cache=True) == {10}

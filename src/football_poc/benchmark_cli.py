@@ -27,13 +27,33 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--device", default=None)
     parser.add_argument("--stride", type=int, default=2)
     parser.add_argument("--tile-width", type=int, default=1280)
+    parser.add_argument(
+        "--tile-height",
+        type=int,
+        default=None,
+        help="Optional tile height; omit to retain full-height horizontal tiles.",
+    )
     parser.add_argument("--overlap", type=float, default=0.2)
     parser.add_argument("--nms-iou", type=float, default=0.5)
+    parser.add_argument(
+        "--frame-batch-size",
+        type=int,
+        default=4,
+        help="Decode and infer this many sampled panoramic frames per batch.",
+    )
     parser.add_argument(
         "--max-frames",
         type=int,
         default=None,
         help="Process at most this many new frames, preserving them for resume.",
+    )
+    parser.add_argument(
+        "--reuse-cache",
+        action="store_true",
+        help=(
+            "Resume a matching detection cache. Omit for a cold raw-video "
+            "benchmark that replaces prior detections."
+        ),
     )
     return parser
 
@@ -49,9 +69,12 @@ def main() -> None:
         device=args.device,
         stride=args.stride,
         tile_width=args.tile_width,
+        tile_height=args.tile_height,
         overlap=args.overlap,
         nms_iou=args.nms_iou,
         max_frames=args.max_frames,
+        frame_batch_size=args.frame_batch_size,
+        reuse_cache=args.reuse_cache,
     )
 
 
