@@ -3,6 +3,7 @@ from football_poc.player_tracking import (
     PlayerPoint,
     _associate_players,
     _stabilize_track_team,
+    _stabilize_track_team_causally,
     apply_goalkeeper_affiliations,
     classify_color_scores,
     _jersey_crop,
@@ -167,6 +168,38 @@ def test_track_team_is_stable_across_all_points() -> None:
 
     assert track.team == "black"
     assert {item.team for item in track.points} == {"black"}
+
+
+def test_causal_team_stabilization_is_prefix_invariant() -> None:
+    def track(labels: list[str]) -> PlayerTrack:
+        return PlayerTrack(
+            track_id=75,
+            points=[
+                PlayerPoint(
+                    source_frame=index * 5,
+                    clip_seconds=index / 5,
+                    confidence=0.9,
+                    x1=0,
+                    y1=0,
+                    x2=10,
+                    y2=20,
+                    team=label,
+                )
+                for index, label in enumerate(labels)
+            ],
+        )
+
+    prefix_labels = ["black", *("red" for _ in range(38))]
+    short = track(prefix_labels)
+    full = track([*prefix_labels, *("black" for _ in range(164))])
+
+    _stabilize_track_team_causally(short)
+    _stabilize_track_team_causally(full)
+
+    assert [point.team for point in short.points] == [
+        point.team for point in full.points[: len(short.points)]
+    ]
+    assert short.points[0].team == "black"
 
 
 def test_jersey_crop_uses_upper_torso() -> None:

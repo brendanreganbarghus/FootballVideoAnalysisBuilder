@@ -34,6 +34,7 @@ models/
 
 # Restricted Alfheim data and generated analysis artifacts
 benchmarks/alfheim/generated/
+benchmarks/custom-cameras/
 benchmarks/alfheim/window-555/*.csv
 benchmarks/alfheim/window-555/*.json
 benchmarks/alfheim/window-555/*.txt

@@ -1,21 +1,29 @@
-export function renderHtml({ theme = "innovation" } = {}) {
-  const appTheme = theme === "innovation" ? "innovation" : "default";
-  const themeColor = appTheme === "innovation" ? "#100d12" : "#0d1117";
-  const homeUrl = appTheme === "innovation"
-    ? "http://127.0.0.1:8080/showcase/innovation-day/"
-    : "http://127.0.0.1:8080/";
-  const homeLabel = appTheme === "innovation"
-    ? "Back to Innovation Day"
-    : "Back to Product Home";
+export function renderHtml({ theme = "grassroots" } = {}) {
+  const appTheme = "grassroots";
+  const themeColor = "#07120f";
+  const homeUrl = "http://127.0.0.1:8080/";
+  const homeLabel = "Back to Product Home";
   return `<!doctype html>
 <html lang="en" data-app-theme="${appTheme}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="${themeColor}">
-  <title>Innovation Day Football Event Review</title>
+  <title>Live Football Event Review</title>
   <style>
     :root { color-scheme: dark; }
+    html[data-app-theme="grassroots"] {
+      --background-color-default: #07120f;
+      --background-color-subtle: #102019;
+      --background-color-muted: #152a21;
+      --border-color-default: #315447;
+      --border-color-muted: #426c5d;
+      --text-color-default: #f1fbf6;
+      --text-color-muted: #b5c8bf;
+      --true-color-green: #68e0aa;
+      --true-color-blue: #78bfff;
+      --color-focus-outline: #78bfff;
+    }
     * { box-sizing: border-box; }
     [hidden] { display: none !important; }
     body {
@@ -25,6 +33,30 @@ export function renderHtml({ theme = "innovation" } = {}) {
       font-family: var(--font-sans, "Segoe UI", sans-serif);
       font-size: var(--text-body-medium, 14px);
       line-height: var(--leading-body-medium, 20px);
+    }
+    html[data-app-theme="grassroots"] body {
+      background:
+        radial-gradient(circle at 8% 8%, rgb(104 224 170 / 15%), transparent 30rem),
+        radial-gradient(circle at 90% 88%, rgb(120 191 255 / 13%), transparent 32rem),
+        linear-gradient(145deg, #0b1c16, #050a08 72%);
+    }
+    html[data-app-theme="grassroots"] .innovation-brand {
+      display: inline-flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+      color: #68e0aa;
+    }
+    .component-version {
+      border: 1px solid rgb(104 224 170 / 42%);
+      border-radius: 999px;
+      padding: 3px 7px;
+      color: var(--text-color-default, #f0f6fc);
+      background: rgb(104 224 170 / 10%);
+      font-family: var(--font-mono, Consolas, monospace);
+      font-size: 10px;
+      letter-spacing: .02em;
+      text-transform: none;
     }
     button, textarea, input, select { font: inherit; }
     button {
@@ -1416,13 +1448,21 @@ export function renderHtml({ theme = "innovation" } = {}) {
 <body>
   <header>
     <div>
-      <h1>Football Event Review</h1>
+      <h1>Live Football Event Review</h1>
       <div class="muted">Prepared segment → reference review → engine check</div>
-      <div class="innovation-brand">Xebia · Innovation Day</div>
+      <div class="innovation-brand">
+        <span>Raw-video ball coordinates · Current engine</span>
+        <span class="component-version" id="tracker-version">
+          Ball tracker: loading
+        </span>
+        <span class="component-version" id="rules-version">
+          Rules engine: loading
+        </span>
+      </div>
     </div>
     <div class="header-actions">
       <a class="home-link" href="${homeUrl}">${homeLabel}</a>
-      <span class="scope">20–60 second Alfheim segments · BAC assisted</span>
+      <span class="scope">20–60 second Alfheim segments · Live pipeline</span>
     </div>
   </header>
   <p class="activity ready" id="activity" aria-live="polite">
@@ -1839,7 +1879,7 @@ export function renderHtml({ theme = "innovation" } = {}) {
           aria-labelledby="conversation-title">
           <div class="conversation-head">
             <div class="conversation-title-block">
-              <h2 id="conversation-title">Innovation Copilot for Event 1</h2>
+              <h2 id="conversation-title">Live Copilot for Event 1</h2>
               <p class="muted">
                 This conversation contains only messages for the selected event.
               </p>
@@ -1938,6 +1978,7 @@ export function renderHtml({ theme = "innovation" } = {}) {
   <script>
     const stateUrl = "/api/state";
     let state = null;
+    let startInputsInitialized = false;
     let selectedIndex = 0;
     let actionZoom = false;
     let statusTimer = null;
@@ -2191,6 +2232,22 @@ export function renderHtml({ theme = "innovation" } = {}) {
       }[status] || status.replaceAll("_", " ");
     }
 
+    function trackerIteration(segment) {
+      const provenance = segment?.runProvenance || {};
+      const explicit = provenance.tracker_iteration;
+      if (Number.isInteger(Number(explicit))) {
+        return "iteration " + Number(explicit);
+      }
+      const match = String(provenance.workflow || "").match(
+        /iteration[_ -]?(\\d+)/i
+      );
+      return match ? "iteration " + match[1] : "iteration unavailable";
+    }
+
+    function shortVersion(value) {
+      return String(value || "unavailable").slice(0, 12);
+    }
+
     function referenceLocked() {
       return Boolean(
         state.publication?.published
@@ -2341,11 +2398,20 @@ export function renderHtml({ theme = "innovation" } = {}) {
       });
       segmentSelect.replaceChildren(...options);
       segmentSelect.value = selected.key;
-      if (selectionChanged) syncStartInputs(selected);
+      if (selectionChanged || !startInputsInitialized) {
+        syncStartInputs(selected);
+        startInputsInitialized = true;
+      }
       renderedSegmentKey = selected.key;
       const badge = document.getElementById("segment-status");
       badge.className = "segment-status " + selected.validationStatus;
       badge.textContent = statusLabel(selected.validationStatus);
+      document.getElementById("tracker-version").textContent =
+        "Ball tracker: " + trackerIteration(selected) + " · " +
+        shortVersion(state.componentVersions?.tracker);
+      document.getElementById("rules-version").textContent =
+        "Rules engine: " +
+        shortVersion(state.componentVersions?.rulesEngine);
       document.getElementById("source-attribution").textContent =
         selected.attribution || "";
       const summaries = new Map(
@@ -3329,7 +3395,7 @@ export function renderHtml({ theme = "innovation" } = {}) {
               : userReported ? "Verification Evidence" : "Video Evidence";
       document.getElementById("proposal-rule").textContent = draft.rule;
       document.getElementById("conversation-title").textContent =
-        "Innovation Copilot for Event " + (selectedIndex + 1);
+        "Live Copilot for Event " + (selectedIndex + 1);
       document.getElementById("previous-event").disabled = selectedIndex === 0;
       document.getElementById("next-event").disabled =
         selectedIndex === state.drafts.length - 1;

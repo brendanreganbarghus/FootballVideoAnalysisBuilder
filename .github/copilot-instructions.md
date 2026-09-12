@@ -17,6 +17,42 @@ Use this authority order:
    satisfies those rules. Never fabricate a referee decision, player identity,
    touch, or control state when the evidence is insufficient.
 
+## Hard rule: raw-video-only event inference and performance testing
+
+For SoccerTrack and every other labelled dataset, passes, drives, shots, free
+kicks, possession changes, turnovers, and all other football events must be
+detected from the raw video evidence by the platform's detector, tracker,
+match-state engine, and analytics state machines.
+
+- Never read dataset event annotations, ground-truth event files, manual review
+  labels, or published provider events during detection, tracking, team
+  classification, possession inference, match-state inference, event
+  generation, confidence scoring, threshold selection, or rule execution.
+- Never copy, translate, seed, align, recover, or manufacture an engine event
+  from a dataset label. Do not use labelled timestamps to narrow the inference
+  search or resolve an uncertain result.
+- Keep runtime inputs physically and logically separate from evaluation
+  references. A runtime segment manifest may identify only the raw media,
+  frame/time range, camera calibration, and non-label processing
+  configuration. Event annotations belong in a separate evaluation artifact.
+- Load evaluation references only after predictions are complete and frozen.
+  They may calculate evaluation metrics and support independent review, but
+  they must never affect predictions or a rerun of those predictions.
+- Measure and report raw-video processing speed using a cold path from the raw
+  video through detection, tracking, inference, and event publication. Do not
+  include annotation-derived artifacts or substitute a precomputed
+  detection/track cache and describe the result as raw-video processing speed.
+  Cache-rebuild timing may be measured separately and must be labelled as such.
+- Treat each configured 30- or 60-second segment as a production-like streaming
+  deadline. Fresh raw-video processing is the default; cache reuse must be an
+  explicit opt-in diagnostic or interrupted-run recovery mode. Report wall
+  time, processed video duration, real-time factor, achieved frames per second,
+  and the acceleration factor required to publish before the next segment is
+  due.
+- Treat any violation as data leakage and an invalid benchmark. Stop, disclose
+  the violation, discard the affected predictions and timing result, correct
+  the pipeline separation, and rerun from raw video.
+
 During a Canvas review, independently adjudicate the selected event against the
 global rules architecture and its event-specific evidence. Keep inspection
 limited to the selected segment and use a small frame window when possible.

@@ -11,13 +11,16 @@ from typing import Any, Iterable
 import cv2
 import numpy as np
 
-from football_poc.benchmark import BenchmarkManifest
-from football_poc.match_initialization import (
+from football_poc.innovation_day_snapshot.benchmark import BenchmarkManifest
+from football_poc.innovation_day_snapshot.match_initialization import (
     MatchInitialization,
     TrackInitializationEvidence,
     infer_match_initialization,
 )
-from football_poc.team_colors import assign_color_group, dominant_jersey_color
+from football_poc.innovation_day_snapshot.team_colors import (
+    assign_color_group,
+    dominant_jersey_color,
+)
 
 
 @dataclass
@@ -525,7 +528,11 @@ def _classify_tracks_kmeans(
 
     for track in tracks:
         colors = colors_by_track.get(track.track_id, [])
-        _stabilize_track_team_causally(track)
+        labels = Counter(
+            point.team for point in track.points if point.team != "unknown"
+        )
+        stable_team = labels.most_common(1)[0][0] if labels else "unknown"
+        _stabilize_track_team(track, stable_team)
         track.color_scores = (
             {
                 "blue": round(median(color[0] for color in colors) / 255, 4),

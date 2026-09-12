@@ -12,6 +12,14 @@ EXTENSION = (
 RENDERER = EXTENSION.with_name("renderer.mjs")
 FRESHNESS = EXTENSION.with_name("engine-freshness.mjs")
 PUBLICATION_GATE = EXTENSION.with_name("publication-gate.mjs")
+LIVE_EXTENSION = (
+    Path(__file__).parents[1]
+    / ".github"
+    / "extensions"
+    / "football-event-review-live"
+    / "extension.mjs"
+)
+LIVE_RENDERER = LIVE_EXTENSION.with_name("renderer.mjs")
 
 
 def test_canvas_reviews_the_prepared_segment_catalog() -> None:
@@ -23,7 +31,7 @@ def test_canvas_reviews_the_prepared_segment_catalog() -> None:
     assert "segment.validated" in extension
     assert 'validationStatus = segment.validated' in extension
     assert 'id="segment-select"' in renderer
-    assert "30–60 second segments" in renderer
+    assert "20–60 second Alfheim segments · BAC assisted" in renderer
     assert "Event 1 of 1" in renderer
     assert "Previous Event" in renderer
     assert "Next Event" in renderer
@@ -33,14 +41,39 @@ def test_canvas_reviews_the_prepared_segment_catalog() -> None:
     assert "Rules Engine" not in renderer
 
 
-def test_canvas_uses_one_logic_path_with_url_driven_innovation_theme() -> None:
+def test_innovation_canvas_is_alfheim_only_and_uses_shared_calibration() -> None:
+    extension = EXTENSION.read_text(encoding="utf-8")
+    renderer = RENDERER.read_text(encoding="utf-8")
+
+    assert 'id="source-select"' in renderer
+    assert "Dataset / camera" in renderer
+    assert "segment.datasetId === selected.datasetId" in renderer
+    assert 'candidate.datasetId === sourceSelect.value' in renderer
+    assert 'state.segment.calibrationId + "-geometry-v1"' in renderer
+    assert '"/api/calibration?segment="' in renderer
+    assert '`${localServer}/api/alfheim/segments?workflow=innovation`' in extension
+    assert "/api/alfheim/innovation/status" in extension
+    assert "/api/alfheim/innovation/analyze" in extension
+
+
+def test_canvas_locks_review_controls_until_ai_is_ready() -> None:
+    renderer = RENDERER.read_text(encoding="utf-8")
+
+    assert renderer.count("data-ai-gated") >= 2
+    assert 'const ready = state.segment.state === "ready"' in renderer
+    assert "section.inert = !ready" in renderer
+    assert 'section.classList.toggle("ai-locked", !ready)' in renderer
+    assert 'section.setAttribute("aria-disabled", String(!ready))' in renderer
+
+
+def test_innovation_canvas_always_uses_innovation_theme() -> None:
     extension = EXTENSION.read_text(encoding="utf-8")
     renderer = RENDERER.read_text(encoding="utf-8")
 
     assert 'theme: { type: "string", enum: ["default", "innovation"] }' in extension
-    assert 'context.input?.theme === "innovation"' in extension
+    assert 'const theme = "innovation"' in extension
     assert 'url.searchParams.get("theme") === "innovation"' in extension
-    assert "renderHtml({ theme = \"default\" } = {})" in renderer
+    assert 'renderHtml({ theme = "innovation" } = {})' in renderer
     assert 'data-app-theme="${appTheme}"' in renderer
     assert "Back to Product Home" in renderer
     assert "Back to Innovation Day" in renderer
@@ -51,7 +84,7 @@ def test_canvas_uses_one_logic_path_with_url_driven_innovation_theme() -> None:
     assert 'id="geometry-feature"' in renderer
     assert 'id="edit-geometry"' in renderer
     assert 'id="restore-geometry"' in renderer
-    assert 'fetch("/api/calibration"' in renderer
+    assert '"/api/calibration?segment="' in renderer
     assert 'url.pathname === "/api/calibration"' in extension
     assert ".football-event-review-urls.json" in extension
     assert "registerLauncherUrl(theme, url)" in extension
@@ -230,7 +263,7 @@ def test_canvas_can_zoom_to_each_events_ball_coordinate() -> None:
         in extension
     )
     assert "effectiveDrafts" in extension
-    assert '"ball-ground-truth.csv"' in extension
+    assert '"analytics-cache", "ball-tracks.json"' in extension
     assert "calibration.image_width" in extension
     assert "calibration.image_height" in extension
     assert "actionFocus: actionFocuses[index]" in extension
@@ -247,16 +280,19 @@ def test_canvas_can_switch_between_normal_ball_and_ai_views() -> None:
     renderer = RENDERER.read_text(encoding="utf-8")
 
     assert 'url.pathname === "/api/ball-track"' in extension
-    assert "async function loadBallTrack(segment)" in extension
+    assert "async function loadDetectedBallTrack(segment)" in extension
     assert "selected.trackingUrl = status.tracking_url" in extension
     assert 'data-view-mode="normal"' in renderer
     assert 'data-view-mode="ball"' in renderer
     assert 'data-view-mode="ai"' in renderer
     assert 'id="ball-overlay"' in renderer
+    assert 'id="ball-trajectory"' in renderer
     assert "function updateBallMarker()" in renderer
+    assert "candidate[4] === trackId" in renderer
     assert 'ballOverlay.removeAttribute("hidden")' in renderer
     assert 'ballOverlay.setAttribute("hidden", "")' in renderer
-    assert "Supplied labelled ball position at this frame" in renderer
+    assert "Raw-video-derived detected ball position at this frame" in renderer
+    assert "Detected ball" in renderer
     assert "Cached AI player, team, and ball tracking" in renderer
     assert "replaceVideoSource(source)" in renderer
     assert "videoMedia.style.transformOrigin = focus" in renderer
@@ -310,14 +346,33 @@ def test_review_state_prefers_shared_checksummed_artifact_storage() -> None:
 
     assert "process.env.FOOTBALL_ARTIFACT_ROOT" in extension
     assert 'process.env.ONEDRIVECOMMERCIAL || process.env.ONEDRIVE' in extension
-    assert '"30-shared-baselines", "event-review-state"' in extension
+    assert '"event-review-state-innovation"' in extension
     assert "legacyStatePath(segment)" in extension
-    assert "async function updateSharedChecksum(path, content)" in extension
+    assert "async function updateSharedChecksum(path, content = null)" in extension
     assert "async function readReviewState(path, fallback, verifyChecksum = false)" in extension
     assert "Shared review-state checksum mismatch" in extension
     assert '"00-governance"' in extension
     assert '"checksums.sha256"' in extension
     assert "Published validated reference" in extension
+
+
+def test_shared_review_status_exposes_approvals_and_validation_gates() -> None:
+    extension = EXTENSION.read_text(encoding="utf-8")
+    renderer = RENDERER.read_text(encoding="utf-8")
+
+    assert "const sharedReviewStatus = await Promise.all(" in extension
+    assert "accepted: decisions.filter(" in extension
+    assert 'regression: !stored.regression' in extension
+    assert "blockers: plan.blockers" in extension
+    assert "const unavailableProposalData" in extension
+    assert "Stored decisions reference proposal data that is no longer" in extension
+    assert "captureEngineSnapshot(segment.key, currentEngine.fingerprint)" in extension
+    assert "const plan = published" in extension
+    assert "sharedReviewStatus," in extension
+    assert "Shared approvals &amp; validation gates" in renderer
+    assert 'id="shared-review-status"' in renderer
+    assert "state.sharedReviewStatus || []" in renderer
+    assert '" gate blocker(s)"' in renderer
 
 
 def test_activity_updates_are_module_scoped() -> None:
@@ -342,10 +397,16 @@ def test_canvas_prepares_only_explicit_stream_sized_segments() -> None:
     assert 'id="segment-start-minute"' in renderer
     assert 'id="segment-start-second"' in renderer
     assert 'id="segment-duration"' in renderer
-    assert 'min="30" max="60"' in renderer
+    assert '<option value="30">30 seconds</option>' in renderer
+    assert '<option value="60" selected>60 seconds</option>' in renderer
     assert 'fetch("/api/prepare"' in renderer
     assert "minute * 60 + second" in renderer
     assert "duration_seconds: duration" in renderer
+    assert "source_id: state.segment.datasetId" in renderer
+    assert "source_segment: state.segment.key" in renderer
+    assert "candidate.key === sourceSegment" in extension
+    assert "candidate.datasetId === sourceId" in extension
+    assert "Review duration must be exactly 30 or 60 seconds" in extension
 
 
 def test_canvas_runs_ai_only_after_explicit_action() -> None:
@@ -353,19 +414,217 @@ def test_canvas_runs_ai_only_after_explicit_action() -> None:
     renderer = RENDERER.read_text(encoding="utf-8")
 
     assert 'url.pathname === "/api/analyze"' in extension
-    assert 'localJson("/api/alfheim/analyze"' in extension
+    assert '"/api/alfheim/innovation/analyze"' in extension
     assert 'id="process-segment"' in renderer
     assert 'fetch("/api/analyze"' in renderer
     assert 'processButton.addEventListener("click"' in renderer
-    assert "Events stay hidden until it finishes" in renderer
+    assert "Starting a cold raw-video run." in renderer
 
 
-def test_ai_candidates_appear_only_when_analysis_is_ready() -> None:
+def test_live_runner_rejects_media_manifest_duration_mismatch() -> None:
+    runner = (
+        Path(__file__).parents[1] / "scripts" / "process-alfheim-segment.py"
+    ).read_text(encoding="utf-8")
+
+    assert "declared_frame_count = declared_end_frame - declared_start_frame" in runner
+    assert "duration_frame_count = round(declared_duration * fps)" in runner
+    assert "declared_start_frame < 0" in runner
+    assert "declared_end_frame > frame_count" in runner
+    assert "declared_frame_count != duration_frame_count" in runner
+    assert "Prepared live media does not match its raw-only manifest" in runner
+    assert 'prepared.get("live_video", prepared["video"])' in runner
+
+
+def test_innovation_runner_rejects_media_manifest_duration_mismatch() -> None:
+    runner = (
+        Path(__file__).parents[1]
+        / "scripts"
+        / "process-alfheim-innovation-segment.py"
+    ).read_text(encoding="utf-8")
+
+    assert "declared_frame_count = declared_end_frame - declared_start_frame" in runner
+    assert "duration_frame_count = round(duration * fps)" in runner
+    assert "declared_start_frame < 0" in runner
+    assert "declared_end_frame > frame_count" in runner
+    assert "declared_frame_count != duration_frame_count" in runner
+    assert 'prepared.get("innovation_video", prepared["video"])' in runner
+    assert '"start_frame": declared_start_frame' in runner
+    assert '"end_frame": declared_end_frame' in runner
+    assert "Prepared Innovation media does not match its raw-only manifest" in runner
+
+
+def test_alfheim_runners_use_committed_jersey_profile() -> None:
+    for runner_name in (
+        "process-alfheim-innovation-segment.py",
+        "process-alfheim-segment.py",
+    ):
+        runner = (
+            Path(__file__).parents[1] / "scripts" / runner_name
+        ).read_text(encoding="utf-8")
+        assert '"--team-profile",\n                "red-black"' in runner
+        assert '"--goalkeeper-affiliations"' in runner
+        assert '"window-555"' in runner
+        assert '"goalkeeper-affiliations.json"' in runner
+
+
+def test_innovation_runner_uses_frozen_detector_profile() -> None:
+    runner = (
+        Path(__file__).parents[1]
+        / "scripts"
+        / "process-alfheim-innovation-segment.py"
+    ).read_text(encoding="utf-8")
+
+    assert '"model": "yolo11n.pt"' in runner
+    assert '"confidence": 0.12' in runner
+    assert '"image_size": 960' in runner
+    assert '"stride": 5' in runner
+    assert '"tile_width": 1484' in runner
+    assert '"tile_height": None' in runner
+    assert '"overlap": 0.1' in runner
+    assert (
+        "0ebbc80d4a7680d14987a577cd21342b65ecfd94632bd9a8da63ae6417644ee1"
+        in runner
+    )
+    assert "validate_innovation_detector_model(model)" in runner
+    assert '"--tile-height"' not in runner
+    assert '"--device"' not in runner
+    assert '"football_poc.innovation_day_detector"' in runner
+    assert '"football_poc.benchmark_cli"' not in runner
+
+
+def test_innovation_detector_preserves_showcase_sequential_inference() -> None:
+    detector = (
+        Path(__file__).parents[1]
+        / "src"
+        / "football_poc"
+        / "innovation_day_detector.py"
+    ).read_text(encoding="utf-8")
+
+    assert (
+        "from football_poc.innovation_day_snapshot.benchmark "
+        "import BenchmarkManifest"
+    ) in detector
+    assert "from football_poc.benchmark" not in detector
+    assert "from football_poc.cli" not in detector
+    assert "from football_poc.actions" not in detector
+    assert "for completed, source_frame in enumerate(pending_frames" in detector
+    assert '"source": crops' in detector
+    assert '"batch":' not in detector
+    assert "horizontal_tiles(" in detector
+    assert "grid_tiles(" not in detector
+    assert '"detector_implementation": "innovation_showcase_sequential_v1"' in detector
+
+
+def test_live_canvas_uses_separate_engine_artifacts_and_review_state() -> None:
+    innovation = EXTENSION.read_text(encoding="utf-8")
+    live = LIVE_EXTENSION.read_text(encoding="utf-8")
+    live_renderer = LIVE_RENDERER.read_text(encoding="utf-8")
+
+    assert 'id: "football-event-review-live"' in live
+    assert 'displayName: "Live Football Event Review"' in live
+    assert 'title: "Live Football Event Review"' in live
+    assert "Live Iteration-25 Football Event Review" not in live
+    assert 'const defaultSegment = "segment-0540-020"' in live
+    assert 'const theme = "grassroots"' in live
+    assert 'data-app-theme="grassroots"' in live_renderer
+    assert 'themeColor = "#07120f"' in live_renderer
+    assert "Raw-video ball coordinates · Current engine" in live_renderer
+    assert 'id="tracker-version"' in live_renderer
+    assert 'id="rules-version"' in live_renderer
+    assert "trackerIteration(selected)" in live_renderer
+    assert "state.componentVersions?.tracker" in live_renderer
+    assert "state.componentVersions?.rulesEngine" in live_renderer
+    assert "\nasync function sourceVersion(files)" in live
+    assert "\nasync function componentVersions()" in live
+    assert '"src/football_poc/ball_tracking.py"' in live
+    assert '"src/football_poc/match_state.py"' in live
+    assert '"src/football_poc/possession.py"' in live
+    assert 'return join(preparedSegmentRoot(segment), "live")' in live
+    assert '"/api/alfheim/live/analyze"' in live
+    assert "/api/alfheim/live/status" in live
+    assert '"event-review-state-live"' in live
+    assert '"src/football_poc/ball_tracking.py"' in live
+    assert '"src/football_poc/innovation_day_snapshot/match_state.py"' in innovation
+    assert 'return join(preparedSegmentRoot(segment), "innovation")' in innovation
+    assert 'join(preparedSegmentRoot(segment), "copilot-review.json")' in live
+    assert 'join(preparedSegmentRoot(segment), "copilot-review.json")' in innovation
+    assert 'id="process-segment"' in live_renderer
+    assert "football-event-review add_" not in live
+    assert "football-event-review update_" not in live
+    assert "football-event-review accept_" not in live
+    assert "football-event-review publish_" not in live
+    assert "football-event-review refresh_" not in live
+    assert "football-event-review confirm_" not in live
+    assert "football-event-review-live" not in innovation
+
+
+def test_review_state_and_prompts_carry_hard_workflow_identity() -> None:
+    innovation = EXTENSION.read_text(encoding="utf-8")
+    live = LIVE_EXTENSION.read_text(encoding="utf-8")
+
+    assert 'const workflowId = "innovation_day_bac"' in innovation
+    assert 'const canvasId = "football-event-review"' in innovation
+    assert 'const workflowId = "live_iteration_25"' in live
+    assert 'const canvasId = "football-event-review-live"' in live
+    for extension in (innovation, live):
+        assert "state.workflowId && state.workflowId !== workflowId" in extension
+        assert "state.canvasId && state.canvasId !== canvasId" in extension
+        assert '"review_workflow_mismatch"' in extension
+        assert "state.workflowId = workflowId" in extension
+        assert "state.canvasId = canvasId" in extension
+        assert "`Workflow ID: ${workflowId}. Canvas ID: ${canvasId}.`" in extension
+
+    assert "This is the BAC-assisted Innovation workflow." in innovation
+    assert "Never invoke live Canvas " in innovation
+    assert "actions, read live review state" in innovation
+    assert "Never invoke " in live
+    assert "Innovation Canvas actions" in live
+
+
+def test_unrelated_state_integrity_error_does_not_blank_selected_canvas() -> None:
+    for extension_path in (EXTENSION, LIVE_EXTENSION):
+        extension = extension_path.read_text(encoding="utf-8")
+        assert 'regression: "unavailable"' in extension
+        assert "integrityError: true" in extension
+        assert "Review state unavailable:" in extension
+        assert "String(error.message || error)" in extension
+
+
+def test_comparison_labels_show_event_frame_numbers() -> None:
+    for renderer_path in (RENDERER, LIVE_RENDERER):
+        renderer = renderer_path.read_text(encoding="utf-8")
+        assert 'frame.className = "comparison-frame"' in renderer
+        assert 'event.seconds.toFixed(3) + "s · frame "' in renderer
+        assert "Math.round(event.seconds * 25)" in renderer
+
+
+def test_every_innovation_acceptance_checks_its_regression_receipt() -> None:
+    extension = EXTENSION.read_text(encoding="utf-8")
+
+    assert "\nasync function ensureInnovationRegressionsCurrent(segment, state)" in extension
+    assert "tests/test_innovation_day_snapshot.py" in extension
+    assert "tests/test_innovation_match_state_regression.py" in extension
+    assert "tests/test_innovation_possession_regression.py" in extension
+    assert "tests/test_innovation_review_regressions.py" in extension
+    assert extension.count("await ensureInnovationRegressionsCurrent(segment,") == 2
+    assert "isRegressionCurrent(state.regression, current)" in extension
+    assert "matchingStoredSnapshot(current, state)" in extension
+    assert "return {current, reused: true, stale: false}" in extension
+    assert '"innovation_regression_failed"' in extension
+    assert 'suite: "innovation"' in extension
+    assert 'trigger: "acceptance"' in extension
+
+
+def test_engine_output_never_becomes_a_copilot_proposal() -> None:
     extension = EXTENSION.read_text(encoding="utf-8")
     renderer = RENDERER.read_text(encoding="utf-8")
 
     assert 'if (segmentInfo.state !== "ready") return []' in extension
-    assert 'source: "engine_output"' in extension
+    load_drafts = extension[
+        extension.index("async function loadDrafts("):
+        extension.index("async function buildReplayRuns(")
+    ]
+    assert 'source: "engine_output"' not in load_drafts
     assert 'source: "copilot_review"' in extension
     assert "const engineEvents = snapshotEvents(" in extension
     assert "engineEvents," in extension
@@ -374,7 +633,41 @@ def test_ai_candidates_appear_only_when_analysis_is_ready() -> None:
     assert 'engineCandidate = draft.source === "engine_output"' in renderer
     assert '"AI engine detected"' in renderer
     assert "Event candidates remain hidden until the run completes." in renderer
-    assert "AI completed and produced no event candidates." in renderer
+    assert "Engine completed with " in renderer
+    assert "Independent Copilot proposals have not been created yet." in renderer
+
+
+def test_canvas_adds_isolated_custom_camera_samples() -> None:
+    extension = EXTENSION.read_text(encoding="utf-8")
+    renderer = RENDERER.read_text(encoding="utf-8")
+
+    assert '"10-master-data", "custom-cameras"' in extension
+    assert 'url.pathname === "/api/custom-camera"' in extension
+    assert "saveCustomCameraSample(request, url)" in extension
+    assert 'id="camera-name"' in renderer
+    assert 'id="camera-club"' in renderer
+    assert 'id="camera-venue"' in renderer
+    assert 'id="camera-position"' in renderer
+    assert 'id="camera-serial"' in renderer
+    assert 'id="camera-sample"' in renderer
+    assert 'id="add-camera"' in renderer
+    assert "Camera sample must be exactly 30 or 60 seconds" in renderer
+    assert "const cameraId = randomUUID()" in extension
+    assert "manufacturer_serial_number: serialNumber || null" in extension
+    assert "startsWith(\"custom-\")" in renderer
+    assert "No merged review segment is available for this camera." in renderer
+    assert "clearVideoSource()" in renderer
+
+
+def test_source_change_resolves_url_before_stale_canvas_state() -> None:
+    renderer = RENDERER.read_text(encoding="utf-8")
+
+    start = renderer.index("function selectedSegmentKey()")
+    selected_key = renderer[start:start + 300]
+    assert selected_key.index("new URLSearchParams(location.search)") < (
+        selected_key.index("state?.segment?.key")
+    )
+    assert 'query.set("segment", segment)' in renderer
 
 
 def test_match_replay_never_mixes_disjoint_segments() -> None:
@@ -729,7 +1022,10 @@ def test_copilot_chat_is_embedded_and_scoped_to_the_selected_event() -> None:
     assert 'class="conversation" id="conversation-panel"' in renderer
     assert "This conversation contains only messages for the selected event." in renderer
     assert "message => message.eventIndex === selectedIndex" in renderer
-    assert '"Copilot for Event " + (selectedIndex + 1)' in renderer
+    assert '"Innovation Copilot for Event " + (selectedIndex + 1)' in renderer
+    assert '"Live Copilot for Event " + (selectedIndex + 1)' in (
+        LIVE_RENDERER.read_text(encoding="utf-8")
+    )
     assert 'id="chat-status"' in renderer
     assert 'data-state="ready"' in renderer
     assert 'setChatMode("normal")' not in renderer
@@ -870,6 +1166,21 @@ def test_canvas_hides_internal_context_and_reports_review_status() -> None:
     assert 'session.on("assistant.message"' not in extension
     assert 'id="chat-status"' in renderer
     assert 'current.label + "…"' in renderer
+
+
+def test_copilot_reviews_are_recorded_without_acceptance_handover() -> None:
+    for path in (EXTENSION, LIVE_EXTENSION):
+        extension = path.read_text(encoding="utf-8")
+
+        assert 'name: "record_copilot_proposal"' in extension
+        assert 'name: "replace_copilot_review"' in extension
+        assert 'source: "copilot_review"' in extension
+        assert '"Copilot proposal ready"' in extension
+        assert '"Copilot review ready"' in extension
+        assert "copilotAcceptanceAuthorizations" not in extension[
+            extension.index('name: "record_copilot_proposal"'):
+            extension.index('name: "confirm_engine_event_reviewed"')
+        ]
 
 
 def test_first_event_is_shown_after_video_metadata_loads() -> None:

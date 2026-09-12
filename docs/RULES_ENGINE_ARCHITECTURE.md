@@ -15,6 +15,34 @@ The engine must never substitute an analytics convention for a Law of the Game,
 and it must never claim an official decision that cannot be supported by the
 available evidence.
 
+### Hard input boundary: raw video versus evaluation labels
+
+For labelled video datasets, event inference and performance benchmarking use
+the raw video as the source of football evidence. Camera calibration and
+non-label processing configuration may describe how to interpret that video;
+dataset annotations may not participate in interpretation.
+
+Dataset or provider labels for passes, drives, shots, free kicks, possession,
+turnovers, or any other event are forbidden inputs to detection, tracking,
+classification, match state, event state machines, confidence, thresholds, or
+rule execution. They must be stored separately and loaded only after engine
+predictions are complete and frozen, solely for evaluation and independent
+review. Label timestamps must not narrow an inference search or resolve an
+uncertain prediction.
+
+Raw-video speed results must cover the cold path from video decoding through
+detection, tracking, inference, and event publication. A run that substitutes
+precomputed detections or tracks is a cache-rebuild benchmark and must be
+reported separately; it is not a raw-video processing-speed result. Any
+annotation leakage invalidates both the affected predictions and benchmark.
+
+Each 30- or 60-second segment is also a production-like streaming deadline.
+Fresh processing is the default. Cache reuse is an explicit diagnostic or
+interrupted-run recovery option, never the headline performance path. Runtime
+reports must include wall time, source duration, real-time factor, achieved
+frame throughput, and the minimum acceleration required to publish before the
+next configured segment is due.
+
 ## 1. Authoritative law profile
 
 The match-state policy is grounded in the current official IFAB Laws of the
@@ -114,6 +142,11 @@ These are project definitions, not IFAB Laws:
   goalkeeper or last-line save.
 - **Shot off target:** an attempt that misses the goal and was not saved on
   target.
+- **Goal:** a separately confirmed match-state event linked to its originating
+  shot attempt. A goal also implies that shot was on target, but a
+  shot-on-target event does not imply a goal. Saved attempts remain on target;
+  absence of a goal is never sufficient evidence for an off-target
+  classification.
 
 An event must satisfy both its analytics definition and the match-state gate.
 
@@ -288,27 +321,119 @@ Engine snapshots contain:
 This proves whether an accepted rule was already present, still pending, or
 implemented by a later engine version.
 
+### 7.1 Separate Innovation and live review lines
+
+Alfheim review has two deliberately isolated workflows. They may read the same
+raw-only prepared video manifest, camera calibration, and immutable
+`copilot-review.json` produced from that video before either engine is exposed.
+This keeps the evidence-scoped `C#` proposals identical while each Canvas
+matches them independently. The workflows never share runtime manifests,
+detections, tracks, `E#` events, decisions, fingerprints, regression receipts,
+manual references, or publication locks.
+
+- **Innovation Day** uses explicitly labelled BAC provider coordinates with
+  the separately versioned engine under
+  `src/football_poc/innovation_day_snapshot`. Its artifacts live under each
+  segment's `innovation/` directory. BAC is resolved only by
+  `process-alfheim-innovation-segment.py`; it never enters the shared prepared
+  manifest. Its possible out-of-bounds intervals are derived by comparing BAC
+  positions with the shared Alfheim pitch calibration; they are evidence
+  candidates, not camera calibration data or assumed referee decisions. This
+  is a diagnostic/demo workflow and cannot produce raw-video performance
+  claims. Player detection is also frozen to the trusted Innovation profile:
+  the approved YOLO11n checkpoint (verified by SHA-256), confidence `0.12`,
+  image size `960`, stride `5`, tile width `1484`, full-height horizontal
+  tiles, overlap `0.1`, and NMS IoU `0.5`. The runner rejects a model override
+  with any other filename or checkpoint hash. Detection executes through the
+  Innovation-only `football_poc.innovation_day_detector` module, preserving
+  the showcase pipeline's sequential frame inference. It does not import or
+  execute the mutable live `benchmark_cli` detector path.
+  Exact-prefix comparisons may declare namespace-specific `innovation_video`
+  and `live_video` sources while retaining a separate `playable_video`. Both
+  inference sources must cover the declared frame range; this avoids
+  re-encoding drift without sharing runtime artifacts.
+  Player-team stabilization and terminal possession reconciliation are causal
+  at a segment boundary: a shorter segment must preserve all player evidence
+  and completed events supported before its final frame. A terminal,
+  confidently controlled turnover may resolve an earlier contested contact,
+  and repeated strong control at the boundary may confirm a direction-change
+  reception, but neither rule may inspect frames outside the declared segment.
+- **Live** uses raw-video detector output, iteration-25 ball tracking, and the
+  current engine. Its artifacts live under each segment's `live/` directory.
+  BAC, manual references, and provider event annotations are rejected as
+  inference inputs. When trustworthy ball coordinates resume after a long
+  tracking gap, a reception may be recovered only from a real local closest
+  approach, consistent team control before the gap, and a following same-team
+  release. This degraded-evidence rule never creates a coordinate or fills a
+  missing frame. A reviewed segment enters `live-regressions.json` only after
+  the live publication gate passes.
+
+The validated live detector profile samples every fifth source frame. A
+stride-1 diagnostic must be reported separately and must not replace the
+validated profile merely because it yields more points: denser detections also
+require possession and event inference to remain sampling-rate invariant.
+
+Both engines may evolve, but only independently. Every Innovation acceptance,
+whether recorded by the user or Copilot, checks the Innovation regression
+receipt against the exact engine and cached-output hashes. A fresh matching
+receipt is reused without rerunning the engine or tests. A missing receipt runs
+the Innovation suite once; a changed signature is stale and requires the
+cached event rebuild plus that suite. Live acceptance and publication use the
+live suite and live registry; neither regression runner discovers the other
+workflow's cases.
+
+The workflow identity is carried and checked at every review boundary:
+
+| Workflow | Canvas ID | State `workflowId` | Artifact namespace |
+| --- | --- | --- | --- |
+| Innovation Day BAC diagnostic | `football-event-review` | `innovation_day_bac` | `innovation/` and `event-review-state-innovation/` |
+| Raw-video iteration-25 live | `football-event-review-live` | `live_iteration_25` | `live/` and `event-review-state-live/` |
+
+Each persisted review-state document stores both its `workflowId` and
+`canvasId`. Loading or saving a document owned by the other workflow is a hard
+error. Every Canvas-to-Copilot prompt repeats both identifiers and explicitly
+forbids the other workflow's actions, state, and engine output. These checks,
+rather than the visual theme or selected segment alone, determine which
+pipeline the Canvas refers to.
+
 ## 8. Fast regression contract
 
-Logic changes reuse cached detections and tracks. They must not rerun the source
-recording or model inference.
+Logic changes reuse cached detections and tracks from their own workflow. They
+must not rerun the source recording or model inference.
 
-Run focused state and event contracts:
+Run the Innovation engine contracts:
 
 ```powershell
 $env:PYTHONPATH="$PWD\src"
 python -m pytest -q `
-  tests\test_match_state.py `
-  tests\test_possession.py `
-  tests\test_alfheim_blind_regressions.py
+  tests\test_innovation_day_snapshot.py `
+  tests\test_innovation_match_state_regression.py `
+  tests\test_innovation_possession_regression.py `
+  tests\test_innovation_review_regressions.py
 ```
 
-Refresh Test 3 event logic from cached artifacts:
+Run the live ball-coordinate and engine contracts:
 
 ```powershell
 $env:PYTHONPATH="$PWD\src"
+python -m pytest -q `
+  tests\test_ball_tracking.py `
+  tests\test_match_state.py `
+  tests\test_possession.py `
+  tests\test_live_review_regressions.py
+```
+
+Refresh cached event logic only in the intended workflow:
+
+```powershell
+$env:PYTHONPATH="$PWD\src"
+python scripts\process-alfheim-innovation-segment.py `
+  benchmarks\alfheim\generated\segment-0180-020 `
+  --events-only
+
 python scripts\process-alfheim-segment.py `
-  benchmarks\alfheim\generated\segment-0300-020 `
+  benchmarks\alfheim\generated\segment-0180-020 `
+  --artifact-namespace live `
   --events-only
 ```
 

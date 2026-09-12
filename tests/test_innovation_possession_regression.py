@@ -1,4 +1,4 @@
-from football_poc.possession import (
+from football_poc.innovation_day_snapshot.possession import (
     PredictedEvent,
     PossessionObservation,
     PossessionSegment,
@@ -903,11 +903,13 @@ def test_terminal_turnover_resolves_earlier_contested_contact(
         "turnover_candidate", 3.0, "black", 2, 3, 0.8, "control", 3.4
     )
     monkeypatch.setattr(
-        "football_poc.possession._receiver_team_evidence",
+        "football_poc.innovation_day_snapshot.possession."
+        "_receiver_team_evidence",
         lambda *args, **kwargs: ("red", 0.9, 4.0),
     )
     monkeypatch.setattr(
-        "football_poc.possession._contested_contact_seconds",
+        "football_poc.innovation_day_snapshot.possession."
+        "_contested_contact_seconds",
         lambda *args, **kwargs: 1.0,
     )
 
@@ -936,7 +938,8 @@ def test_terminal_control_confirms_direction_change_reception(
         observation(2.8, "black", 10, 200, 100, control_ratio=1.2),
     ]
     monkeypatch.setattr(
-        "football_poc.possession._ball_motion_evidence",
+        "football_poc.innovation_day_snapshot.possession."
+        "_ball_motion_evidence",
         lambda balls: {(1, 50): (100.0, -0.5)},
     )
 

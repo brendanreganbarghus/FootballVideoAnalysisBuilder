@@ -72,18 +72,26 @@ const customCameraRunRoot = join(
   "benchmarks",
   "custom-cameras",
 );
-const defaultSegment = "segment-0540-060";
-const workflowId = "innovation_day_bac";
-const canvasId = "football-event-review";
+const defaultSegment = "segment-0540-020";
+const workflowId = "live_iteration_25";
+const canvasId = "football-event-review-live";
 const localServer = "http://127.0.0.1:8080";
 const minimumReviewDurationSeconds = 30;
 const maximumReviewDurationSeconds = 60;
 const engineFiles = [
-  "src/football_poc/innovation_day_snapshot/snapshot-manifest.json",
-  "src/football_poc/innovation_day_snapshot/match_state.py",
-  "src/football_poc/innovation_day_snapshot/player_tracking.py",
-  "src/football_poc/innovation_day_snapshot/possession.py",
-  "scripts/process-alfheim-innovation-segment.py",
+  "src/football_poc/ball_tracking.py",
+  "src/football_poc/match_state.py",
+  "src/football_poc/player_tracking.py",
+  "src/football_poc/possession.py",
+  "scripts/process-alfheim-segment.py",
+];
+const trackerVersionFiles = [
+  "src/football_poc/ball_tracking.py",
+];
+const rulesEngineVersionFiles = [
+  "src/football_poc/match_state.py",
+  "src/football_poc/player_tracking.py",
+  "src/football_poc/possession.py",
 ];
 const servers = new Map();
 const launcherRegistryPath = join(
@@ -91,7 +99,11 @@ const launcherRegistryPath = join(
   "benchmarks",
   "alfheim",
   "generated",
-  ".football-event-review-urls.json",
+  ".football-event-review-live-urls.json",
+);
+const liveRegressionRegistryPath = join(
+  alfheimRoot,
+  "live-regressions.json",
 );
 const eventStreams = new Set();
 let lastConversationContext = null;
@@ -234,7 +246,7 @@ function preparedSegmentRoot(segment) {
 }
 
 function segmentRoot(segment) {
-  return join(preparedSegmentRoot(segment), "innovation");
+  return join(preparedSegmentRoot(segment), "live");
 }
 
 function copilotReviewPath(segment) {
@@ -251,7 +263,7 @@ function formatClock(totalSeconds) {
 
 async function loadPreparedSegments() {
   const response = await fetch(
-    `${localServer}/api/alfheim/segments?workflow=innovation`,
+    `${localServer}/api/alfheim/segments?workflow=live`,
     { cache: "no-store" },
   );
   if (!response.ok) {
@@ -496,16 +508,12 @@ async function loadActionFocuses(segment, drafts) {
 
 function legacyArtifactDirectory() {
   if (session.workspacePath) {
-    return join(
-      session.workspacePath,
-      "files",
-      "football-event-review-innovation",
-    );
+    return join(session.workspacePath, "files", "football-event-review-live");
   }
   return join(
     process.env.COPILOT_HOME || join(homedir(), ".copilot"),
     "extensions",
-    "football-event-review-innovation",
+    "football-event-review-live",
     "artifacts",
     session.sessionId,
   );
@@ -513,11 +521,7 @@ function legacyArtifactDirectory() {
 
 function artifactDirectory() {
   return sharedArtifactRoot
-    ? join(
-      sharedArtifactRoot,
-      "30-shared-baselines",
-      "event-review-state-innovation",
-    )
+    ? join(sharedArtifactRoot, "30-shared-baselines", "event-review-state-live")
     : legacyArtifactDirectory();
 }
 
@@ -642,6 +646,26 @@ async function writeJsonAtomically(path, payload) {
   await writeTextAtomically(path, `${JSON.stringify(payload, null, 2)}\n`);
 }
 
+async function registerLiveRegression(segment, reference, current) {
+  const registry = await readJson(liveRegressionRegistryPath, {
+    schema_version: 1,
+    workflow: "live_iteration_25",
+    segments: [],
+  });
+  const entry = {
+    segment,
+    published_at: reference.exported_at,
+    event_count: reference.events.length,
+    engine_content_hash: current.fingerprint.contentHash,
+    output_hash: current.outputHash,
+  };
+  registry.segments = [
+    ...(registry.segments || []).filter((item) => item.segment !== segment),
+    entry,
+  ].sort((left, right) => left.segment.localeCompare(right.segment));
+  await writeJsonAtomically(liveRegressionRegistryPath, registry);
+}
+
 async function engineFingerprint() {
   const hash = createHash("sha256");
   for (const relativePath of engineFiles) {
@@ -665,61 +689,21 @@ async function engineFingerprint() {
   };
 }
 
-async function ensureInnovationRegressionsCurrent(segment, state) {
-  const current = await captureEngineSnapshot(segment);
-  if (
-    state.regression?.passed
-    && isRegressionCurrent(state.regression, current)
-  ) {
-    return {current, reused: true, stale: false};
+async function sourceVersion(files) {
+  const hash = createHash("sha256");
+  for (const relativePath of files) {
+    hash.update(relativePath);
+    hash.update(await readFile(join(projectRoot, relativePath)));
   }
-  if (!matchingStoredSnapshot(current, state)) {
-    state.regression = null;
-    return {current, reused: false, stale: true};
-  }
-  const tests = [
-    "tests/test_innovation_day_snapshot.py",
-    "tests/test_innovation_match_state_regression.py",
-    "tests/test_innovation_possession_regression.py",
-    "tests/test_innovation_review_regressions.py",
-  ];
-  let output;
-  try {
-    output = execFileSync(
-      "python",
-      ["-m", "pytest", ...tests, "-q"],
-      {
-        cwd: projectRoot,
-        encoding: "utf8",
-        windowsHide: true,
-        env: {
-          ...process.env,
-          PYTHONPATH: [
-            join(projectRoot, "src"),
-            process.env.PYTHONPATH || "",
-          ].filter(Boolean).join(";"),
-        },
-      },
-    ).trim();
-  } catch (error) {
-    throw new CanvasError(
-      "innovation_regression_failed",
-      `Innovation acceptance was blocked because its regression suite failed. ${
-        String(error.stdout || error.message || error).trim()
-      }`,
-    );
-  }
-  state.engineAfter = current;
-  state.regression = {
-    passed: true,
-    summary: output.split(/\r?\n/).at(-1) || "Innovation regressions passed",
-    fingerprint: current.fingerprint,
-    outputHash: current.outputHash,
-    recordedAt: new Date().toISOString(),
-    suite: "innovation",
-    trigger: "acceptance",
-  };
-  return {current, reused: false, stale: false};
+  return hash.digest("hex");
+}
+
+async function componentVersions() {
+  const [tracker, rulesEngine] = await Promise.all([
+    sourceVersion(trackerVersionFiles),
+    sourceVersion(rulesEngineVersionFiles),
+  ]);
+  return {tracker, rulesEngine};
 }
 
 async function captureEngineSnapshot(segment, knownFingerprint = null) {
@@ -1148,7 +1132,7 @@ async function reviewContext(requestedSegment = defaultSegment) {
   }
   if (/^segment-\d{4}-\d{3}$/.test(selected.key)) {
     const status = await localJson(
-      `/api/alfheim/innovation/status?cache_key=${encodeURIComponent(selected.key)}`,
+      `/api/alfheim/live/status?cache_key=${encodeURIComponent(selected.key)}`,
     );
     selected.state = status.state;
     selected.validationStatus = selected.validated
@@ -1406,6 +1390,7 @@ async function publicState(requestedSegment = defaultSegment) {
     sharedReviewStatus,
     activeConversation: reviewRequestPending ? lastConversationContext : null,
     activity,
+    componentVersions: await componentVersions(),
     replayRuns: await buildReplayRuns(segments),
   };
 }
@@ -1566,10 +1551,11 @@ function messagePrompt(segment, draft, index, text, allowChanges = false) {
         + "\\alfheim-window-playable.mp4"
       );
   return [
-    "[Innovation Day Football Event Review Canvas]",
+    "[Live Football Event Review Canvas]",
     `Workflow ID: ${workflowId}. Canvas ID: ${canvasId}.`,
-    "This is the BAC-assisted Innovation workflow. Never invoke live Canvas "
-      + "actions, read live review state, or use live engine outputs.",
+    "This is the raw-video iteration-25 live workflow. Never invoke "
+      + "Innovation Canvas actions, read Innovation review state, or use "
+      + "Innovation/BAC engine outputs.",
     `We are reviewing only prepared segment ${segment.timeLabel} `
       + `(${segment.key}).`,
     `Video artifact: ${videoArtifact}.`,
@@ -1589,7 +1575,7 @@ function messagePrompt(segment, draft, index, text, allowChanges = false) {
       ? (
           "The user explicitly selected an action that permits changes. If "
           + "the requested adjustment is supported, use the "
-          + "football-event-review update_review_proposal canvas action. Do "
+          + "football-event-review-live update_review_proposal canvas action. Do "
           + "not say the screen was updated unless that action succeeds."
         )
       : (
@@ -1598,7 +1584,7 @@ function messagePrompt(segment, draft, index, text, allowChanges = false) {
           + "tell the user to use Request Adjustment or Verify, Accept & Sync "
           + "Engine in this event's Copilot panel."
         ),
-    "Before ending, always use the football-event-review "
+    "Before ending, always use the football-event-review-live "
       + "publish_review_response canvas action to place your concise final "
       + `answer in this Canvas for segment ${segment.key}, event index ${index}.`,
     "Minimize latency and AI usage: make one targeted adjudication pass. Start "
@@ -1671,12 +1657,12 @@ function clipConversationPrompt(
       + " Do not scan another segment or rerun detection, tracking, or the "
       + "rules engine.",
     "If the user is identifying a genuinely missing event, independently "
-      + "determine its team and event type and call football-event-review "
+      + "determine its team and event type and call football-event-review-live "
       + "recommend_missing_event. If an existing event needs correction, "
       + "identify that event and direct the user to its Request Adjustment "
       + "flow. Otherwise answer normally. Do not add or accept an event, edit "
       + "a proposal, or change the algorithm in this Plan step.",
-    "Before ending, always use the football-event-review "
+    "Before ending, always use the football-event-review-live "
       + "publish_review_response canvas action to place your concise final "
       + `answer in this Canvas for segment ${segment.key}.`,
   ].join("\n");
@@ -1692,7 +1678,7 @@ function confirmMissingEventPrompt(segment, candidate) {
     `Proposed rule: ${candidate.rule}`,
     projectRulesInstruction,
     "The user explicitly approved moving this planned candidate into "
-      + "Autopilot. Call football-event-review add_review_proposal using these "
+      + "Autopilot. Call football-event-review-live add_review_proposal using these "
       + "exact team, event type, and seconds. Then call "
       + "publish_review_response with the returned event index. Do not edit "
       + "the rules engine yet; the newly added event must still pass its own "
@@ -1707,13 +1693,12 @@ function publishValidatedReferencePrompt(segment) {
     projectRulesInstruction,
     "The user explicitly authorized the final validation gate through the "
       + "Publish Validated Reference button. Do not review another segment.",
-    "Run the separate Innovation engine regression "
+    "Run the separate live raw-video and rules-engine regression "
       + "tests once with: $env:PYTHONPATH=\"$PWD\\src\"; python -m pytest "
-      + "tests\\test_innovation_day_snapshot.py "
-      + "tests\\test_innovation_match_state_regression.py "
-      + "tests\\test_innovation_possession_regression.py "
-      + "tests\\test_innovation_review_regressions.py -q",
-    "If they pass, call football-event-review refresh_engine_snapshot for "
+      + "tests\\test_ball_tracking.py tests\\test_match_state.py "
+      + "tests\\test_possession.py "
+      + "tests\\test_live_review_regressions.py -q",
+    "If they pass, call football-event-review-live refresh_engine_snapshot for "
       + `segment ${segment.key} without an event index, then call `
       + "record_regression_result with passed=true, the segment, and the exact "
       + "test summary. Then call publish_validated_reference.",
@@ -1725,7 +1710,7 @@ function publishValidatedReferencePrompt(segment) {
     "Do not rerun detection, tracking, or event building and do not edit the "
       + "rules engine during final publication. If any gate fails, stop and "
       + "report the blocker.",
-    "Before ending, call football-event-review publish_review_response without "
+    "Before ending, call football-event-review-live publish_review_response without "
       + "an event index so the result appears in the general clip conversation.",
   ].join("\n");
 }
@@ -1749,12 +1734,12 @@ function engineEventReviewPrompt(segment, event, index) {
       + "Independently inspect the targeted evidence, normally within ±2 "
       + "seconds. Do not treat the engine event as the answer.",
     "If the evidence supports the exact team, canonical type, and completion "
-      + "time, call football-event-review confirm_engine_event_reviewed with "
+      + "time, call football-event-review-live confirm_engine_event_reviewed with "
       + "this segment, engine index, and a concise evidence reason. Otherwise "
       + "do not confirm it.",
     "Do not create or accept a Copilot proposal, edit the engine, or rerun "
       + "detection, tracking, or event building.",
-    "Before ending, call football-event-review publish_review_response without "
+    "Before ending, call football-event-review-live publish_review_response without "
       + "an event index so the result appears in the general clip conversation.",
   ].join("\n");
 }
@@ -1781,7 +1766,7 @@ function copilotAcceptancePrompt(segment, draft, index) {
     ),
     "The user explicitly granted permission, through the Canvas handover "
       + "button, for Copilot to accept only this selected proposal.",
-    "If the proposal is correct, call football-event-review "
+    "If the proposal is correct, call football-event-review-live "
       + "accept_review_proposal with the segment, event index, and concise "
       + "verification reason. Read the returned engineComparison. If it is "
       + "already_agrees, the current code and cached output hashes are proven "
@@ -1820,7 +1805,7 @@ function copilotBulkAcceptancePrompt(segment, drafts, indexes) {
         + `${draft.type}. Evidence: ${draft.evidence} Rule: ${draft.rule}`;
     }),
     "Use cached evidence and the current engine output first. For each "
-      + "supported proposal, call football-event-review "
+      + "supported proposal, call football-event-review-live "
       + "accept_review_proposal with its exact index and a concise reason. "
       + "Leave unsupported or uncertain proposals unaccepted and identify "
       + "them in the final response. Do not silently revise them.",
@@ -1832,7 +1817,7 @@ function copilotBulkAcceptancePrompt(segment, drafts, indexes) {
       + "or segment-specific exception. Rebuild cached events once, run the "
       + "protected regressions once, refresh the engine snapshot, and record "
       + "the regression result.",
-    "Before ending, call football-event-review publish_review_response "
+    "Before ending, call football-event-review-live publish_review_response "
       + `without eventIndex so the batch summary appears only in the general `
       + `clip conversation for ${segment.key}.`,
   ].join("\n");
@@ -2110,7 +2095,7 @@ async function handleRequest(request, response) {
         + "and provider annotations are excluded.",
     );
     const result = await localJson(
-      "/api/alfheim/innovation/analyze",
+      "/api/alfheim/live/analyze",
       {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -2237,7 +2222,6 @@ async function handleRequest(request, response) {
           }
         : {}),
     };
-    await ensureInnovationRegressionsCurrent(segment, state);
     delete state.copilotAcceptanceAuthorizations[String(index)];
     await saveState(segment, state);
     sendJson(response, 200, await publicState(segment));
@@ -2842,14 +2826,14 @@ async function registerLauncherUrl(theme, url) {
 session = await joinSession({
   canvases: [
     createCanvas({
-      id: "football-event-review",
-      displayName: "Innovation Day Football Event Review",
-      description: "Prepare and review controlled 30–60 second football segments, message Copilot, then verify engine behavior.",
+      id: "football-event-review-live",
+      displayName: "Live Football Event Review",
+      description: "Review Alfheim segments with raw-video iteration-25 ball tracking and the current football engine.",
       inputSchema: {
         type: "object",
         properties: {
           segment: { type: "string" },
-          theme: { type: "string", enum: ["default", "innovation"] },
+          theme: { type: "string", enum: ["grassroots"] },
         },
         additionalProperties: false,
       },
@@ -3292,7 +3276,6 @@ session = await joinSession({
               source: "copilot_verified",
               engineVerification,
             };
-            await ensureInnovationRegressionsCurrent(segment, review.state);
             delete review.state.copilotAcceptanceAuthorizations[String(index)];
             review.state.conversation.push({
               role: "system",
@@ -3765,6 +3748,7 @@ session = await joinSession({
               outputHash: current.outputHash,
               regressionRecordedAt: review.state.regression.recordedAt,
             };
+            await registerLiveRegression(segment, reference, current);
             await saveState(segment, review.state);
             setActivity(
               "working",
@@ -3926,7 +3910,7 @@ session = await joinSession({
       ],
       open: async (context) => {
         const segment = String(context.input?.segment || defaultSegment);
-        const theme = "innovation";
+        const theme = "grassroots";
         const review = await reviewContext(segment);
         let entry = servers.get(context.instanceId);
         if (!entry) {
@@ -3936,9 +3920,9 @@ session = await joinSession({
         const url = `${entry.url}?segment=${encodeURIComponent(segment)}&theme=${
           encodeURIComponent(theme)
         }`;
-        await registerLauncherUrl("innovation", url);
+        await registerLauncherUrl("live", url);
         return {
-          title: "Innovation Day Football Event Review",
+          title: "Live Football Event Review",
           status: `${review.selected.timeLabel} · ${
             review.selected.validationStatus.replaceAll("_", " ")
           }`,

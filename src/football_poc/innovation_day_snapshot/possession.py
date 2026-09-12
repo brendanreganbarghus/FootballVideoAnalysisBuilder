@@ -9,8 +9,8 @@ from typing import Any, Iterable
 
 import cv2
 
-from football_poc.benchmark import BenchmarkManifest
-from football_poc.match_state import (
+from football_poc.innovation_day_snapshot.benchmark import BenchmarkManifest
+from football_poc.innovation_day_snapshot.match_state import (
     MatchStateTimeline,
     build_match_state_timeline,
     coalesce_stoppage_candidates,
@@ -18,7 +18,9 @@ from football_poc.match_state import (
     partition_continuous_flight_candidates,
     partition_fragmented_boundary_candidates,
 )
-from football_poc.player_tracking import classify_color_scores
+from football_poc.innovation_day_snapshot.player_tracking import (
+    classify_color_scores,
+)
 
 
 @dataclass(frozen=True)
