@@ -64,6 +64,15 @@ SOCCERTRACK_DENSE_FLOW_PROFILE = {
     "maximum_path_disagreement_ball_diameters": 1.5,
 }
 
+LONG_STATIONARY_TEMPLATE_PROFILE = {
+    "maximum_bridge_seconds": 3.0,
+    "maximum_endpoint_distance_ball_diameters": 0.5,
+    "maximum_history_radius_ball_diameters": 0.5,
+    "minimum_history_points": 4,
+    "minimum_history_seconds": 0.6,
+    "maximum_history_gap_seconds": 2.4,
+}
+
 SOCCERTRACK_MICRO_CROP_VERIFICATION_PROFILE = {
     "experiment": "2-conservative-global-veto-and-ambiguity-ranking",
     "adjacent_template_minimum_score": 0.30,
@@ -212,6 +221,7 @@ class _BidirectionalTemplateBridge:
     first: BallPoint
     second: BallPoint
     following: BallPoint | None
+    bridge_kind: str = "short_motion"
 
     @property
     def frames(self) -> tuple[int, ...]:
@@ -627,6 +637,7 @@ def track_cached_balls(
             },
         )
     )
+    accepted = _deduplicate_track_frames(accepted)
 
     output.mkdir(parents=True, exist_ok=True)
     track_path = output / "ball-tracks.json"
@@ -695,6 +706,50 @@ def track_cached_balls(
     )
     print(f"Ball tracks written to {track_path.resolve()}")
     return track_path
+
+
+def _deduplicate_track_frames(
+    tracks: Iterable[BallTrack],
+) -> tuple[BallTrack, ...]:
+    evidence_priority = {
+        "detector": 6,
+        "template_validated_detector": 5,
+        "raw_motion_near_feet": 4,
+        "raw_motion_trajectory_corridor": 4,
+        "raw_motion_global_fallback": 4,
+        "motion_circle": 4,
+        "kalman_guided_yolo_candidate": 3,
+        "kalman_guided_raw_motion_micro_crop": 3,
+        "dense_bidirectional_optical_flow": 2,
+        "bidirectional_template": 2,
+        "partial_bidirectional_template": 2,
+        "template_consensus": 2,
+        "forward_template_consensus": 2,
+        "stationary_bidirectional_template": 1,
+    }
+    deduplicated: list[BallTrack] = []
+    for track in tracks:
+        points_by_frame: dict[int, BallPoint] = {}
+        for point in track.points:
+            existing = points_by_frame.get(point.source_frame)
+            if existing is None or (
+                evidence_priority.get(point.evidence, 0),
+                point.temporal_score or point.confidence,
+            ) > (
+                evidence_priority.get(existing.evidence, 0),
+                existing.temporal_score or existing.confidence,
+            ):
+                points_by_frame[point.source_frame] = point
+        deduplicated.append(
+            BallTrack(
+                track.track_id,
+                sorted(
+                    points_by_frame.values(),
+                    key=lambda point: point.source_frame,
+                ),
+            )
+        )
+    return tuple(deduplicated)
 
 
 def _supported_ball_tracks(
@@ -1686,10 +1741,19 @@ def _bidirectional_template_bridge_plans(
     maximum_bridge_seconds = maximum_gap_seconds + frame_step / fps
     plans: list[_BidirectionalTemplateBridge] = []
     for index, (first, second) in enumerate(zip(points, points[1:])):
+        time_gap = second.clip_seconds - first.clip_seconds
+        is_stationary_bridge = _is_long_stationary_template_bridge(
+            points,
+            first_index=index,
+            second=second,
+            fps=fps,
+        )
         if (
             second.source_frame - first.source_frame <= frame_step
-            or second.clip_seconds - first.clip_seconds
-            > maximum_bridge_seconds + 1e-6
+            or (
+                time_gap > maximum_bridge_seconds + 1e-6
+                and not is_stationary_bridge
+            )
             or first.box_diagonal <= 0
             or second.box_diagonal <= 0
         ):
@@ -1714,9 +1778,83 @@ def _bidirectional_template_bridge_plans(
                 first=first,
                 second=second,
                 following=following,
+                bridge_kind=(
+                    "long_stationary"
+                    if (
+                        time_gap > maximum_bridge_seconds + 1e-6
+                        and is_stationary_bridge
+                    )
+                    else "short_motion"
+                ),
             )
         )
     return tuple(plans)
+
+
+def _is_long_stationary_template_bridge(
+    points: list[BallPoint],
+    *,
+    first_index: int,
+    second: BallPoint,
+    fps: float,
+) -> bool:
+    profile = LONG_STATIONARY_TEMPLATE_PROFILE
+    first = points[first_index]
+    time_gap = second.clip_seconds - first.clip_seconds
+    if (
+        time_gap <= 0
+        or time_gap > float(profile["maximum_bridge_seconds"]) + 1e-6
+        or first.box_diagonal <= 0
+        or second.box_diagonal <= 0
+    ):
+        return False
+
+    minimum_history_points = int(profile["minimum_history_points"])
+    history = points[
+        max(0, first_index - minimum_history_points + 1) : first_index + 1
+    ]
+    if len(history) < minimum_history_points:
+        return False
+    maximum_history_gap = round(
+        float(profile["maximum_history_gap_seconds"]) * fps
+    )
+    if any(
+        current.source_frame - previous.source_frame > maximum_history_gap
+        for previous, current in zip(history, history[1:])
+    ):
+        return False
+    if (
+        history[-1].clip_seconds - history[0].clip_seconds
+        < float(profile["minimum_history_seconds"])
+    ):
+        return False
+
+    reference_diameter = median(
+        point.box_diagonal
+        for point in (*history, second)
+        if point.box_diagonal > 0
+    )
+    maximum_history_radius = (
+        reference_diameter
+        * float(profile["maximum_history_radius_ball_diameters"])
+    )
+    center_x = median(point.x for point in history)
+    center_y = median(point.y for point in history)
+    if any(
+        hypot(point.x - center_x, point.y - center_y)
+        > maximum_history_radius
+        for point in history
+    ):
+        return False
+
+    maximum_endpoint_distance = (
+        reference_diameter
+        * float(profile["maximum_endpoint_distance_ball_diameters"])
+    )
+    return (
+        hypot(second.x - center_x, second.y - center_y)
+        <= maximum_endpoint_distance
+    )
 
 
 def _bidirectional_template_points(
@@ -1808,7 +1946,11 @@ def _bidirectional_template_points(
                 )
                 / total_score,
                 box_diagonal=reference_diameter,
-                evidence="bidirectional_template",
+                evidence=(
+                    "stationary_bidirectional_template"
+                    if plan.bridge_kind == "long_stationary"
+                    else "bidirectional_template"
+                ),
                 temporal_score=round(
                     min(forward_match.score, backward_match.score),
                     6,
@@ -2359,6 +2501,7 @@ def _is_reliable_template_seed(
             point.evidence
             in {
                 "bidirectional_template",
+                "stationary_bidirectional_template",
                 "partial_bidirectional_template",
                 "template_validated_detector",
             }
@@ -6182,6 +6325,7 @@ def _write_summary(
         in {
             "template_consensus",
             "bidirectional_template",
+            "stationary_bidirectional_template",
             "partial_bidirectional_template",
             "template_validated_detector",
             "forward_template_consensus",
@@ -6365,6 +6509,14 @@ def _write_summary(
                 "mean": dense_flow_diagnostics.mean_path_confidence,
             },
             "unbounded_flow_points_published": 0,
+        },
+        "long_stationary_template": {
+            "parameter_profile": LONG_STATIONARY_TEMPLATE_PROFILE,
+            "accepted_points": sum(
+                point.evidence == "stationary_bidirectional_template"
+                for point in tracked_points
+            ),
+            "prediction_only_points_published": 0,
         },
         "unanchored_static_clusters": len(
             unanchored_static_clusters

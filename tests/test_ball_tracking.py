@@ -26,12 +26,14 @@ from football_poc.ball_tracking import (
     _records_in_analysis_window,
     _discard_unanchored_static_fragments,
     _discard_temporal_upper_body_points,
+    _deduplicate_track_frames,
     _dense_optical_flow_path,
     _unanchored_static_clusters,
     _near_unanchored_static_cluster,
     _BallCandidate,
     _static_cells,
     _supported_ball_tracks,
+    _bidirectional_template_bridge_plans,
     _bidirectional_template_points,
     _template_consensus_point,
     _template_match,
@@ -396,6 +398,35 @@ def test_interpolates_short_gaps_with_provenance() -> None:
     assert result.points[1].source_attribution == "interpolated"
 
 
+def test_deduplicates_frames_in_favor_of_stronger_visual_evidence() -> None:
+    stationary = BallPoint(
+        5,
+        0.2,
+        0.7,
+        100,
+        200,
+        evidence="stationary_bidirectional_template",
+        temporal_score=0.98,
+        source_attribution="temporal_detector_observed",
+    )
+    raw_motion = BallPoint(
+        5,
+        0.2,
+        0.6,
+        103,
+        202,
+        evidence="raw_motion_trajectory_corridor",
+        temporal_score=0.75,
+        source_attribution="raw_motion_micro_crop_supported",
+    )
+
+    result = _deduplicate_track_frames(
+        [BallTrack(1, [stationary, raw_motion])]
+    )
+
+    assert result == (BallTrack(1, [raw_motion]),)
+
+
 def test_template_consensus_recovers_visually_supported_gap() -> None:
     frames = {
         frame: _synthetic_ball_frame(x, 40)
@@ -532,6 +563,116 @@ def test_bidirectional_templates_reject_missing_visual_evidence() -> None:
     )
 
     assert _bidirectional_template_points(plan, frames, fps=25) == ()
+
+
+def test_long_stationary_template_bridge_requires_stable_detector_anchors() -> None:
+    stable = BallTrack(
+        1,
+        [
+            BallPoint(95, 3.8, 0.8, 100, 200, box_diagonal=10),
+            BallPoint(100, 4.0, 0.8, 100, 200, box_diagonal=10),
+            BallPoint(105, 4.2, 0.8, 101, 200, box_diagonal=10),
+            BallPoint(115, 4.6, 0.8, 100, 201, box_diagonal=10),
+            BallPoint(175, 7.0, 0.8, 101, 200, box_diagonal=10),
+        ],
+    )
+
+    plans = _bidirectional_template_bridge_plans(
+        stable,
+        track_index=0,
+        fps=25,
+        frame_step=5,
+        maximum_gap_seconds=0.56,
+    )
+
+    long_plans = [plan for plan in plans if plan.second.source_frame == 175]
+    assert len(long_plans) == 1
+    assert long_plans[0].first.source_frame == 115
+    assert long_plans[0].bridge_kind == "long_stationary"
+
+
+def test_long_stationary_template_bridge_rejects_moving_endpoints() -> None:
+    moving = BallTrack(
+        1,
+        [
+            BallPoint(95, 3.8, 0.8, 100, 200, box_diagonal=10),
+            BallPoint(100, 4.0, 0.8, 100, 200, box_diagonal=10),
+            BallPoint(105, 4.2, 0.8, 101, 200, box_diagonal=10),
+            BallPoint(115, 4.6, 0.8, 100, 201, box_diagonal=10),
+            BallPoint(175, 7.0, 0.8, 140, 220, box_diagonal=10),
+        ],
+    )
+
+    plans = _bidirectional_template_bridge_plans(
+        moving,
+        track_index=0,
+        fps=25,
+        frame_step=5,
+        maximum_gap_seconds=0.56,
+    )
+
+    assert all(plan.second.source_frame != 175 for plan in plans)
+
+
+def test_long_stationary_template_bridge_requires_sustained_history() -> None:
+    brief_history = BallTrack(
+        1,
+        [
+            BallPoint(100, 4.00, 0.8, 100, 200, box_diagonal=10),
+            BallPoint(101, 4.04, 0.8, 100, 200, box_diagonal=10),
+            BallPoint(102, 4.08, 0.8, 100, 200, box_diagonal=10),
+            BallPoint(103, 4.12, 0.8, 100, 200, box_diagonal=10),
+            BallPoint(163, 6.52, 0.8, 100, 200, box_diagonal=10),
+        ],
+    )
+
+    plans = _bidirectional_template_bridge_plans(
+        brief_history,
+        track_index=0,
+        fps=25,
+        frame_step=1,
+        maximum_gap_seconds=0.56,
+    )
+
+    assert all(plan.second.source_frame != 163 for plan in plans)
+
+
+def test_long_stationary_template_bridge_keeps_visual_provenance() -> None:
+    frames = {
+        frame: _synthetic_ball_frame(40, 40)
+        for frame in range(0, 61, 5)
+    }
+    history = [
+        BallPoint(frame, frame / 25, 0.8, 40, 40, box_diagonal=10)
+        for frame in (0, 5, 10, 15)
+    ]
+    endpoint = BallPoint(60, 2.4, 0.8, 40, 40, box_diagonal=10)
+    plans = _bidirectional_template_bridge_plans(
+        BallTrack(1, [*history, endpoint]),
+        track_index=0,
+        fps=25,
+        frame_step=5,
+        maximum_gap_seconds=0.56,
+    )
+    long_plan = next(
+        plan for plan in plans if plan.bridge_kind == "long_stationary"
+    )
+
+    recovered = _bidirectional_template_points(
+        long_plan,
+        frames,
+        fps=25,
+    )
+
+    assert [point.source_frame for point in recovered] == list(range(20, 60, 5))
+    assert all(
+        point.evidence == "stationary_bidirectional_template"
+        for point in recovered
+    )
+    assert all(
+        point.source_attribution == "temporal_detector_observed"
+        for point in recovered
+    )
 
 
 def test_partial_bidirectional_templates_keep_supported_frames_only() -> None:
