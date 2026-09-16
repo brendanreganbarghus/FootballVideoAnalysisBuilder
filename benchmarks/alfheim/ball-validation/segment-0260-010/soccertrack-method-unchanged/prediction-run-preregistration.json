@@ -1,0 +1,65 @@
+{
+  "preregistered_before_prediction": true,
+  "evaluation_reference_loaded": false,
+  "method": "frozen_soccertrack_developed_ball_tracker",
+  "manifest_sha256": "b195c8f2383504d123ae30936751dbd912a1470d51cace510d9af2102b457587",
+  "raw_video_sha256": "536563d9d688b5d4c05af16575800ffdb104db0ca7ada9a24250d5f9a3f2d37f",
+  "detector_cache_sha256": "cb4cd8debfaf275fce7aabffda9851c1bfcbb686e59ac1cf3007e70162cbcc51",
+  "ball_tracking_source_sha256": "d4977867761ff6e4b233124ddf10872327795b55e1f899d4420713e0cc0d94f3",
+  "configuration_sha256": "101ddadfe2fb5f6378b66077dc19496eadec7fa8f74182eaa7a87a3386e2a943",
+  "configuration": {
+    "raw_motion": {
+      "difference_threshold": 18,
+      "minimum_circularity": 0.32,
+      "minimum_appearance_range": 24.0,
+      "minimum_extent_ball_diameters": 0.18,
+      "maximum_extent_ball_diameters": 1.8,
+      "minimum_area_ball_diameters_squared": 0.025,
+      "maximum_area_ball_diameters_squared": 1.8,
+      "trajectory_corridor_ball_diameters": 2.5,
+      "trajectory_maximum_sample_gap": 4,
+      "global_fallback_minimum_temporal_neighbors": 2
+    },
+    "kalman_reacquisition": {
+      "process_position_variance": 4.0,
+      "process_velocity_variance": 625.0,
+      "measurement_variance": 16.0,
+      "initial_position_variance": 16.0,
+      "initial_velocity_variance": 40000.0,
+      "uncertainty_sigma": 2.5,
+      "minimum_roi_radius_pixels": 12.0,
+      "maximum_roi_radius_pixels": 140.0,
+      "maximum_prediction_only_frames": 3,
+      "maximum_bidirectional_disagreement_fraction": 0.75,
+      "candidate_deduplication_pixels": 4.0
+    },
+    "dense_optical_flow": {
+      "maximum_bridge_raw_frames": 20,
+      "patch_radius_ball_diameters": 1.0,
+      "minimum_patch_radius_pixels": 5,
+      "maximum_patch_radius_pixels": 18,
+      "lk_window_pixels": 15,
+      "lk_pyramid_levels": 2,
+      "maximum_forward_backward_error_pixels": 1.5,
+      "minimum_retained_features": 3,
+      "feature_quality_level": 0.01,
+      "feature_minimum_distance_pixels": 2.0,
+      "minimum_template_score": 0.55,
+      "local_search_ball_diameters": 1.5,
+      "maximum_local_search_pixels": 24,
+      "maximum_speed_pixels_per_second": 1600.0,
+      "maximum_acceleration_pixels_per_second_squared": 12000.0,
+      "minimum_feature_scale_ratio": 0.4,
+      "maximum_feature_scale_ratio": 2.5,
+      "maximum_endpoint_error_ball_diameters": 1.5,
+      "maximum_path_disagreement_ball_diameters": 1.5
+    },
+    "tracker_defaults": {
+      "static_cell_size": 20,
+      "static_occupancy": 0.25,
+      "max_gap_seconds": 0.56,
+      "max_speed_pixels_per_second": 1600.0,
+      "minimum_track_points": 3
+    }
+  }
+}

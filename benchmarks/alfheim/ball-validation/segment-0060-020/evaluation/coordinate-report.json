@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "prediction_frozen_before_evaluation": true,
+  "runtime_manifest_sha256": "01f836e348bd4559cf967b1764f0546ec520fee8c377f3005e88d77989eb7042",
+  "prediction_freeze_sha256": "3f8e59e2a3a962e4f460d607dbef5a022889a3517e68007db36e9e01f3842555",
+  "reference_kind": "evaluation_only_provider_coordinates",
+  "coordinate_transform": {
+    "source_width": 4450,
+    "source_height": 2000,
+    "prediction_width": 3840,
+    "prediction_height": 1726,
+    "scale_x": 0.86292135,
+    "scale_y": 0.863
+  },
+  "metrics": {
+    "evaluated_sampled_frames": 300,
+    "tracked_sampled_frames": 84,
+    "matched_sampled_frames": 68,
+    "missed_sampled_frames": 232,
+    "false_positive_track_points": 21,
+    "tracked_frame_coverage": 0.28,
+    "coordinate_match_recall": 0.2267,
+    "coordinate_match_precision": 0.764,
+    "mean_matched_distance_px": 13.669,
+    "maximum_match_distance_px": 32.0
+  }
+}

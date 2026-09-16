@@ -1,0 +1,924 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#090614">
+  <title>AZ Executive Architecture Preview</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --ink: #f8f7fb;
+      --muted: #c8c1d8;
+      --purple: #7d3cff;
+      --mint: #54f0c2;
+      --amber: #ffc95d;
+      font-family: Inter, "Segoe UI", Arial, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    html, body { min-height: 100%; margin: 0; }
+    body {
+      display: grid;
+      min-height: 100svh;
+      place-items: center;
+      overflow-x: hidden;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 20% 20%, rgb(125 60 255 / 26%), transparent 35rem),
+        radial-gradient(circle at 85% 80%, rgb(84 240 194 / 16%), transparent 32rem),
+        #090614;
+    }
+    .frame {
+      width: min(100%, 1920px);
+      aspect-ratio: 16 / 9;
+      padding: clamp(20px, 2.5vw, 48px);
+      overflow: hidden;
+      background: linear-gradient(135deg, rgb(12 8 24 / 92%), rgb(18 10 37 / 96%));
+    }
+    header {
+      display: flex;
+      justify-content: space-between;
+      gap: 30px;
+      align-items: end;
+      margin-bottom: clamp(16px, 1.8vw, 28px);
+    }
+    .eyebrow {
+      margin: 0 0 7px;
+      color: var(--mint);
+      font-size: clamp(.68rem, .7vw, .88rem);
+      font-weight: 900;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+    }
+    h1, h2, h3, p { margin-top: 0; }
+    h1 {
+      max-width: 920px;
+      margin-bottom: 0;
+      font-size: clamp(1.9rem, 3.2vw, 3.9rem);
+      letter-spacing: -.045em;
+      line-height: 1;
+      text-wrap: balance;
+    }
+    .future {
+      flex: 0 0 auto;
+      padding: 8px 12px;
+      border: 1px solid var(--amber);
+      border-radius: 999px;
+      color: var(--amber);
+      font-size: clamp(.65rem, .7vw, .82rem);
+      font-weight: 900;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+    .layout {
+      display: grid;
+      grid-template-columns: 1.45fr .85fr;
+      gap: clamp(14px, 1.4vw, 24px);
+      height: calc(100% - clamp(85px, 8vw, 130px));
+    }
+    .architecture, .decision-room {
+      min-width: 0;
+      border: 1px solid rgb(255 255 255 / 16%);
+      border-radius: 24px;
+      background: rgb(14 10 28 / 82%);
+      box-shadow: 0 22px 60px rgb(0 0 0 / 28%);
+    }
+    .architecture { display: grid; grid-template-rows: 1fr auto; overflow: hidden; }
+    .pitch-wrap { position: relative; min-height: 0; overflow: hidden; }
+    .cabling {
+      position: absolute;
+      z-index: 1;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+    .cabling > path {
+      fill: none;
+      stroke: #b58cff;
+      stroke-width: 2;
+      stroke-linecap: round;
+      vector-effect: non-scaling-stroke;
+      filter: drop-shadow(0 0 3px rgb(181 140 255 / 85%));
+    }
+    .pitch {
+      position: absolute;
+      inset: 13% 4% 11%;
+      width: auto;
+      height: auto;
+      border: 2px solid rgb(255 255 255 / 72%);
+      background:
+        linear-gradient(90deg,
+          rgb(255 121 111 / 13%) 0 25%,
+          rgb(255 201 93 / 11%) 25% 50%,
+          rgb(84 240 194 / 11%) 50% 75%,
+          rgb(120 191 255 / 13%) 75% 100%),
+        repeating-linear-gradient(90deg, #15583a 0 8%, #104b31 8% 16%);
+      box-shadow: inset 0 0 45px rgb(0 0 0 / 25%);
+    }
+    .pitch::before {
+      position: absolute;
+      inset: 0;
+      background:
+        linear-gradient(90deg, transparent 49.8%, rgb(255 255 255 / 72%) 50%, transparent 50.2%),
+        radial-gradient(circle at 50% 50%, transparent 0 10%, rgb(255 255 255 / 68%) 10.3% 10.8%, transparent 11.1%),
+        linear-gradient(90deg,
+          transparent 11%, rgb(255 255 255 / 55%) 11.2% 11.5%, transparent 11.7% 88.3%,
+          rgb(255 255 255 / 55%) 88.5% 88.8%, transparent 89%);
+      content: "";
+    }
+    .pitch::after {
+      position: absolute;
+      inset: 0;
+      background:
+        linear-gradient(90deg,
+          transparent 24.8%, rgb(255 255 255 / 24%) 25%, transparent 25.2%,
+          transparent 49.8%, rgb(255 255 255 / 24%) 50%, transparent 50.2%,
+          transparent 74.8%, rgb(255 255 255 / 24%) 75%, transparent 75.2%);
+      content: "";
+    }
+    .zone-labels {
+      position: absolute;
+      z-index: 2;
+      inset: 14% 4% auto;
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      pointer-events: none;
+    }
+    .zone-labels span {
+      color: rgb(255 255 255 / 80%);
+      font-size: clamp(.46rem, .5vw, .64rem);
+      font-weight: 900;
+      letter-spacing: .06em;
+      text-align: center;
+      text-transform: uppercase;
+    }
+    .halfway-line {
+      position: absolute;
+      z-index: 2;
+      top: 13%;
+      bottom: 11%;
+      left: 50%;
+      width: 2px;
+      background: rgb(255 255 255 / 88%);
+      box-shadow: 0 0 4px rgb(0 0 0 / 35%);
+      transform: translateX(-50%);
+    }
+    .halfway-line::after {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: white;
+      box-shadow: 0 0 0 2px rgb(0 0 0 / 24%);
+      content: "";
+      transform: translate(-50%, -50%);
+    }
+    .goal {
+      position: absolute;
+      z-index: 3;
+      top: 43%;
+      width: 2.2%;
+      height: 18%;
+      border: 3px solid white;
+      background:
+        repeating-linear-gradient(0deg, transparent 0 5px, rgb(255 255 255 / 34%) 5px 6px),
+        repeating-linear-gradient(90deg, transparent 0 5px, rgb(255 255 255 / 34%) 5px 6px);
+      box-shadow: 0 3px 8px rgb(0 0 0 / 55%);
+    }
+    .goal-left-post { left: 1.8%; border-right: 0; }
+    .goal-right-post { right: 1.8%; border-left: 0; }
+    .corner-flag {
+      position: absolute;
+      z-index: 3;
+      width: 2px;
+      height: 18px;
+      background: white;
+      filter: drop-shadow(0 2px 2px rgb(0 0 0 / 60%));
+    }
+    .corner-flag::before {
+      position: absolute;
+      top: 0;
+      left: 2px;
+      width: 0;
+      height: 0;
+      border-top: 4px solid transparent;
+      border-bottom: 4px solid transparent;
+      border-left: 10px solid var(--amber);
+      content: "";
+    }
+    .corner-top-left { top: 13%; left: 4%; transform: translate(-1px, -15px); }
+    .corner-top-right { top: 13%; right: 4%; transform: translate(1px, -15px) scaleX(-1); }
+    .corner-bottom-left { bottom: 11%; left: 4%; transform: translate(-1px, 15px) scaleY(-1); }
+    .corner-bottom-right { right: 4%; bottom: 11%; transform: translate(1px, 15px) scale(-1); }
+    .passing-lanes {
+      position: absolute;
+      z-index: 2;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+    .passing-lanes line {
+      stroke: var(--mint);
+      stroke-width: 2;
+      stroke-linecap: round;
+      vector-effect: non-scaling-stroke;
+      filter: drop-shadow(0 0 3px rgb(84 240 194 / 70%));
+    }
+    .passing-lanes .lost-pass {
+      stroke: var(--amber);
+      stroke-dasharray: 5 4;
+      filter: drop-shadow(0 0 2px rgb(255 201 93 / 55%));
+    }
+    .player {
+      position: absolute;
+      z-index: 3;
+      width: 15px;
+      height: 15px;
+      border: 2px solid white;
+      border-radius: 50%;
+      background: #111827;
+      box-shadow: 0 2px 5px rgb(0 0 0 / 60%);
+      transform: translate(-50%, -50%);
+    }
+    .player::after {
+      position: absolute;
+      top: 12px;
+      left: 50%;
+      width: 7px;
+      height: 8px;
+      border: 1px solid rgb(255 255 255 / 85%);
+      border-radius: 2px 2px 4px 4px;
+      background: inherit;
+      content: "";
+      transform: translateX(-50%);
+    }
+    .player.red { background: #f04b47; }
+    .player.blue { background: #1677d2; }
+    .player.goalkeeper { border-color: #fff2a8; background: #f0ae2c; }
+    .ball {
+      position: absolute;
+      z-index: 4;
+      top: 50%;
+      left: 55%;
+      width: 9px;
+      height: 9px;
+      border: 2px solid #111;
+      border-radius: 50%;
+      background: white;
+      box-shadow: 0 0 0 2px rgb(255 255 255 / 30%), 0 2px 5px rgb(0 0 0 / 70%);
+      transform: translate(-50%, -50%);
+    }
+    .home-gk { top: 51%; left: 10%; }
+    .home-1 { top: 34%; left: 24%; }
+    .home-2 { top: 49%; left: 27%; }
+    .home-3 { top: 65%; left: 26%; }
+    .home-4 { top: 38%; left: 42%; }
+    .home-5 { top: 54%; left: 43%; }
+    .home-6 { top: 69%; left: 49%; }
+    .home-7 { top: 35%; left: 57%; }
+    .home-8 { top: 51%; left: 55%; }
+    .home-9 { top: 63%; left: 71%; }
+    .home-10 { top: 39%; left: 71%; }
+    .away-gk { top: 51%; left: 90%; }
+    .away-1 { top: 31%; left: 80%; }
+    .away-2 { top: 46%; left: 82%; }
+    .away-3 { top: 64%; left: 82%; }
+    .away-4 { top: 37%; left: 65%; }
+    .away-5 { top: 55%; left: 68%; }
+    .away-6 { top: 70%; left: 65%; }
+    .away-7 { top: 43%; left: 51%; }
+    .away-8 { top: 61%; left: 53%; }
+    .away-9 { top: 31%; left: 48%; }
+    .passing-legend {
+      position: absolute;
+      z-index: 4;
+      top: 79%;
+      right: 5%;
+      display: flex;
+      gap: 10px;
+      padding: 5px 8px;
+      border-radius: 7px;
+      color: var(--ink);
+      background: rgb(7 7 12 / 82%);
+      font-size: clamp(.38rem, .4vw, .5rem);
+      font-weight: 800;
+    }
+    .passing-legend span { display: flex; gap: 4px; align-items: center; }
+    .passing-legend i { width: 16px; height: 2px; background: var(--mint); }
+    .passing-legend .lost i { border-top: 2px dashed var(--amber); background: transparent; }
+    .camera {
+      position: absolute;
+      z-index: 6;
+      display: grid;
+      grid-template-columns: 28px 1fr;
+      gap: 7px;
+      width: clamp(118px, 10vw, 190px);
+      align-items: center;
+      padding: 7px 9px;
+      border: 1px solid var(--mint);
+      border-radius: 10px;
+      background: rgb(7 16 19 / 90%);
+      color: var(--mint);
+      font-size: clamp(.55rem, .56vw, .72rem);
+      font-weight: 900;
+      text-align: left;
+    }
+    .camera img {
+      width: 28px;
+      height: 28px;
+      border-radius: 5px;
+      object-fit: cover;
+      filter: saturate(.7);
+    }
+    .camera strong, .camera small { display: block; }
+    .camera small {
+      margin-top: 2px;
+      color: var(--muted);
+      font-size: clamp(.4rem, .42vw, .52rem);
+      font-weight: 600;
+      line-height: 1.2;
+    }
+    .main-camera { bottom: 3%; left: 42%; border-color: var(--amber); color: var(--amber); }
+    .goal-left, .goal-right {
+      z-index: 2;
+      top: 45%;
+      grid-template-columns: 20px 1fr;
+      gap: 4px;
+      width: clamp(82px, 7.5vw, 112px);
+      padding: 5px;
+      font-size: clamp(.42rem, .44vw, .56rem);
+    }
+    .goal-left img, .goal-right img { width: 20px; height: 20px; }
+    .goal-left { left: .3%; }
+    .goal-right { right: .3%; }
+    .touchline { top: 9%; left: 43%; }
+    .query-note {
+      position: absolute;
+      z-index: 2;
+      top: 17%;
+      left: 25%;
+      width: 50%;
+      padding: 12px;
+      border-radius: 12px;
+      color: var(--ink);
+      background: rgb(15 8 30 / 84%);
+      font-size: clamp(.62rem, .65vw, .82rem);
+      line-height: 1.4;
+      text-align: center;
+    }
+    .query-note strong { color: var(--mint); }
+    .camera-tiers {
+      position: absolute;
+      z-index: 4;
+      top: 8%;
+      right: 5%;
+      display: grid;
+      gap: 3px;
+      width: min(30%, 240px);
+      padding: 8px 10px;
+      border-radius: 9px;
+      background: rgb(7 7 12 / 90%);
+      color: var(--muted);
+      font-size: clamp(.4rem, .43vw, .54rem);
+      line-height: 1.3;
+    }
+    .camera-tiers b { color: var(--amber); }
+    .clubhouse-gpu {
+      position: absolute;
+      z-index: 5;
+      top: 1%;
+      left: 4%;
+      display: grid;
+      grid-template-columns: 42px 1fr;
+      gap: 9px;
+      width: min(34%, 285px);
+      align-items: center;
+      padding: 9px 10px;
+      border: 1px solid var(--purple);
+      border-radius: 10px;
+      background: rgb(12 7 26 / 96%);
+      box-shadow: 0 0 24px rgb(125 60 255 / 24%);
+    }
+    .gpu-icon {
+      display: grid;
+      width: 42px;
+      height: 48px;
+      place-items: center;
+      border: 2px solid var(--purple);
+      border-radius: 5px;
+      color: var(--mint);
+      background:
+        radial-gradient(circle at 50% 35%, var(--mint) 0 3px, transparent 4px),
+        linear-gradient(180deg, rgb(125 60 255 / 28%), transparent);
+      font-size: .5rem;
+      font-weight: 900;
+    }
+    .clubhouse-gpu strong, .clubhouse-gpu span { display: block; }
+    .clubhouse-gpu strong { color: var(--ink); font-size: clamp(.52rem, .56vw, .7rem); }
+    .clubhouse-gpu span { margin-top: 2px; color: var(--muted); font-size: clamp(.4rem, .42vw, .53rem); line-height: 1.25; }
+    .security-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 3px;
+      margin-top: 5px;
+    }
+    .security-tags i {
+      padding: 2px 4px;
+      border: 1px solid rgb(84 240 194 / 45%);
+      border-radius: 999px;
+      color: var(--mint);
+      font-size: clamp(.34rem, .36vw, .44rem);
+      font-style: normal;
+      font-weight: 800;
+    }
+    .poe-switch {
+      position: absolute;
+      z-index: 5;
+      top: 4%;
+      left: 29%;
+      display: grid;
+      width: 64px;
+      height: 34px;
+      place-items: center;
+      border: 2px solid var(--mint);
+      border-radius: 7px;
+      color: #061812;
+      background: var(--mint);
+      box-shadow: 0 0 18px rgb(84 240 194 / 55%);
+      font-size: clamp(.4rem, .43vw, .54rem);
+      font-weight: 950;
+      text-align: center;
+    }
+    .cable-legend {
+      position: absolute;
+      z-index: 5;
+      top: 1%;
+      left: 29%;
+      padding: 4px 7px;
+      border-radius: 999px;
+      color: #d2baff;
+      background: rgb(24 13 44 / 94%);
+      font-size: clamp(.38rem, .4vw, .5rem);
+      font-weight: 900;
+    }
+    .stadium-board {
+      position: absolute;
+      z-index: 4;
+      bottom: 12%;
+      left: 6%;
+      width: min(52%, 470px);
+      padding: 10px 12px;
+      border: 3px solid #34303b;
+      border-radius: 9px;
+      background: rgb(7 7 12 / 94%);
+      box-shadow: 0 12px 26px rgb(0 0 0 / 45%);
+    }
+    .stadium-board header {
+      display: flex;
+      margin: 0 0 7px;
+      align-items: center;
+      color: var(--amber);
+      font-size: clamp(.46rem, .5vw, .62rem);
+      font-weight: 900;
+      letter-spacing: .08em;
+    }
+    .stadium-stats {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 4px;
+    }
+    .stadium-stat {
+      padding: 5px 3px;
+      border-radius: 5px;
+      background: rgb(255 255 255 / 7%);
+      text-align: center;
+    }
+    .stadium-stat b {
+      display: block;
+      color: var(--ink);
+      font-size: clamp(.58rem, .65vw, .82rem);
+      font-variant-numeric: tabular-nums;
+    }
+    .stadium-stat span { color: var(--muted); font-size: clamp(.4rem, .42vw, .52rem); }
+    .pipeline {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+      padding: 14px;
+      background: rgb(8 5 16 / 92%);
+    }
+    .node {
+      position: relative;
+      min-width: 0;
+      padding: 10px;
+      border-radius: 9px;
+      background: rgb(255 255 255 / 7%);
+      color: var(--muted);
+      font-size: clamp(.52rem, .56vw, .7rem);
+      line-height: 1.35;
+    }
+    .node:not(:last-child)::after {
+      position: absolute;
+      top: 50%;
+      right: -8px;
+      z-index: 2;
+      color: var(--mint);
+      content: "›";
+      font-size: 1.1rem;
+      transform: translateY(-55%);
+    }
+    .node b { display: block; margin-bottom: 3px; color: var(--mint); }
+    .decision-room {
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      gap: 13px;
+      padding: clamp(16px, 1.6vw, 28px);
+    }
+    .decision-room h2 {
+      margin-bottom: 5px;
+      font-size: clamp(1.1rem, 1.45vw, 1.75rem);
+      line-height: 1.05;
+      text-wrap: balance;
+    }
+    .decision-room header { display: block; margin: 0; }
+    .decision-room header p { margin: 0; color: var(--muted); font-size: clamp(.62rem, .68vw, .82rem); }
+    .screen {
+      min-height: 0;
+      padding: clamp(12px, 1.2vw, 20px);
+      border: 5px solid #282232;
+      border-radius: 16px;
+      background:
+        linear-gradient(90deg, transparent 49.7%, rgb(255 255 255 / 28%) 50%, transparent 50.3%),
+        linear-gradient(0deg, transparent 49.7%, rgb(255 255 255 / 20%) 50%, transparent 50.3%),
+        #124c32;
+      box-shadow: inset 0 0 0 2px rgb(255 255 255 / 12%), 0 14px 30px rgb(0 0 0 / 30%);
+    }
+    .screen-top {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 12px;
+      font-size: clamp(.56rem, .6vw, .72rem);
+      font-weight: 900;
+    }
+    .screen-top span:last-child { color: var(--amber); }
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 7px;
+      margin-bottom: 13px;
+    }
+    .metric {
+      padding: 9px 5px;
+      border-radius: 8px;
+      background: rgb(3 18 11 / 60%);
+      text-align: center;
+    }
+    .metric b { display: block; font-size: clamp(.9rem, 1.2vw, 1.45rem); font-variant-numeric: tabular-nums; }
+    .metric span { color: #d7e6dd; font-size: clamp(.48rem, .5vw, .62rem); }
+    .zone-analysis {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 5px;
+      min-height: 44%;
+    }
+    .zone-card {
+      display: grid;
+      align-content: end;
+      min-width: 0;
+      padding: 8px 5px;
+      border: 1px solid rgb(255 255 255 / 24%);
+      border-radius: 6px;
+      background: linear-gradient(0deg, rgb(4 20 13 / 90%), rgb(255 255 255 / 5%));
+      text-align: center;
+    }
+    .zone-card.hot { border-color: var(--amber); background: linear-gradient(0deg, rgb(54 37 6 / 92%), rgb(255 201 93 / 20%)); }
+    .zone-card h3 {
+      margin-bottom: 7px;
+      color: var(--ink);
+      font-size: clamp(.48rem, .52vw, .64rem);
+      text-transform: uppercase;
+    }
+    .zone-card b { color: var(--mint); font-size: clamp(.7rem, .78vw, .95rem); font-variant-numeric: tabular-nums; }
+    .zone-card.hot b { color: var(--amber); }
+    .zone-card span { color: #d7e6dd; font-size: clamp(.38rem, .42vw, .52rem); line-height: 1.35; }
+    .half-time-focus {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 5px;
+      margin-top: 7px;
+    }
+    .focus-item {
+      min-width: 0;
+      padding: 6px 4px;
+      border-radius: 6px;
+      background: rgb(4 20 13 / 72%);
+      text-align: center;
+    }
+    .focus-item b {
+      display: block;
+      color: var(--amber);
+      font-size: clamp(.58rem, .68vw, .82rem);
+      font-variant-numeric: tabular-nums;
+    }
+    .focus-item span {
+      display: block;
+      margin-top: 2px;
+      color: #d7e6dd;
+      font-size: clamp(.36rem, .4vw, .5rem);
+      line-height: 1.25;
+    }
+    .dugout-device {
+      position: absolute;
+      z-index: 5;
+      right: 7%;
+      bottom: 13%;
+      display: grid;
+      grid-template-columns: 64px 1fr;
+      gap: 8px;
+      width: min(43%, 340px);
+      align-items: center;
+      padding: 8px;
+      border: 1px solid var(--mint);
+      border-radius: 9px;
+      background: rgb(4 20 17 / 94%);
+      color: var(--muted);
+      font-size: clamp(.4rem, .44vw, .56rem);
+      line-height: 1.3;
+    }
+    .dugout-tablet {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 2px;
+      width: 64px;
+      height: 42px;
+      align-items: end;
+      padding: 5px;
+      border: 2px solid var(--mint);
+      border-radius: 4px;
+      color: var(--mint);
+      font-weight: 900;
+    }
+    .dugout-tablet i {
+      display: block;
+      min-height: 8px;
+      border-radius: 2px 2px 0 0;
+      background: var(--mint);
+    }
+    .dugout-tablet i:nth-child(2) { height: 72%; }
+    .dugout-tablet i:nth-child(3) { height: 48%; background: var(--amber); }
+    .dugout-tablet i:nth-child(4) { height: 88%; }
+    .dugout-device strong { display: block; color: var(--mint); }
+    .zoom-label {
+      display: block;
+      margin-top: 3px;
+      color: var(--amber);
+      font-weight: 900;
+    }
+    .expanded-badge {
+      display: inline-flex;
+      margin-bottom: 8px;
+      padding: 5px 8px;
+      border: 1px solid var(--mint);
+      border-radius: 999px;
+      color: var(--mint);
+      font-size: clamp(.45rem, .48vw, .58rem);
+      font-weight: 900;
+      letter-spacing: .05em;
+      text-transform: uppercase;
+    }
+    .coach-callout {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 12px;
+      align-items: center;
+      padding: 12px;
+      border-left: 4px solid var(--amber);
+      border-radius: 9px;
+      background: rgb(255 201 93 / 9%);
+    }
+    .coach-icon {
+      display: grid;
+      width: 42px;
+      height: 42px;
+      place-items: center;
+      border-radius: 50%;
+      color: #160d00;
+      background: var(--amber);
+      font-size: 1.2rem;
+      font-weight: 900;
+    }
+    .coach-callout p { margin: 0; color: var(--ink); font-size: clamp(.58rem, .62vw, .76rem); line-height: 1.4; }
+    .coach-callout strong { color: var(--amber); }
+    @media (max-width: 760px) {
+      .frame { aspect-ratio: auto; }
+      .layout { grid-template-columns: 1fr; height: auto; }
+      .architecture { min-height: 520px; }
+      .decision-room { min-height: 500px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="frame">
+    <header>
+      <div>
+        <p class="eyebrow">Executive Visual Preview</p>
+        <h1>From Every Angle to One Better Decision</h1>
+      </div>
+      <span class="future">Proposed Professional Architecture</span>
+    </header>
+
+    <div class="layout">
+      <section class="architecture" aria-label="Four-camera pitch and processing architecture">
+        <div class="pitch-wrap">
+          <svg class="cabling" viewBox="0 0 100 100" preserveAspectRatio="none" aria-label="Wired camera feeds connected to the secure local GPU workstation">
+            <defs>
+              <marker id="cable-arrow" markerWidth="4" markerHeight="4" refX="3" refY="2" orient="auto">
+                <path d="M0,0 L4,2 L0,4 Z" fill="#7d3cff"></path>
+              </marker>
+            </defs>
+            <path d="M49 91 L49 94 L2 94 L2 6 L30 6" marker-end="url(#cable-arrow)"></path>
+            <path d="M5 51 L2 51 L2 6 L30 6" marker-end="url(#cable-arrow)"></path>
+            <path d="M95 51 L98 51 L98 94 L2 94 L2 6 L30 6" marker-end="url(#cable-arrow)"></path>
+            <path d="M50 10 L50 6 L30 6" marker-end="url(#cable-arrow)"></path>
+            <path d="M30 6 L18 6" marker-end="url(#cable-arrow)"></path>
+          </svg>
+          <div class="pitch" role="img" aria-label="Artificial calibrated football pitch divided into defensive, build-up, progression, and final-third zones"></div>
+          <div class="zone-labels" aria-hidden="true">
+            <span>Zone 1 · Defend</span>
+            <span>Zone 2 · Build</span>
+            <span>Zone 3 · Progress</span>
+            <span>Zone 4 · Final Third</span>
+          </div>
+          <div aria-label="Pitch markings with two goals, four corner flags, and a halfway line">
+            <span class="halfway-line" aria-hidden="true"></span>
+            <span class="goal goal-left-post" aria-hidden="true"></span>
+            <span class="goal goal-right-post" aria-hidden="true"></span>
+            <span class="corner-flag corner-top-left" aria-hidden="true"></span>
+            <span class="corner-flag corner-top-right" aria-hidden="true"></span>
+            <span class="corner-flag corner-bottom-left" aria-hidden="true"></span>
+            <span class="corner-flag corner-bottom-right" aria-hidden="true"></span>
+          </div>
+          <svg class="passing-lanes" viewBox="0 0 100 100" preserveAspectRatio="none" aria-label="Illustrative passing lanes connecting players">
+            <defs>
+              <marker id="completed-pass-arrow" markerWidth="5" markerHeight="5" refX="4" refY="2.5" orient="auto">
+                <path d="M0,0 L5,2.5 L0,5 Z" fill="#54f0c2"></path>
+              </marker>
+              <marker id="lost-pass-arrow" markerWidth="5" markerHeight="5" refX="4" refY="2.5" orient="auto">
+                <path d="M0,0 L5,2.5 L0,5 Z" fill="#ffc95d"></path>
+              </marker>
+            </defs>
+            <line x1="10" y1="51" x2="27" y2="49" marker-end="url(#completed-pass-arrow)"></line>
+            <line x1="27" y1="49" x2="42" y2="38" marker-end="url(#completed-pass-arrow)"></line>
+            <line x1="42" y1="38" x2="57" y2="35" marker-end="url(#completed-pass-arrow)"></line>
+            <line x1="27" y1="49" x2="43" y2="54" marker-end="url(#completed-pass-arrow)"></line>
+            <line x1="43" y1="54" x2="55" y2="51" marker-end="url(#completed-pass-arrow)"></line>
+            <line x1="55" y1="51" x2="71" y2="39" marker-end="url(#completed-pass-arrow)"></line>
+            <line x1="43" y1="54" x2="49" y2="69" marker-end="url(#completed-pass-arrow)"></line>
+            <line x1="49" y1="69" x2="71" y2="63" marker-end="url(#completed-pass-arrow)"></line>
+            <line class="lost-pass" x1="55" y1="51" x2="68" y2="55" marker-end="url(#lost-pass-arrow)"></line>
+          </svg>
+          <div aria-label="Illustrative team shapes and passing lanes">
+            <span class="player blue goalkeeper home-gk" aria-hidden="true"></span>
+            <span class="player blue home-1" aria-hidden="true"></span>
+            <span class="player blue home-2" aria-hidden="true"></span>
+            <span class="player blue home-3" aria-hidden="true"></span>
+            <span class="player blue home-4" aria-hidden="true"></span>
+            <span class="player blue home-5" aria-hidden="true"></span>
+            <span class="player blue home-6" aria-hidden="true"></span>
+            <span class="player blue home-7" aria-hidden="true"></span>
+            <span class="player blue home-8" aria-hidden="true"></span>
+            <span class="player blue home-9" aria-hidden="true"></span>
+            <span class="player blue home-10" aria-hidden="true"></span>
+            <span class="player red goalkeeper away-gk" aria-hidden="true"></span>
+            <span class="player red away-1" aria-hidden="true"></span>
+            <span class="player red away-2" aria-hidden="true"></span>
+            <span class="player red away-3" aria-hidden="true"></span>
+            <span class="player red away-4" aria-hidden="true"></span>
+            <span class="player red away-5" aria-hidden="true"></span>
+            <span class="player red away-6" aria-hidden="true"></span>
+            <span class="player red away-7" aria-hidden="true"></span>
+            <span class="player red away-8" aria-hidden="true"></span>
+            <span class="player red away-9" aria-hidden="true"></span>
+            <span class="ball" aria-hidden="true"></span>
+          </div>
+          <div class="passing-legend" aria-label="Passing lane legend">
+            <span><i aria-hidden="true"></i>Completed lane</span>
+            <span class="lost"><i aria-hidden="true"></i>Possession lost</span>
+          </div>
+          <div class="camera main-camera">
+            <img src="camera-icon.png" width="28" height="28" alt="">
+            <span><strong>Main Long-Side Panoramic</strong><small>Elevated near halfway · continuous full-pitch stream</small></span>
+          </div>
+          <div class="camera goal-left">
+            <img src="camera-icon.png" width="28" height="28" alt="">
+            <span><strong>Optional Left Goal-End</strong><small>Budget-based targeted evidence upgrade</small></span>
+          </div>
+          <div class="camera goal-right">
+            <img src="camera-icon.png" width="28" height="28" alt="">
+            <span><strong>Optional Right Goal-End</strong><small>Budget-based targeted evidence upgrade</small></span>
+          </div>
+          <div class="camera touchline">
+            <img src="camera-icon.png" width="28" height="28" alt="">
+            <span><strong>Recommended 2nd Panoramic</strong><small>Opposite elevated long side · queried when needed</small></span>
+          </div>
+          <p class="query-note"><strong>Main camera streams continuously.</strong><br>Only the relevant secondary view is queried when confidence drops for a short moment.</p>
+          <aside class="clubhouse-gpu" aria-label="Secure on-premises GPU workstation in the clubhouse security office">
+            <span class="gpu-icon" aria-hidden="true">GPU</span>
+            <span>
+              <strong>Clubhouse Security Office</strong>
+              <span>Wired PoE feeds → locked high-speed GPU workstation</span>
+              <span class="security-tags"><i>BitLocker</i><i>Local Storage</i><i>Authorised Access</i></span>
+            </span>
+          </aside>
+          <div class="poe-switch" aria-label="Power over Ethernet network switch">PoE<br>Switch</div>
+          <div class="cable-legend">Cat6 / PoE camera cables</div>
+          <div class="camera-tiers" aria-label="Grassroots camera affordability options">
+            <span><b>Minimum viable:</b> 1 elevated long-side panoramic camera</span>
+            <span><b>Recommended:</b> 2 opposing long-side panoramic cameras</span>
+            <span><b>Optional:</b> 2 goal-end query cameras when budget allows</span>
+          </div>
+          <aside class="stadium-board" aria-label="Illustrative pitch-side stadium statistics">
+            <header><span>STADIUM DISPLAY · PROVISIONAL LIVE STATS</span><span>28s behind live</span></header>
+            <div class="stadium-stats">
+              <div class="stadium-stat"><b>168–151</b><span>Passes</span></div>
+              <div class="stadium-stat"><b>5–3</b><span>Shots</span></div>
+              <div class="stadium-stat"><b>3–1</b><span>On Target</span></div>
+              <div class="stadium-stat"><b>1–0</b><span>Goals</span></div>
+              <div class="stadium-stat"><b>54–46%</b><span>Possession</span></div>
+            </div>
+          </aside>
+          <aside class="dugout-device" aria-label="Future authorised dugout tablet">
+            <span class="dugout-tablet" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+            <span><strong>Future Dugout View</strong>Condensed live zones and statistics.<span class="zoom-label">Tap to expand the same dashboard →</span></span>
+          </aside>
+        </div>
+        <div class="pipeline" aria-label="Near-live processing flow">
+          <div class="node"><b>1 · Ingest</b>Wired calibrated camera streams</div>
+          <div class="node"><b>2 · Process Locally</b>Secure GPU + overlapping 30-second windows</div>
+          <div class="node"><b>3 · Understand</b>Tracking + football state</div>
+          <div class="node"><b>4 · Publish</b>Cumulative provisional stats</div>
+        </div>
+      </section>
+
+      <section class="decision-room" aria-labelledby="decision-title">
+        <header>
+          <p class="eyebrow">Half-Time Decision Room</p>
+          <span class="expanded-badge">Expanded Coaching View · Same Data</span>
+          <h2 id="decision-title">See the Match While You Can Still Change It</h2>
+          <p>Large touchscreen view for coaching judgement—not an automatic tactical instruction.</p>
+        </header>
+        <div class="screen" role="img" aria-label="Illustrative coaching touchscreen showing possession, passing, turnovers, pitch zones, and team lines">
+          <div class="screen-top"><span>PROVISIONAL AI STATISTICS</span><span>Processed through 45:00</span></div>
+          <div class="metrics">
+            <div class="metric"><b>54%</b><span>Possession</span></div>
+            <div class="metric"><b>168</b><span>Completed Passes</span></div>
+            <div class="metric"><b>11</b><span>Turnovers Lost</span></div>
+            <div class="metric"><b>3</b><span>Shots on Target</span></div>
+          </div>
+          <div class="zone-analysis" aria-label="Illustrative possession and passing by pitch zone">
+            <div class="zone-card">
+              <h3>Defend</h3>
+              <b>61%</b><span>Possession</span>
+              <b>7 / 3</b><span>Won / Lost</span>
+              <b>42</b><span>Passes</span>
+            </div>
+            <div class="zone-card">
+              <h3>Build</h3>
+              <b>57%</b><span>Possession</span>
+              <b>9 / 5</b><span>Won / Lost</span>
+              <b>63</b><span>Passes</span>
+            </div>
+            <div class="zone-card hot">
+              <h3>Progress</h3>
+              <b>43%</b><span>Possession</span>
+              <b>4 / 10</b><span>Won / Lost</span>
+              <b>39</b><span>Passes</span>
+            </div>
+            <div class="zone-card">
+              <h3>Final Third</h3>
+              <b>48%</b><span>Possession</span>
+              <b>3 / 4</b><span>Won / Lost</span>
+              <b>24</b><span>Passes</span>
+            </div>
+          </div>
+          <div class="half-time-focus" aria-label="Illustrative half-time coaching indicators">
+            <div class="focus-item"><b>49% → 43%</b><span>Last 10 min possession trend</span></div>
+            <div class="focus-item"><b>68%</b><span>Forward-pass completion</span></div>
+            <div class="focus-item"><b>14</b><span>Final-third entries</span></div>
+            <div class="focus-item"><b>6</b><span>High-pitch recoveries</span></div>
+          </div>
+        </div>
+        <div class="coach-callout">
+          <span class="coach-icon" aria-hidden="true">✓</span>
+          <p><strong>Coaching insight:</strong> Zone 3 shows 10 losses against 4 wins. Compare the defensive lines and passing routes before adjusting the second-half shape.</p>
+        </div>
+      </section>
+    </div>
+  </main>
+</body>
+</html>

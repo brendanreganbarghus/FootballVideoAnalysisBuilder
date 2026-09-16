@@ -1,0 +1,12 @@
+[
+  {
+    "event_type": "pass_candidate",
+    "clip_seconds": 13.2,
+    "team": "black",
+    "from_player_track_id": 25,
+    "to_player_track_id": 29,
+    "confidence": 0.7179,
+    "details": "Ball direction changed sharply as same-team control transferred.",
+    "completion_seconds": 15.2
+  }
+]

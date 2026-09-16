@@ -1,0 +1,32 @@
+[
+  {
+    "event_type": "pass_candidate",
+    "clip_seconds": 14.2,
+    "team": "black",
+    "from_player_track_id": 25,
+    "to_player_track_id": 29,
+    "confidence": 0.8188,
+    "details": "Ball release at 368.84 pixels/second followed by black control after 1.00s.",
+    "completion_seconds": 15.2
+  },
+  {
+    "event_type": "turnover_candidate",
+    "clip_seconds": 17.0,
+    "team": "black",
+    "from_player_track_id": 29,
+    "to_player_track_id": 89,
+    "confidence": 0.8146,
+    "details": "Ball release at 364.59 pixels/second followed by red control after 0.40s.",
+    "completion_seconds": 17.4
+  },
+  {
+    "event_type": "pass_candidate",
+    "clip_seconds": 17.6,
+    "team": "red",
+    "from_player_track_id": 89,
+    "to_player_track_id": 68,
+    "confidence": 0.6739,
+    "details": "Ball direction changed sharply as same-team control transferred.",
+    "completion_seconds": 18.2
+  }
+]

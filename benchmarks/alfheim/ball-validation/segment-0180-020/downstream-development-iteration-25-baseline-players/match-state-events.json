@@ -1,0 +1,28 @@
+{
+  "schema_version": 2,
+  "law_profile": {
+    "profile_id": "ifab-laws-latest-observable-v1",
+    "reviewed_at": "2026-09-06",
+    "sources": [
+      "https://www.theifab.com/laws/latest/the-start-and-restart-of-play/",
+      "https://www.theifab.com/laws/latest/the-ball-in-and-out-of-play/",
+      "https://www.theifab.com/laws/latest/fouls-and-misconduct/",
+      "https://www.theifab.com/laws/latest/free-kicks/",
+      "https://www.theifab.com/laws/latest/the-throw-in/",
+      "https://www.theifab.com/laws/latest/the-goal-kick/",
+      "https://www.theifab.com/laws/latest/the-corner-kick/"
+    ],
+    "analytics_definition": "The Laws determine match state and legal restart families. Completed passes, turnovers, possession and shot outcomes use separate project definitions because the Laws do not define those statistics."
+  },
+  "initial_state": "in_play",
+  "duration_seconds": 60.0,
+  "intervals": [
+    {
+      "state": "in_play",
+      "start_seconds": 0.0,
+      "end_seconds": 60.0
+    }
+  ],
+  "transitions": [],
+  "rejected_boundary_candidates": []
+}

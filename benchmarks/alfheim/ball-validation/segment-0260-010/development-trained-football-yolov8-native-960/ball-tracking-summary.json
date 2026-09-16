@@ -1,0 +1,30 @@
+{
+  "processed_frames": 100,
+  "raw_pitch_ball_candidates": 414,
+  "filtered_ball_candidates": 25,
+  "accepted_tracks": 1,
+  "accepted_track_points": 20,
+  "observed_track_points": 16,
+  "interpolated_track_points": 4,
+  "tracked_frames": 20,
+  "tracked_frame_coverage": 0.2,
+  "event_tolerance_seconds": 0.32,
+  "ground_truth_event_detection_support": {
+    "high_pass": {
+      "supported": 0,
+      "ground_truth": 0,
+      "support_rate": 0.0
+    },
+    "pass": {
+      "supported": 0,
+      "ground_truth": 0,
+      "support_rate": 0.0
+    },
+    "shot": {
+      "supported": 0,
+      "ground_truth": 0,
+      "support_rate": 0.0
+    }
+  },
+  "interpretation": "Support means an accepted ball track has a detection near the ground-truth timestamp. It is not pass or shot accuracy."
+}

@@ -1,0 +1,35 @@
+{
+  "manifest": "D:\\Projects\\Xebia\\FootballVideoAnalysisBuilder-worktrees\\pass-shot-validation\\benchmarks\\alfheim\\generated\\segment-0260-010\\diagnostic-manifest-20s.json",
+  "cache": "D:\\Projects\\Xebia\\FootballVideoAnalysisBuilder-worktrees\\pass-shot-validation\\benchmarks\\alfheim\\ball-validation\\segment-0260-010\\prediction-20s\\detections.jsonl",
+  "configuration": {
+    "type": "metadata",
+    "manifest_sha256": "b195c8f2383504d123ae30936751dbd912a1470d51cace510d9af2102b457587",
+    "video": "D:\\Projects\\Xebia\\FootballVideoAnalysisBuilder-worktrees\\pass-shot-validation\\benchmarks\\alfheim\\generated\\segment-0260-010\\alfheim-window.mp4",
+    "model": "C:\\Users\\BrendanBarghus\\OneDrive - Xebia\\Innovationday Artifacts\\20-approved-models\\internal-poc-only\\ultralytics-yolo11n\\yolo11n.pt",
+    "confidence": 0.01,
+    "image_size": 960,
+    "stride": 5,
+    "tile_width": 1484,
+    "tile_height": 1200,
+    "overlap": 0.1,
+    "nms_iou": 0.5
+  },
+  "last_run": {
+    "processed_frames": 100,
+    "elapsed_seconds": 329.159,
+    "frames_per_second": 0.304,
+    "cold_path": true
+  },
+  "ground_truth_action_counts": {},
+  "expected_frames": 100,
+  "processed_frames": 100,
+  "complete": true,
+  "detection_counts": {
+    "person": 15946,
+    "sports ball": 384
+  },
+  "frames_with_people": 100,
+  "frames_with_ball": 95,
+  "ball_frame_coverage": 0.95,
+  "next_stage": "Tracking and event inference must consume this cache before action precision and recall can be calculated."
+}

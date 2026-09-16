@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "workflow": "live_iteration_25",
+  "segments": [
+    {
+      "segment": "segment-0540-020",
+      "published_at": "2026-09-13T17:34:43.586Z",
+      "event_count": 6,
+      "engine_content_hash": "b48133350c267e7d8044b30e97b42584de58b72d0c3c05d99431b539ec81f592",
+      "output_hash": "df352af90762ba73399604d8253b53f6ff63477b780af5b2142fd8e0bfb72045"
+    }
+  ]
+}

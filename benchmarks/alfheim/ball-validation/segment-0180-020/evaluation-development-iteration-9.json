@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "prediction_frozen_before_evaluation": true,
+  "runtime_manifest_sha256": "feec4f94051dc62598191f9439352cddc5dd3d5903f0a85c322cf97b83f2fd39",
+  "prediction_freeze_sha256": "9a72c19a0f750ab5b3b2e04fd22f4a0c18fef32b70e1bd6609200b9faaffaa23",
+  "reference_kind": "evaluation_only_provider_coordinates",
+  "coordinate_transform": {
+    "source_width": 4450,
+    "source_height": 2000,
+    "prediction_width": 4450,
+    "prediction_height": 2000,
+    "scale_x": 1.0,
+    "scale_y": 1.0
+  },
+  "metrics": {
+    "evaluated_sampled_frames": 100,
+    "tracked_sampled_frames": 73,
+    "matched_sampled_frames": 30,
+    "missed_sampled_frames": 70,
+    "missing_prediction_frames": 27,
+    "wrong_coordinate_frames": 43,
+    "false_positive_track_points": 44,
+    "tracked_frame_coverage": 0.73,
+    "coordinate_match_recall": 0.3,
+    "coordinate_match_precision": 0.4054,
+    "mean_matched_distance_px": 10.029,
+    "median_matched_distance_px": 7.406,
+    "p90_matched_distance_px": 17.024,
+    "median_nearest_candidate_distance_px": 116.06,
+    "p90_nearest_candidate_distance_px": 1205.024,
+    "selected_coordinate_error_bands": {
+      "precise_match": 30,
+      "borderline_32_to_50_px": 2,
+      "review_50_to_100_px": 2,
+      "unreliable_100_to_250_px": 8,
+      "wrong_object_over_250_px": 31,
+      "not_visible": 27
+    },
+    "detector_stage": {
+      "frames_with_sports_ball_candidates": 91,
+      "frames_with_matching_candidate": 38,
+      "candidate_recall": 0.38,
+      "top_confidence_matches": 20,
+      "selector_matches_when_detector_matched": 28,
+      "selector_wrong_when_detector_matched": 10,
+      "selector_missing_when_detector_matched": 0,
+      "recovery_matches_without_detector_match": 2
+    },
+    "source_attribution": {
+      "raw_motion_micro_crop_supported": 6,
+      "temporal_detector_observed": 3,
+      "yolo26_observed": 65
+    },
+    "matched_source_attribution": {
+      "raw_motion_micro_crop_supported": 1,
+      "temporal_detector_observed": 1,
+      "yolo26_observed": 28
+    },
+    "wrong_source_attribution": {
+      "raw_motion_micro_crop_supported": 5,
+      "temporal_detector_observed": 1,
+      "yolo26_observed": 37
+    },
+    "player_foot_association": {
+      "tracked_reference_near_feet": 13,
+      "tracked_prediction_near_feet": 43,
+      "reference_near_feet_preserved": 12,
+      "reference_near_feet_preservation_rate": 0.9231,
+      "interpretation": "Evaluation-only comparison of the nearest frozen prediction and provider coordinate against frozen player foot ROIs."
+    },
+    "maximum_match_distance_px": 32.0
+  }
+}

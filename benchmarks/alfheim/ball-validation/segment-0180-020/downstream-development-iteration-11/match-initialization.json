@@ -1,0 +1,142 @@
+{
+  "half": null,
+  "source_start_seconds": 0.0,
+  "starts_at_kickoff": true,
+  "status": "partial",
+  "teams": [
+    {
+      "team": "black",
+      "color_bgr": [
+        11,
+        31,
+        31
+      ],
+      "track_ids": [
+        1,
+        3,
+        6,
+        7,
+        13,
+        23,
+        27,
+        29,
+        30,
+        31,
+        33,
+        34,
+        37,
+        40,
+        42,
+        49,
+        52,
+        60,
+        61,
+        69,
+        71,
+        74,
+        80,
+        86,
+        90,
+        94,
+        100,
+        101,
+        108,
+        124,
+        125,
+        127,
+        132,
+        135,
+        138,
+        144,
+        162,
+        189,
+        192
+      ],
+      "confidence": 0.719
+    },
+    {
+      "team": "green",
+      "color_bgr": [
+        57,
+        132,
+        109
+      ],
+      "track_ids": [
+        2,
+        5,
+        9,
+        10,
+        11,
+        12,
+        16,
+        17,
+        20,
+        22,
+        24,
+        28,
+        32,
+        35,
+        38,
+        53,
+        57,
+        91,
+        107,
+        118,
+        129,
+        131,
+        134,
+        139,
+        143,
+        149,
+        150,
+        159,
+        163,
+        170,
+        179,
+        183,
+        184
+      ],
+      "confidence": 0.719
+    }
+  ],
+  "official_track_ids": [
+    4,
+    8,
+    25,
+    67,
+    73,
+    103,
+    119,
+    145,
+    161
+  ],
+  "goalkeepers": [
+    {
+      "track_id": 140,
+      "team": null,
+      "defends_goal": "left",
+      "confidence": 0.926,
+      "evidence": [
+        "distinct_from_outfield_clusters",
+        "sustained_goal_side_position",
+        "limited_goal_side_movement"
+      ]
+    },
+    {
+      "track_id": 26,
+      "team": null,
+      "defends_goal": "right",
+      "confidence": 0.972,
+      "evidence": [
+        "distinct_from_outfield_clusters",
+        "sustained_goal_side_position",
+        "limited_goal_side_movement"
+      ]
+    }
+  ],
+  "directions": [],
+  "abstention_reasons": [
+    "both_goalkeepers_not_confidently_affiliated"
+  ],
+  "side_switch_detected": null
+}

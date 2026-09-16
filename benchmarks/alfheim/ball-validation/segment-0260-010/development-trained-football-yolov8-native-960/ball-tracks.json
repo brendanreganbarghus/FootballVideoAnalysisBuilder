@@ -1,0 +1,202 @@
+{
+  "manifest": "D:\\Projects\\Xebia\\FootballVideoAnalysisBuilder-worktrees\\pass-shot-validation\\benchmarks\\alfheim\\generated\\segment-0260-010\\diagnostic-manifest-20s.json",
+  "cache": "D:\\Projects\\Xebia\\FootballVideoAnalysisBuilder-worktrees\\pass-shot-validation\\benchmarks\\alfheim\\ball-validation\\segment-0260-010\\development-trained-football-yolov8-native-960\\detections.jsonl",
+  "cache_configuration": {
+    "type": "metadata",
+    "manifest_sha256": "b195c8f2383504d123ae30936751dbd912a1470d51cace510d9af2102b457587",
+    "video": "D:\\Projects\\Xebia\\FootballVideoAnalysisBuilder-worktrees\\pass-shot-validation\\benchmarks\\alfheim\\generated\\segment-0260-010\\alfheim-window.mp4",
+    "model": "models\\football-players-ball-yolov8.pt",
+    "confidence": 0.1,
+    "image_size": 960,
+    "stride": 5,
+    "tile_width": 960,
+    "tile_height": 960,
+    "overlap": 0.2,
+    "nms_iou": 0.5
+  },
+  "static_cells": [
+    {
+      "x": 860,
+      "y": 540
+    },
+    {
+      "x": 3620,
+      "y": 540
+    },
+    {
+      "x": 3840,
+      "y": 640
+    },
+    {
+      "x": 4440,
+      "y": 1020
+    }
+  ],
+  "tracks": [
+    {
+      "track_id": 1,
+      "points": [
+        {
+          "source_frame": 240,
+          "clip_seconds": 9.6,
+          "confidence": 0.1357775628566742,
+          "x": 1048.225341796875,
+          "y": 852.5815582275391,
+          "interpolated": false
+        },
+        {
+          "source_frame": 245,
+          "clip_seconds": 9.8,
+          "confidence": 0.24057351052761078,
+          "x": 1090.5841674804688,
+          "y": 850.0699462890625,
+          "interpolated": false
+        },
+        {
+          "source_frame": 250,
+          "clip_seconds": 10.0,
+          "confidence": 0.18043,
+          "x": 1129.840316772461,
+          "y": 853.8829040527344,
+          "interpolated": true
+        },
+        {
+          "source_frame": 255,
+          "clip_seconds": 10.2,
+          "confidence": 0.33399516344070435,
+          "x": 1169.0964660644531,
+          "y": 857.6958618164062,
+          "interpolated": false
+        },
+        {
+          "source_frame": 385,
+          "clip_seconds": 15.4,
+          "confidence": 0.36967653036117554,
+          "x": 1322.5108032226562,
+          "y": 724.3458251953125,
+          "interpolated": false
+        },
+        {
+          "source_frame": 390,
+          "clip_seconds": 15.6,
+          "confidence": 0.4758692681789398,
+          "x": 1392.5521850585938,
+          "y": 715.0772094726562,
+          "interpolated": false
+        },
+        {
+          "source_frame": 395,
+          "clip_seconds": 15.8,
+          "confidence": 0.20306521654129028,
+          "x": 1457.6829833984375,
+          "y": 702.0820922851562,
+          "interpolated": false
+        },
+        {
+          "source_frame": 400,
+          "clip_seconds": 16.0,
+          "confidence": 0.2813265919685364,
+          "x": 1518.5374755859375,
+          "y": 691.6673583984375,
+          "interpolated": false
+        },
+        {
+          "source_frame": 405,
+          "clip_seconds": 16.2,
+          "confidence": 0.4303911626338959,
+          "x": 1575.6426391601562,
+          "y": 683.75634765625,
+          "interpolated": false
+        },
+        {
+          "source_frame": 410,
+          "clip_seconds": 16.4,
+          "confidence": 0.083132,
+          "x": 1592.5542297363281,
+          "y": 681.3611450195312,
+          "interpolated": true
+        },
+        {
+          "source_frame": 415,
+          "clip_seconds": 16.6,
+          "confidence": 0.11084330826997757,
+          "x": 1609.4658203125,
+          "y": 678.9659423828125,
+          "interpolated": false
+        },
+        {
+          "source_frame": 420,
+          "clip_seconds": 16.8,
+          "confidence": 0.4399465024471283,
+          "x": 1592.508560180664,
+          "y": 681.9218139648438,
+          "interpolated": false
+        },
+        {
+          "source_frame": 425,
+          "clip_seconds": 17.0,
+          "confidence": 0.44873949885368347,
+          "x": 1578.4635620117188,
+          "y": 683.0543212890625,
+          "interpolated": false
+        },
+        {
+          "source_frame": 465,
+          "clip_seconds": 18.6,
+          "confidence": 0.1390109807252884,
+          "x": 1512.7913818359375,
+          "y": 720.1279907226562,
+          "interpolated": false
+        },
+        {
+          "source_frame": 470,
+          "clip_seconds": 18.8,
+          "confidence": 0.41826239228248596,
+          "x": 1483.7032470703125,
+          "y": 739.9678344726562,
+          "interpolated": false
+        },
+        {
+          "source_frame": 475,
+          "clip_seconds": 19.0,
+          "confidence": 0.288653,
+          "x": 1456.1433410644531,
+          "y": 759.5479736328125,
+          "interpolated": true
+        },
+        {
+          "source_frame": 480,
+          "clip_seconds": 19.2,
+          "confidence": 0.3848712742328644,
+          "x": 1428.5834350585938,
+          "y": 779.1281127929688,
+          "interpolated": false
+        },
+        {
+          "source_frame": 485,
+          "clip_seconds": 19.4,
+          "confidence": 0.17741483449935913,
+          "x": 1402.9228515625,
+          "y": 798.375,
+          "interpolated": false
+        },
+        {
+          "source_frame": 490,
+          "clip_seconds": 19.6,
+          "confidence": 0.133061,
+          "x": 1379.3307189941406,
+          "y": 815.5649185180664,
+          "interpolated": true
+        },
+        {
+          "source_frame": 495,
+          "clip_seconds": 19.8,
+          "confidence": 0.18802417814731598,
+          "x": 1355.7385864257812,
+          "y": 832.7548370361328,
+          "interpolated": false
+        }
+      ]
+    }
+  ]
+}

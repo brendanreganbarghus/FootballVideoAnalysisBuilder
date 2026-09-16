@@ -1,0 +1,76 @@
+{
+  "prediction_was_frozen_before_reference_load": true,
+  "source_frame": 5,
+  "clip_seconds": 0.2,
+  "frozen_decision": "coordinate",
+  "frozen_prediction": {
+    "x": 998.0,
+    "y": 741.0,
+    "mode": "global_fallback",
+    "evidence": "raw_motion_global_fallback",
+    "attention_support": 6,
+    "attention_score": 0.977246,
+    "verification_score": 0.704935,
+    "forward_template_scores": [
+      0.946564,
+      0.941602
+    ],
+    "forward_positions": [
+      [
+        997.0,
+        741.0
+      ],
+      [
+        997.0,
+        742.0
+      ]
+    ],
+    "ranking_score": 1.275961
+  },
+  "sealed_reference": {
+    "x": 1476.0,
+    "y": 568.0
+  },
+  "prediction_error_pixels": 508.343,
+  "within_32_pixels": false,
+  "referee_foot_check": {
+    "target_approximation": {
+      "x": 1523.0,
+      "y": 862.0
+    },
+    "nearest_generated_proposal": {
+      "x": 1421.6851851851852,
+      "y": 993.8333333333334,
+      "mode": "near_feet",
+      "evidence": "raw_motion_near_feet",
+      "attention_support": 1,
+      "attention_score": 0.011142,
+      "verification_score": 0.588489,
+      "foreground_score": 0.717831,
+      "compactness_score": 0.468352,
+      "scale_score": 0.677193,
+      "appearance_consistency_score": 0.863255,
+      "forward_template_scores": [
+        0.920994,
+        0.895416
+      ],
+      "forward_positions": [
+        [
+          1421.0,
+          994.0
+        ],
+        [
+          1416.0,
+          999.0
+        ]
+      ],
+      "ranking_score": 0.765597,
+      "eligible": false,
+      "rejection_reasons": [
+        "insufficient_attention_convergence"
+      ]
+    },
+    "distance_to_target_pixels": 166.267,
+    "rejected": true
+  }
+}

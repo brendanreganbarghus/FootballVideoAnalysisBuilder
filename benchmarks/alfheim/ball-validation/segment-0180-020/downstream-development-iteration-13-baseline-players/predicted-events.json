@@ -1,0 +1,32 @@
+[
+  {
+    "event_type": "pass_candidate",
+    "clip_seconds": 12.0,
+    "team": "black",
+    "from_player_track_id": 14,
+    "to_player_track_id": 25,
+    "confidence": 0.9,
+    "details": "Ball release at 1376.24 pixels/second followed by black control after 1.00s.",
+    "completion_seconds": 13.0
+  },
+  {
+    "event_type": "pass_candidate",
+    "clip_seconds": 14.2,
+    "team": "black",
+    "from_player_track_id": 5,
+    "to_player_track_id": 3,
+    "confidence": 0.8188,
+    "details": "Ball release at 368.84 pixels/second followed by black control after 2.80s.",
+    "completion_seconds": 17.0
+  },
+  {
+    "event_type": "pass_candidate",
+    "clip_seconds": 15.8,
+    "team": "black",
+    "from_player_track_id": null,
+    "to_player_track_id": null,
+    "confidence": 0.5,
+    "details": "Ball-direction evidence recovered a contact hidden inside a prolonged same-team possession chain.",
+    "completion_seconds": 15.8
+  }
+]

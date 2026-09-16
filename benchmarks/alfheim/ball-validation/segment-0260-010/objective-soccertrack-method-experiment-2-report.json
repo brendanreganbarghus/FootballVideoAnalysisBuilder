@@ -1,0 +1,182 @@
+{
+  "schema_version": 1,
+  "evaluation_is_post_prediction_only": true,
+  "prediction_rerun_after_evaluation": false,
+  "tracker_parameters_changed_for_alfheim": false,
+  "preregistration": {
+    "preregistered_before_prediction": true,
+    "evaluation_reference_loaded": false,
+    "experiment": "2-conservative-global-veto-and-ambiguity-ranking",
+    "manifest_sha256": "b195c8f2383504d123ae30936751dbd912a1470d51cace510d9af2102b457587",
+    "raw_video_sha256": "536563d9d688b5d4c05af16575800ffdb104db0ca7ada9a24250d5f9a3f2d37f",
+    "detector_player_cache_sha256": "cb4cd8debfaf275fce7aabffda9851c1bfcbb686e59ac1cf3007e70162cbcc51",
+    "ball_tracking_source_sha256": "25264397bf53dc38686302871bc3dcc11662905ad741183e04bb9f2d794d9173",
+    "configuration_sha256": "342466d27b7bbfd56156c3458b41264b2e9cde27eea97fc15a0951db82a45f12",
+    "configuration": {
+      "raw_motion": {
+        "difference_threshold": 18,
+        "minimum_circularity": 0.32,
+        "minimum_appearance_range": 24.0,
+        "minimum_extent_ball_diameters": 0.18,
+        "maximum_extent_ball_diameters": 1.8,
+        "minimum_area_ball_diameters_squared": 0.025,
+        "maximum_area_ball_diameters_squared": 1.8,
+        "trajectory_corridor_ball_diameters": 2.5,
+        "trajectory_maximum_sample_gap": 4,
+        "global_fallback_minimum_temporal_neighbors": 2
+      },
+      "micro_crop_verification": {
+        "experiment": "2-conservative-global-veto-and-ambiguity-ranking",
+        "adjacent_template_minimum_score": 0.3,
+        "adjacent_path_maximum_ball_diameters": 2.0,
+        "foreground_weight": 0.2,
+        "compactness_weight": 0.2,
+        "scale_weight": 0.2,
+        "texture_weight": 0.15,
+        "appearance_consistency_weight": 0.25,
+        "lower_body_interior_penalty": 0.15,
+        "near_feet_minimum_score": 0.0,
+        "trajectory_corridor_minimum_score": 0.0,
+        "global_fallback_minimum_score": 0.6,
+        "minimum_alternative_margin": 0.08,
+        "continuity_weight": 0.35,
+        "mode_switch_penalty": 0.08,
+        "maximum_acceleration_pixels_per_second_squared": 12000.0
+      },
+      "kalman_reacquisition": {
+        "process_position_variance": 4.0,
+        "process_velocity_variance": 625.0,
+        "measurement_variance": 16.0,
+        "initial_position_variance": 16.0,
+        "initial_velocity_variance": 40000.0,
+        "uncertainty_sigma": 2.5,
+        "minimum_roi_radius_pixels": 12.0,
+        "maximum_roi_radius_pixels": 140.0,
+        "maximum_prediction_only_frames": 3,
+        "maximum_bidirectional_disagreement_fraction": 0.75,
+        "candidate_deduplication_pixels": 4.0
+      },
+      "dense_optical_flow": {
+        "maximum_bridge_raw_frames": 20,
+        "patch_radius_ball_diameters": 1.0,
+        "minimum_patch_radius_pixels": 5,
+        "maximum_patch_radius_pixels": 18,
+        "lk_window_pixels": 15,
+        "lk_pyramid_levels": 2,
+        "maximum_forward_backward_error_pixels": 1.5,
+        "minimum_retained_features": 3,
+        "feature_quality_level": 0.01,
+        "feature_minimum_distance_pixels": 2.0,
+        "minimum_template_score": 0.55,
+        "local_search_ball_diameters": 1.5,
+        "maximum_local_search_pixels": 24,
+        "maximum_speed_pixels_per_second": 1600.0,
+        "maximum_acceleration_pixels_per_second_squared": 12000.0,
+        "minimum_feature_scale_ratio": 0.4,
+        "maximum_feature_scale_ratio": 2.5,
+        "maximum_endpoint_error_ball_diameters": 1.5,
+        "maximum_path_disagreement_ball_diameters": 1.5
+      },
+      "tracker_defaults": {
+        "static_cell_size": 20,
+        "static_occupancy": 0.25,
+        "max_gap_seconds": 0.56,
+        "max_speed_pixels_per_second": 1600.0,
+        "minimum_track_points": 3
+      }
+    }
+  },
+  "prediction_freeze": {
+    "predictions_frozen": true,
+    "experiment": "2-conservative-global-veto-and-ambiguity-ranking",
+    "frozen_at_utc": "2026-09-11T14:36:45.454015+00:00",
+    "evaluation_reference_loaded_before_freeze": false,
+    "manifest_sha256": "b195c8f2383504d123ae30936751dbd912a1470d51cace510d9af2102b457587",
+    "ball_tracking_source_sha256": "25264397bf53dc38686302871bc3dcc11662905ad741183e04bb9f2d794d9173",
+    "configuration_sha256": "342466d27b7bbfd56156c3458b41264b2e9cde27eea97fc15a0951db82a45f12",
+    "prediction_cache_rebuild_wall_seconds": 49.77,
+    "artifacts": {
+      "detections.jsonl": "cb4cd8debfaf275fce7aabffda9851c1bfcbb686e59ac1cf3007e70162cbcc51",
+      "ball-tracks.json": "ac47653f4d66a67d1a92f18db934118b5050ff6e9fb11ff2d2b19976ad5fa91e",
+      "ball-tracking-summary.json": "c99ed615a3eb42b83e741d884018da765096a9be4de9b99716836206f7059a9e",
+      "prediction-run-preregistration.json": "1ea52002c9badedbfd750334daea3297b559d61535bcd6d971b836fa5c56a485"
+    }
+  },
+  "prediction_freeze_sha256": "75fadc4586cd10b8ba54d28cfb0b9c4d28ed7ae10f08530be27276d67273566a",
+  "evaluation_output_sha256": "9aa5a876a1826c95e39e63e087fa1d7423e07358402bc6b10b0e4d739d1e2182",
+  "prior_frozen_audit": {
+    "correct": 36,
+    "missing_prediction_frames": 36,
+    "wrong_coordinate_frames": 28,
+    "coverage": 0.64,
+    "precision": 0.5538,
+    "recall": 0.36,
+    "median_matched_distance_px": 9.33,
+    "player_foot_preservation_rate": 0.8125
+  },
+  "current_frozen_audit": {
+    "schema_version": 1,
+    "prediction_frozen_before_evaluation": true,
+    "runtime_manifest_sha256": "b195c8f2383504d123ae30936751dbd912a1470d51cace510d9af2102b457587",
+    "prediction_freeze_sha256": "75fadc4586cd10b8ba54d28cfb0b9c4d28ed7ae10f08530be27276d67273566a",
+    "reference_kind": "evaluation_only_provider_coordinates",
+    "coordinate_transform": {
+      "source_width": 4450,
+      "source_height": 2000,
+      "prediction_width": 4450,
+      "prediction_height": 2000,
+      "scale_x": 1.0,
+      "scale_y": 1.0
+    },
+    "metrics": {
+      "evaluated_sampled_frames": 100,
+      "tracked_sampled_frames": 96,
+      "matched_sampled_frames": 37,
+      "missed_sampled_frames": 63,
+      "missing_prediction_frames": 4,
+      "wrong_coordinate_frames": 59,
+      "false_positive_track_points": 60,
+      "tracked_frame_coverage": 0.96,
+      "coordinate_match_recall": 0.37,
+      "coordinate_match_precision": 0.3814,
+      "mean_matched_distance_px": 12.223,
+      "median_matched_distance_px": 9.154,
+      "p90_matched_distance_px": 25.034,
+      "median_nearest_candidate_distance_px": 259.928,
+      "p90_nearest_candidate_distance_px": 1047.875,
+      "source_attribution": {
+        "raw_motion_micro_crop_supported": 40,
+        "temporal_detector_observed": 3,
+        "yolo26_observed": 54
+      },
+      "matched_source_attribution": {
+        "raw_motion_micro_crop_supported": 2,
+        "temporal_detector_observed": 1,
+        "yolo26_observed": 34
+      },
+      "wrong_source_attribution": {
+        "raw_motion_micro_crop_supported": 38,
+        "temporal_detector_observed": 1,
+        "yolo26_observed": 20
+      },
+      "player_foot_association": {
+        "tracked_reference_near_feet": 32,
+        "tracked_prediction_near_feet": 65,
+        "reference_near_feet_preserved": 32,
+        "reference_near_feet_preservation_rate": 1.0,
+        "interpretation": "Evaluation-only comparison of the nearest frozen prediction and provider coordinate against frozen player foot ROIs."
+      },
+      "maximum_match_distance_px": 32.0
+    }
+  },
+  "comparison": {
+    "correct_delta": 1,
+    "missing_prediction_delta": -32,
+    "wrong_coordinate_delta": 31,
+    "coverage_delta": 0.32,
+    "precision_delta": -0.1724,
+    "recall_delta": 0.01,
+    "median_error_delta_px": -0.176,
+    "objective_assessment": "degraded: one additional correct frame did not offset 31 additional wrong-coordinate frames and 17.24 percentage-point precision loss"
+  }
+}

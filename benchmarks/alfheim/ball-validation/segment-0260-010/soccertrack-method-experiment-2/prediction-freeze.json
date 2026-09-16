@@ -1,0 +1,16 @@
+{
+  "predictions_frozen": true,
+  "experiment": "2-conservative-global-veto-and-ambiguity-ranking",
+  "frozen_at_utc": "2026-09-11T14:36:45.454015+00:00",
+  "evaluation_reference_loaded_before_freeze": false,
+  "manifest_sha256": "b195c8f2383504d123ae30936751dbd912a1470d51cace510d9af2102b457587",
+  "ball_tracking_source_sha256": "25264397bf53dc38686302871bc3dcc11662905ad741183e04bb9f2d794d9173",
+  "configuration_sha256": "342466d27b7bbfd56156c3458b41264b2e9cde27eea97fc15a0951db82a45f12",
+  "prediction_cache_rebuild_wall_seconds": 49.77,
+  "artifacts": {
+    "detections.jsonl": "cb4cd8debfaf275fce7aabffda9851c1bfcbb686e59ac1cf3007e70162cbcc51",
+    "ball-tracks.json": "ac47653f4d66a67d1a92f18db934118b5050ff6e9fb11ff2d2b19976ad5fa91e",
+    "ball-tracking-summary.json": "c99ed615a3eb42b83e741d884018da765096a9be4de9b99716836206f7059a9e",
+    "prediction-run-preregistration.json": "1ea52002c9badedbfd750334daea3297b559d61535bcd6d971b836fa5c56a485"
+  }
+}

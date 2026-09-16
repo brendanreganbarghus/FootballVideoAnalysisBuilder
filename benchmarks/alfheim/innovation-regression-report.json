@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "engine": "innovation-day-engine-v1",
+  "coordinate_source": "evaluation_only_provider_coordinates",
+  "boundary_source": "calibration_derived_possible_out_of_bounds_intervals",
+  "tolerance_seconds": 1.0,
+  "passed": true,
+  "segments": [
+    {
+      "segment": "segment-0060-020",
+      "reference": 22,
+      "innovation": 22,
+      "matched": 22,
+      "unmatched_reference": 0,
+      "unmatched_innovation": 0,
+      "passed": true
+    },
+    {
+      "segment": "segment-0300-020",
+      "reference": 14,
+      "innovation": 14,
+      "matched": 14,
+      "unmatched_reference": 0,
+      "unmatched_innovation": 0,
+      "passed": true
+    },
+    {
+      "segment": "segment-0540-060",
+      "reference": 16,
+      "innovation": 16,
+      "matched": 16,
+      "unmatched_reference": 0,
+      "unmatched_innovation": 0,
+      "passed": true
+    },
+    {
+      "segment": "segment-0575-020",
+      "reference": 12,
+      "innovation": 12,
+      "matched": 12,
+      "unmatched_reference": 0,
+      "unmatched_innovation": 0,
+      "passed": true
+    },
+    {
+      "segment": "segment-0595-020",
+      "reference": 14,
+      "innovation": 14,
+      "matched": 14,
+      "unmatched_reference": 0,
+      "unmatched_innovation": 0,
+      "passed": true
+    },
+    {
+      "segment": "segment-0615-020",
+      "reference": 16,
+      "innovation": 16,
+      "matched": 16,
+      "unmatched_reference": 0,
+      "unmatched_innovation": 0,
+      "passed": true
+    }
+  ]
+}

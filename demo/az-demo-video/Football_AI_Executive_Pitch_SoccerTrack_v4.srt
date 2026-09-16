@@ -1,0 +1,320 @@
+1
+00:00:00,300 --> 00:00:03,700
+Football Intelligence Platform — Near-live, evidence-grounded match intelligence
+
+2
+00:00:04,000 --> 00:00:08,360
+This idea started when I studied the needs of an amateur football club.
+
+3
+00:00:08,360 --> 00:00:10,373
+The club could record a match,
+
+4
+00:00:10,373 --> 00:00:14,733
+but information that might influence football decisions was often unavailable during the game,
+
+5
+00:00:14,733 --> 00:00:15,740
+delivered too late,
+
+6
+00:00:15,740 --> 00:00:18,759
+or difficult to trust without checking the video again.
+
+7
+00:00:18,759 --> 00:00:28,150
+I wanted to start at amateur level because clubs with the least money should still have access to the standard of evidence normally associated with top professional football.
+
+8
+00:00:28,150 --> 00:00:31,840
+Coaches need more than footage. They need evidence they can use.
+
+9
+00:00:31,840 --> 00:00:34,638
+The market broadly offers two approaches.
+
+10
+00:00:34,638 --> 00:00:39,769
+Accessible camera platforms help clubs record, upload, stream and review matches,
+
+11
+00:00:39,769 --> 00:00:44,433
+commonly through recurring cloud plans. Professional providers combine optical tracking,
+
+12
+00:00:44,433 --> 00:00:49,097
+event data, analyst workflows and integrations, usually through bespoke contracts.
+
+13
+00:00:49,097 --> 00:00:51,429
+Both approaches provide useful capabilities,
+
+14
+00:00:51,429 --> 00:00:56,560
+but they serve very different budgets and levels of operational support.
+
+15
+00:00:56,560 --> 00:01:00,062
+The downside is fragmentation. Capture, cloud storage, analysis,
+
+16
+00:01:00,062 --> 00:01:03,126
+export and manual verification may remain separate.
+
+17
+00:01:03,126 --> 00:01:06,628
+Costs increase as subscriptions and services are added,
+
+18
+00:01:06,628 --> 00:01:09,692
+provider access and connectivity can become dependencies,
+
+19
+00:01:09,692 --> 00:01:14,507
+and useful insight may arrive after the decision. Completed passes, possession,
+
+20
+00:01:14,507 --> 00:01:19,760
+turnovers and shots matter most while the match can still be changed.
+
+21
+00:01:19,760 --> 00:01:23,627
+Our alternative is one locally controlled and traceable flow.
+
+22
+00:01:23,627 --> 00:01:27,065
+An elevated panoramic main camera preserves full-pitch geometry,
+
+23
+00:01:27,065 --> 00:01:29,214
+team spacing and off-ball movement.
+
+24
+00:01:29,214 --> 00:01:32,222
+Calibration connects image positions to the pitch.
+
+25
+00:01:32,222 --> 00:01:36,519
+Local processing follows the ball and players, understands match state,
+
+26
+00:01:36,519 --> 00:01:39,527
+calculates agreed events and delivers useful statistics.
+
+27
+00:01:39,527 --> 00:01:45,113
+Every published number remains connected to its video evidence and exact rules-engine version.
+
+28
+00:01:45,113 --> 00:01:49,410
+Additional cameras are added only when they create enough value.
+
+29
+00:01:49,410 --> 00:01:54,898
+Today, the working proof processes prepared panoramic footage through calibration, tracking,
+
+30
+00:01:54,898 --> 00:01:59,887
+football state, event review and regression-protected output. That is current.
+
+31
+00:01:59,887 --> 00:02:03,878
+Live ingest, rolling match-day delivery, professional multi-camera operation,
+
+32
+00:02:03,878 --> 00:02:08,368
+stadium deployment and durable player identity are next-stage capabilities.
+
+33
+00:02:08,368 --> 00:02:11,861
+They are development targets, not completed claims.
+
+34
+00:02:11,861 --> 00:02:18,347
+The controlled pilot target is at least ninety-five percent against independently reviewed references,
+
+35
+00:02:18,347 --> 00:02:21,340
+reported separately for every agreed statistic.
+
+36
+00:02:21,340 --> 00:02:26,380
+Operation starts with a rights-cleared panoramic feed and a camera calibration for that venue.
+
+37
+00:02:26,380 --> 00:02:30,700
+The detector and tracker derive players and the ball from raw frames;
+
+38
+00:02:30,700 --> 00:02:33,940
+no provider event file tells the engine what happened.
+
+39
+00:02:33,940 --> 00:02:37,540
+The engine carries possession, match state and unresolved events forward.
+
+40
+00:02:37,540 --> 00:02:39,340
+In the target live operation,
+
+41
+00:02:39,340 --> 00:02:45,820
+a secured local GPU continuously ingests the feed and publishes each sixty-second update before the next is due.
+
+42
+00:02:45,820 --> 00:02:47,260
+Duplicate events are suppressed,
+
+43
+00:02:47,260 --> 00:02:51,220
+and the same evidence expands into a deeper half-time coaching view.
+
+44
+00:02:51,220 --> 00:02:54,577
+Training and validation remain separate from match inference.
+
+45
+00:02:54,577 --> 00:02:58,772
+Detection models are developed offline using appropriately licensed development data.
+
+46
+00:02:58,772 --> 00:03:02,548
+Held-out annotations are revealed only after predictions are frozen;
+
+47
+00:03:02,548 --> 00:03:06,324
+they never tell the engine what event to create.
+
+48
+00:03:06,324 --> 00:03:10,520
+In the Review application, authorised validators inspect controlled video segments.
+
+49
+00:03:10,520 --> 00:03:13,037
+Copilot contributes an independent video-based proposal,
+
+50
+00:03:13,037 --> 00:03:15,974
+the rules engine contributes its own result,
+
+51
+00:03:15,974 --> 00:03:19,750
+and provider annotations can provide a third post-inference check.
+
+52
+00:03:19,750 --> 00:03:23,527
+A supported disagreement may improve only a general rule.
+
+53
+00:03:23,527 --> 00:03:29,820
+Protected regressions then verify previous behaviour before the validated engine is deployed to new footage.
+
+54
+00:03:29,820 --> 00:03:34,284
+The platform can be applied now to controlled post-match analysis,
+
+55
+00:03:34,284 --> 00:03:39,640
+analyst-assisted segment review and an amateur or semi-professional pilot using prepared footage.
+
+56
+00:03:39,640 --> 00:03:44,550
+The target installed core is below twelve thousand euros before tax:
+
+57
+00:03:44,550 --> 00:03:48,121
+one panoramic camera, local GPU, storage, networking, installation,
+
+58
+00:03:48,121 --> 00:03:49,906
+calibration and initial support.
+
+59
+00:03:49,906 --> 00:03:53,924
+It requires neither cloud processing nor cloud video storage.
+
+60
+00:03:53,924 --> 00:03:55,263
+Camera subscriptions recur,
+
+61
+00:03:55,263 --> 00:03:59,726
+while bespoke professional packages can collectively reach thousands per month.
+
+62
+00:03:59,726 --> 00:04:04,190
+The fair comparison is the complete three-year cost of ownership.
+
+63
+00:04:04,190 --> 00:04:07,972
+Professional venues require synchronized camera feeds, sustained GPU throughput,
+
+64
+00:04:07,972 --> 00:04:10,914
+resilient networking and storage, access control, monitoring,
+
+65
+00:04:10,914 --> 00:04:13,016
+systems integration and match-day support.
+
+66
+00:04:13,016 --> 00:04:15,958
+A second opposing panoramic view strengthens coverage;
+
+67
+00:04:15,958 --> 00:04:18,900
+goal-end cameras can be added where justified.
+
+68
+00:04:18,900 --> 00:04:27,726
+Future Query By Probability keeps the main camera continuous and consults only the relevant secondary view during a short low-confidence moment.
+
+69
+00:04:27,726 --> 00:04:31,508
+Professional scale is therefore an engineering and operational programme,
+
+70
+00:04:31,508 --> 00:04:34,450
+not simply the purchase of more cameras.
+
+71
+00:04:34,450 --> 00:04:39,699
+We propose a staged co-development pilot between a professional football club and Xebia.
+
+72
+00:04:39,699 --> 00:04:44,141
+Together we can define the statistics and targets, validate controlled matches,
+
+73
+00:04:44,141 --> 00:04:48,179
+and build a route from grassroots affordability to professional performance.
+
+74
+00:04:48,179 --> 00:04:52,217
+Xebia can help productionise edge processing, security, resilient live ingest,
+
+75
+00:04:52,217 --> 00:04:54,640
+systems integration, monitoring and operational scale.
+
+76
+00:04:54,640 --> 00:04:59,082
+The goal is not more data after the moment has passed.
+
+77
+00:04:59,082 --> 00:05:04,735
+It is trusted football intelligence while the next decision can still change the match.
+
+78
+00:05:04,735 --> 00:05:08,773
+Thank you for taking the time to review this vision.
+
+79
+00:05:08,773 --> 00:05:11,600
+I hope we can build it together.
+
+80
+00:05:11,900 --> 00:05:17,300
+Professional Football + Xebia — A staged co-development pilot
+

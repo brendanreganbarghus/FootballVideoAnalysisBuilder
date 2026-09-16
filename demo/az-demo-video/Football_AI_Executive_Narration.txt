@@ -1,0 +1,133 @@
+FOOTBALL INTELLIGENCE PLATFORM - EXECUTIVE PITCH
+
+1. WHY THIS STARTED
+
+This idea started when I studied the needs of an amateur football club. The
+club could record a match, but information that might influence football
+decisions was often unavailable during the game, delivered too late, or
+difficult to trust without checking the video again. I wanted to start at
+amateur level because clubs with the least money should still have access to
+the standard of evidence normally associated with top professional football.
+Coaches need more than footage. They need evidence they can use.
+
+2. THE MARKET AND THE DECISION GAP
+
+Most clubs currently choose between two broad approaches. Accessible camera
+platforms record, upload, stream and review matches, commonly through recurring
+cloud plans. Professional providers combine tracking, event data, analyst
+workflows and integrations, usually through bespoke contracts. Both approaches
+add value, but capture, storage, analysis, export and manual verification can
+remain fragmented. Costs grow as services are added, cloud connectivity and
+provider access may become dependencies, and insight can arrive after the
+decision. Completed passes, possession, turnovers and shots matter most while
+the match can still be changed.
+
+3. ONE CONNECTED FLOW
+
+The opportunity is not simply another camera or another dashboard. It is one
+traceable flow from the match to useful evidence: capture the whole pitch,
+understand the state of play, calculate agreed football events, and deliver the
+resulting statistics while they still matter. Every published number must
+remain connected to the video evidence and the exact rules-engine version that
+produced it.
+
+4. THE PROPOSED ARCHITECTURE
+
+Here is the proposed architecture. One elevated panoramic main camera,
+positioned on the long side near halfway, continuously preserves the full-pitch
+geometry, team spacing and off-ball movement. The blue and red player shapes
+show how the calibrated view supports tactical context. Green arrows connect
+completed passing lanes. The dashed amber lane shows where possession is lost.
+A second opposing panoramic camera is recommended, while two goal-end cameras
+remain optional when budget permits.
+
+5. HOW THE PROCESS OPERATES
+
+Operation begins with a rights-cleared panoramic feed. Camera calibration maps
+image positions to the pitch. The detector and tracker derive players and the
+ball from the raw frames; no provider event file tells the engine what
+happened. The law-grounded engine then carries possession and match state
+forward and publishes the agreed statistics. Today's proof runs this process
+on prepared footage. The target deployment continuously ingests the live feed
+and delivers rolling one-minute updates on a locked local GPU. Every
+sixty-second window must publish before the next is due, with duplicates
+suppressed and unresolved state carried forward.
+
+6. DECISION-READY OUTPUTS
+
+The platform can be applied now to controlled post-match analysis,
+analyst-assisted segment review, and an amateur or semi-professional pilot
+using prepared footage. The match-day experience is the next delivery step.
+Its screens show statistics, not automatic tactical instructions. During play,
+the coach sees current totals, possession and zone indicators. At half-time,
+that evidence expands into completed passes, turnovers, shots, final-third
+entries and recent trends. The coaching team combines the evidence with what
+it observed and decides the response.
+
+7. HOW THE RULES ENGINE IMPROVES
+
+Training and validation remain separate from match inference. Detection models
+are developed offline using appropriately licensed development data. Held-out
+annotations are revealed only after predictions are frozen; they never tell
+the engine what event to create. In the Review application, authorised
+validators inspect controlled video segments. Copilot contributes an
+independent video-based proposal, the rules engine contributes its own result,
+and provider annotations can provide a third post-inference check. A supported
+disagreement may improve only a general rule. Protected regressions then verify
+previous behaviour before the validated engine is deployed to new footage.
+
+8. AFFORDABLE CONFIGURATIONS
+
+For an amateur club, the target installed core is below twelve thousand euros
+before tax: one panoramic camera, local GPU, storage, networking, installation,
+calibration and initial support. It is a planning target, not a quotation. The
+core requires neither cloud processing nor cloud video storage. Camera
+subscriptions recur, while bespoke professional video, data, cloud and analyst
+packages can collectively reach thousands of euros per month. The fair
+comparison is therefore the complete three-year cost of ownership. A second
+panoramic camera and goal-end views are optional upgrades, not costs every
+amateur club must carry.
+
+9. FROM CURRENT PROOF TO PROFESSIONAL SCALE
+
+Today, the working proof is offline: calibrated footage, tracking, football
+state, event review and regression-protected output. Professional scale
+requires synchronized camera feeds, sustained GPU throughput, resilient
+networking and storage, security, monitoring, systems integration and
+match-day support. Live ingest, stadium deployment and durable player identity
+remain next-stage capabilities. Future Query By Probability keeps the main
+camera continuous and consults only a relevant secondary view during a short
+low-confidence moment. The controlled pilot target is at least ninety-five
+percent against independently reviewed references, reported separately for
+each agreed statistic.
+
+10. THE INVITATION
+
+We propose a staged co-development pilot between a professional football club
+and Xebia. Together we can define the statistics and targets, validate
+controlled matches, and build a route from grassroots affordability to
+professional performance. Xebia can help productionise edge processing,
+security, resilient live ingest, systems integration, monitoring and
+operational scale. The goal is not more data after the moment has passed. It
+is trusted football intelligence while the next decision can still change the
+match. Thank you for taking the time to review this vision. I hope we can build
+it together.
+
+STATUS AND CLAIMS
+
+- Current: offline prepared-video proof, calibrated footage, tracking,
+  match-state and analytics event state machines, focused review, fingerprints,
+  and protected regressions.
+- Current but provisional: pass, turnover, possession, and developing shot
+  outputs.
+- Future: live ingest, production multi-camera operation, stadium and dugout
+  delivery, Query By Probability, and durable player identity.
+- Ninety-five percent is a proposed controlled-pilot target measured separately
+  by agreed statistic against independently reviewed references.
+- The amateur installed-core target is below EUR 12,000 before tax and remains
+  an illustrative planning target, not a quotation. Site conditions,
+  connectivity, ongoing support, optional cameras, and final requirements are
+  separate.
+- Competitor costs are compared through complete three-year cost of ownership.
+  Entry-level recurring subscriptions and bespoke professional packages are
+  distinct market categories; no universal competitor price is claimed.

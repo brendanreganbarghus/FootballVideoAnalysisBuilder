@@ -1,0 +1,10 @@
+{
+  "predictions_frozen": true,
+  "freeze_timestamp_utc": "2026-09-11T17:50:45.623895+00:00",
+  "development_iteration": true,
+  "manifest_sha256": "feec4f94051dc62598191f9439352cddc5dd3d5903f0a85c322cf97b83f2fd39",
+  "artifacts": {
+    "detections.jsonl": "984faeb8931f4268db279498315e84a8aa302cf5161a71fb8a1009f1d6c62915",
+    "ball-tracks.json": "f9ba34b4d4477f3fc47f1b831a68ca623bd73e64f633f81c428330ec932265b9"
+  }
+}

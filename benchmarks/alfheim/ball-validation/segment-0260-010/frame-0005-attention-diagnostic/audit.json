@@ -1,0 +1,7 @@
+{
+  "prediction_freeze_sha256": "33b45687f8fc0be83af73e285c37ba62a10f75f0973c488fcd90e751994b3e9c",
+  "post_prediction_evaluation_sha256": "187a444a5d4dc4bd3b355a1bb7ee70de957482db17c9ba2ebe8a0940a28be844",
+  "post_prediction_overlay_sha256": "5acde347d07ab0365312808bfd4948802e8aeb9ae5594c993b919833c89ed65b",
+  "prediction_rerun_after_evaluation": false,
+  "parameters_changed_after_evaluation": false
+}

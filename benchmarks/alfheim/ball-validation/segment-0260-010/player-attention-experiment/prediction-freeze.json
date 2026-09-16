@@ -1,0 +1,17 @@
+{
+  "predictions_frozen": true,
+  "experiment": "3-player-attention-convergence",
+  "frozen_at_utc": "2026-09-11T15:18:49.570532+00:00",
+  "evaluation_reference_loaded_before_freeze": false,
+  "manifest_sha256": "b195c8f2383504d123ae30936751dbd912a1470d51cace510d9af2102b457587",
+  "ball_tracking_source_sha256": "61d58605d61e2f6b3159deee11bf8e4452961c8d3c30268f5d4f5ce14259fccb",
+  "configuration_sha256": "1730c55f59167de3dcd874f821317aaa8a84285e0a5ca4252aee02596edc452c",
+  "soccertrack_method_freeze_sha256": "abff4247999e71ad34afa38e654a2500702307ec7f1d8f7474f3409cbcc5d0af",
+  "prediction_cache_rebuild_wall_seconds": 221.89,
+  "artifacts": {
+    "detections.jsonl": "cb4cd8debfaf275fce7aabffda9851c1bfcbb686e59ac1cf3007e70162cbcc51",
+    "ball-tracks.json": "af964212a6e7c9341c9b806b7fd87b2c4658cb7456209f9a5f263a307d66d2ad",
+    "ball-tracking-summary.json": "1bc822b834c87fb8cd8a35775bf5f3bfb575346dbe2fb8ceace60b61099fac80",
+    "prediction-run-preregistration.json": "836757393470e5ec84d53f7bdc4b9596de9cad84f0f56ff80af01e73dbe8cb1c"
+  }
+}

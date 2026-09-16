@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "experiment": "current-player-attention-conservative-holdout",
+  "prediction_scope": "raw-video ball-coordinate inference only",
+  "evaluation_reference_loaded": false,
+  "runtime_manifest_sha256": "feec4f94051dc62598191f9439352cddc5dd3d5903f0a85c322cf97b83f2fd39",
+  "detector_cache_sha256": "984faeb8931f4268db279498315e84a8aa302cf5161a71fb8a1009f1d6c62915",
+  "ball_tracking_source_sha256": "61d58605d61e2f6b3159deee11bf8e4452961c8d3c30268f5d4f5ce14259fccb",
+  "detector_configuration": {
+    "model": "yolo26n.pt",
+    "confidence": 0.1,
+    "image_size": 960,
+    "stride": 5,
+    "tile_width": 960,
+    "tile_height": 960,
+    "overlap": 0.2,
+    "nms_iou": 0.5
+  }
+}

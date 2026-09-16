@@ -1,0 +1,22 @@
+[
+  {
+    "event_type": "pass_candidate",
+    "clip_seconds": 11.8,
+    "team": "black",
+    "from_player_track_id": 55,
+    "to_player_track_id": 25,
+    "confidence": 0.9,
+    "details": "Ball release at 666.21 pixels/second followed by black control after 1.20s.",
+    "completion_seconds": 13.0
+  },
+  {
+    "event_type": "pass_candidate",
+    "clip_seconds": 13.2,
+    "team": "black",
+    "from_player_track_id": 25,
+    "to_player_track_id": 29,
+    "confidence": 0.7179,
+    "details": "Ball direction changed sharply as same-team control transferred.",
+    "completion_seconds": 15.2
+  }
+]

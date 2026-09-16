@@ -1,0 +1,32 @@
+{
+  "prediction_frozen": true,
+  "provider_reference_loaded_before_freeze": false,
+  "preregistration_sha256": "5ba456b366e97ce10600482d0dfa3f627b8c00108bfcfaceb3f2f43868831bed",
+  "frozen_prediction_sha256": "235afd239ab7d60a391981d82da1146127b86f0aec53ddfa36a6aa4371791059",
+  "raw_attention_overlay_sha256": "c3457233eadbdd2c1ba0b772e5d35c69d173bb08385e6b660775016c038d805d",
+  "decision": "coordinate",
+  "predicted_coordinate": {
+    "x": 998.0,
+    "y": 741.0,
+    "mode": "global_fallback",
+    "evidence": "raw_motion_global_fallback",
+    "attention_support": 6,
+    "attention_score": 0.977246,
+    "verification_score": 0.704935,
+    "forward_template_scores": [
+      0.946564,
+      0.941602
+    ],
+    "forward_positions": [
+      [
+        997.0,
+        741.0
+      ],
+      [
+        997.0,
+        742.0
+      ]
+    ],
+    "ranking_score": 1.275961
+  }
+}

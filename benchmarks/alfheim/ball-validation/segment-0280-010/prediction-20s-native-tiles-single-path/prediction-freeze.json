@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "predictions_frozen": true,
+  "frozen_at": "2026-09-10T14:22:50.0210044+00:00",
+  "manifest_sha256": "0ebc2a8bcb3d7da7a9a70555e365e37f82a326bd554f774e3c6eabaaaeb9c53d",
+  "artifacts": {
+    "detections.jsonl": "493a34afe5cd6c604e0b9f26f5d1cc17dc62f245111fd1597ff2f616fe17c5e9",
+    "ball-tracks.json": "87b1c46c22a83cd51ca7cfc5ff9642933de318e0477a677dc834029b061d6875"
+  }
+}

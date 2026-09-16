@@ -1,0 +1,197 @@
+{
+  "processed_frames": 100,
+  "accepted_tracks": 148,
+  "track_labels": {
+    "black": 39,
+    "green": 33,
+    "official": 9,
+    "unknown": 67
+  },
+  "median_visible_per_frame": {
+    "black": 17.0,
+    "blue": 0.0,
+    "goalkeeper": 0.0,
+    "green": 15.0,
+    "official": 5.0,
+    "red": 0.0,
+    "unknown": 6.0,
+    "white": 0.0
+  },
+  "longest_tracks": [
+    {
+      "track_id": 1,
+      "team": "black",
+      "points": 100,
+      "start_seconds": 0.0,
+      "end_seconds": 19.8
+    },
+    {
+      "track_id": 3,
+      "team": "black",
+      "points": 100,
+      "start_seconds": 0.0,
+      "end_seconds": 19.8
+    },
+    {
+      "track_id": 5,
+      "team": "green",
+      "points": 100,
+      "start_seconds": 0.0,
+      "end_seconds": 19.8
+    },
+    {
+      "track_id": 7,
+      "team": "black",
+      "points": 100,
+      "start_seconds": 0.0,
+      "end_seconds": 19.8
+    },
+    {
+      "track_id": 23,
+      "team": "black",
+      "points": 100,
+      "start_seconds": 0.0,
+      "end_seconds": 19.8
+    },
+    {
+      "track_id": 24,
+      "team": "green",
+      "points": 100,
+      "start_seconds": 0.0,
+      "end_seconds": 19.8
+    },
+    {
+      "track_id": 27,
+      "team": "black",
+      "points": 100,
+      "start_seconds": 0.0,
+      "end_seconds": 19.8
+    },
+    {
+      "track_id": 28,
+      "team": "green",
+      "points": 100,
+      "start_seconds": 0.0,
+      "end_seconds": 19.8
+    },
+    {
+      "track_id": 31,
+      "team": "black",
+      "points": 100,
+      "start_seconds": 0.0,
+      "end_seconds": 19.8
+    },
+    {
+      "track_id": 20,
+      "team": "green",
+      "points": 99,
+      "start_seconds": 0.0,
+      "end_seconds": 19.8
+    },
+    {
+      "track_id": 35,
+      "team": "green",
+      "points": 99,
+      "start_seconds": 0.0,
+      "end_seconds": 19.8
+    },
+    {
+      "track_id": 11,
+      "team": "green",
+      "points": 98,
+      "start_seconds": 0.0,
+      "end_seconds": 19.4
+    },
+    {
+      "track_id": 22,
+      "team": "green",
+      "points": 98,
+      "start_seconds": 0.0,
+      "end_seconds": 19.8
+    },
+    {
+      "track_id": 26,
+      "team": "unknown",
+      "points": 97,
+      "start_seconds": 0.0,
+      "end_seconds": 19.8
+    },
+    {
+      "track_id": 10,
+      "team": "green",
+      "points": 96,
+      "start_seconds": 0.0,
+      "end_seconds": 19.8
+    },
+    {
+      "track_id": 40,
+      "team": "black",
+      "points": 91,
+      "start_seconds": 0.2,
+      "end_seconds": 18.2
+    },
+    {
+      "track_id": 42,
+      "team": "black",
+      "points": 89,
+      "start_seconds": 0.4,
+      "end_seconds": 18.0
+    },
+    {
+      "track_id": 53,
+      "team": "green",
+      "points": 89,
+      "start_seconds": 1.6,
+      "end_seconds": 19.8
+    },
+    {
+      "track_id": 49,
+      "team": "black",
+      "points": 84,
+      "start_seconds": 1.4,
+      "end_seconds": 19.6
+    },
+    {
+      "track_id": 73,
+      "team": "official",
+      "points": 79,
+      "start_seconds": 4.2,
+      "end_seconds": 19.8
+    },
+    {
+      "track_id": 2,
+      "team": "green",
+      "points": 78,
+      "start_seconds": 0.0,
+      "end_seconds": 15.6
+    },
+    {
+      "track_id": 9,
+      "team": "green",
+      "points": 73,
+      "start_seconds": 0.0,
+      "end_seconds": 14.4
+    },
+    {
+      "track_id": 67,
+      "team": "official",
+      "points": 71,
+      "start_seconds": 3.4,
+      "end_seconds": 18.8
+    },
+    {
+      "track_id": 17,
+      "team": "green",
+      "points": 64,
+      "start_seconds": 0.0,
+      "end_seconds": 12.8
+    },
+    {
+      "track_id": 60,
+      "team": "black",
+      "points": 63,
+      "start_seconds": 2.2,
+      "end_seconds": 14.8
+    }
+  ]
+}

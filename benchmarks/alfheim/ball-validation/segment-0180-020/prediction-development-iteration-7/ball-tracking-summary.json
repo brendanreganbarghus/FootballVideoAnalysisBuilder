@@ -1,0 +1,213 @@
+{
+  "analysis_window": null,
+  "processed_frames": 100,
+  "raw_pitch_ball_candidates": 151,
+  "pitch_ball_candidates_before_upper_body_rejection": 157,
+  "filtered_ball_candidates": 143,
+  "candidate_conflicts": {
+    "frames_with_multiple_candidates": 42,
+    "competing_candidates": 68
+  },
+  "candidate_rejections": {
+    "inside_player_upper_body": 6,
+    "global_static_cells": 0,
+    "unanchored_static_clusters": 8,
+    "unanchored_static_fragments": 1,
+    "temporal_points_inside_player_upper_body": 0,
+    "raw_motion_scale_or_shape": 25199,
+    "raw_motion_appearance": 5,
+    "raw_motion_player_body": 327,
+    "raw_motion_ambiguity": 21,
+    "raw_motion_temporal_consistency": 504
+  },
+  "raw_motion_proposals": {
+    "parameter_profile": {
+      "difference_threshold": 18,
+      "minimum_circularity": 0.32,
+      "minimum_appearance_range": 24.0,
+      "minimum_extent_ball_diameters": 0.18,
+      "maximum_extent_ball_diameters": 1.8,
+      "minimum_area_ball_diameters_squared": 0.025,
+      "maximum_area_ball_diameters_squared": 1.8,
+      "trajectory_corridor_ball_diameters": 2.5,
+      "trajectory_maximum_sample_gap": 4,
+      "global_fallback_minimum_temporal_neighbors": 2
+    },
+    "verification_profile": {
+      "experiment": "2-conservative-global-veto-and-ambiguity-ranking",
+      "adjacent_template_minimum_score": 0.3,
+      "adjacent_path_maximum_ball_diameters": 2.0,
+      "foreground_weight": 0.2,
+      "compactness_weight": 0.2,
+      "scale_weight": 0.2,
+      "texture_weight": 0.15,
+      "appearance_consistency_weight": 0.25,
+      "lower_body_interior_penalty": 0.15,
+      "near_feet_minimum_score": 0.58,
+      "trajectory_corridor_minimum_score": 0.58,
+      "global_fallback_minimum_score": 0.6,
+      "minimum_alternative_margin": 0.08,
+      "continuity_weight": 0.35,
+      "mode_switch_penalty": 0.08,
+      "maximum_acceleration_pixels_per_second_squared": 12000.0
+    },
+    "generated": 555,
+    "accepted": {
+      "near_feet": 2,
+      "trajectory_corridor": 1,
+      "global_fallback": 3
+    },
+    "generated_by_mode": {
+      "near_feet": 291,
+      "trajectory_corridor": 1,
+      "global_fallback": 263
+    },
+    "precision_rejections": {
+      "verification_score": 0,
+      "path_plausibility": 0,
+      "alternative_margin": 2,
+      "ambiguity": 21,
+      "temporal_consistency": 504
+    },
+    "trajectory_margin": {
+      "minimum": null,
+      "mean": null
+    }
+  },
+  "player_attention_search_prior": {
+    "parameter_profile": {
+      "experiment": "3-player-attention-convergence",
+      "minimum_person_confidence": 0.35,
+      "minimum_person_height_pixels": 15.0,
+      "maximum_cone_half_angle_degrees": 40.0,
+      "maximum_distance_player_heights": 12.0,
+      "minimum_search_distance_pixels": 240.0,
+      "minimum_orientation_confidence": 0.18,
+      "minimum_converging_players": 2,
+      "startup_minimum_converging_players": 3,
+      "startup_seconds": 0.8,
+      "minimum_convergence_score": 0.35,
+      "startup_minimum_convergence_score": 0.65,
+      "minimum_visual_verification_score": 0.58,
+      "minimum_appearance_consistency_score": 0.1,
+      "minimum_compactness_score": 0.4,
+      "minimum_scale_score": 0.4,
+      "minimum_foreground_score": 0.25,
+      "startup_forward_confirmation_frames": 2
+    },
+    "accepted_coordinates": 2,
+    "startup_points_rejected": 0,
+    "rejections": {
+      "insufficient_convergence": 257,
+      "insufficient_visual_evidence": 195,
+      "temporal_path": 22
+    },
+    "precise_eye_gaze_claimed": false,
+    "attention_only_coordinates_published": 0
+  },
+  "kalman_guided_reacquisition": {
+    "parameter_profile": {
+      "process_position_variance": 4.0,
+      "process_velocity_variance": 625.0,
+      "measurement_variance": 16.0,
+      "initial_position_variance": 16.0,
+      "initial_velocity_variance": 40000.0,
+      "uncertainty_sigma": 2.5,
+      "minimum_roi_radius_pixels": 12.0,
+      "maximum_roi_radius_pixels": 140.0,
+      "maximum_prediction_only_frames": 3,
+      "maximum_bidirectional_disagreement_fraction": 0.75,
+      "candidate_deduplication_pixels": 4.0
+    },
+    "accepted": 0,
+    "visual_source": {
+      "yolo_candidate": 0,
+      "raw_motion_micro_crop": 0
+    },
+    "search_context": {
+      "near_feet": 0,
+      "trajectory_corridor": 0,
+      "global_fallback": 0
+    },
+    "expired_predictions": 10,
+    "bidirectional_rejections": 22,
+    "visual_evidence_misses": 0,
+    "conflicts": 0,
+    "prediction_only_points_published": 0
+  },
+  "dense_optical_flow": {
+    "parameter_profile": {
+      "maximum_bridge_raw_frames": 20,
+      "patch_radius_ball_diameters": 1.0,
+      "minimum_patch_radius_pixels": 5,
+      "maximum_patch_radius_pixels": 18,
+      "lk_window_pixels": 15,
+      "lk_pyramid_levels": 2,
+      "maximum_forward_backward_error_pixels": 1.5,
+      "minimum_retained_features": 3,
+      "feature_quality_level": 0.01,
+      "feature_minimum_distance_pixels": 2.0,
+      "minimum_template_score": 0.55,
+      "local_search_ball_diameters": 1.5,
+      "maximum_local_search_pixels": 24,
+      "maximum_speed_pixels_per_second": 1600.0,
+      "maximum_acceleration_pixels_per_second_squared": 12000.0,
+      "minimum_feature_scale_ratio": 0.4,
+      "maximum_feature_scale_ratio": 2.5,
+      "maximum_endpoint_error_ball_diameters": 1.5,
+      "maximum_path_disagreement_ball_diameters": 1.5
+    },
+    "accepted_points": 0,
+    "successful_bridges": 0,
+    "rejected_drift": 13,
+    "expired_bridges": 2,
+    "endpoint_disagreement": 1,
+    "insufficient_feature_support": 2,
+    "appearance_rejections": 0,
+    "player_upper_body_rejections": 0,
+    "path_confidence": {
+      "minimum": null,
+      "mean": null
+    },
+    "unbounded_flow_points_published": 0
+  },
+  "unanchored_static_clusters": 1,
+  "associated_track_fragments": 56,
+  "discarded_unanchored_static_fragments": 1,
+  "discarded_temporal_upper_body_points": 0,
+  "supported_track_fragments": 15,
+  "accepted_tracks": 1,
+  "accepted_track_points": 69,
+  "observed_track_points": 61,
+  "temporally_supported_track_points": 8,
+  "interpolated_track_points": 0,
+  "point_source_attribution": {
+    "yolo26_observed": 61,
+    "temporal_detector_observed": 2,
+    "optical_flow_propagated": 0,
+    "raw_motion_micro_crop_supported": 6,
+    "kalman_guided_visual_reacquired": 0,
+    "interpolated": 0
+  },
+  "tracked_frames": 68,
+  "tracked_frame_coverage": 0.68,
+  "coordinate_correctness": {
+    "trusted_reference_available": false,
+    "measured": false,
+    "reason": "No per-frame coordinate reference is loaded. Template-based raw-motion micro-crop, and bounded optical-flow evidence are not correctness labels."
+  },
+  "coordinate_uncertainty": {
+    "detector_backed_points": 61,
+    "template_supported_points": 2,
+    "raw_motion_micro_crop_points": 6,
+    "kalman_guided_visually_reacquired_points": 0,
+    "dense_optical_flow_points": 0,
+    "raw_motion_modes": {
+      "near_feet": 2,
+      "trajectory_corridor": 1,
+      "global_fallback": 3
+    },
+    "manual_coordinate_validation_performed": false
+  },
+  "interpretation": "Coverage counts detector, template-consensus, raw-motion micro-crop, and endpoint-bounded optical-flow coordinates with raw visual evidence; interpolation is excluded."
+}

@@ -1,0 +1,37 @@
+{
+  "diagnostic_only": true,
+  "parameters_frozen_before_prediction": true,
+  "provider_reference_sealed": true,
+  "tracker_code_modified": false,
+  "video_sha256": "536563d9d688b5d4c05af16575800ffdb104db0ca7ada9a24250d5f9a3f2d37f",
+  "detector_player_cache_sha256": "cb4cd8debfaf275fce7aabffda9851c1bfcbb686e59ac1cf3007e70162cbcc51",
+  "ball_tracking_source_sha256": "61d58605d61e2f6b3159deee11bf8e4452961c8d3c30268f5d4f5ce14259fccb",
+  "parameters_sha256": "a482d1c1e881fc18066ec51a3714381830fe3ec0cc09fcec8c9e5fb524a9c883",
+  "parameters": {
+    "target_source_frame": 5,
+    "raw_frame_window": [
+      3,
+      7
+    ],
+    "orientation_frames": [
+      4,
+      5,
+      6
+    ],
+    "forward_confirmation_frames": [
+      6,
+      7
+    ],
+    "minimum_converging_players": 3,
+    "minimum_convergence_score": 0.65,
+    "minimum_visual_verification_score": 0.58,
+    "minimum_appearance_consistency_score": 0.1,
+    "minimum_compactness_score": 0.4,
+    "minimum_scale_score": 0.4,
+    "minimum_foreground_score": 0.25,
+    "minimum_forward_template_score": 0.3,
+    "maximum_speed_pixels_per_second": 1600.0,
+    "maximum_acceleration_pixels_per_second_squared": 12000.0,
+    "minimum_selection_margin": 0.08
+  }
+}

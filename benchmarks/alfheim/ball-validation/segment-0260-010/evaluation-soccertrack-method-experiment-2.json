@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "prediction_frozen_before_evaluation": true,
+  "runtime_manifest_sha256": "b195c8f2383504d123ae30936751dbd912a1470d51cace510d9af2102b457587",
+  "prediction_freeze_sha256": "75fadc4586cd10b8ba54d28cfb0b9c4d28ed7ae10f08530be27276d67273566a",
+  "reference_kind": "evaluation_only_provider_coordinates",
+  "coordinate_transform": {
+    "source_width": 4450,
+    "source_height": 2000,
+    "prediction_width": 4450,
+    "prediction_height": 2000,
+    "scale_x": 1.0,
+    "scale_y": 1.0
+  },
+  "metrics": {
+    "evaluated_sampled_frames": 100,
+    "tracked_sampled_frames": 96,
+    "matched_sampled_frames": 37,
+    "missed_sampled_frames": 63,
+    "missing_prediction_frames": 4,
+    "wrong_coordinate_frames": 59,
+    "false_positive_track_points": 60,
+    "tracked_frame_coverage": 0.96,
+    "coordinate_match_recall": 0.37,
+    "coordinate_match_precision": 0.3814,
+    "mean_matched_distance_px": 12.223,
+    "median_matched_distance_px": 9.154,
+    "p90_matched_distance_px": 25.034,
+    "median_nearest_candidate_distance_px": 259.928,
+    "p90_nearest_candidate_distance_px": 1047.875,
+    "source_attribution": {
+      "raw_motion_micro_crop_supported": 40,
+      "temporal_detector_observed": 3,
+      "yolo26_observed": 54
+    },
+    "matched_source_attribution": {
+      "raw_motion_micro_crop_supported": 2,
+      "temporal_detector_observed": 1,
+      "yolo26_observed": 34
+    },
+    "wrong_source_attribution": {
+      "raw_motion_micro_crop_supported": 38,
+      "temporal_detector_observed": 1,
+      "yolo26_observed": 20
+    },
+    "player_foot_association": {
+      "tracked_reference_near_feet": 32,
+      "tracked_prediction_near_feet": 65,
+      "reference_near_feet_preserved": 32,
+      "reference_near_feet_preservation_rate": 1.0,
+      "interpretation": "Evaluation-only comparison of the nearest frozen prediction and provider coordinate against frozen player foot ROIs."
+    },
+    "maximum_match_distance_px": 32.0
+  }
+}

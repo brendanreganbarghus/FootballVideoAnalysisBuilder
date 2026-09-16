@@ -1,0 +1,284 @@
+1
+00:00:00,300 --> 00:00:03,700
+Football Intelligence Platform - See the Match While You Can Still Change It
+
+2
+00:00:04,000 --> 00:00:07,839
+This idea started when I studied the needs of an amateur football club.
+
+3
+00:00:07,839 --> 00:00:09,610
+The club could record a match,
+
+4
+00:00:09,610 --> 00:00:13,449
+but information that might influence football decisions was often unavailable during the game,
+
+5
+00:00:13,449 --> 00:00:14,335
+delivered too late,
+
+6
+00:00:14,335 --> 00:00:16,992
+or difficult to trust without checking the video again.
+
+7
+00:00:16,992 --> 00:00:20,240
+Coaches need more than footage. They need evidence they can use.
+
+8
+00:00:20,240 --> 00:00:22,428
+Completed passes, possession, turnovers, shots on target,
+
+9
+00:00:22,428 --> 00:00:26,804
+pitch zones and team shape matter most while the match can still be changed.
+
+10
+00:00:26,804 --> 00:00:28,992
+Imagine provisional statistics updating beside the pitch,
+
+11
+00:00:28,992 --> 00:00:30,555
+reaching an authorised dugout device,
+
+12
+00:00:30,555 --> 00:00:33,056
+and expanding onto a dressing-room touchscreen at half-time.
+
+13
+00:00:33,056 --> 00:00:34,619
+The coach remains the decision-maker,
+
+14
+00:00:34,619 --> 00:00:38,370
+but can judge where possession breaks down and which areas require attention.
+
+15
+00:00:38,370 --> 00:00:41,403
+The market already offers valuable camera and analytics products.
+
+16
+00:00:41,403 --> 00:00:45,784
+Public entry software ranges from tens to low hundreds of euros per month,
+
+17
+00:00:45,784 --> 00:00:49,155
+while hardware, live features, storage and analytics may be separate.
+
+18
+00:00:49,155 --> 00:00:50,840
+Professional solutions are normally bespoke.
+
+19
+00:00:50,840 --> 00:00:54,547
+The opportunity is not simply another camera. It is a shorter,
+
+20
+00:00:54,547 --> 00:00:57,580
+controlled path from the action to trusted football evidence.
+
+21
+00:00:57,580 --> 00:01:01,249
+Here is the proposed architecture. One elevated panoramic main camera,
+
+22
+00:01:01,249 --> 00:01:03,818
+positioned on the long side near halfway,
+
+23
+00:01:03,818 --> 00:01:07,487
+continuously preserves the full-pitch geometry, team spacing and off-ball movement.
+
+24
+00:01:07,487 --> 00:01:12,625
+The blue and red player shapes show how the calibrated view supports tactical context.
+
+25
+00:01:12,625 --> 00:01:14,826
+Green arrows connect completed passing lanes.
+
+26
+00:01:14,826 --> 00:01:18,129
+The dashed amber lane shows where possession is lost.
+
+27
+00:01:18,129 --> 00:01:20,697
+A second opposing panoramic camera is recommended,
+
+28
+00:01:20,697 --> 00:01:23,1000
+while two goal-end cameras remain optional when budget permits.
+
+29
+00:01:24,000 --> 00:01:26,371
+The purple lines are infrastructure, not passes.
+
+30
+00:01:26,371 --> 00:01:35,855
+Wired Cat six and Power over Ethernet feeds run around the pitch perimeter into a network switch and a locked high-speed GPU workstation in the clubhouse security office.
+
+31
+00:01:35,855 --> 00:01:37,887
+Video and analysis remain locally controlled,
+
+32
+00:01:37,887 --> 00:01:41,613
+with BitLocker-encrypted storage and authorised access. Overlapping thirty-second windows carry possession,
+
+33
+00:01:41,613 --> 00:01:45,000
+match state, unresolved events and cumulative totals forward, suppress duplicates,
+
+34
+00:01:45,000 --> 00:01:47,710
+and add each new result to the screen.
+
+35
+00:01:47,710 --> 00:01:50,304
+The same provisional data can serve different decisions.
+
+36
+00:01:50,304 --> 00:01:52,899
+A stadium display shows the headline match statistics.
+
+37
+00:01:52,899 --> 00:01:56,466
+A future dugout view provides a concise authorised summary. At half-time,
+
+38
+00:01:56,466 --> 00:01:59,709
+the larger screen reveals possession won and lost by zone,
+
+39
+00:01:59,709 --> 00:02:02,952
+completed passes, final-third entries and recent trends. In this illustration,
+
+40
+00:02:02,952 --> 00:02:06,520
+Zone Three is losing possession more often than it wins it,
+
+41
+00:02:06,520 --> 00:02:11,060
+giving the coaching team evidence to compare with the defensive lines and match plan.
+
+42
+00:02:11,060 --> 00:02:14,006
+Detection and tracking alone do not understand football.
+
+43
+00:02:14,006 --> 00:02:18,057
+A law-grounded match-state engine determines whether play is live, stopped, out,
+
+44
+00:02:18,057 --> 00:02:22,109
+or awaiting a restart. Event state machines evaluate control, release, reception,
+
+45
+00:02:22,109 --> 00:02:25,055
+possession changes and shot outcomes. For disputed moments,
+
+46
+00:02:25,055 --> 00:02:29,474
+Copilot independently reviews a focused video window before comparison with the engine.
+
+47
+00:02:29,474 --> 00:02:32,421
+Authorised corrections must improve a reusable football rule,
+
+48
+00:02:32,421 --> 00:02:34,630
+never one timestamp or manual label,
+
+49
+00:02:34,630 --> 00:02:36,840
+and protected regressions guard accepted behaviour.
+
+50
+00:02:36,840 --> 00:02:38,443
+For an amateur-club pilot,
+
+51
+00:02:38,443 --> 00:02:45,255
+one panoramic main camera and secure local GPU provide the minimum viable core without mandatory cloud processing.
+
+52
+00:02:45,255 --> 00:02:48,861
+Two opposing panoramic cameras are recommended for stronger coverage.
+
+53
+00:02:48,861 --> 00:02:50,865
+Goal-end cameras are optional upgrades.
+
+54
+00:02:50,865 --> 00:02:55,673
+An illustrative planning range is fifteen to thirty thousand euros for hardware,
+
+55
+00:02:55,673 --> 00:02:59,680
+networking, secure storage, installation, calibration, initial licensing and pilot support.
+
+56
+00:02:59,680 --> 00:03:02,485
+It is not a quotation; tax, connectivity,
+
+57
+00:03:02,485 --> 00:03:05,290
+ongoing support and final requirements remain separate.
+
+58
+00:03:05,290 --> 00:03:09,263
+Today, the working proof is offline: calibrated footage, tracking, football state,
+
+59
+00:03:09,263 --> 00:03:12,875
+event review and regression-protected output. Live ingest, professional multi-camera operation,
+
+60
+00:03:12,875 --> 00:03:16,126
+stadium deployment and durable player identity are next-stage capabilities,
+
+61
+00:03:16,126 --> 00:03:17,210
+not completed claims.
+
+62
+00:03:17,210 --> 00:03:25,517
+Our future Query By Probability concept keeps the main camera continuous and queries only the relevant secondary view for a short low-confidence moment.
+
+63
+00:03:25,517 --> 00:03:30,213
+The controlled pilot target is at least ninety-five percent against independently reviewed references,
+
+64
+00:03:30,213 --> 00:03:32,380
+reported separately for each agreed statistic.
+
+65
+00:03:32,380 --> 00:03:35,669
+We propose a staged co-development pilot with AZ Alkmaar and Xebia:
+
+66
+00:03:35,669 --> 00:03:38,659
+define the statistics that matter, agree accuracy and latency targets,
+
+67
+00:03:38,659 --> 00:03:39,855
+validate on controlled matches,
+
+68
+00:03:39,855 --> 00:03:43,145
+and build a credible route from grassroots affordability to professional performance.
+
+69
+00:03:43,145 --> 00:03:46,434
+The goal is not more data after the moment has passed.
+
+70
+00:03:46,434 --> 00:03:50,620
+It is trusted football intelligence while the next decision can still change the match.
+
+71
+00:03:50,920 --> 00:03:56,320
+AZ Alkmaar and Xebia - a staged co-development pilot
+

@@ -1,0 +1,63 @@
+[
+  {
+    "id": 1,
+    "title": "Why this started",
+    "visual": "Real panoramic match footage, followed by the current review workflow.",
+    "text": "This idea started when I studied the needs of an amateur football club. The club could record a match, but information that might influence football decisions was often unavailable during the game, delivered too late, or difficult to trust without checking the video again. I wanted to start at amateur level because clubs with the least money should still have access to the standard of evidence normally associated with top professional football. Coaches need more than footage. They need evidence they can use."
+  },
+  {
+    "id": 2,
+    "title": "The current market approach",
+    "visual": "A neutral market landscape showing accessible capture platforms and professional service stacks.",
+    "text": "The market broadly offers two approaches. Accessible camera platforms help clubs record, upload, stream and review matches, commonly through recurring cloud plans. Professional providers combine optical tracking, event data, analyst workflows and integrations, usually through bespoke contracts. Both approaches provide useful capabilities, but they serve very different budgets and levels of operational support."
+  },
+  {
+    "id": 3,
+    "title": "The remaining gap",
+    "visual": "Show the gap between fragmented capture, storage, analysis, verification, and delivery before revealing the connected flow.",
+    "text": "The downside is fragmentation. Capture, cloud storage, analysis, export and manual verification may remain separate. Costs increase as subscriptions and services are added, provider access and connectivity can become dependencies, and useful insight may arrive after the decision. Completed passes, possession, turnovers and shots matter most while the match can still be changed."
+  },
+  {
+    "id": 4,
+    "title": "A different approach",
+    "visual": "Approved architecture visual, beginning with the main camera and revealing players, passing lanes, optional cameras and secure cabling.",
+    "text": "Our alternative is one locally controlled and traceable flow. An elevated panoramic main camera preserves full-pitch geometry, team spacing and off-ball movement. Calibration connects image positions to the pitch. Local processing follows the ball and players, understands match state, calculates agreed events and delivers useful statistics. Every published number remains connected to its video evidence and exact rules-engine version. Additional cameras are added only when they create enough value."
+  },
+  {
+    "id": 5,
+    "title": "What works today and what comes next",
+    "visual": "Show current proof and next-stage capabilities side by side with a clear maturity boundary.",
+    "text": "Today, the working proof processes prepared panoramic footage through calibration, tracking, football state, event review and regression-protected output. That is current. Live ingest, rolling match-day delivery, professional multi-camera operation, stadium deployment and durable player identity are next-stage capabilities, not completed claims. They are development targets. The controlled pilot target is at least ninety-five percent against independently reviewed references, reported separately for every agreed statistic."
+  },
+  {
+    "id": 6,
+    "title": "From footage to live delivery",
+    "visual": "Follow the operational path from panoramic footage through calibration and local processing to rolling match statistics.",
+    "text": "Operation starts with a rights-cleared panoramic feed and a camera calibration for that venue. The detector and tracker derive players and the ball from raw frames; no provider event file tells the engine what happened. The engine carries possession, match state and unresolved events forward. In the target live operation, a secured local GPU continuously ingests the feed and publishes each sixty-second update before the next is due. Duplicate events are suppressed, and the same evidence expands into a deeper half-time coaching view."
+  },
+  {
+    "id": 7,
+    "title": "Training, validation and trust",
+    "visual": "A director-friendly validation loop showing human validators, Copilot assistance, general rule improvements, and protected regressions.",
+    "text": "Training and validation remain separate from match inference. Detection models are developed offline using appropriately licensed development data. Held-out annotations are revealed only after predictions are frozen; they never tell the engine what event to create. In the Review application, authorised validators inspect controlled video segments. Copilot contributes an independent video-based proposal, the rules engine contributes its own result, and provider annotations can provide a third post-inference check. A supported disagreement may improve only a general rule. Protected regressions then verify previous behaviour before the validated engine is deployed to new footage."
+  },
+  {
+    "id": 8,
+    "title": "Where it can start now",
+    "visual": "Show the affordable installed core, its immediate controlled uses, and optional expansion.",
+    "text": "The platform can be applied now to controlled post-match analysis, analyst-assisted segment review and an amateur or semi-professional pilot using prepared footage. The target installed core is below twelve thousand euros before tax: one panoramic camera, local GPU, storage, networking, installation, calibration and initial support. It requires neither cloud processing nor cloud video storage. Camera subscriptions recur, while bespoke professional packages can collectively reach thousands per month. The fair comparison is the complete three-year cost of ownership."
+  },
+  {
+    "id": 9,
+    "title": "Scaling to professional venues",
+    "visual": "Show the professional infrastructure and future Query By Probability concept.",
+    "text": "Professional venues require synchronized camera feeds, sustained GPU throughput, resilient networking and storage, access control, monitoring, systems integration and match-day support. A second opposing panoramic view strengthens coverage; goal-end cameras can be added where justified. Future Query By Probability keeps the main camera continuous and consults only the relevant secondary view during a short low-confidence moment. Professional scale is therefore an engineering and operational programme, not simply the purchase of more cameras."
+  },
+  {
+    "id": 10,
+    "title": "Building it with Xebia",
+    "visual": "Three-stage professional-club and Xebia pilot roadmap, ending on the football intelligence proposition.",
+    "text": "We propose a staged co-development pilot between a professional football club and Xebia. Together we can define the statistics and targets, validate controlled matches, and build a route from grassroots affordability to professional performance. Xebia can help productionise edge processing, security, resilient live ingest, systems integration, monitoring and operational scale. The goal is not more data after the moment has passed. It is trusted football intelligence while the next decision can still change the match. Thank you for taking the time to review this vision. I hope we can build it together.",
+    "closing_pause_seconds": 2.2
+  }
+]

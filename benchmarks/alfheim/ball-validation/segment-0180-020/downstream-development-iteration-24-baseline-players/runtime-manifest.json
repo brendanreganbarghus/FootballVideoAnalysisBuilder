@@ -1,0 +1,8 @@
+{
+  "dataset": "Simula Alfheim Camera Setting 2",
+  "usage": "non-commercial research only",
+  "video": "D:\\Projects\\Xebia\\FootballVideoAnalysisBuilder-worktrees\\pass-shot-validation\\benchmarks\\alfheim\\generated\\segment-0180-020\\alfheim-window.mp4",
+  "fps": 25.0,
+  "start_frame": 0,
+  "end_frame": 1500
+}

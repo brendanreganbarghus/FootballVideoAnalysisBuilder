@@ -1,0 +1,34 @@
+{
+  "manifest": "D:\\Projects\\Xebia\\FootballVideoAnalysisBuilder-worktrees\\pass-shot-validation\\benchmarks\\alfheim\\generated\\segment-0180-020\\diagnostic-manifest-20s.json",
+  "cache": "D:\\Projects\\Xebia\\FootballVideoAnalysisBuilder-worktrees\\pass-shot-validation\\benchmarks\\alfheim\\ball-validation\\segment-0180-020\\prediction-current-holdout\\detections.jsonl",
+  "configuration": {
+    "type": "metadata",
+    "manifest_sha256": "feec4f94051dc62598191f9439352cddc5dd3d5903f0a85c322cf97b83f2fd39",
+    "video": "D:\\Projects\\Xebia\\FootballVideoAnalysisBuilder-worktrees\\pass-shot-validation\\benchmarks\\alfheim\\generated\\segment-0180-020\\alfheim-window.mp4",
+    "model": "yolo26n.pt",
+    "confidence": 0.1,
+    "image_size": 960,
+    "stride": 5,
+    "tile_width": 960,
+    "tile_height": 960,
+    "overlap": 0.2,
+    "nms_iou": 0.5
+  },
+  "last_run": {
+    "processed_frames": 100,
+    "elapsed_seconds": 506.621,
+    "frames_per_second": 0.197,
+    "cold_path": true
+  },
+  "expected_frames": 100,
+  "processed_frames": 100,
+  "complete": true,
+  "detection_counts": {
+    "person": 6252,
+    "sports ball": 203
+  },
+  "frames_with_people": 100,
+  "frames_with_ball": 91,
+  "ball_frame_coverage": 0.91,
+  "next_stage": "Tracking and event inference consume this cache without evaluation labels."
+}

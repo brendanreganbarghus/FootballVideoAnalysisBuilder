@@ -1,0 +1,14 @@
+{
+  "predictions_frozen": true,
+  "frozen_at_utc": "2026-09-11T13:54:19.200441+00:00",
+  "evaluation_reference_loaded_before_freeze": false,
+  "manifest_sha256": "b195c8f2383504d123ae30936751dbd912a1470d51cace510d9af2102b457587",
+  "ball_tracking_source_sha256": "d4977867761ff6e4b233124ddf10872327795b55e1f899d4420713e0cc0d94f3",
+  "configuration_sha256": "101ddadfe2fb5f6378b66077dc19496eadec7fa8f74182eaa7a87a3386e2a943",
+  "artifacts": {
+    "detections.jsonl": "cb4cd8debfaf275fce7aabffda9851c1bfcbb686e59ac1cf3007e70162cbcc51",
+    "ball-tracks.json": "29f213e9abfdce0e96fcb41cbda0f20ed431359695325b95cb68569e2a88357c",
+    "ball-tracking-summary.json": "eff7955435b5372618c78404da564fba3e3ff93ed0ef91aa5dbe401bcc23f11f",
+    "prediction-run-preregistration.json": "cf4d2fd9822086a7697539071d0143d724d15608598e0206860cfd1a5d746b4f"
+  }
+}
