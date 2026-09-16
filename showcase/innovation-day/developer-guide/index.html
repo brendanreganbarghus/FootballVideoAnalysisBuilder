@@ -196,9 +196,10 @@
       <h1>From a clean clone to an isolated local experiment.</h1>
       <p>
         Code comes from Git. Restricted video and approved models come from the
-        controlled artifact store. Generated segments and AI runs stay on each
-        developer's computer; governed review decisions are checksummed in the
-        shared event-review state.
+        controlled artifact store. Fresh detections, tracks, and provisional
+        events run locally. Runs needed by the team are published into an
+        append-only, checksummed shared catalog; governed review decisions and
+        passed baselines remain available to every authorized developer.
       </p>
     </section>
 
@@ -250,12 +251,12 @@ git switch -c feature/&lt;short-workstream-name&gt;</pre>
           <pre>$artifacts = "$env:USERPROFILE\OneDrive - Xebia\Innovationday Artifacts"
 $env:FOOTBALL_ARTIFACT_ROOT = $artifacts
 $env:FOOTBALL_ALFHEIM_PANO = Join-Path $artifacts "10-master-data\alfheim\pano"
-Copy-Item `
-  (Join-Path $artifacts "20-approved-models\internal-poc-only\ultralytics-yolo11n\yolo11n.pt") `
-  .\yolo11n.pt</pre>
+python .\scripts\verify-innovation-workspace.py --require-alfheim</pre>
           <p>
-            This points the app to the extracted raw video files and copies the
-            approved internal-POC YOLO model into the project root.
+            This points the app to the extracted raw video files. The pipeline
+            resolves the checksummed approved internal-POC model directly from
+            OneDrive under <code>20-approved-models</code>; it does not need to
+            be copied into the repository.
             <code>pano.tgz</code> remains an untouched backup archive.
           </p>
         </div>
@@ -265,15 +266,17 @@ Copy-Item `
         <div>
           <span class="tag">Governed review state</span>
           <h2>Use the shared decisions without copying restricted media</h2>
-          <pre>$reviewState = Join-Path $artifacts "30-shared-baselines\event-review-state"
-Test-Path $reviewState
+          <pre>$innovationState = Join-Path $artifacts "30-shared-baselines\event-review-state-innovation"
+$liveState = Join-Path $artifacts "30-shared-baselines\event-review-state-live"
+Test-Path $innovationState
+Test-Path $liveState
 &amp; "$artifacts\00-governance\Verify-Artifacts.ps1"</pre>
           <p>
-            The review extension stores decisions, conversations, engine
-            snapshots, source hashes, cached-output hashes, and regression
-            receipts under this directory. Each save updates
+            The Innovation and live review extensions store decisions,
+            conversations, engine snapshots, source hashes, cached-output
+            hashes, and regression receipts in separate directories. Each save updates
             <code>00-governance\checksums.sha256</code>. Generated videos remain
-            local and are not copied from OneDrive.
+            local unless deliberately included in a shared debugging package.
           </p>
         </div>
       </article>
@@ -294,9 +297,9 @@ Test-Path $reviewState
             </div>
           </div>
           <p>
-            Use <strong>Open Live Review Canvas</strong> on the product or
-            Innovation Day landing page. The local launcher redirects to the
-            correct running Canvas and selects the matching theme automatically.
+            Use the Innovation review launcher for BAC-assisted testing and the
+            separate live review launcher for raw-video iteration-25 testing.
+            The local launcher redirects to the correct running Canvas.
             You do not need to ask Copilot each time or know its temporary port.
           </p>
           <p>
@@ -304,35 +307,56 @@ Test-Path $reviewState
             browser can redirect to it. If the launcher reports that no Canvas
             is registered, use this one-time recovery prompt:
           </p>
-          <pre>Open the Football Event Review Canvas for segment-0300-020
-with the innovation theme.</pre>
+          <pre>Open the Football Event Review Canvas for segment-0180-020.
+Open the Football Event Review Live Canvas for segment-0180-020.</pre>
           <p>
-            After that first opening, the landing-page button is the normal
-            entry point. The generic and Innovation launchers use the same Canvas
-            implementation and governed review state.
+            After that first opening, the landing-page buttons are the normal
+            entry points. The canvases deliberately use separate engines,
+            generated artifacts, review state, fingerprints, regression
+            receipts, and publication locks.
           </p>
           <div class="grid">
             <div class="mini">
-              <b>Default Theme Prompt</b>
-              <code>Open Football Event Review for segment-0300-020 with theme default.</code>
+              <b>Live review prompt</b>
+              <code>Open Football Event Review Live for segment-0180-020.</code>
             </div>
             <div class="mini">
-              <b>Innovation Theme Prompt</b>
-              <code>Open Football Event Review for segment-0300-020 with theme innovation.</code>
+              <b>Innovation review prompt</b>
+              <code>Open Football Event Review for segment-0180-020.</code>
             </div>
           </div>
           <p>
             Open <strong>Camera Calibration &amp; Overlays</strong> to show,
             redraw, undo, finish, restore, or download the actual camera-mapped
-            pitch boundary and goal frames. The Innovation theme renders those
-            same calibrated features in purple and lighter purple; it does not
-            fork or alter geometry, review logic, engine output, decisions, or
-            publication gates.
+            pitch boundary and goal frames. Both workflows read the same
+            Alfheim calibration, while their engines, outputs, decisions, and
+            publication gates remain isolated.
           </p>
           <p>
-            New prepared segments and all AI outputs stay under
-            <code>benchmarks\alfheim\generated\</code>. This directory is ignored
-            by Git.
+            These two controlled workflows list Alfheim segments only. The app
+            loads the Alfheim calibration and never displays
+            another dataset as a visual fallback. Add a custom camera with its
+            own raw 30- or 60-second sample; AI controls remain disabled until its
+            calibration is complete.
+          </p>
+          <p>
+            The governed source chain is
+            <strong>Club → Venue → Camera → Recording → Prepared Segment →
+            AI Run</strong>. A camera uses a generated UUID plus club, venue,
+            position, and optional manufacturer serial. Select one of its
+            shared raw recordings, choose a start position, and prepare exactly
+            30 or 60 seconds. AI never receives the full recording.
+          </p>
+          <p>
+            Fresh outputs stay under
+            <code>benchmarks\alfheim\generated\</code> or
+            <code>benchmarks\custom-cameras\</code>. Both are ignored by Git.
+            Custom source video and calibration live in
+            <code>10-master-data\custom-cameras\</code>. Authorized original
+            recordings remain in <code>10-master-data\</code>; reusable
+            prepared clips and provenance manifests belong in the append-only
+            <code>15-prepared-segments\</code> catalog so other developers can
+            select the identical evidence window.
           </p>
         </div>
       </article>
@@ -343,8 +367,10 @@ with the innovation theme.</pre>
           <h2>Use Copilot as an independent reviewer, not an engine echo</h2>
           <p>The app-native Copilot panel keeps the conversation beside the selected video evidence and current review context.</p>
           <ol>
-            <li><strong>Prepare &amp; run:</strong> select an existing 30–60 second segment or prepare a new one, then run the cached AI pipeline.</li>
-            <li><strong>Inspect evidence:</strong> use Normal, Labelled ball, or AI tracking views; seek by frame; enlarge the review when needed.</li>
+            <li><strong>Prepare &amp; run:</strong> select an existing 30–60 second segment or prepare a new one, then run the cold raw-video AI pipeline.</li>
+            <li><strong>Verify provenance:</strong> the run receipt confirms that prior detections, ball/player tracks, events, review labels, and provider annotations were excluded.</li>
+            <li><strong>Check capacity:</strong> after completion, review measured CPU time, stage timings, real-time factor, and provisional GPU guidance.</li>
+            <li><strong>Inspect evidence:</strong> use Normal, raw-video Detected ball, or AI tracking views after the cold run completes; seek by frame; enlarge the review when needed.</li>
             <li><strong>Review C#:</strong> select a Copilot proposal and use Plan mode to explain or Autopilot only when you intend to authorize a recorded action.</li>
             <li><strong>Compare afterward:</strong> C# proposals and E# engine events are matched only after Copilot finishes its independent construction.</li>
             <li><strong>Handle unmatched E#:</strong> verify it independently through the clip conversation; rejecting a nearby C# never confirms it.</li>
@@ -362,9 +388,29 @@ with the innovation theme.</pre>
       <article>
         <div>
           <span class="tag">Team workflow</span>
-          <h2>Develop on assigned segments without leaking blind tests</h2>
+          <h2>Own separate event families and segments</h2>
+          <div class="grid">
+            <div class="mini">
+              <b>Shot outcomes</b>
+              Shot attempts, on-target, off-target, saved or blocked evidence.
+            </div>
+            <div class="mini">
+              <b>Goals</b>
+              Goal confirmation and the kick-off restart state.
+            </div>
+            <div class="mini">
+              <b>Set pieces</b>
+              Corners, goal kicks, and goal-line boundary evidence.
+            </div>
+            <div class="mini">
+              <b>Four zones</b>
+              Calibrated zone membership and zone aggregates.
+            </div>
+          </div>
           <ul>
+            <li>Use one branch, worktree, and pull request per event family.</li>
             <li>Use assigned development segments for tuning and debugging.</li>
+            <li>A shot outcome and a goal are separate facts linked by a stable attempt ID. A goal implies on-target; on-target does not imply a goal.</li>
             <li>Keep Copilot C# proposals independent from rules-engine E# events until comparison.</li>
             <li>Rejecting a C# proposal never confirms a nearby E# event.</li>
             <li>Do not inspect locked blind references before the frozen AI run.</li>
@@ -377,15 +423,52 @@ with the innovation theme.</pre>
 
       <article>
         <div>
-          <span class="tag">Quality gate</span>
-          <h2>Test before opening a pull request</h2>
+          <span class="tag">Shared runs</span>
+          <h2>Publish inspectable runs without committing large files</h2>
+          <pre>python .\scripts\publish-segment-run.py `
+  .\benchmarks\custom-cameras\custom-home-main `
+  --dataset custom-home-main `
+  --status provisional</pre>
+          <p>
+            This writes an immutable run ID, metadata, selected outputs, engine
+            and model fingerprints, performance receipt, and checksums under
+            <code>40-team-runs\</code>. Add <code>--include-cache</code> only
+            when another developer needs the exact detections and tracks for
+            debugging. "Checked in" means published to this governed catalog,
+            not committed to Git.
+          </p>
+        </div>
+      </article>
+
+      <article>
+        <div>
+          <span class="tag">Serial merge gate</span>
+          <h2>Rebase, check overlap, and protect every accepted rule</h2>
           <pre>python -m pytest -q
 git status --short
 git diff --check</pre>
           <p>
-            Explain the assigned scenario, expected event behavior and benchmark
-            result in the pull request. A new feature does not merge when it
-            regresses focused or protected football-event tests.
+            Before merge, update from the latest integration branch and check
+            whether an accepted rule already covers the same evidence. Run the
+            focused tests and every protected passed-segment regression. A
+            feature cannot merge when it duplicates a rule, changes unrelated
+            protected events, breaks a regression, or has a stale receipt.
+            After one family merges, the next branch updates to that commit and
+            repeats the complete gate.
+          </p>
+        </div>
+      </article>
+
+      <article>
+        <div>
+          <span class="tag">Later workflow</span>
+          <h2>Full-match upload and team locking are not implemented yet</h2>
+          <p>
+            The planned extension will upload a rights-cleared full match,
+            produce controlled 30–60 second segments, publish them to the shared
+            catalog, and show whether another developer currently owns a
+            segment. Until that lease exists, camera IDs, shared runs, and
+            passed baseline folders are append-only and must not be overwritten.
           </p>
         </div>
       </article>

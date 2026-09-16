@@ -6,6 +6,7 @@ import {
   open,
   readFile,
   rename,
+  stat,
   unlink,
   writeFile,
 } from "node:fs/promises";
@@ -76,8 +77,8 @@ const defaultSegment = "segment-0540-020";
 const workflowId = "live_iteration_25";
 const canvasId = "football-event-review-live";
 const localServer = "http://127.0.0.1:8080";
-const minimumReviewDurationSeconds = 30;
-const maximumReviewDurationSeconds = 60;
+const reviewDurationSeconds = [20, 30, 60];
+const cameraSampleDurationSeconds = [30, 60];
 const engineFiles = [
   "src/football_poc/ball_tracking.py",
   "src/football_poc/match_state.py",
@@ -94,6 +95,7 @@ const rulesEngineVersionFiles = [
   "src/football_poc/possession.py",
 ];
 const servers = new Map();
+let launcherRegistryUpdate = Promise.resolve();
 const launcherRegistryPath = join(
   projectRoot,
   "benchmarks",
@@ -249,6 +251,77 @@ function segmentRoot(segment) {
   return join(preparedSegmentRoot(segment), "live");
 }
 
+async function liveStageTiming(selected) {
+  const stageKey = {
+    detecting: "detection",
+    ball_track: "ball_tracking",
+    tracking: "player_tracking",
+    events: "event_inference",
+    publishing: "chunk_publication",
+  }[selected.stage];
+  if (!stageKey) return null;
+
+  const statusPath = join(segmentRoot(selected.key), "analysis-status.json");
+  const baseline = await readJson(
+    join(
+      segmentRoot(defaultSegment),
+      "analytics-data",
+      "performance-report.json",
+    ),
+    null,
+  );
+  if (!baseline?.stage_seconds?.[stageKey] || !baseline.sampled_frames) {
+    return null;
+  }
+
+  let statusMetadata;
+  let rawStatus;
+  try {
+    [statusMetadata, rawStatus] = await Promise.all([
+      stat(statusPath),
+      readJson(statusPath, {}),
+    ]);
+  } catch {
+    return null;
+  }
+
+  const frameScale = Math.max(
+    1,
+    Number(selected.expectedFrames || baseline.sampled_frames)
+      / Number(baseline.sampled_frames),
+  );
+  const precedingStages = {
+    ball_tracking: ["detection"],
+    player_tracking: ["detection", "ball_tracking"],
+    event_inference: ["detection", "ball_tracking", "player_tracking"],
+    chunk_publication: [
+      "detection",
+      "ball_tracking",
+      "player_tracking",
+      "event_inference",
+    ],
+  }[stageKey] || [];
+  const baselineBeforeStage = precedingStages.reduce(
+    (total, key) => total + Number(baseline.stage_seconds?.[key] || 0),
+    0,
+  ) * frameScale;
+  const observedBeforeStage = Number(rawStatus?.elapsed_seconds || 0);
+  const runRateAdjustment = baselineBeforeStage > 0
+    ? Math.min(4, Math.max(0.5, observedBeforeStage / baselineBeforeStage))
+    : 1;
+
+  return {
+    startedAtUtc: statusMetadata.mtime.toISOString(),
+    estimatedSeconds: Math.round(
+      Number(baseline.stage_seconds[stageKey])
+      * frameScale
+      * runRateAdjustment,
+    ),
+    basisSegment: defaultSegment,
+    runRateAdjustment: Number(runRateAdjustment.toFixed(2)),
+  };
+}
+
 function copilotReviewPath(segment) {
   return join(preparedSegmentRoot(segment), "copilot-review.json");
 }
@@ -301,6 +374,8 @@ async function loadPreparedSegments() {
       preparationSupported: Boolean(segment.preparation_supported),
       processedFrames: Number(segment.processed_frames || 0),
       expectedFrames: Number(segment.expected_frames || 0),
+      stage: segment.stage || null,
+      statusMessage: segment.message || null,
       runProvenance: segment.run_provenance || null,
       performance: segment.performance || null,
       startSeconds: start,
@@ -359,6 +434,7 @@ async function loadEngineEvents(segment) {
       ? Number(event.confidence)
       : null,
     details: event.details || null,
+    ballEvidence: event.ball_evidence || null,
   })).filter((event) => Number.isFinite(event.seconds));
 }
 
@@ -459,12 +535,79 @@ async function buildReplayRuns(segments) {
   );
 }
 
-async function loadDetectedBallTrack(segment) {
+async function loadDetectedBallTrack(
+  segment,
+  { allowDetectionOnly = false } = {},
+) {
   const payload = await readJson(
     join(segmentRoot(segment.key), "analytics-cache", "ball-tracks.json"),
     null,
   );
-  if (!payload) return null;
+  const manifest = await readJson(
+    join(segmentRoot(segment.key), "manifest.json"),
+    {},
+  );
+  const detectionText = await readFile(
+    join(segmentRoot(segment.key), "analytics-cache", "detections.jsonl"),
+    "utf8",
+  ).catch(() => "");
+  const yoloCandidates = {};
+  const sampledFrames = [];
+  for (const line of detectionText.split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    const record = JSON.parse(line);
+    if (record.type !== "frame") continue;
+    const frame = Number(record.source_frame);
+    const seconds = Number(record.clip_seconds);
+    if (Number.isFinite(frame) && Number.isFinite(seconds)) {
+      sampledFrames.push({ frame, seconds });
+    }
+    const candidates = (record.detections || [])
+      .filter((detection) => detection.class_name === "sports ball")
+      .map((detection) => ({
+        confidence: Number(detection.confidence),
+        x: (Number(detection.x1) + Number(detection.x2)) / 2,
+        y: (Number(detection.y1) + Number(detection.y2)) / 2,
+      }));
+    if (candidates.length) {
+      yoloCandidates[String(record.source_frame)] = candidates;
+    }
+  }
+  if (!payload) {
+    if (!allowDetectionOnly || !sampledFrames.length) return null;
+    return {
+      width: Number(segment.imageWidth),
+      height: Number(segment.imageHeight),
+      fps: Number(manifest.fps || 25),
+      frameCount: Number(
+        manifest.end_frame
+        || Math.round(segment.durationSeconds * Number(manifest.fps || 25)),
+      ),
+      pendingEngineOutput: true,
+      integrityRejectedFrames: [],
+      yoloCandidates,
+      points: [],
+      states: sampledFrames.map(({ frame, seconds }) => ({
+        frame,
+        seconds,
+        x: null,
+        y: null,
+        confidence: null,
+        evidence: "Engine coordinate pending current replay",
+        state: "engine_pending",
+        uncertaintyRadius: null,
+        direct: false,
+      })),
+    };
+  }
+  const statePayload = await readJson(
+    join(
+      segmentRoot(segment.key),
+      "analytics-cache",
+      "ball-state-estimates.json",
+    ),
+    null,
+  );
   const points = (payload.tracks || []).flatMap((track) =>
     (track.points || []).map((point) => [
       Number(point.source_frame),
@@ -478,7 +621,38 @@ async function loadDetectedBallTrack(segment) {
   return {
     width: Number(segment.imageWidth),
     height: Number(segment.imageHeight),
+    fps: Number(manifest.fps || 25),
+    frameCount: Number(
+      manifest.end_frame
+      || Math.round(segment.durationSeconds * Number(manifest.fps || 25)),
+    ),
+    integrityRejectedFrames: (
+      payload.final_trajectory_integrity?.rejected_frames || []
+    ).map(Number).filter(Number.isFinite),
+    yoloCandidates,
     points,
+    states: (statePayload?.states || []).map((state) => ({
+      frame: Number(state.source_frame),
+      seconds: Number(state.clip_seconds),
+      x: Number(state.x),
+      y: Number(state.y),
+      confidence: Number.isFinite(Number(state.confidence))
+        ? Number(state.confidence)
+        : null,
+      evidence: String(state.evidence || "unavailable"),
+      state: String(state.state || "unavailable"),
+      uncertaintyRadius: Number.isFinite(
+        Number(state.uncertainty_radius_pixels),
+      )
+        ? Number(state.uncertainty_radius_pixels)
+        : null,
+      direct: Boolean(state.event_evidence_eligible),
+    })).filter((state) =>
+      Number.isFinite(state.frame)
+      && Number.isFinite(state.seconds)
+      && Number.isFinite(state.x)
+      && Number.isFinite(state.y)
+    ),
   };
 }
 
@@ -763,13 +937,111 @@ async function loadState(segment, segmentInfo, drafts) {
       changed = true;
     }
     state.conversation ||= [];
+    let activeLegacyEngineIndex = null;
+    state.conversation.forEach((message) => {
+      if (Number.isInteger(message.engineIndex)) {
+        activeLegacyEngineIndex = message.engineIndex;
+        return;
+      }
+      if (message.eventIndex !== null && message.eventIndex !== undefined) {
+        activeLegacyEngineIndex = null;
+        return;
+      }
+      const engineRequest = String(message.content || "").match(
+        /^Permission granted: independently verify E(\d+)/,
+      );
+      if (engineRequest) {
+        activeLegacyEngineIndex = Number(engineRequest[1]) - 1;
+      } else if (message.role === "user") {
+        activeLegacyEngineIndex = null;
+      }
+      if (activeLegacyEngineIndex !== null) {
+        message.engineIndex = activeLegacyEngineIndex;
+        changed = true;
+      }
+    });
     state.proposalOverrides ||= {};
     state.additionalProposals ||= [];
+    state.sameFrameReviewRequirements ||= {};
+    state.additionalProposals.forEach((proposal) => {
+      if (proposal.source === "user_reported") {
+        proposal.source = "manual_review";
+        changed = true;
+      }
+    });
     state.copilotAcceptanceAuthorizations ||= {};
     state.engineEventReviews ||= {};
     state.engineEventReviewAuthorizations ||= {};
     state.pendingMissingCandidate ||= null;
     state.pendingClipRequest ||= null;
+    state.coordinateReview ||= {
+      status: segmentInfo.validationStatus === "in_review"
+        || segmentInfo.validated
+        ? "finalized"
+        : "pending",
+      flaggedFrames: [],
+      verifiedAt: null,
+      trackerHash: null,
+      provenanceHash: null,
+      summary: null,
+    };
+    state.coordinateReview.batches ||= [];
+    state.coordinateReview.activeBatchId ||= null;
+    if (
+      !state.coordinateReview.batches.length
+      && state.coordinateReview.flaggedFrames?.length
+    ) {
+      const diagnostic = await readJson(
+        join(
+          segmentRoot(segment),
+          "analytics-data",
+          "ball-recovery-diagnostic.json",
+        ),
+        null,
+      );
+      const originalFrames = diagnostic?.original_review_frames
+        || state.coordinateReview.flaggedFrames;
+      const previousEstimated = new Set(originalFrames);
+      const sampledFrames = Array.from(
+        {length: Number(diagnostic?.sampled_frame_count || 300)},
+        (_, index) => index * 5,
+      );
+      const batch = {
+        id: "coordinate-round-1",
+        number: 1,
+        status: ["processing", "detections_ready", "building"].includes(
+          segmentInfo.state,
+        )
+          ? "rerun_started"
+          : diagnostic?.batch_review_completed ? "review_completed" : "ready",
+        frames: originalFrames,
+        observations: {},
+        submittedAt: state.coordinateReview.requestedAt || null,
+        reviewCompletedAt: diagnostic?.review_completed_at || null,
+        codeFixCompletedAt: diagnostic?.code_fix_completed_at || null,
+        testsCompletedAt: diagnostic?.tests_completed_at || null,
+        rerunStartedAt: diagnostic?.rerun_started_at || null,
+        rerunCompletedAt: null,
+        awaitingRunObservation: false,
+        before: {
+          directFrameCount: Number(
+            diagnostic?.persisted_direct_frame_count || 0,
+          ),
+          sampledFrameCount: sampledFrames.length,
+          directFrames: sampledFrames.filter(
+            (frame) => !previousEstimated.has(frame),
+          ),
+        },
+        summary: diagnostic?.description || null,
+        frameResults: {},
+      };
+      state.coordinateReview.batches.push(batch);
+      state.coordinateReview.activeBatchId = batch.id;
+      state.conversation.forEach((message) => {
+        if (message.coordinateReview) message.coordinateBatchId = batch.id;
+      });
+      changed = true;
+    }
     state.publicationAuthorization ||= null;
     state.publishedReference ||= null;
     if (segmentInfo.validated && !state.publishedReference) {
@@ -810,11 +1082,29 @@ async function loadState(segment, segmentInfo, drafts) {
     conversation: [],
     proposalOverrides: {},
     additionalProposals: [],
+    sameFrameReviewRequirements: {},
     copilotAcceptanceAuthorizations: {},
     engineEventReviews: {},
     engineEventReviewAuthorizations: {},
     pendingMissingCandidate: null,
     pendingClipRequest: null,
+    coordinateReview: {
+      status: segmentInfo.validationStatus === "in_review"
+        || segmentInfo.validated
+        ? "finalized"
+        : "pending",
+      flaggedFrames: [],
+      verifiedAt: null,
+      trackerHash: null,
+      provenanceHash: null,
+      summary: null,
+      batches: [],
+      activeBatchId: null,
+    },
+    trajectoryAudit: {
+      observations: {},
+      updatedAt: null,
+    },
     publicationAuthorization: null,
     publishedReference: null,
   };
@@ -866,6 +1156,7 @@ function snapshotEvents(snapshot) {
       confidence: Number.isFinite(Number(event.confidence))
         ? Number(event.confidence)
         : null,
+      ballEvidence: event.ball_evidence || null,
     };
   }).filter((event) => Number.isFinite(event.seconds));
 }
@@ -924,8 +1215,94 @@ async function confirmEngineEventReviewed(segment, index, reason) {
   };
   review.state.engineEventReviews[key] = record;
   delete review.state.engineEventReviewAuthorizations[key];
+  review.state.conversation.push({
+    role: "system",
+    content: (
+      `E${index + 1} independently confirmed at `
+      + `${event.seconds.toFixed(3)}s: ${record.reason}`
+    ),
+    eventIndex: null,
+    engineIndex: index,
+    timestamp: record.reviewedAt,
+  });
   await saveState(segment, review.state);
   return { segment, index, event, review: record };
+}
+
+async function recordEngineEventNotConfirmed(segment, index, reason) {
+  const review = await reviewContext(segment);
+  const current = await captureEngineSnapshot(segment);
+  const events = snapshotEvents(current);
+  const event = events[index];
+  if (!Number.isInteger(index) || !event) {
+    throw new CanvasError(
+      "engine_event_missing",
+      "The selected rules-engine event does not exist.",
+    );
+  }
+  const key = engineEventReviewKey(event);
+  const record = {
+    status: "not_confirmed",
+    reviewedAt: new Date().toISOString(),
+    reason: String(reason || "").trim(),
+    engineContentHash: current.fingerprint.contentHash,
+    outputHash: current.outputHash,
+  };
+  review.state.engineEventReviews[key] = record;
+  delete review.state.engineEventReviewAuthorizations[key];
+  review.state.conversation.push({
+    role: "system",
+    content: (
+      `E${index + 1} was not confirmed at `
+      + `${event.seconds.toFixed(3)}s: ${record.reason}`
+    ),
+    eventIndex: null,
+    engineIndex: index,
+    timestamp: record.reviewedAt,
+  });
+  await saveState(segment, review.state);
+  return { segment, index, event, review: record };
+}
+
+async function cancelReviewAdjustment(segment, index, reason) {
+  const review = await reviewContext(segment);
+  if (!Number.isInteger(index) || !review.drafts[index]) {
+    throw new CanvasError(
+      "review_event_missing",
+      "The selected review event does not exist.",
+    );
+  }
+  if (review.state.decisions[String(index)]?.status !== "adjust") {
+    throw new CanvasError(
+      "review_adjustment_not_pending",
+      "This event does not have a pending adjustment request.",
+    );
+  }
+  delete review.state.decisions[String(index)];
+  delete review.state.copilotAcceptanceAuthorizations[String(index)];
+  review.state.conversation.push({
+    role: "system",
+    content: (
+      `Adjustment request for Event ${index + 1} was cancelled without `
+      + `changing the proposal: ${reason}`
+    ),
+    eventIndex: index,
+    timestamp: new Date().toISOString(),
+  });
+  await saveState(segment, review.state);
+  reviewRequestPending = false;
+  if (
+    lastConversationContext?.segment === segment
+    && lastConversationContext?.eventIndex === index
+  ) {
+    lastConversationContext = null;
+  }
+  setActivity(
+    "ready",
+    `Event ${index + 1} adjustment cancelled`,
+    "The proposal is unchanged and ready for review.",
+  );
+  return { segment, index, cancelled: true, proposalChanged: false };
 }
 
 function compareWithEngine(draft, snapshot) {
@@ -970,11 +1347,18 @@ function compareWithEngine(draft, snapshot) {
     seconds: Number(event.completion_seconds ?? event.clip_seconds),
     type: canonicalType(event.event_type),
   }));
+  const manualReview = ["manual_review", "user_reported"].includes(
+    draft.source,
+  );
+  const sameFrameRequired = manualReview || draft.sameFrameEngineReview;
+  const timesMatch = (seconds) => sameFrameRequired
+    ? Math.round(seconds * 25) === Math.round(draft.seconds * 25)
+    : Math.abs(seconds - draft.seconds) <= 1;
   const exact = candidates
     .filter((candidate) =>
       candidate.type === draft.type
       && candidate.event.team === draft.team
-      && Math.abs(candidate.seconds - draft.seconds) <= 1
+      && timesMatch(candidate.seconds)
     )
     .sort((left, right) =>
       Math.abs(left.seconds - draft.seconds)
@@ -984,7 +1368,9 @@ function compareWithEngine(draft, snapshot) {
     return {
       status: "already_agrees",
       label: "Engine already agrees",
-      detail: `Matched at ${exact.seconds.toFixed(3)}s within the 1.0s tolerance.`,
+      detail: sameFrameRequired
+        ? `${manualReview ? "Matched manual reference" : "Matched strict C# timing"} on frame ${Math.round(draft.seconds * 25)} at ${exact.seconds.toFixed(3)}s.`
+        : `Matched at ${exact.seconds.toFixed(3)}s within the 1.0s tolerance.`,
     };
   }
   const nearby = candidates
@@ -1146,6 +1532,12 @@ async function reviewContext(requestedSegment = defaultSegment) {
     selected.statusMessage = status.message || null;
     selected.runProvenance = status.run_provenance || null;
     selected.performance = status.performance || null;
+    selected.recoveryAvailable = Boolean(
+      selected.state === "failed"
+      && selected.expectedFrames > 0
+      && selected.processedFrames >= selected.expectedFrames
+    );
+    selected.stageTiming = await liveStageTiming(selected);
     selected.trackingUrl = status.tracking_url
       ? `${localServer}${status.tracking_url}`
       : null;
@@ -1179,13 +1571,20 @@ async function reviewContext(requestedSegment = defaultSegment) {
   const allDrafts = [...drafts, ...state.additionalProposals];
   const effectiveDrafts = allDrafts.map((draft, index) => {
     const override = state.proposalOverrides[String(index)];
-    return override
+    const effective = override
       ? {
           ...draft,
           ...override,
-          source: "adjusted_proposal",
+          source: ["manual_review", "user_reported"].includes(draft.source)
+            ? "manual_review"
+            : "adjusted_proposal",
         }
       : draft;
+    return {
+      ...effective,
+      sameFrameEngineReview:
+        Boolean(state.sameFrameReviewRequirements[String(index)]),
+    };
   });
   const actionFocuses = await loadActionFocuses(
     selected,
@@ -1203,6 +1602,16 @@ async function reviewContext(requestedSegment = defaultSegment) {
         ? `${effectiveDrafts.length} event candidate(s) are now available.`
         : "The AI run completed without producing event candidates.",
     );
+  } else if (
+    selected.state === "failed"
+    && selected.ballTrackAvailable
+    && /ball provenance review required/i.test(selected.statusMessage || "")
+  ) {
+    setActivity(
+      "waiting",
+      "Ball coordinates need review",
+      selected.statusMessage,
+    );
   } else if (selected.state === "failed") {
     setActivity(
       "error",
@@ -1219,20 +1628,248 @@ async function reviewContext(requestedSegment = defaultSegment) {
   };
 }
 
+function displayedActivity(selected, state) {
+  if (reviewRequestPending) return activity;
+  if (state.coordinateReview?.status === "finalized") {
+    return {
+      state: "ready",
+      label: "Segment in review",
+      detail: "Ball-coordinate recovery was explicitly finalized against fresh evidence.",
+    };
+  }
+  if (state.coordinateReview?.status === "verified") {
+    return {
+      state: "waiting",
+      label: "Ball coordinate gate passed",
+      detail: "Choose Finalize to proceed now, or continue reviewing the remaining frames.",
+    };
+  }
+  if (["processing", "detections_ready", "building"].includes(selected.state)) {
+    const progress = selected.expectedFrames
+      ? `${selected.processedFrames}/${selected.expectedFrames} sampled frames. `
+      : "";
+    return {
+      state: "working",
+      label: "AI processing locally",
+      detail: progress + (
+        selected.statusMessage || "The current pipeline stage is still running."
+      ),
+    };
+  }
+  if (selected.state === "failed") {
+    if (
+      selected.ballTrackAvailable
+      && /ball provenance review required/i.test(selected.statusMessage || "")
+    ) {
+      return {
+        state: "waiting",
+        label: "Ball coordinates need review",
+        detail: "Tracking completed. Review the estimated coordinates and "
+          + "recover every additional frame supported by raw-video evidence; "
+          + "90% is the minimum gate, not the target.",
+      };
+    }
+    return {
+      state: "error",
+      label: "Segment AI failed",
+      detail: "Open the run status below for recovery guidance.",
+    };
+  }
+  if (selected.state === "prepared") {
+    return {
+      state: "waiting",
+      label: "Segment prepared — AI not started",
+      detail: "Start AI when you are ready to process the raw video.",
+    };
+  }
+  return activity;
+}
+
+function ballCoordinateReviewRequired(selected) {
+  return Boolean(
+    selected.state === "failed"
+    && selected.ballTrackAvailable
+    && /ball provenance review required/i.test(selected.statusMessage || "")
+  );
+}
+
+function ballCoordinateReviewCanBeVerified(selected) {
+  return selected.state === "ready" || ballCoordinateReviewRequired(selected);
+}
+
+async function ballCoordinateReviewSnapshot(segment) {
+  const provenancePath = join(
+    segmentRoot(segment),
+    "analytics-data",
+    "ball-provenance.json",
+  );
+  const provenanceContent = await readFile(provenancePath);
+  const provenance = JSON.parse(provenanceContent.toString("utf8"));
+  return {
+    directFrameCount: Number(provenance.direct_frame_count),
+    sampledFrameCount: Number(provenance.sampled_frame_count),
+    directProvenance: Number(provenance.direct_provenance),
+    trackerHash: (await componentVersions()).tracker,
+    provenanceHash: createHash("sha256")
+      .update(provenanceContent)
+      .digest("hex"),
+  };
+}
+
+function activeCoordinateBatch(state) {
+  const id = state.coordinateReview?.activeBatchId;
+  return state.coordinateReview?.batches?.find((batch) => batch.id === id)
+    || null;
+}
+
+async function coordinateOutputSnapshot(selected) {
+  const [track, provenance] = await Promise.all([
+    loadDetectedBallTrack(selected),
+    readJson(
+      join(
+        segmentRoot(selected.key),
+        "analytics-data",
+        "ball-provenance.json",
+      ),
+      null,
+    ),
+  ]);
+  const directFrames = (track?.states || [])
+    .filter((point) => point.direct)
+    .map((point) => point.frame)
+    .sort((left, right) => left - right);
+  return {
+    directFrameCount: Number(
+      provenance?.direct_frame_count ?? directFrames.length,
+    ),
+    sampledFrameCount: Number(
+      provenance?.sampled_frame_count ?? track?.states?.length ?? 0,
+    ),
+    directProvenance: Number(
+      provenance?.direct_provenance
+      ?? (
+        track?.states?.length
+          ? directFrames.length / track.states.length
+          : 0
+      ),
+    ),
+    directFrames,
+  };
+}
+
+async function reconcileCoordinateReviewBatch(context) {
+  const {selected, state} = context;
+  const batch = activeCoordinateBatch(state);
+  if (!batch || batch.status !== "rerun_started") return;
+  const running = ["processing", "detections_ready", "building"].includes(
+    selected.state,
+  );
+  if (running) {
+    if (batch.awaitingRunObservation) {
+      batch.awaitingRunObservation = false;
+      await saveState(selected.key, state);
+    }
+    return;
+  }
+  if (batch.awaitingRunObservation) return;
+  if (!selected.ballTrackAvailable) {
+    batch.status = "failed";
+    batch.failedAt = new Date().toISOString();
+    batch.failure = selected.statusMessage || "Ball-coordinate rerun failed.";
+    state.coordinateReview.status = "pending";
+    await saveState(selected.key, state);
+    return;
+  }
+  const after = await coordinateOutputSnapshot(selected);
+  const beforeDirect = new Set(batch.before?.directFrames || []);
+  const afterDirect = new Set(after.directFrames);
+  const reviewedFrames = new Set(batch.frames || []);
+  const regressions = [...beforeDirect]
+    .filter((frame) => !afterDirect.has(frame))
+    .sort((left, right) => left - right);
+  const results = {};
+  [...new Set([...(batch.frames || []), ...regressions])]
+    .sort((left, right) => left - right)
+    .forEach((frame) => {
+      results[String(frame)] = {
+        status: afterDirect.has(frame)
+          ? beforeDirect.has(frame) ? "unchanged_direct" : "fixed"
+          : beforeDirect.has(frame) ? "regressed" : "unresolved",
+      };
+    });
+  const unresolved = [...reviewedFrames]
+    .filter((frame) => !afterDirect.has(frame));
+  const nextFrames = [...new Set([...unresolved, ...regressions])]
+    .sort((left, right) => left - right);
+  batch.status = "done";
+  batch.rerunCompletedAt = new Date().toISOString();
+  batch.after = after;
+  batch.frameResults = results;
+  batch.fixedFrames = (batch.frames || []).filter(
+    (frame) => !beforeDirect.has(frame) && afterDirect.has(frame),
+  );
+  batch.unresolvedFrames = unresolved;
+  batch.regressionFrames = regressions;
+  state.coordinateReview.status = "pending";
+  state.coordinateReview.activeBatchId = null;
+  if (after.directProvenance < 0.90 && nextFrames.length) {
+    const nextNumber = Math.max(
+      0,
+      ...state.coordinateReview.batches.map(
+        (candidate) => Number(candidate.number || 0),
+      ),
+    ) + 1;
+    const nextBatch = {
+      id: `coordinate-round-${nextNumber}`,
+      number: nextNumber,
+      status: "ready",
+      frames: nextFrames,
+      observations: {},
+      createdAt: batch.rerunCompletedAt,
+      before: after,
+      frameResults: {},
+    };
+    state.coordinateReview.batches.push(nextBatch);
+    state.coordinateReview.activeBatchId = nextBatch.id;
+    state.coordinateReview.flaggedFrames = nextFrames;
+  }
+  await saveState(selected.key, state);
+}
+
 async function publicState(requestedSegment = defaultSegment) {
   const context = await reviewContext(requestedSegment);
+  await reconcileCoordinateReviewBatch(context);
   const { segments, selected, drafts, state, actionFocuses } = context;
   if (state.publishedReference && !selected.validated) {
     selected.validationStatus = "published_stale";
   }
   const currentEngine = await captureEngineSnapshot(requestedSegment);
+  const ballProvenance = await readJson(
+    join(
+      segmentRoot(requestedSegment),
+      "analytics-data",
+      "ball-provenance.json",
+    ),
+    null,
+  );
+  const storedBallRecoveryDiagnostic = await readJson(
+    join(
+      segmentRoot(requestedSegment),
+      "analytics-data",
+      "ball-recovery-diagnostic.json",
+    ),
+    null,
+  );
+  const ballRecoveryDiagnostic = state.coordinateReview?.batches?.some(
+    (batch) => batch.status === "done" && batch.rerunCompletedAt,
+  )
+    ? null
+    : storedBallRecoveryDiagnostic;
   const regressionFresh = isRegressionCurrent(
     state.regression,
     currentEngine,
   );
-  const engineEvents = snapshotEvents(
-    state.engineAfter || state.engineBefore,
-  ).map((event) => {
+  const engineEvents = snapshotEvents(currentEngine).map((event) => {
     const review = state.engineEventReviews?.[engineEventReviewKey(event)];
     return {
       ...event,
@@ -1248,6 +1885,13 @@ async function publicState(requestedSegment = defaultSegment) {
     };
   });
   const publication = publicationPlan(drafts, state, currentEngine);
+  if (
+    ballCoordinateReviewCanBeVerified(selected)
+    && state.coordinateReview?.status === "finalized"
+    && !selected.validated
+  ) {
+    selected.validationStatus = "in_review";
+  }
   const sharedReviewStatus = await Promise.all(segments.map(async (segment) => {
     let stored;
     try {
@@ -1360,6 +2004,13 @@ async function publicState(requestedSegment = defaultSegment) {
       };
     }),
     engineEvents,
+    ballProvenance,
+    ballRecoveryDiagnostic,
+    coordinateReview: state.coordinateReview,
+    trajectoryAudit: state.trajectoryAudit || {
+      observations: {},
+      updatedAt: null,
+    },
     engineBefore: {
       capturedAt: state.engineBefore.capturedAt,
       fingerprint: state.engineBefore.fingerprint,
@@ -1389,7 +2040,7 @@ async function publicState(requestedSegment = defaultSegment) {
     },
     sharedReviewStatus,
     activeConversation: reviewRequestPending ? lastConversationContext : null,
-    activity,
+    activity: displayedActivity(selected, state),
     componentVersions: await componentVersions(),
     replayRuns: await buildReplayRuns(segments),
   };
@@ -1405,12 +2056,12 @@ function sendJson(response, status, payload) {
   response.end(body);
 }
 
-async function readBody(request) {
+async function readBody(request, maximumBytes = 16_384) {
   const chunks = [];
   let size = 0;
   for await (const chunk of request) {
     size += chunk.length;
-    if (size > 16_384) {
+    if (size > maximumBytes) {
       throw new Error("Request body is too large");
     }
     chunks.push(chunk);
@@ -1457,7 +2108,7 @@ async function saveCustomCameraSample(request, url) {
   }
   if (
     !Number.isFinite(duration)
-    || ![minimumReviewDurationSeconds, maximumReviewDurationSeconds]
+    || !cameraSampleDurationSeconds
       .some((allowed) => Math.abs(duration - allowed) <= 0.25)
   ) {
     throw new Error("Camera sample must be exactly 30 or 60 seconds");
@@ -1605,6 +2256,8 @@ function clipConversationPrompt(
   selectedIndex,
   mode,
   scope,
+  flaggedFrames,
+  coordinateObservations,
 ) {
   const videoArtifact = segment.key === "alfheim-window-555"
     ? "benchmarks\\alfheim\\window-555\\alfheim-window-playable.mp4"
@@ -1618,6 +2271,28 @@ function clipConversationPrompt(
     `Video artifact: ${videoArtifact}.`,
     `Source window: ${segment.startSeconds.toFixed(3)}s for `
       + `${segment.durationSeconds.toFixed(3)}s.`,
+    flaggedFrames.length
+      ? "User-flagged ball-coordinate source frames for this batch review: "
+        + flaggedFrames.join(", ") + ". Treat these only as an inspection "
+        + "scope. They are manual review selections, not inference evidence, "
+        + "labels, thresholds, or proof that a coordinate is wrong."
+      : "No ball-coordinate frames were flagged for this request.",
+    coordinateObservations.length
+      ? "User-approved coordinate hypotheses for independent review: "
+        + coordinateObservations.map(observation =>
+          observation.decision === "undefined"
+            ? `frame ${observation.frame}: ball undefined / not visible`
+            : observation.decision === "agree"
+              ? `frame ${observation.frame}: user agrees with current `
+                + `coordinate (${observation.x.toFixed(1)}, `
+                + `${observation.y.toFixed(1)})`
+              : `frame ${observation.frame}: user-specified coordinate (`
+                + `${observation.x.toFixed(1)}, `
+                + `${observation.y.toFixed(1)})`
+        ).join("; ") + ". These are evaluation-only observations. Verify each "
+        + "against raw video; never copy them into predictions, use them as "
+        + "threshold inputs, or create frame-specific code."
+      : "No user coordinate hypotheses were supplied.",
     scope === "current_time"
       ? `Evidence scope: current time ${seconds.toFixed(3)}s, limited to the `
         + `local ±2-second window (frame ${Math.round(seconds * 25)} at 25 fps).`
@@ -1637,10 +2312,28 @@ function clipConversationPrompt(
     `User question or observation: ${text}`,
     projectRulesInstruction,
     mode === "autopilot"
-      ? "This is an Autopilot inspection, but it authorizes only analysis and "
-        + "a proposed plan. Do not add or accept an event, edit a proposal, or "
-        + "change the engine. A supported missing event still requires the "
-        + "separate Add as Review Event confirmation."
+      ? flaggedFrames.length
+        ? "The user explicitly authorized one Autopilot ball-coordinate "
+          + "recovery batch. Independently inspect every flagged raw-video "
+          + "window first, group common failure patterns, and make at most one "
+          + "general evidence-based tracker improvement. Never use flags or "
+          + "user hypotheses as inference inputs, thresholds, frame-specific "
+          + "exceptions, or proof. Run focused/protected tests, then perform "
+          + "no manual rerun. Call update_ball_coordinate_batch after review, "
+          + "after the code fix, and after tests. The tests_completed update "
+          + "automatically starts exactly one bounded focused recovery from "
+          + "saved detections and the persisted runtime track. Never rerun "
+          + "once per frame or launch the broad tracker recovery. The Canvas "
+          + "will compare persisted output, complete this immutable batch, "
+          + "and create the next unresolved batch automatically. If output "
+          + "reaches at least 90% direct provenance, call "
+          + "confirm_ball_coordinate_review only after the persisted rerun "
+          + "finishes. Never put the segment into review; only the user can "
+          + "finalize that transition."
+        : "This is an Autopilot inspection, but it authorizes only analysis and "
+          + "a proposed plan. Do not add or accept an event, edit a proposal, or "
+          + "change the engine. A supported missing event still requires the "
+          + "separate Add as Review Event confirmation."
       : "This is the segment-level conversation in Plan mode. Do not make "
         + "changes.",
     "Answer questions "
@@ -1654,14 +2347,23 @@ function clipConversationPrompt(
           : "If visual inspection is necessary, inspect only this prepared "
             + "30–60 second segment."
       )
-      + " Do not scan another segment or rerun detection, tracking, or the "
-      + "rules engine.",
-    "If the user is identifying a genuinely missing event, independently "
-      + "determine its team and event type and call football-event-review-live "
-      + "recommend_missing_event. If an existing event needs correction, "
-      + "identify that event and direct the user to its Request Adjustment "
-      + "flow. Otherwise answer normally. Do not add or accept an event, edit "
-      + "a proposal, or change the algorithm in this Plan step.",
+      + (
+        flaggedFrames.length && mode === "autopilot"
+          ? " Do not scan another segment, rerun raw detection, or run the "
+            + "rules engine. The single permitted tracker recovery rerun must "
+            + "reuse saved raw-video detections and remain labelled recovery."
+          : " Do not scan another segment or rerun detection, tracking, or the "
+            + "rules engine."
+      ),
+    flaggedFrames.length
+      ? "This is coordinate recovery, not event adjudication. Do not create, "
+        + "accept, or alter any football event."
+      : "If the user is identifying a genuinely missing event, independently "
+        + "determine its team and event type and call football-event-review-live "
+        + "recommend_missing_event. If an existing event needs correction, "
+        + "identify that event and direct the user to its Request Adjustment "
+        + "flow. Otherwise answer normally. Do not add or accept an event, edit "
+        + "a proposal, or change the algorithm in this Plan step.",
     "Before ending, always use the football-event-review-live "
       + "publish_review_response canvas action to place your concise final "
       + `answer in this Canvas for segment ${segment.key}.`,
@@ -1710,12 +2412,30 @@ function publishValidatedReferencePrompt(segment) {
     "Do not rerun detection, tracking, or event building and do not edit the "
       + "rules engine during final publication. If any gate fails, stop and "
       + "report the blocker.",
-    "Before ending, call football-event-review-live publish_review_response without "
-      + "an event index so the result appears in the general clip conversation.",
+    "Before ending, call football-event-review-live publish_review_response with "
+      + "neither eventIndex nor engineIndex so the result appears in the "
+      + "general clip conversation.",
   ].join("\n");
 }
 
-function engineEventReviewPrompt(segment, event, index) {
+function engineEventConversationPrompt(segment, event, index, text) {
+  return [
+    "[Football Event Review Canvas - engine event conversation]",
+    `Review only segment ${segment.timeLabel} (${segment.key}).`,
+    `Selected engine event: E${index + 1}, ${event.title} at `
+      + `${event.seconds.toFixed(3)}s.`,
+    `User question: ${text}`,
+    projectRulesInstruction,
+    "This is a follow-up discussion in Plan mode. Explain the evidence and "
+      + "current review result, but do not confirm the engine event, create or "
+      + "accept a Copilot proposal, edit the engine, or rerun any pipeline stage.",
+    "Before ending, call football-event-review-live publish_review_response "
+      + `with engineIndex ${index} and without a C# eventIndex so the reply `
+      + `appears in the E${index + 1} event conversation.`,
+  ].join("\n");
+}
+
+function engineEventReviewPrompt(segment, event, index, reviewFocus = "") {
   const videoArtifact = segment.key === "alfheim-window-555"
     ? "benchmarks\\alfheim\\window-555\\alfheim-window-playable.mp4"
     : (
@@ -1729,6 +2449,9 @@ function engineEventReviewPrompt(segment, event, index) {
     `Selected engine event: E${index + 1}, ${event.title} at `
       + `${event.seconds.toFixed(3)}s.`,
     `Engine detail: ${event.details}`,
+    reviewFocus
+      ? `User-specified verification focus: ${reviewFocus}`
+      : "User-specified verification focus: none; inspect the exact event normally within ±2 seconds.",
     projectRulesInstruction,
     "The user authorized verification of only this rules-engine event. "
       + "Independently inspect the targeted evidence, normally within ±2 "
@@ -1736,11 +2459,13 @@ function engineEventReviewPrompt(segment, event, index) {
     "If the evidence supports the exact team, canonical type, and completion "
       + "time, call football-event-review-live confirm_engine_event_reviewed with "
       + "this segment, engine index, and a concise evidence reason. Otherwise "
-      + "do not confirm it.",
+      + "call football-event-review-live record_engine_event_not_confirmed with "
+      + "the same identifiers and the precise unsupported or uncertain evidence.",
     "Do not create or accept a Copilot proposal, edit the engine, or rerun "
       + "detection, tracking, or event building.",
-    "Before ending, call football-event-review-live publish_review_response without "
-      + "an event index so the result appears in the general clip conversation.",
+    "Before ending, call football-event-review-live publish_review_response "
+      + `with engineIndex ${index} and without a C# eventIndex so the result `
+      + `appears in the E${index + 1} conversation.`,
   ].join("\n");
 }
 
@@ -1752,10 +2477,14 @@ function proposalFingerprint(draft) {
     title: draft.title,
     evidence: draft.evidence,
     rule: draft.rule,
+    sameFrameEngineReview: Boolean(draft.sameFrameEngineReview),
   })).digest("hex");
 }
 
 function copilotAcceptancePrompt(segment, draft, index) {
+  const manualReview = ["manual_review", "user_reported"].includes(
+    draft.source,
+  );
   return [
     messagePrompt(
       segment,
@@ -1766,26 +2495,65 @@ function copilotAcceptancePrompt(segment, draft, index) {
     ),
     "The user explicitly granted permission, through the Canvas handover "
       + "button, for Copilot to accept only this selected proposal.",
-    "If the proposal is correct, call football-event-review-live "
-      + "accept_review_proposal with the segment, event index, and concise "
-      + "verification reason. Read the returned engineComparison. If it is "
-      + "already_agrees, the current code and cached output hashes are proven "
-      + "fresh, so do not edit or rerun the engine. If it is stale, do not edit "
-      + "the engine merely because of staleness; rerun only the cached "
-      + "event-building stage, refresh the snapshot, and run the relevant "
-      + "protected regressions. If it is missing or "
-      + "conflicting, implement a general rules-engine correction rather than "
-      + "a timestamp-, frame-, clip-, or segment-specific exception. Inspect "
-      + "the final diff and reject any condition keyed to this segment ID or "
-      + "its exact seconds/frame. Rerun only the cached event-building "
-      + "stage for this segment (never detection or tracking), run the relevant "
-      + "protected regression tests, then call refresh_engine_snapshot with "
-      + "this event index. Do not claim success unless its returned "
-      + "engineComparison is already_agrees. Only then call "
-      + "record_regression_result with passed=true and this event index. If "
-      + "the proposal is not correct, do not "
-      + "accept it; update the proposal only when the evidence supports a "
-      + "correction.",
+    "Treat the proposal timestamp as a search anchor. Inspect up to ±3 seconds "
+      + "when needed to locate the earliest supported completion. If only the "
+      + "time or other proposal details need correction and the same event is "
+      + "supported, call update_review_proposal with "
+      + "preserveAcceptanceAuthorization=true, then accept that corrected C# "
+      + "within this same authorized review. Do not require another C# or "
+      + "another user handover.",
+    draft.sameFrameEngineReview
+      ? "The user requested strict timing review for this C#. Correct its "
+        + "timestamp to the earliest supported completion frame when needed. "
+        + "C#/E# agreement for this proposal requires the same rounded 25-fps "
+        + "source-video frame; the normal one-second association tolerance "
+        + "must not be used to claim engine agreement."
+      : "This C# uses the normal one-second C#/E# association tolerance unless "
+        + "the user explicitly enables same-frame timing review in the Canvas.",
+    manualReview
+      ? "For this manual M#, do not call accept_review_proposal until a fresh "
+        + "rules-only engine run produces an E# with the same team, canonical "
+        + "event type, and rounded 25-fps frame. If the current engine does not "
+        + "already agree, implement a general evidence-based correction, rerun "
+        + "only cached event building, run the protected regressions, and call "
+        + "refresh_engine_snapshot first. Never use this M# as inference input. "
+        + "Only after refresh_engine_snapshot returns already_agrees may you "
+        + "call accept_review_proposal, followed by record_regression_result."
+      : "If the proposal is correct, call football-event-review-live "
+        + "accept_review_proposal with the segment, event index, and concise "
+        + "verification reason. Read the returned engineComparison. If it is "
+        + "already_agrees, do not edit or rerun the engine. If it is stale, "
+        + "rerun only cached event building and refresh the snapshot. If it is "
+        + "missing or conflicting, implement a general evidence-based rule, "
+        + "never a timestamp-, frame-, clip-, or segment-specific exception; "
+        + "then rerun cached event building and the protected regressions.",
+    "If the proposal is not correct, do not accept it; update the proposal "
+      + "only when the evidence supports a correction.",
+  ].join("\n");
+}
+
+function acceptedEngineRecheckPrompt(segment, draft, index, comparison) {
+  return [
+    "[Football Event Review Canvas - accepted event engine re-check]",
+    `Review only prepared segment ${segment.timeLabel} (${segment.key}).`,
+    `Accepted proposal: C${index + 1}, ${draft.title} at `
+      + `${draft.seconds.toFixed(3)}s.`,
+    `Current engine status: ${comparison.label}. ${comparison.detail}`,
+    projectRulesInstruction,
+    "The user explicitly authorized an engine re-check for this already "
+      + "accepted C# through the Canvas button. Do not accept the proposal "
+      + "again and do not change its football judgment.",
+    "Inspect the current review status and hashes first. If the exact current "
+      + "engine version already agrees, make no engine change and do not rerun. "
+      + "If the stored engine source or cached-output hash is stale, rerun only "
+      + "cached event building for this segment, refresh the engine snapshot, "
+      + "and run the focused and protected regressions. If the accepted C# is "
+      + "missing or conflicting, implement only a general evidence-based rule; "
+      + "never add a timestamp, frame, segment, track-ID, or label exception.",
+    "Record refreshed snapshots and regression results through the existing "
+      + "football-event-review-live tools. Before ending, call "
+      + "football-event-review-live publish_review_response with eventIndex "
+      + `${index} so the complete result appears in the C${index + 1} conversation.`,
   ].join("\n");
 }
 
@@ -1975,19 +2743,28 @@ async function handleRequest(request, response) {
   }
   if (request.method === "GET" && url.pathname === "/api/ball-track") {
     const segment = requestedSegment(url);
+    const audit = url.searchParams.get("audit") === "1";
     const segments = await loadPreparedSegments();
     const selected = segments.find((candidate) => candidate.key === segment);
     if (!selected) {
       sendJson(response, 404, { error: "Prepared segment not found" });
       return;
     }
-    if (selected.state !== "ready" && !selected.validated) {
+    if (
+      selected.state !== "ready"
+      && !selected.validated
+      && !(selected.state === "failed" && selected.ballTrackAvailable)
+      && !audit
+    ) {
       sendJson(response, 409, {
         error: "Detected ball tracks are available only after AI completes",
       });
       return;
     }
-    const track = await loadDetectedBallTrack(selected);
+    const track = await loadDetectedBallTrack(
+      selected,
+      { allowDetectionOnly: audit },
+    );
     if (!track) {
       sendJson(response, 404, {
         error: "No raw-video-derived ball track is available",
@@ -2021,11 +2798,10 @@ async function handleRequest(request, response) {
       return;
     }
     if (
-      ![minimumReviewDurationSeconds, maximumReviewDurationSeconds]
-        .includes(durationSeconds)
+      !reviewDurationSeconds.includes(durationSeconds)
     ) {
       sendJson(response, 400, {
-        error: "Review duration must be exactly 30 or 60 seconds",
+        error: "Review duration must be exactly 20, 30, or 60 seconds",
       });
       return;
     }
@@ -2075,6 +2851,7 @@ async function handleRequest(request, response) {
   if (request.method === "POST" && url.pathname === "/api/analyze") {
     const body = await readBody(request);
     const segment = requestedSegment(url, body);
+    const resumeAfterDetection = body.resumeAfterDetection === true;
     if (!/^segment-\d{4}-\d{3}$/.test(segment)) {
       sendJson(response, 400, {
         error: "Select a generated prepared segment before starting AI",
@@ -2090,9 +2867,14 @@ async function handleRequest(request, response) {
     }
     setActivity(
       "working",
-      "Running cold raw-video AI",
-      "Prior detections, ball tracks, player tracks, events, review labels, "
-        + "and provider annotations are excluded.",
+      resumeAfterDetection
+        ? "Recovering from completed detections"
+        : "Running cold raw-video AI",
+      resumeAfterDetection
+        ? "Completed raw-video detections are reused; every downstream "
+          + "artifact is rebuilt. This is not a cold-path benchmark."
+        : "Prior detections, ball tracks, player tracks, events, review labels, "
+          + "and provider annotations are excluded.",
     );
     const result = await localJson(
       "/api/alfheim/live/analyze",
@@ -2102,6 +2884,7 @@ async function handleRequest(request, response) {
       body: JSON.stringify({
         cache_key: segment,
         events_only: false,
+        resume_after_detection: resumeAfterDetection,
       }),
       },
     );
@@ -2129,9 +2912,16 @@ async function handleRequest(request, response) {
     const events = snapshotEvents(current);
     const index = Number(body.index);
     const event = events[index];
+    const reviewFocus = String(body.note || "").trim();
     if (!Number.isInteger(index) || !event) {
       sendJson(response, 400, {
         error: "Select a rules-engine event first",
+      });
+      return;
+    }
+    if (reviewFocus.length > 4_000) {
+      sendJson(response, 400, {
+        error: "Verification focus must be at most 4,000 characters",
       });
       return;
     }
@@ -2146,8 +2936,14 @@ async function handleRequest(request, response) {
       content: (
         `Permission granted: independently verify E${index + 1} at `
         + `${event.seconds.toFixed(3)}s and mark it reviewed only if supported.`
+        + (
+          reviewFocus
+            ? ` Verification focus: ${reviewFocus}`
+            : ""
+        )
       ),
       eventIndex: null,
+      engineIndex: index,
       timestamp: new Date().toISOString(),
     });
     await saveState(segment, review.state);
@@ -2165,9 +2961,16 @@ async function handleRequest(request, response) {
     sendJson(response, 202, { sent: true, index });
     setTimeout(() => {
       session.send({
-        prompt: engineEventReviewPrompt(review.selected, event, index),
+        prompt: engineEventReviewPrompt(
+          review.selected,
+          event,
+          index,
+          reviewFocus,
+        ),
         displayPrompt: (
-          `Verify E${index + 1} at ${event.seconds.toFixed(3)}s only if correct.`
+          reviewFocus
+            ? `Re-verify E${index + 1}: ${reviewFocus.slice(0, 180)}`
+            : `Verify E${index + 1} at ${event.seconds.toFixed(3)}s only if correct.`
         ),
         agentMode: "autopilot",
       }).catch(async (error) => {
@@ -2178,12 +2981,79 @@ async function handleRequest(request, response) {
           role: "system",
           content: `Engine-event verification failed: ${error.message}`,
           eventIndex: null,
+          engineIndex: index,
           timestamp: new Date().toISOString(),
         });
         await saveState(segment, failedReview.state);
         setActivity(
           "error",
           "The engine event could not be verified",
+          error.message,
+        );
+      });
+    }, 0);
+    return;
+  }
+  if (request.method === "POST" && url.pathname === "/api/engine-message") {
+    if (reviewRequestPending) {
+      sendJson(response, 409, {
+        error: "Copilot is already reviewing an event",
+      });
+      return;
+    }
+    const body = await readBody(request);
+    const segment = requestedSegment(url, body);
+    const review = await reviewContext(segment);
+    const current = await captureEngineSnapshot(segment);
+    const events = snapshotEvents(current);
+    const index = Number(body.index);
+    const event = events[index];
+    const text = String(body.text || "").trim();
+    if (!Number.isInteger(index) || !event) {
+      sendJson(response, 400, { error: "Select a rules-engine event first" });
+      return;
+    }
+    if (!text || text.length > 4_000) {
+      sendJson(response, 400, {
+        error: "Message must contain 1–4,000 characters",
+      });
+      return;
+    }
+    review.state.conversation.push({
+      role: "user",
+      content: text,
+      eventIndex: null,
+      engineIndex: index,
+      timestamp: new Date().toISOString(),
+    });
+    await saveState(segment, review.state);
+    lastConversationContext = { segment, eventIndex: null, engineIndex: index };
+    reviewRequestPending = true;
+    setActivity(
+      "working",
+      `Copilot is answering about E${index + 1}`,
+      "The reply will remain in this engine-event conversation.",
+    );
+    sendJson(response, 202, { sent: true, index });
+    setTimeout(() => {
+      session.send({
+        prompt: engineEventConversationPrompt(review.selected, event, index, text),
+        displayPrompt: `Discuss E${index + 1}: ${text.slice(0, 180)}`,
+        agentMode: "plan",
+      }).catch(async (error) => {
+        reviewRequestPending = false;
+        const failedReview = await reviewContext(segment);
+        failedReview.state.conversation.push({
+          role: "system",
+          content: `E${index + 1} conversation failed: ${error.message}`,
+          eventIndex: null,
+          engineIndex: index,
+          timestamp: new Date().toISOString(),
+        });
+        await saveState(segment, failedReview.state);
+        setActivity(
+          "error",
+          `The E${index + 1} question could not be processed`,
           error.message,
         );
       });
@@ -2197,6 +3067,25 @@ async function handleRequest(request, response) {
     const index = Number(body.index);
     if (!Number.isInteger(index) || !context.drafts[index]) {
       sendJson(response, 400, { error: "Unknown draft event" });
+      return;
+    }
+    if (
+      request.method === "POST"
+      && url.pathname === "/api/cancel-adjustment"
+    ) {
+      const body = await readBody(request);
+      const segment = requestedSegment(url, body);
+      try {
+        await cancelReviewAdjustment(
+          segment,
+          Number(body.index),
+          String(body.reason || "Cancelled from the review panel."),
+        );
+      } catch (error) {
+        sendJson(response, 409, { error: error.message });
+        return;
+      }
+      sendJson(response, 200, await publicState(segment));
       return;
     }
     if (!["accepted", "adjust", "rejected"].includes(body.status)) {
@@ -2222,9 +3111,137 @@ async function handleRequest(request, response) {
           }
         : {}),
     };
+    const event = context.drafts[index];
+    const decisionLabel = {
+      accepted: "accepted",
+      adjust: "sent back for adjustment",
+      rejected: "rejected",
+    }[body.status];
+    state.conversation.push({
+      role: "user",
+      content: (
+        `Decision: Event ${index + 1} at ${event.seconds.toFixed(3)}s was `
+        + `${decisionLabel}.`
+        + (
+          String(body.note || "").trim()
+            ? ` Reason: ${String(body.note).trim()}`
+            : ""
+        )
+        + (
+          engineCheck
+            ? ` Engine check: ${engineCheck.engineComparison.label}. `
+              + engineCheck.engineComparison.detail
+            : ""
+        )
+      ),
+      eventIndex: index,
+      timestamp: state.decisions[String(index)].decidedAt,
+    });
     delete state.copilotAcceptanceAuthorizations[String(index)];
     await saveState(segment, state);
     sendJson(response, 200, await publicState(segment));
+    return;
+  }
+  if (
+    request.method === "POST"
+    && url.pathname === "/api/copilot-recheck-accepted"
+  ) {
+    if (reviewRequestPending) {
+      sendJson(response, 409, {
+        error: "Copilot is already handling a review request",
+      });
+      return;
+    }
+    const body = await readBody(request);
+    const segment = requestedSegment(url, body);
+    const context = await reviewContext(segment);
+    const index = Number(body.index);
+    const draft = context.drafts[index];
+    const decision = context.state.decisions[String(index)];
+    if (!Number.isInteger(index) || !draft) {
+      sendJson(response, 400, { error: "Select a review event first" });
+      return;
+    }
+    if (decision?.status !== "accepted") {
+      sendJson(response, 409, {
+        error: "Only an already accepted C# can use this engine re-check",
+      });
+      return;
+    }
+    if (
+      context.selected.validated
+      || context.state.publishedReference
+    ) {
+      sendJson(response, 409, {
+        error: "Published passed references are already locked",
+      });
+      return;
+    }
+    const current = await captureEngineSnapshot(segment);
+    const comparison = acceptedEngineComparison(
+      draft,
+      context.state,
+      decision,
+      current,
+    );
+    if (comparison.status === "already_agrees") {
+      sendJson(response, 409, {
+        error: (
+          "The accepted C# already agrees with the current engine and output "
+          + "hashes; no recalculation is needed"
+        ),
+      });
+      return;
+    }
+    context.state.conversation.push({
+      role: "user",
+      content: (
+        `Permission granted: re-check the engine workflow for accepted C${
+          index + 1
+        }. Current status: ${comparison.label}.`
+      ),
+      eventIndex: index,
+      timestamp: new Date().toISOString(),
+    });
+    await saveState(segment, context.state);
+    lastConversationContext = { segment, eventIndex: index };
+    reviewRequestPending = true;
+    setActivity(
+      "working",
+      `Copilot is re-checking accepted C${index + 1}`,
+      "Current hashes decide whether no action, cached recalculation, or general engine synchronization is required.",
+    );
+    sendJson(response, 202, { sent: true, index });
+    setTimeout(() => {
+      session.send({
+        prompt: acceptedEngineRecheckPrompt(
+          context.selected,
+          draft,
+          index,
+          comparison,
+        ),
+        displayPrompt: (
+          `Re-check accepted C${index + 1} against the current engine and `
+          + "recalculate only if required."
+        ),
+        agentMode: "autopilot",
+      }).catch(async (error) => {
+        reviewRequestPending = false;
+        const failedReview = await reviewContext(segment);
+        failedReview.state.conversation.push({
+          role: "system",
+          content: `Accepted-event engine re-check failed: ${error.message}`,
+          eventIndex: index,
+          timestamp: new Date().toISOString(),
+        });
+        await saveState(segment, failedReview.state);
+        setActivity(
+          "error",
+          `The accepted C${index + 1} engine re-check failed`,
+          error.message,
+        );
+      });
+    }, 0);
     return;
   }
   if (request.method === "POST" && url.pathname === "/api/copilot-accept") {
@@ -2320,6 +3337,18 @@ async function handleRequest(request, response) {
     const body = await readBody(request);
     const segment = requestedSegment(url, body);
     const context = await reviewContext(segment);
+    if (context.state.coordinateReview?.status !== "finalized") {
+      sendJson(response, 409, {
+        error: "Ball-coordinate review must be explicitly finalized before event review",
+      });
+      return;
+    }
+    if (!context.drafts.length) {
+      sendJson(response, 409, {
+        error: "No review events exist to verify",
+      });
+      return;
+    }
     if (
       context.selected.validated
       || context.state.publishedReference
@@ -2416,6 +3445,18 @@ async function handleRequest(request, response) {
     const body = await readBody(request);
     const segment = requestedSegment(url, body);
     const context = await reviewContext(segment);
+    if (context.state.coordinateReview?.status !== "finalized") {
+      sendJson(response, 409, {
+        error: "Ball-coordinate review must be explicitly finalized before publication",
+      });
+      return;
+    }
+    if (!context.drafts.length) {
+      sendJson(response, 409, {
+        error: "No review events exist to publish",
+      });
+      return;
+    }
     if (
       context.selected.validated
       || context.state.publishedReference
@@ -2495,6 +3536,198 @@ async function handleRequest(request, response) {
         );
       });
     }, 0);
+    return;
+  }
+  if (
+    request.method === "POST"
+    && url.pathname === "/api/finalize-ball-coordinate-review"
+  ) {
+    const body = await readBody(request);
+    const segment = requestedSegment(url, body);
+    const context = await reviewContext(segment);
+    if (!ballCoordinateReviewCanBeVerified(context.selected)) {
+      sendJson(response, 409, {
+        error: "Local AI must complete before this segment can enter review",
+      });
+      return;
+    }
+    const snapshot = await ballCoordinateReviewSnapshot(segment);
+    if (
+      snapshot.directProvenance < 0.90
+      || snapshot.directFrameCount < Math.ceil(
+        snapshot.sampledFrameCount * 0.90,
+      )
+    ) {
+      sendJson(response, 409, {
+        error: "Direct ball-coordinate provenance is still below the 90% minimum",
+      });
+      return;
+    }
+    const verified = context.state.coordinateReview;
+    if (
+      verified?.status !== "verified"
+      || verified.trackerHash !== snapshot.trackerHash
+      || verified.provenanceHash !== snapshot.provenanceHash
+    ) {
+      sendJson(response, 409, {
+        error: "Copilot must verify the current tracker code and coordinate output first",
+      });
+      return;
+    }
+    context.state.coordinateReview = {
+      ...verified,
+      status: "finalized",
+      finalizedAt: new Date().toISOString(),
+    };
+    context.state.conversation.push({
+      role: "system",
+      content: "Ball-coordinate review finalized by the user. "
+        + "The segment is now in review and the main review panels are enabled.",
+      eventIndex: null,
+      coordinateReview: true,
+      timestamp: context.state.coordinateReview.finalizedAt,
+    });
+    await saveState(segment, context.state);
+    setActivity(
+      "ready",
+      "Segment in review",
+      "Ball-coordinate recovery was explicitly finalized against fresh evidence.",
+    );
+    sendJson(response, 200, {
+      finalized: true,
+      validationStatus: "in_review",
+    });
+    return;
+  }
+  if (
+    request.method === "POST"
+    && url.pathname === "/api/coordinate-batch-draft"
+  ) {
+    const body = await readBody(request);
+    const segment = requestedSegment(url, body);
+    const context = await reviewContext(segment);
+    const batch = context.state.coordinateReview?.batches?.find(
+      (candidate) => candidate.id === String(body.batchId || ""),
+    );
+    if (!batch || batch.status !== "ready") {
+      sendJson(response, 409, {
+        error: "Only the current ready coordinate batch can be edited",
+      });
+      return;
+    }
+    const frames = [...new Set(
+      (Array.isArray(body.frames) ? body.frames : [])
+        .map(Number)
+        .filter(Number.isInteger),
+    )].sort((left, right) => left - right);
+    if (!frames.length || frames.length > 300) {
+      sendJson(response, 400, {
+        error: "A coordinate batch must contain 1–300 frames",
+      });
+      return;
+    }
+    const observations = (Array.isArray(body.observations)
+      ? body.observations
+      : []
+    ).map((observation) => ({
+      frame: Number(observation?.frame),
+      decision: String(observation?.decision || ""),
+      x: Number(observation?.x),
+      y: Number(observation?.y),
+      approved: observation?.approved === true,
+    })).filter((observation) =>
+      Number.isInteger(observation.frame)
+      && frames.includes(observation.frame)
+      && ["agree", "undefined", "specified"].includes(observation.decision)
+      && (
+        observation.decision === "undefined"
+        || (
+          Number.isFinite(observation.x)
+          && observation.x >= 0
+          && observation.x <= context.selected.imageWidth
+          && Number.isFinite(observation.y)
+          && observation.y >= 0
+          && observation.y <= context.selected.imageHeight
+        )
+      )
+    );
+    batch.frames = frames;
+    batch.observations = Object.fromEntries(
+      observations.map((observation) => [
+        String(observation.frame),
+        observation,
+      ]),
+    );
+    batch.draftUpdatedAt = new Date().toISOString();
+    context.state.coordinateReview.flaggedFrames = frames;
+    await saveState(segment, context.state);
+    sendJson(response, 200, {
+      saved: true,
+      batchId: batch.id,
+      frameCount: frames.length,
+      observationCount: observations.length,
+    });
+    return;
+  }
+  if (
+    request.method === "POST"
+    && url.pathname === "/api/trajectory-audit-draft"
+  ) {
+    const body = await readBody(request, 131_072);
+    const segment = requestedSegment(url, body);
+    const context = await reviewContext(segment);
+    const validFrames = new Set(
+      (
+        await loadDetectedBallTrack(
+          context.selected,
+          {allowDetectionOnly: true},
+        )
+      )?.states?.map((state) => Number(state.frame)) || [],
+    );
+    const observations = (Array.isArray(body.observations)
+      ? body.observations
+      : []
+    ).map((observation) => ({
+      frame: Number(observation?.frame),
+      decision: String(observation?.decision || ""),
+      x: Number(observation?.x),
+      y: Number(observation?.y),
+      approved: observation?.approved === true,
+    })).filter((observation) =>
+      Number.isInteger(observation.frame)
+      && validFrames.has(observation.frame)
+      && [
+        "agree",
+        "undefined",
+        "specified",
+        "needs_more_checking",
+      ].includes(observation.decision)
+      && (
+        ["undefined", "needs_more_checking"].includes(observation.decision)
+        || (
+          Number.isFinite(observation.x)
+          && observation.x >= 0
+          && observation.x <= context.selected.imageWidth
+          && Number.isFinite(observation.y)
+          && observation.y >= 0
+          && observation.y <= context.selected.imageHeight
+        )
+      )
+    );
+    context.state.trajectoryAudit = {
+      observations: Object.fromEntries(
+        observations.map((observation) => [
+          String(observation.frame),
+          observation,
+        ]),
+      ),
+      updatedAt: new Date().toISOString(),
+    };
+    await saveState(segment, context.state);
+    sendJson(response, 200, {
+      saved: true,
+      observationCount: observations.length,
+    });
     return;
   }
   if (request.method === "POST" && url.pathname === "/api/message") {
@@ -2598,6 +3831,44 @@ async function handleRequest(request, response) {
     const scope = body.scope === "current_time"
       ? "current_time"
       : "entire_clip";
+    const flaggedFrames = Array.from(new Set(
+      Array.isArray(body.flaggedFrames)
+        ? body.flaggedFrames
+          .map(Number)
+          .filter(frame => Number.isInteger(frame) && frame >= 0)
+        : [],
+    )).sort((left, right) => left - right);
+    if (flaggedFrames.length > 300) {
+      sendJson(response, 400, {
+        error: "A batch review is limited to 300 flagged frames",
+      });
+      return;
+    }
+    const coordinateObservations = Array.isArray(body.coordinateObservations)
+      ? body.coordinateObservations.map(observation => ({
+          frame: Number(observation?.frame),
+          decision: String(observation?.decision || ""),
+          x: Number(observation?.x),
+          y: Number(observation?.y),
+        })).filter(observation =>
+          Number.isInteger(observation.frame)
+          && flaggedFrames.includes(observation.frame)
+          && ["agree", "undefined", "specified"].includes(
+            observation.decision,
+          )
+          && (
+            observation.decision === "undefined"
+            || (
+              Number.isFinite(observation.x)
+              && observation.x >= 0
+              && observation.x <= context.selected.imageWidth
+              && Number.isFinite(observation.y)
+              && observation.y >= 0
+              && observation.y <= context.selected.imageHeight
+            )
+          )
+        )
+      : [];
     if (
       !Number.isFinite(seconds)
       || seconds < 0
@@ -2626,15 +3897,82 @@ async function handleRequest(request, response) {
       requestedAt,
       mode,
       scope,
+      flaggedFrames,
+      coordinateObservations,
     };
+    if (flaggedFrames.length) {
+      if (context.state.coordinateReview?.status === "finalized") {
+        sendJson(response, 409, {
+          error: "Ball-coordinate review is closed because this segment is already in review",
+        });
+        return;
+      }
+      context.state.coordinateReview.batches ||= [];
+      const before = await coordinateOutputSnapshot(context.selected);
+      let batch = activeCoordinateBatch(context.state);
+      if (!batch || batch.status === "done" || batch.status === "failed") {
+        const number = Math.max(
+          0,
+          ...context.state.coordinateReview.batches.map(
+            (candidate) => Number(candidate.number || 0),
+          ),
+        ) + 1;
+        batch = {
+          id: `coordinate-round-${number}`,
+          number,
+          status: "ready",
+          frames: flaggedFrames,
+          observations: {},
+          createdAt: requestedAt,
+          before,
+          frameResults: {},
+        };
+        context.state.coordinateReview.batches.push(batch);
+      }
+      batch.status = "working";
+      batch.frames = flaggedFrames;
+      batch.observations = Object.fromEntries(
+        coordinateObservations.map((observation) => [
+          String(observation.frame),
+          observation,
+        ]),
+      );
+      batch.submittedAt = requestedAt;
+      batch.reviewCompletedAt = null;
+      batch.codeFixCompletedAt = null;
+      batch.testsCompletedAt = null;
+      batch.rerunStartedAt = null;
+      batch.rerunCompletedAt = null;
+      batch.failure = null;
+      batch.before = before;
+      context.state.coordinateReview.activeBatchId = batch.id;
+      context.state.coordinateReview = {
+        ...context.state.coordinateReview,
+        status: "reviewing",
+        flaggedFrames,
+        requestedAt,
+        verifiedAt: null,
+        trackerHash: null,
+        provenanceHash: null,
+        summary: null,
+      };
+    }
     context.state.conversation.push({
       role: "user",
       content: `${
         scope === "current_time"
           ? `${seconds.toFixed(3)}s ±2s`
           : "Entire clip"
-      } · ${mode} · ${text}`,
+      } · ${mode}${
+        flaggedFrames.length
+          ? ` · ${flaggedFrames.length} flagged ball frames`
+          : ""
+      } · ${text}`,
       eventIndex: null,
+      coordinateReview: flaggedFrames.length > 0,
+      coordinateBatchId: flaggedFrames.length
+        ? context.state.coordinateReview.activeBatchId
+        : null,
       timestamp: requestedAt,
     });
     await saveState(segment, context.state);
@@ -2662,6 +4000,8 @@ async function handleRequest(request, response) {
           selectedIndex,
           mode,
           scope,
+          flaggedFrames,
+          coordinateObservations,
         ),
         displayPrompt: (
           `Ask about ${
@@ -2689,6 +4029,148 @@ async function handleRequest(request, response) {
         );
       });
     }, 0);
+    return;
+  }
+  if (
+    request.method === "POST"
+    && url.pathname === "/api/manual-review-event"
+  ) {
+    const body = await readBody(request);
+    const segment = requestedSegment(url, body);
+    const review = await reviewContext(segment);
+    if (review.selected.validated || review.state.publishedReference) {
+      sendJson(response, 409, {
+        error: "Published passed references must be deliberately reopened before adding events",
+      });
+      return;
+    }
+    const seconds = Number(body.seconds);
+    const team = String(body.team);
+    const eventType = String(body.eventType);
+    const note = String(body.note || "").trim();
+    if (
+      !Number.isFinite(seconds)
+      || seconds < 0
+      || seconds > review.selected.durationSeconds
+    ) {
+      sendJson(response, 400, {
+        error: "The selected event time is outside this segment",
+      });
+      return;
+    }
+    if (!["red", "black"].includes(team)) {
+      sendJson(response, 400, { error: "Choose the event team" });
+      return;
+    }
+    if (!["completed_pass", "turnover"].includes(eventType)) {
+      sendJson(response, 400, { error: "Choose a supported event type" });
+      return;
+    }
+    if (!note || note.length > 1_000) {
+      sendJson(response, 400, {
+        error: "Describe the review event in 1–1,000 characters",
+      });
+      return;
+    }
+    const duplicate = review.drafts.find((draft) =>
+      ["manual_review", "user_reported"].includes(draft.source)
+      && draft.team === team
+      && draft.type === eventType
+      && Math.round(draft.seconds * 25) === Math.round(seconds * 25)
+    );
+    if (duplicate) {
+      sendJson(response, 409, {
+        error: "An equivalent manual M# already exists on this frame",
+      });
+      return;
+    }
+    const teamLabel = team === "red" ? "Red/white" : "Black";
+    const eventLabel = eventType === "completed_pass"
+      ? "completed pass"
+      : "turnover";
+    const index = review.drafts.length;
+    review.state.additionalProposals.push({
+      seconds: Math.round(seconds * 1000) / 1000,
+      team,
+      type: eventType,
+      title: `${teamLabel} ${eventLabel}`,
+      evidence: (
+        `Manual review candidate at ${seconds.toFixed(3)}s: ${note} `
+        + "This observation still requires independent video verification."
+      ),
+      rule: eventType === "completed_pass"
+        ? "A completed pass requires a deliberate play followed by the first controlled teammate touch."
+        : "A turnover requires the opposing team to establish controlled possession.",
+      reportReason: note,
+      reportedAt: new Date().toISOString(),
+      source: "manual_review",
+    });
+    review.state.conversation.push({
+      role: "system",
+      content: (
+        `Manual M${index + 1} was added at ${seconds.toFixed(3)}s. `
+        + "It is not accepted and must be independently verified."
+      ),
+      eventIndex: index,
+      timestamp: new Date().toISOString(),
+    });
+    await saveState(segment, review.state);
+    setActivity(
+      "ready",
+      `Manual M${index + 1} ready`,
+      "Verify the candidate, then accept or reject it in the event panel.",
+    );
+    sendJson(response, 201, { created: true, index });
+    return;
+  }
+  if (
+    request.method === "POST"
+    && url.pathname === "/api/require-same-frame-review"
+  ) {
+    const body = await readBody(request);
+    const segment = requestedSegment(url, body);
+    const review = await reviewContext(segment);
+    const index = Number(body.index);
+    const draft = review.drafts[index];
+    if (!Number.isInteger(index) || !draft) {
+      sendJson(response, 404, {error: "Review event not found"});
+      return;
+    }
+    if (
+      review.selected.validated
+      || review.state.publishedReference
+    ) {
+      sendJson(response, 409, {
+        error: "Published passed references must be reopened before changing timing requirements",
+      });
+      return;
+    }
+    if (["manual_review", "user_reported"].includes(draft.source)) {
+      sendJson(response, 409, {
+        error: "Manual M# events already require same-frame engine agreement",
+      });
+      return;
+    }
+    review.state.sameFrameReviewRequirements ||= {};
+    review.state.sameFrameReviewRequirements[String(index)] = true;
+    review.state.regression = null;
+    review.state.conversation.push({
+      role: "user",
+      content: (
+        `Strict timing requested: C${index + 1} must be reviewed and corrected `
+        + "to the supported completion frame, and C↔E agreement now requires "
+        + "the same rounded 25-fps source-video frame."
+      ),
+      eventIndex: index,
+      timestamp: new Date().toISOString(),
+    });
+    await saveState(segment, review.state);
+    setActivity(
+      "ready",
+      `Same-frame review required for C${index + 1}`,
+      "Use Verify & Accept to review the timing and synchronize the engine when needed.",
+    );
+    sendJson(response, 200, {updated: true, index});
     return;
   }
   if (
@@ -2813,14 +4295,14 @@ async function startServer(instanceId) {
 }
 
 async function registerLauncherUrl(theme, url) {
-  const registry = await readJson(launcherRegistryPath, {});
-  registry[theme] = url;
-  await mkdir(dirname(launcherRegistryPath), {recursive: true});
-  await writeFile(
-    launcherRegistryPath,
-    `${JSON.stringify(registry, null, 2)}\n`,
-    "utf8",
-  );
+  const update = launcherRegistryUpdate.then(async () => {
+    const registry = await readJson(launcherRegistryPath, {});
+    registry[theme] = url;
+    await mkdir(dirname(launcherRegistryPath), {recursive: true});
+    await writeJsonAtomically(launcherRegistryPath, registry);
+  });
+  launcherRegistryUpdate = update.catch(() => {});
+  await update;
 }
 
 session = await joinSession({
@@ -2834,6 +4316,7 @@ session = await joinSession({
         properties: {
           segment: { type: "string" },
           theme: { type: "string", enum: ["grassroots"] },
+          audit: { type: "boolean" },
         },
         additionalProperties: false,
       },
@@ -2899,13 +4382,14 @@ session = await joinSession({
           },
         },
         {
-          name: "publish_review_response",
-          description: "Publish the final concise Copilot answer into the floating Canvas conversation.",
+          name: "publish_review_progress",
+          description: "Publish an in-progress Copilot update into the Canvas conversation without completing the review.",
           inputSchema: {
             type: "object",
             properties: {
               segment: { type: "string" },
               eventIndex: { type: "integer", minimum: 0 },
+              engineIndex: { type: "integer", minimum: 0 },
               content: { type: "string", minLength: 1, maxLength: 4_000 },
             },
             required: ["segment", "content"],
@@ -2918,19 +4402,333 @@ session = await joinSession({
             const eventIndex = Number.isInteger(context.input.eventIndex)
               ? Number(context.input.eventIndex)
               : null;
+            const engineIndex = Number.isInteger(context.input.engineIndex)
+              ? Number(context.input.engineIndex)
+              : null;
+            if (eventIndex !== null && engineIndex !== null) {
+              throw new CanvasError(
+                "review_conversation_ambiguous",
+                "Choose either a C# eventIndex or an E# engineIndex.",
+              );
+            }
             if (eventIndex !== null && !review.drafts[eventIndex]) {
               throw new CanvasError(
                 "review_event_missing",
                 "The selected review event does not exist.",
               );
             }
+            if (engineIndex !== null) {
+              const events = snapshotEvents(
+                await captureEngineSnapshot(segment),
+              );
+              if (!events[engineIndex]) {
+                throw new CanvasError(
+                  "engine_event_missing",
+                  "The selected rules-engine event does not exist.",
+                );
+              }
+            }
+            const coordinateBatch = eventIndex === null
+              && engineIndex === null
+              && review.state.pendingClipRequest?.flaggedFrames?.length
+              ? activeCoordinateBatch(review.state)
+              : null;
+            review.state.conversation.push({
+              role: "assistant",
+              content,
+              eventIndex,
+              engineIndex,
+              coordinateReview: Boolean(coordinateBatch),
+              coordinateBatchId: coordinateBatch?.id || null,
+              timestamp: new Date().toISOString(),
+            });
+            await saveState(segment, review.state);
+            broadcast("conversation");
+            return {
+              segment,
+              eventIndex,
+              engineIndex,
+              published: true,
+              completed: false,
+            };
+          },
+        },
+        {
+          name: "update_ball_coordinate_batch",
+          description: "Advance the active ball-coordinate batch after review, code correction, or tests. Passing tests automatically starts the saved-detection tracker/YOLO rerun.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              segment: { type: "string" },
+              stage: {
+                type: "string",
+                enum: [
+                  "review_completed",
+                  "code_fix_completed",
+                  "tests_completed",
+                ],
+              },
+              summary: {
+                type: "string",
+                minLength: 1,
+                maxLength: 2_000,
+              },
+              passed: { type: "boolean" },
+            },
+            required: ["segment", "stage", "summary"],
+            additionalProperties: false,
+          },
+          handler: async (context) => {
+            const segment = String(context.input.segment);
+            const stage = String(context.input.stage);
+            const summary = String(context.input.summary).trim();
+            const review = await reviewContext(segment);
+            const batch = activeCoordinateBatch(review.state);
+            if (!batch || !["working", "review_completed", "code_fix_completed", "tests_completed"].includes(batch.status)) {
+              throw new CanvasError(
+                "ball_coordinate_batch_missing",
+                "No active ball-coordinate batch is awaiting this update.",
+              );
+            }
+            const requiredStatus = {
+              review_completed: "working",
+              code_fix_completed: "review_completed",
+              tests_completed: "code_fix_completed",
+            }[stage];
+            if (batch.status !== requiredStatus) {
+              throw new CanvasError(
+                "ball_coordinate_batch_stage_invalid",
+                `Batch ${batch.number} must be ${requiredStatus} before ${stage}.`,
+              );
+            }
+            const now = new Date().toISOString();
+            if (stage === "review_completed") {
+              batch.status = "review_completed";
+              batch.reviewCompletedAt = now;
+              batch.reviewSummary = summary;
+            } else if (stage === "code_fix_completed") {
+              batch.status = "code_fix_completed";
+              batch.codeFixCompletedAt = now;
+              batch.codeFixSummary = summary;
+            } else {
+              if (context.input.passed !== true) {
+                batch.status = "failed";
+                batch.testsCompletedAt = now;
+                batch.failure = summary;
+                review.state.coordinateReview.status = "pending";
+                await saveState(segment, review.state);
+                setActivity(
+                  "error",
+                  "Coordinate correction tests failed",
+                  summary,
+                );
+                return {segment, batchId: batch.id, rerunStarted: false};
+              }
+              batch.status = "tests_completed";
+              batch.testsCompletedAt = now;
+              batch.testsSummary = summary;
+              await saveState(segment, review.state);
+              setActivity(
+                "working",
+                "Starting corrected ball-coordinate rerun",
+                "Running bounded focused recovery while preserving all accepted coordinates.",
+              );
+              try {
+                const result = await localJson(
+                  "/api/alfheim/live/analyze",
+                  {
+                    method: "POST",
+                    headers: {"Content-Type": "application/json"},
+                    body: JSON.stringify({
+                      cache_key: segment,
+                      events_only: false,
+                      focused_recovery: true,
+                    }),
+                  },
+                );
+                batch.status = "rerun_started";
+                batch.rerunStartedAt = new Date().toISOString();
+                batch.awaitingRunObservation = true;
+                review.state.coordinateReview.status = "rerunning";
+                review.state.pendingClipRequest = null;
+                await saveState(segment, review.state);
+                return {
+                  ...result,
+                  segment,
+                  batchId: batch.id,
+                  rerunStarted: true,
+                };
+              } catch (error) {
+                batch.status = "failed";
+                batch.failedAt = new Date().toISOString();
+                batch.failure = error.message;
+                review.state.coordinateReview.status = "pending";
+                await saveState(segment, review.state);
+                setActivity(
+                  "error",
+                  "Corrected ball-coordinate rerun failed to start",
+                  error.message,
+                );
+                throw new CanvasError(
+                  "ball_coordinate_rerun_failed",
+                  error.message,
+                );
+              }
+            }
+            await saveState(segment, review.state);
+            setActivity(
+              "working",
+              stage === "review_completed"
+                ? "Coordinate review complete"
+                : "Coordinate code correction complete",
+              summary,
+            );
+            return {
+              segment,
+              batchId: batch.id,
+              stage,
+              rerunStarted: false,
+            };
+          },
+        },
+        {
+          name: "confirm_ball_coordinate_review",
+          description: "Confirm that the completed local AI output has at least 90% direct ball provenance and that the current tracker code and coordinate output were independently reviewed. This does not put the segment into review; the user must finalize it in the Canvas.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              segment: { type: "string" },
+              summary: { type: "string", minLength: 1, maxLength: 2_000 },
+            },
+            required: ["segment", "summary"],
+            additionalProperties: false,
+          },
+          handler: async (context) => {
+            const segment = String(context.input.segment);
+            const review = await reviewContext(segment);
+            if (!ballCoordinateReviewCanBeVerified(review.selected)) {
+              throw new CanvasError(
+                "ball_coordinate_ai_incomplete",
+                "Local AI must complete before ball coordinates can be verified.",
+              );
+            }
+            if (!review.state.coordinateReview?.flaggedFrames?.length) {
+              throw new CanvasError(
+                "ball_coordinate_review_missing",
+                "No flagged-frame batch has been reviewed.",
+              );
+            }
+            const snapshot = await ballCoordinateReviewSnapshot(segment);
+            if (
+              snapshot.directProvenance < 0.90
+              || snapshot.directFrameCount < Math.ceil(
+                snapshot.sampledFrameCount * 0.90,
+              )
+            ) {
+              throw new CanvasError(
+                "ball_coordinate_provenance_below_gate",
+                "Direct ball-coordinate provenance is below the 90% minimum.",
+              );
+            }
+            review.state.coordinateReview = {
+              ...review.state.coordinateReview,
+              status: "verified",
+              verifiedAt: new Date().toISOString(),
+              trackerHash: snapshot.trackerHash,
+              provenanceHash: snapshot.provenanceHash,
+              summary: String(context.input.summary).trim(),
+            };
+            review.state.conversation.push({
+              role: "system",
+              content: "Copilot verified the current ball-coordinate code and "
+                + "output. The user may now choose Finalize and put in review.",
+              eventIndex: null,
+              coordinateReview: true,
+              timestamp: review.state.coordinateReview.verifiedAt,
+            });
+            await saveState(segment, review.state);
+            return {
+              segment,
+              verified: true,
+              directFrameCount: snapshot.directFrameCount,
+              sampledFrameCount: snapshot.sampledFrameCount,
+              directProvenance: snapshot.directProvenance,
+              finalized: false,
+            };
+          },
+        },
+        {
+          name: "publish_review_response",
+          description: "Publish the final concise Copilot answer into the floating Canvas conversation.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              segment: { type: "string" },
+              eventIndex: { type: "integer", minimum: 0 },
+              engineIndex: { type: "integer", minimum: 0 },
+              content: { type: "string", minLength: 1, maxLength: 4_000 },
+            },
+            required: ["segment", "content"],
+            additionalProperties: false,
+          },
+          handler: async (context) => {
+            const segment = String(context.input.segment);
+            const content = String(context.input.content).trim();
+            const review = await reviewContext(segment);
+            const eventIndex = Number.isInteger(context.input.eventIndex)
+              ? Number(context.input.eventIndex)
+              : null;
+            const engineIndex = Number.isInteger(context.input.engineIndex)
+              ? Number(context.input.engineIndex)
+              : null;
+            if (eventIndex !== null && engineIndex !== null) {
+              throw new CanvasError(
+                "review_conversation_ambiguous",
+                "Choose either a C# eventIndex or an E# engineIndex.",
+              );
+            }
+            if (eventIndex !== null && !review.drafts[eventIndex]) {
+              throw new CanvasError(
+                "review_event_missing",
+                "The selected review event does not exist.",
+              );
+            }
+            let engineEvent = null;
+            if (engineIndex !== null) {
+              const events = snapshotEvents(
+                await captureEngineSnapshot(segment),
+              );
+              engineEvent = events[engineIndex];
+              if (!engineEvent) {
+                throw new CanvasError(
+                  "engine_event_missing",
+                  "The selected rules-engine event does not exist.",
+                );
+              }
+            }
             const previous = review.state.conversation.at(-1);
+            const coordinateReviewResponse = Boolean(
+              eventIndex === null
+              && engineIndex === null
+              && review.state.pendingClipRequest?.flaggedFrames?.length
+            );
+            const coordinateBatch = coordinateReviewResponse
+              ? activeCoordinateBatch(review.state)
+              : null;
             let changed = false;
-            if (previous?.role !== "assistant" || previous.content !== content) {
+            if (
+              previous?.role !== "assistant"
+              || previous.content !== content
+              || previous.eventIndex !== eventIndex
+              || previous.engineIndex !== engineIndex
+            ) {
               review.state.conversation.push({
                 role: "assistant",
                 content,
                 eventIndex,
+                engineIndex,
+                coordinateReview: coordinateReviewResponse,
+                coordinateBatchId: coordinateBatch?.id || null,
                 timestamp: new Date().toISOString(),
               });
               changed = true;
@@ -2943,31 +4741,32 @@ session = await joinSession({
                   .copilotAcceptanceAuthorizations[String(eventIndex)];
                 changed = true;
               }
-            } else if (
-              Number.isInteger(lastConversationContext?.engineIndex)
-              && Object.keys(
-                review.state.engineEventReviewAuthorizations,
-              ).length
-            ) {
-              review.state.engineEventReviewAuthorizations = {};
-              changed = true;
+            } else if (engineEvent) {
+              const key = engineEventReviewKey(engineEvent);
+              if (review.state.engineEventReviewAuthorizations[key]) {
+                delete review.state.engineEventReviewAuthorizations[key];
+                changed = true;
+              }
             } else if (review.state.pendingClipRequest) {
+              if (coordinateReviewResponse) {
+                if (review.state.coordinateReview.status === "reviewing") {
+                  review.state.coordinateReview.status = "pending";
+                }
+              }
               review.state.pendingClipRequest = null;
               changed = true;
             }
             if (changed) {
               await saveState(segment, review.state);
             }
-            if (lastConversationContext?.segment === segment) {
-              reviewRequestPending = false;
-            }
+            reviewRequestPending = false;
             setActivity(
               "ready",
               "Copilot result ready",
               "Open Copilot Chat to read the result and continue this event review.",
             );
             broadcast("conversation");
-            return { segment, eventIndex, published: true };
+            return { segment, eventIndex, engineIndex, published: true };
           },
         },
         {
@@ -3218,6 +5017,25 @@ session = await joinSession({
           ),
         },
         {
+          name: "record_engine_event_not_confirmed",
+          description: "Record that an independently reviewed E# is unsupported or uncertain without creating a C# or editing the engine.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              segment: { type: "string" },
+              index: { type: "integer", minimum: 0 },
+              reason: { type: "string", minLength: 1, maxLength: 1_000 },
+            },
+            required: ["segment", "index", "reason"],
+            additionalProperties: false,
+          },
+          handler: async (context) => recordEngineEventNotConfirmed(
+            String(context.input.segment),
+            Number(context.input.index),
+            context.input.reason,
+          ),
+        },
+        {
           name: "accept_review_proposal",
           description: "Accept one proposal only after the user explicitly grants Copilot permission through the Canvas handover button.",
           inputSchema: {
@@ -3269,6 +5087,19 @@ session = await joinSession({
               review.drafts[index],
               review.state,
             );
+            const manualReview = [
+              "manual_review",
+              "user_reported",
+            ].includes(review.drafts[index].source);
+            if (
+              manualReview
+              && engineComparison.status !== "already_agrees"
+            ) {
+              throw new CanvasError(
+                "manual_engine_alignment_required",
+                "This M# cannot be accepted until a fresh rules-only engine run produces an exact same-frame E#.",
+              );
+            }
             review.state.decisions[String(index)] = {
               status: "accepted",
               note: String(context.input.reason),
@@ -3282,6 +5113,8 @@ session = await joinSession({
               content: (
                 `Copilot verified and accepted Event ${index + 1}: `
                 + context.input.reason
+                + ` Engine check: ${engineComparison.label}. `
+                + engineComparison.detail
               ),
               eventIndex: index,
               timestamp: new Date().toISOString(),
@@ -3312,6 +5145,29 @@ session = await joinSession({
           },
         },
         {
+          name: "cancel_review_adjustment",
+          description: "Cancel an adjustment request made against the wrong C# event without changing the proposal.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              segment: { type: "string" },
+              index: { type: "integer", minimum: 0 },
+              reason: { type: "string", minLength: 1, maxLength: 1_000 },
+            },
+            required: ["segment", "index", "reason"],
+            additionalProperties: false,
+          },
+          handler: async (context) => {
+            const segment = String(context.input.segment);
+            const index = Number(context.input.index);
+            return cancelReviewAdjustment(
+              segment,
+              index,
+              String(context.input.reason),
+            );
+          },
+        },
+        {
           name: "update_review_proposal",
           description: "Publish a re-reviewed correction to one event so the user can verify it again before acceptance.",
           inputSchema: {
@@ -3338,6 +5194,7 @@ session = await joinSession({
               evidence: { type: "string", minLength: 1 },
               rule: { type: "string", minLength: 1 },
               reason: { type: "string", minLength: 1 },
+              preserveAcceptanceAuthorization: { type: "boolean" },
             },
             required: [
               "segment",
@@ -3371,6 +5228,23 @@ session = await joinSession({
                 "The selected review event does not exist.",
               );
             }
+            const authorization = review.state
+              .copilotAcceptanceAuthorizations[String(index)];
+            const acceptanceCorrectionAuthorized = Boolean(
+              context.input.preserveAcceptanceAuthorization
+              && authorization
+              && authorization.proposalFingerprint
+                === proposalFingerprint(review.drafts[index]),
+            );
+            if (
+              review.state.decisions[String(index)]?.status !== "adjust"
+              && !acceptanceCorrectionAuthorized
+            ) {
+              throw new CanvasError(
+                "review_adjustment_not_authorized",
+                "No adjustment or active acceptance review authorizes this correction.",
+              );
+            }
             const seconds = Number(context.input.seconds);
             if (seconds > review.selected.durationSeconds) {
               throw new CanvasError(
@@ -3388,7 +5262,7 @@ session = await joinSession({
                 "Only a foul annotation may use match-state instead of a team.",
               );
             }
-            review.state.proposalOverrides[String(index)] = {
+            const revisedProposal = {
               seconds,
               team: context.input.team === "match_state"
                 ? null
@@ -3400,9 +5274,21 @@ session = await joinSession({
               adjustmentReason: String(context.input.reason),
               adjustedAt: new Date().toISOString(),
             };
+            review.state.proposalOverrides[String(index)] = revisedProposal;
             delete review.state.decisions[String(index)];
-            delete review.state
-              .copilotAcceptanceAuthorizations[String(index)];
+            if (acceptanceCorrectionAuthorized) {
+              review.state.copilotAcceptanceAuthorizations[String(index)] = {
+                ...authorization,
+                proposalFingerprint: proposalFingerprint({
+                  ...review.drafts[index],
+                  ...revisedProposal,
+                }),
+                correctedAt: new Date().toISOString(),
+              };
+            } else {
+              delete review.state
+                .copilotAcceptanceAuthorizations[String(index)];
+            }
             review.state.conversation.push({
               role: "system",
               content: (
@@ -3609,7 +5495,7 @@ session = await joinSession({
               rule: String(context.input.rule),
               reportReason: String(context.input.reason),
               reportedAt: new Date().toISOString(),
-              source: "user_reported",
+              source: "manual_review",
             };
             review.state.additionalProposals.push(proposal);
             const index = review.drafts.length;
@@ -3748,6 +5634,16 @@ session = await joinSession({
               outputHash: current.outputHash,
               regressionRecordedAt: review.state.regression.recordedAt,
             };
+            review.state.conversation.push({
+              role: "system",
+              content: (
+                `Validated reference published with ${reference.events.length} `
+                + "events after exact engine-output matching and protected "
+                + "regression verification."
+              ),
+              eventIndex: null,
+              timestamp: reference.exported_at,
+            });
             await registerLiveRegression(segment, reference, current);
             await saveState(segment, review.state);
             setActivity(
@@ -3782,10 +5678,21 @@ session = await joinSession({
             const state = review.state;
             state.engineAfter = await captureEngineSnapshot(segment);
             state.regression = null;
-            await saveState(segment, state);
             const index = Number.isInteger(context.input?.index)
               ? Number(context.input.index)
               : null;
+            state.conversation.push({
+              role: "system",
+              content: (
+                "Current rules-engine source and cached event output were "
+                + `refreshed: engine ${
+                  state.engineAfter.fingerprint.contentHash.slice(0, 12)
+                } · output ${state.engineAfter.outputHash.slice(0, 12)}.`
+              ),
+              eventIndex: index,
+              timestamp: new Date().toISOString(),
+            });
+            await saveState(segment, state);
             const engineComparison = index !== null && review.drafts[index]
               ? compareWithEngine(review.drafts[index], state.engineAfter)
               : null;
@@ -3903,6 +5810,15 @@ session = await joinSession({
               outputHash: state.engineAfter.outputHash,
               recordedAt: new Date().toISOString(),
             };
+            state.conversation.push({
+              role: "system",
+              content: (
+                `Protected regressions ${context.input.passed ? "passed" : "failed"}: `
+                + context.input.summary
+              ),
+              eventIndex: index,
+              timestamp: state.regression.recordedAt,
+            });
             await saveState(segment, state);
             return state.regression;
           },
@@ -3910,6 +5826,7 @@ session = await joinSession({
       ],
       open: async (context) => {
         const segment = String(context.input?.segment || defaultSegment);
+        const audit = Boolean(context.input?.audit);
         const theme = "grassroots";
         const review = await reviewContext(segment);
         let entry = servers.get(context.instanceId);
@@ -3919,13 +5836,18 @@ session = await joinSession({
         }
         const url = `${entry.url}?segment=${encodeURIComponent(segment)}&theme=${
           encodeURIComponent(theme)
-        }`;
+        }${audit ? "&mode=trajectory-audit" : ""}`;
         await registerLauncherUrl("live", url);
+        const reviewStatus = review.state.coordinateReview?.status === "verified"
+          ? "ball coordinate gate passed"
+          : ballCoordinateReviewRequired(review.selected)
+            ? "ball coordinates need review"
+            : review.selected.validationStatus.replaceAll("_", " ");
         return {
-          title: "Live Football Event Review",
-          status: `${review.selected.timeLabel} · ${
-            review.selected.validationStatus.replaceAll("_", " ")
-          }`,
+          title: audit ? "Ball Trajectory Audit" : "Live Football Event Review",
+          status: audit
+            ? `${review.selected.timeLabel} · trajectory audit`
+            : `${review.selected.timeLabel} · ${reviewStatus}`,
           url,
         };
       },

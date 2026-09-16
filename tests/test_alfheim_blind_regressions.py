@@ -106,7 +106,11 @@ def test_current_pipeline_exactly_matches_saved_blind_minutes(
             "--player-tracks",
             str(segment_root / "analytics-data" / "player-tracks.json"),
             "--ball-tracks",
-            str(segment_root / "ground-truth-ball-tracks.json"),
+            str(
+                segment_root
+                / "analytics-cache"
+                / "ball-tracks.json"
+            ),
             "--output",
             str(output),
             *ALFHEIM_POSSESSION_ARGUMENTS,

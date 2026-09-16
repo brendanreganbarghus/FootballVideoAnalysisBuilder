@@ -5,21 +5,24 @@ terms prohibit commercial use, player re-identification, and player or club
 performance profiling. Do not redistribute generated clips.
 
 The Camera Setting 2 download contains native 4450x2000, 25 FPS H.264 segments
-and one ball coordinate per frame. Build the selected one-minute window without
-resizing or re-encoding:
+and provider ball annotations. Build the selected one-minute runtime window
+from video only:
 
 ```powershell
 python .\scripts\prepare-alfheim-window.py
 ```
 
-The default selection is segments 555-574. It contains 1,500 labelled frames
-with substantial ball movement. Outputs are written to:
+The default selection is segments 555-574. Runtime outputs are written to:
 
 - `benchmarks\alfheim\window-555\alfheim-window.mp4`
 - `benchmarks\alfheim\window-555\alfheim-window-playable.mp4`
-- `benchmarks\alfheim\window-555\ball-ground-truth.csv`
 - `benchmarks\alfheim\window-555\manifest.json`
 - `benchmarks\alfheim\window-555\segments.txt`
+
+Preparation does not read, copy, or reference provider ball annotations. The
+runtime manifest points to the exact 30- or 60-second playable child clip.
+Load annotations only into a physically separate evaluation artifact after a
+cold prediction has completed and been frozen.
 
 Run a short POC smoke test:
 
@@ -33,16 +36,17 @@ python -m football_poc.cli `
   --max-frames 100
 ```
 
-Detection results must be scored against `ball-ground-truth.csv`; visual
-inspection alone is not sufficient. This night panorama remains a difficult
-wide-view benchmark and is not representative of the planned two half-pitch
-camera installation.
+Evaluation may score frozen detection results against a separate
+`ball-ground-truth.csv`; visual inspection alone is not sufficient. That file
+must never be present in the runtime segment folder or referenced by its
+manifest. This night panorama remains a difficult wide-view benchmark and is
+not representative of the planned two half-pitch camera installation.
 
 The native MP4 retains the source's 4450x2000 H.264 High 4:2:2 stream for
 analysis. Many browsers and Windows players cannot decode that format. The
 `playable` copy is 3840-wide H.264 4:2:0 for browser review.
 
-Open the labelled benchmark viewer:
+Open the raw-video benchmark viewer:
 
 ```powershell
 python .\scripts\serve-local.py --port 8080 --bind 127.0.0.1
@@ -54,7 +58,8 @@ review page's `-2 seconds` and `+2 seconds` controls.
 Then visit:
 `http://localhost:8080/benchmarks/alfheim/window-555/`
 
-Run tiled inference and score detected ball centres against the labels:
+Run tiled inference first. Only after its output is frozen may an evaluation
+job score detected ball centres against a separately stored label artifact:
 
 ```powershell
 python -m football_poc.benchmark_cli `
@@ -88,14 +93,14 @@ The primary test screen is:
 http://localhost:8080/benchmarks/alfheim/window-555/manual-review/
 ```
 
-The Match Lab combines clean and AI-tracked video, optional supplied ball
-labels, named pitch edges, goal-frame calibration, live AI counters, assisted
-manual review, and timestamp tables. The older labelled-ball and analytics
-pages remain available for diagnostics but are not required for normal review.
+The Match Lab combines clean and AI-tracked video, raw-video-derived ball
+trajectories, named pitch edges, goal-frame calibration, live AI counters,
+assisted manual review, and timestamp tables. Provider labels are never a
+runtime view or inference input.
 
-The local source contains 767 three-second segments (38:21). Enter any start
-time and duration up to five minutes in Match Lab to prepare only that
-browser-compatible slice. Prepared slices are cached under
+The local source contains 767 three-second segments (38:21). Enter a start time
+and choose exactly 30 or 60 seconds to prepare only that browser-compatible
+slice. Prepared slices are cached under
 `benchmarks\alfheim\generated`; selecting footage does not run model inference.
 New slices intentionally show AI as unprocessed until their analytics pipeline
 has been run.

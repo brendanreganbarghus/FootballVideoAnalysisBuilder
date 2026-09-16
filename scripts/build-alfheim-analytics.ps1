@@ -20,7 +20,7 @@ python -m football_poc.benchmark_cli $manifest `
 
 python -m football_poc.player_tracking_cli $manifest `
   --player-cache "$cache\detections.jsonl" `
-  --ball-tracks "$window\ground-truth-ball-tracks.json" `
+  --ball-tracks "$cache\ball-tracks.json" `
   --output $results `
   --confidence 0.2 `
   --max-gap 0.5 `
@@ -31,7 +31,7 @@ python -m football_poc.player_tracking_cli $manifest `
 
 python -m football_poc.possession_cli $manifest `
   --player-tracks "$results\player-tracks.json" `
-  --ball-tracks "$window\ground-truth-ball-tracks.json" `
+  --ball-tracks "$cache\ball-tracks.json" `
   --output $results `
   --no-shots `
   --control-radius-heights 1.8 `

@@ -142,10 +142,24 @@ Each state save also updates its SHA-256 entry in
 the same review status. If no shared artifact root is available, review state
 falls back to the current Copilot session workspace.
 
-Prepared segments and AI runs remain local under
-`benchmarks\alfheim\generated\`. Dataset files, generated videos, model weights,
-caches, archives, and exports are excluded by `.gitignore`; Git contains only
-source code and lightweight reproducible configuration.
+Authorized raw footage, custom-camera samples, camera calibration, approved
+model packages, and passed baselines belong in the governed OneDrive store.
+Fresh detections, tracks, provisional events, logs, thumbnails, and performance
+reports run locally under `benchmarks\alfheim\generated\` or
+`benchmarks\custom-cameras\`. Only a passed, fingerprinted baseline is promoted
+to `30-shared-baselines`; generated artifacts are never committed to Git.
+
+Verify a second developer's machine before use:
+
+```powershell
+$env:FOOTBALL_ARTIFACT_ROOT = `
+  "C:\Users\<name>\OneDrive - Xebia\Innovationday Artifacts"
+python .\scripts\verify-innovation-workspace.py --require-alfheim
+& "$env:FOOTBALL_ARTIFACT_ROOT\00-governance\Verify-Artifacts.ps1"
+```
+
+See [the developer guide](docs/DEVELOPER_GUIDE.md#innovation-day-reproducible-developer-workspace)
+for the complete Git/shared/local ownership matrix and promotion gate.
 
 ## SoccerTrack v2 benchmark
 
@@ -390,16 +404,17 @@ python .\scripts\build-knowledge-deck.py
 python .\scripts\build-product-pitch.py
 ```
 
-## Alfheim labelled ball benchmark
+## Alfheim raw-video benchmark
 
 Camera Setting 2 from the
 [Simula Alfheim dataset](https://datasets.simula.no/alfheim/) provides native
-panoramic H.264 segments with a labelled ball coordinate for every frame.
-After downloading its `pano` folder, prepare the selected one-minute benchmark:
+panoramic H.264 segments. After downloading its `pano` folder, prepare the
+selected one-minute raw-video benchmark:
 
 ```powershell
 python .\scripts\prepare-alfheim-window.py
 ```
 
 See [`benchmarks\alfheim\README.md`](benchmarks/alfheim/README.md) for outputs,
-POC commands, and the dataset's non-commercial research restrictions.
+evaluation-only label handling, and the dataset's non-commercial research
+restrictions.

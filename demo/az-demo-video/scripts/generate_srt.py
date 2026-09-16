@@ -64,11 +64,16 @@ def srt_time(t: float) -> str:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--pace", choices=["fast", "relaxed"], default="fast")
+    ap.add_argument("--scenes-file", type=Path, default=SCRIPT_DIR / "scenes.json")
+    ap.add_argument("--audio-key", default=None)
+    ap.add_argument("--output", type=Path, default=None)
+    ap.add_argument("--title", default="Football Intelligence Platform \u2014 From match video to validated football intelligence")
+    ap.add_argument("--closing", default="Xebia Netherlands \u2014 scalable AI & engineering capacity for a next phase")
     args = ap.parse_args()
-    audio_dir = BUILD / "audio" / args.pace
+    audio_dir = BUILD / "audio" / (args.audio_key or args.pace)
 
-    scenes = json.loads((SCRIPT_DIR / "scenes.json").read_text())
-    entries = [(0.3, TITLE_DURATION - 0.3, "Football Intelligence Platform \u2014 From match video to validated football intelligence")]
+    scenes = json.loads(args.scenes_file.read_text(encoding="utf-8"))
+    entries = [(0.3, TITLE_DURATION - 0.3, args.title)]
 
     cursor = TITLE_DURATION
     for scene in scenes:
@@ -84,12 +89,11 @@ def main():
             t += chunk_dur
         cursor += dur
 
-    entries.append((cursor + 0.3, cursor + CLOSING_DURATION - 0.3,
-                     "Xebia Netherlands \u2014 scalable AI & engineering capacity for a next phase"))
+    entries.append((cursor + 0.3, cursor + CLOSING_DURATION - 0.3, args.closing))
     cursor += CLOSING_DURATION
 
     suffix = "" if args.pace == "fast" else f"_{args.pace}"
-    srt_path = DEMO_DIR / f"Football_AI_Platform_Demo{suffix}.srt"
+    srt_path = args.output or DEMO_DIR / f"Football_AI_Platform_Demo{suffix}.srt"
     with open(srt_path, "w", encoding="utf-8") as f:
         for i, (start, end, text) in enumerate(entries, start=1):
             f.write(f"{i}\n{srt_time(start)} --> {srt_time(end)}\n{text}\n\n")

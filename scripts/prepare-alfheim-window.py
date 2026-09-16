@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import csv
 import json
 import shutil
 import subprocess
@@ -12,7 +11,7 @@ from football_poc.alfheim_segments import resolve_alfheim_pano
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Create a labelled MP4 window from Alfheim pano H.264 segments."
+        description="Create a raw-video-only MP4 window from Alfheim H.264 segments."
     )
     parser.add_argument(
         "--pano",
@@ -25,6 +24,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--start-segment", type=int, default=555)
     parser.add_argument("--segment-count", type=int, default=20)
+    parser.add_argument("--clip-start-seconds", type=float, default=0.0)
+    parser.add_argument("--duration-seconds", type=float, default=60.0)
     parser.add_argument(
         "--output",
         type=Path,
@@ -84,48 +85,6 @@ def write_concat_manifest(segments: list[Path], output: Path) -> Path:
     return manifest
 
 
-def write_ball_ground_truth(
-    pano: Path,
-    segments: list[Path],
-    output: Path,
-    fps: float = 25.0,
-) -> Path:
-    destination = output / "ball-ground-truth.csv"
-    global_frame = 0
-    with destination.open("w", newline="", encoding="utf-8") as csv_file:
-        writer = csv.DictWriter(
-            csv_file,
-            fieldnames=[
-                "frame",
-                "timestamp_seconds",
-                "segment",
-                "segment_frame",
-                "ball_x",
-                "ball_y",
-            ],
-        )
-        writer.writeheader()
-        for segment in segments:
-            track = pano / "track" / f"{segment.name}_track.txt"
-            if not track.is_file():
-                raise FileNotFoundError(f"Ball ground truth not found: {track}")
-            rows = track.read_text(encoding="utf-8").splitlines()
-            for line in rows:
-                segment_frame, ball_x, ball_y = map(int, line.split()[:3])
-                writer.writerow(
-                    {
-                        "frame": global_frame,
-                        "timestamp_seconds": f"{global_frame / fps:.3f}",
-                        "segment": segment.name,
-                        "segment_frame": segment_frame - 1,
-                        "ball_x": ball_x,
-                        "ball_y": ball_y,
-                    }
-                )
-                global_frame += 1
-    return destination
-
-
 def remux(ffmpeg: Path, manifest: Path, destination: Path) -> None:
     command = [
         str(ffmpeg),
@@ -149,14 +108,25 @@ def remux(ffmpeg: Path, manifest: Path, destination: Path) -> None:
     subprocess.run(command, check=True)
 
 
-def transcode_playable(ffmpeg: Path, source: Path, destination: Path) -> None:
+def transcode_playable(
+    ffmpeg: Path,
+    source: Path,
+    destination: Path,
+    *,
+    clip_start_seconds: float,
+    duration_seconds: float,
+) -> None:
     command = [
         str(ffmpeg),
         "-hide_banner",
         "-loglevel",
         "warning",
+        "-ss",
+        f"{clip_start_seconds:.3f}",
         "-i",
         str(source),
+        "-t",
+        f"{duration_seconds:.3f}",
         "-vf",
         "scale=3840:-2",
         "-c:v",
@@ -180,7 +150,15 @@ def transcode_playable(ffmpeg: Path, source: Path, destination: Path) -> None:
     subprocess.run(command, check=True)
 
 
-def write_benchmark_manifest(video: Path, output: Path, frame_count: int) -> Path:
+def write_benchmark_manifest(
+    video: Path,
+    playable_video: Path,
+    output: Path,
+    *,
+    frame_count: int,
+    source_start_seconds: float,
+    duration_seconds: float,
+) -> Path:
     destination = output / "manifest.json"
     destination.write_text(
         json.dumps(
@@ -188,14 +166,12 @@ def write_benchmark_manifest(video: Path, output: Path, frame_count: int) -> Pat
                 "dataset": "Simula Alfheim Camera Setting 2",
                 "usage": "non-commercial research only",
                 "video": str(video.resolve()),
+                "playable_video": str(playable_video.resolve()),
                 "fps": 25.0,
                 "start_frame": 0,
                 "end_frame": frame_count,
-                "action_counts": {},
-                "actions": [],
-                "ball_ground_truth": str(
-                    (output / "ball-ground-truth.csv").resolve()
-                ),
+                "source_start_seconds": source_start_seconds,
+                "duration_seconds": duration_seconds,
             },
             indent=2,
         ),
@@ -212,19 +188,35 @@ def main() -> None:
     segments = select_segments(
         args.pano, args.start_segment, args.segment_count
     )
+    if args.clip_start_seconds < 0:
+        raise ValueError("--clip-start-seconds must be non-negative")
+    if args.duration_seconds not in {30.0, 60.0}:
+        raise ValueError("--duration-seconds must be exactly 30 or 60")
     manifest = write_concat_manifest(segments, args.output)
-    labels = write_ball_ground_truth(args.pano, segments, args.output)
     video = args.output / "alfheim-window.mp4"
     ffmpeg = find_ffmpeg(args.ffmpeg)
     remux(ffmpeg, manifest, video)
     playable = args.output / "alfheim-window-playable.mp4"
-    transcode_playable(ffmpeg, video, playable)
+    transcode_playable(
+        ffmpeg,
+        video,
+        playable,
+        clip_start_seconds=args.clip_start_seconds,
+        duration_seconds=args.duration_seconds,
+    )
+    (args.output / "ball-ground-truth.csv").unlink(missing_ok=True)
     benchmark = write_benchmark_manifest(
-        video, args.output, args.segment_count * 75
+        video,
+        playable,
+        args.output,
+        frame_count=round(args.duration_seconds * 25),
+        source_start_seconds=(
+            args.start_segment * 3 + args.clip_start_seconds
+        ),
+        duration_seconds=args.duration_seconds,
     )
     print(f"Video: {video.resolve()}")
     print(f"Playable video: {playable.resolve()}")
-    print(f"Ball ground truth: {labels.resolve()}")
     print(f"Benchmark manifest: {benchmark.resolve()}")
 
 

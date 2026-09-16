@@ -61,6 +61,14 @@ DEFAULT_VOICE = "en-GB-RyanNeural"  # calm, natural, professional UK male neural
 # Each writes into its own build/audio/<pace>/ folder so both can be built
 # into separate MP4s for side-by-side review without re-synthesizing.
 PACE_PRESETS = {
+    "executive": {
+        "pauses": {"normal": 0.13, "punchy": 0.18, "fact": 0.18, "mid": 0.07},
+        "prosody": {
+            "normal": ("+40%", "+0Hz"),
+            "fact": ("+28%", "-1Hz"),
+            "punchy": ("+32%", "+2Hz"),
+        },
+    },
     "fast": {
         "pauses": {"normal": 0.16, "punchy": 0.24, "fact": 0.22, "mid": 0.09},
         "prosody": {
@@ -203,6 +211,11 @@ async def synth_scene(scene: dict, voice: str, preset: dict, audio_dir: Path) ->
             pause_path = scene_tmp / f"chunk{i:02d}_pause.wav"
             silence_wav(chunk.pause_after, pause_path)
             parts.append(pause_path)
+    closing_pause = float(scene.get("closing_pause_seconds", 0))
+    if closing_pause > 0:
+        pause_path = scene_tmp / "closing_pause.wav"
+        silence_wav(closing_pause, pause_path)
+        parts.append(pause_path)
     out_path = audio_dir / f"scene{scene_id:02d}.wav"
     concat_wavs(parts, out_path)
     dur = ffprobe_duration(out_path)
@@ -210,10 +223,16 @@ async def synth_scene(scene: dict, voice: str, preset: dict, audio_dir: Path) ->
     return dur
 
 
-async def main_async(voice: str, only_ids: list[int] | None, pace: str) -> None:
-    scenes = json.loads((SCRIPT_DIR / "scenes.json").read_text())
+async def main_async(
+    voice: str,
+    only_ids: list[int] | None,
+    pace: str,
+    scenes_path: Path,
+    audio_key: str,
+) -> None:
+    scenes = json.loads(scenes_path.read_text(encoding="utf-8"))
     preset = PACE_PRESETS[pace]
-    audio_dir = DEMO_DIR / "build" / "audio" / pace
+    audio_dir = DEMO_DIR / "build" / "audio" / audio_key
     audio_dir.mkdir(parents=True, exist_ok=True)
     TMP_DIR.mkdir(parents=True, exist_ok=True)
     total = 0.0
@@ -234,8 +253,18 @@ def main() -> None:
     ap.add_argument("--voice", default=DEFAULT_VOICE)
     ap.add_argument("--only-ids", type=int, nargs="*", default=None)
     ap.add_argument("--pace", choices=list(PACE_PRESETS.keys()), default="fast")
+    ap.add_argument("--scenes-file", type=Path, default=SCRIPT_DIR / "scenes.json")
+    ap.add_argument("--audio-key", default=None)
     args = ap.parse_args()
-    asyncio.run(main_async(args.voice, args.only_ids, args.pace))
+    asyncio.run(
+        main_async(
+            args.voice,
+            args.only_ids,
+            args.pace,
+            args.scenes_file,
+            args.audio_key or args.pace,
+        )
+    )
 
 
 if __name__ == "__main__":

@@ -19,6 +19,7 @@ if str(LOCAL_SOURCE) not in sys.path:
     sys.path.insert(0, str(LOCAL_SOURCE))
 
 from football_poc.alfheim_profile import ALFHEIM_POSSESSION_ARGUMENTS
+from football_poc.ball_provenance import validate_ball_provenance
 from football_poc.run_performance import build_performance_report
 
 
@@ -75,12 +76,45 @@ def main() -> None:
         help="Rerun possession and event inference from existing tracking data.",
     )
     parser.add_argument(
+        "--resume-after-detection",
+        action="store_true",
+        help=(
+            "Recover an interrupted run from its completed raw-video detection "
+            "cache. This is not a cold-path performance benchmark."
+        ),
+    )
+    parser.add_argument(
+        "--focused-recovery",
+        action="store_true",
+        help=(
+            "Apply bounded focused ball-coordinate recovery to the persisted "
+            "runtime track. This is not a cold-path performance benchmark."
+        ),
+    )
+    parser.add_argument(
         "--artifact-namespace",
         choices=("live",),
         default=None,
         help="Write runtime artifacts below the selected segment namespace.",
     )
+    parser.add_argument(
+        "--runtime-mode",
+        choices=("validation", "production"),
+        default="validation",
+        help=(
+            "Validation blocks below the ball-provenance threshold; "
+            "production records degraded coverage and continues."
+        ),
+    )
     args = parser.parse_args()
+    selected_modes = sum(
+        (args.events_only, args.resume_after_detection, args.focused_recovery)
+    )
+    if selected_modes > 1:
+        parser.error(
+            "--events-only, --resume-after-detection, and --focused-recovery "
+            "are exclusive"
+        )
     segment = args.segment.resolve()
     prepared_manifest = segment / "manifest.json"
     run_root = (
@@ -93,6 +127,7 @@ def main() -> None:
     cache = run_root / "analytics-cache"
     results = run_root / "analytics-data"
     ball_tracks = cache / "ball-tracks.json"
+    ball_state_estimates = cache / "ball-state-estimates.json"
     status_path = run_root / "analysis-status.json"
     workspace = PROJECT_ROOT
     model = resolve_live_detector_model(workspace)
@@ -175,6 +210,10 @@ def main() -> None:
                     "mode": (
                         "cached_event_rebuild"
                         if args.events_only
+                        else "focused_interrupted_run_recovery"
+                        if args.focused_recovery
+                        else "interrupted_run_recovery"
+                        if args.resume_after_detection
                         else "cold_raw_video"
                     ),
                     "workflow": (
@@ -183,8 +222,16 @@ def main() -> None:
                         else "legacy"
                     ),
                     "artifact_namespace": args.artifact_namespace,
-                    "cache_reuse": args.events_only,
-                    "prior_artifacts_used": args.events_only,
+                    "cache_reuse": (
+                        args.events_only
+                        or args.resume_after_detection
+                        or args.focused_recovery
+                    ),
+                    "prior_artifacts_used": (
+                        args.events_only
+                        or args.resume_after_detection
+                        or args.focused_recovery
+                    ),
                     "started_at_utc": started_at_utc.isoformat(),
                     "elapsed_seconds": round(
                         (
@@ -212,12 +259,19 @@ def main() -> None:
                 ),
             )
         )
-        subprocess.run(
-            [sys.executable, *arguments],
-            cwd=workspace,
-            env=environment,
-            check=True,
-        )
+        try:
+            subprocess.run(
+                [sys.executable, *arguments],
+                cwd=workspace,
+                env=environment,
+                check=True,
+            )
+        except subprocess.CalledProcessError as error:
+            label = stage.replace("_", " ").capitalize()
+            raise RuntimeError(
+                f"{label} failed with exit code {error.returncode}. "
+                "See analysis.log for technical details."
+            ) from error
         stage_seconds[stage] = round(time.perf_counter() - started, 3)
 
     pipeline_started = time.perf_counter()
@@ -226,6 +280,7 @@ def main() -> None:
             required = [
                 results / "player-tracks.json",
                 ball_tracks,
+                ball_state_estimates,
             ]
             missing = [path.name for path in required if not path.is_file()]
             if missing:
@@ -245,62 +300,122 @@ def main() -> None:
                     "Live event rebuild rejected BAC/evaluation-derived ball tracks"
                 )
         else:
-            for path in (
-                cache / "detections.jsonl",
-                cache / "detection-summary.json",
+            downstream_paths = (
                 ball_tracks,
+                ball_state_estimates,
                 results / "player-tracks.json",
                 results / "match-initialization.json",
+                results / "ball-provenance.json",
                 results / "possession.json",
                 results / "predicted-events.json",
                 results / "chunk-simulation.json",
                 results / "performance-report.json",
-            ):
-                path.unlink(missing_ok=True)
-            status(
-                "detecting",
-                "Cold raw-video run: no prior detections, tracks, events, "
-                "supplied ball labels, or review labels are being used.",
             )
-            run(
-                "detection",
-                "-m",
-                "football_poc.benchmark_cli",
-                str(manifest),
-                "--output",
-                str(cache),
-                "--model",
-                str(model),
-                "--device",
-                "cpu",
-                "--confidence",
-                str(LIVE_DETECTOR_PROFILE["confidence"]),
-                "--image-size",
-                str(LIVE_DETECTOR_PROFILE["image_size"]),
-                "--stride",
-                str(LIVE_DETECTOR_PROFILE["stride"]),
-                "--tile-width",
-                str(LIVE_DETECTOR_PROFILE["tile_width"]),
-                "--tile-height",
-                str(LIVE_DETECTOR_PROFILE["tile_height"]),
-                "--overlap",
-                str(LIVE_DETECTOR_PROFILE["overlap"]),
-                "--nms-iou",
-                str(LIVE_DETECTOR_PROFILE["nms_iou"]),
-                "--frame-batch-size",
-                str(LIVE_DETECTOR_PROFILE["frame_batch_size"]),
-            )
-            status("ball_track", "Building ball tracks from raw-video detections.")
-            run(
-                "ball_tracking",
-                "-m",
-                "football_poc.ball_tracking_cli",
-                str(manifest),
-                "--cache",
-                str(cache / "detections.jsonl"),
-                "--output",
-                str(cache),
-            )
+            if args.focused_recovery:
+                required = [
+                    cache / "detections.jsonl",
+                    ball_tracks,
+                    cache / "ball-tracking-summary.json",
+                ]
+                missing = [path.name for path in required if not path.is_file()]
+                if missing:
+                    raise FileNotFoundError(
+                        "Cannot run focused recovery without "
+                        + ", ".join(missing)
+                    )
+                for path in (
+                    results / "player-tracks.json",
+                    results / "match-initialization.json",
+                    results / "ball-provenance.json",
+                    results / "possession.json",
+                    results / "predicted-events.json",
+                    results / "chunk-simulation.json",
+                    results / "performance-report.json",
+                ):
+                    path.unlink(missing_ok=True)
+                status(
+                    "focused_ball_recovery",
+                    "Applying bounded focused YOLO recovery to unresolved "
+                    "ball-coordinate frames.",
+                )
+                run(
+                    "focused_ball_recovery",
+                    str(PROJECT_ROOT / "scripts" / "recover-focused-ball-coordinates.py"),
+                    str(run_root),
+                )
+            elif args.resume_after_detection:
+                detection_cache = cache / "detections.jsonl"
+                if not detection_cache.is_file():
+                    raise FileNotFoundError(
+                        "Cannot resume without completed raw-video detections"
+                    )
+                for path in downstream_paths:
+                    path.unlink(missing_ok=True)
+                status(
+                    "ball_track",
+                    "Interrupted-run recovery: reusing completed raw-video "
+                    "detections and rebuilding all downstream artifacts.",
+                )
+            else:
+                for path in (
+                    cache / "detections.jsonl",
+                    cache / "detection-summary.json",
+                    *downstream_paths,
+                ):
+                    path.unlink(missing_ok=True)
+                status(
+                    "detecting",
+                    "Cold raw-video run: no prior detections, tracks, events, "
+                    "supplied ball labels, or review labels are being used.",
+                )
+                run(
+                    "detection",
+                    "-m",
+                    "football_poc.benchmark_cli",
+                    str(manifest),
+                    "--output",
+                    str(cache),
+                    "--model",
+                    str(model),
+                    "--device",
+                    "cpu",
+                    "--confidence",
+                    str(LIVE_DETECTOR_PROFILE["confidence"]),
+                    "--image-size",
+                    str(LIVE_DETECTOR_PROFILE["image_size"]),
+                    "--stride",
+                    str(LIVE_DETECTOR_PROFILE["stride"]),
+                    "--tile-width",
+                    str(LIVE_DETECTOR_PROFILE["tile_width"]),
+                    "--tile-height",
+                    str(LIVE_DETECTOR_PROFILE["tile_height"]),
+                    "--overlap",
+                    str(LIVE_DETECTOR_PROFILE["overlap"]),
+                    "--nms-iou",
+                    str(LIVE_DETECTOR_PROFILE["nms_iou"]),
+                    "--frame-batch-size",
+                    str(LIVE_DETECTOR_PROFILE["frame_batch_size"]),
+                )
+                status(
+                    "ball_track",
+                    "Building ball tracks from raw-video detections.",
+                )
+            if not args.focused_recovery:
+                run(
+                    "ball_tracking",
+                    "-m",
+                    "football_poc.ball_tracking_cli",
+                    str(manifest),
+                    "--cache",
+                    str(cache / "detections.jsonl"),
+                    "--output",
+                    str(cache),
+                    *(
+                        ["--reuse-decoded-frame-cache"]
+                        if args.resume_after_detection
+                        else []
+                    ),
+                )
             status(
                 "tracking",
                 "Associating players and inferring teams from visible kits.",
@@ -337,6 +452,16 @@ def main() -> None:
                 "--no-video",
             )
         status(
+            "provenance_gate",
+            "Validating direct ball-evidence coverage before event inference.",
+        )
+        validate_ball_provenance(
+            ball_tracks,
+            ball_state_estimates,
+            output=results / "ball-provenance.json",
+            enforce_threshold=args.runtime_mode == "validation",
+        )
+        status(
             "events",
             "Inferring match state, possession, passes, and turnovers.",
         )
@@ -364,7 +489,7 @@ def main() -> None:
             "--output",
             str(results / "chunk-simulation.json"),
         )
-        if not args.events_only:
+        if not args.events_only and not args.resume_after_detection:
             elapsed = time.perf_counter() - pipeline_started
             report = build_performance_report(
                 run_id=run_id,
@@ -386,8 +511,14 @@ def main() -> None:
                 f"Cold raw-video run completed in {elapsed:.1f}s on the "
                 "current CPU.",
             )
-        else:
+        elif args.events_only:
             status("ready", "Cached event logic rebuild completed.")
+        else:
+            status(
+                "ready",
+                "Interrupted-run recovery completed from preserved raw-video "
+                "detections. No cold-path performance claim was produced.",
+            )
     except Exception as error:
         status("failed", str(error))
         raise

@@ -32,6 +32,15 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--ball-state-estimates",
+        type=Path,
+        default=None,
+        help=(
+            "Optional generated trajectory states used for continuity only; "
+            "estimated states never provide speed or direction evidence."
+        ),
+    )
+    parser.add_argument(
         "--output",
         type=Path,
         default=Path("benchmarks/soccertrack-117093-fused"),
@@ -126,6 +135,7 @@ def run(args: Any) -> Path:
         player_tracks_path=args.player_tracks,
         ball_tracks_path=args.ball_tracks,
         output=args.output,
+        ball_state_estimates_path=args.ball_state_estimates,
         infer_shots=not args.no_shots,
         control_radius_heights=args.control_radius_heights,
         identity_switch_radius_heights=args.identity_switch_radius_heights,

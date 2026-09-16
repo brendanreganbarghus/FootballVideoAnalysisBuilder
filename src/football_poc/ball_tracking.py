@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass, replace
 from itertools import product
@@ -13,6 +14,24 @@ import cv2
 import numpy as np
 
 from football_poc.benchmark import BenchmarkManifest
+
+
+_ACTIVE_GRAYSCALE_FRAME_STORE: _SampledGrayscaleFrameStore | None = None
+
+
+def _timed_tracker_call(name: str, function: Any, /, *args: Any, **kwargs: Any):
+    started = time.perf_counter()
+    result = function(*args, **kwargs)
+    if _ACTIVE_GRAYSCALE_FRAME_STORE is not None:
+        timings = _ACTIVE_GRAYSCALE_FRAME_STORE.metrics.setdefault(
+            "substage_seconds",
+            {},
+        )
+        timings[name] = round(
+            float(timings.get(name, 0.0)) + time.perf_counter() - started,
+            3,
+        )
+    return result
 
 
 SOCCERTRACK_RAW_MOTION_PROFILE = {
@@ -71,6 +90,50 @@ LONG_STATIONARY_TEMPLATE_PROFILE = {
     "minimum_history_points": 4,
     "minimum_history_seconds": 0.6,
     "maximum_history_gap_seconds": 2.4,
+    "maximum_forward_seconds": 0.8,
+}
+
+SHORT_STATIONARY_TEMPLATE_PROFILE = {
+    "maximum_endpoint_distance_ball_diameters": 0.25,
+    "minimum_template_score": 0.9,
+    "maximum_template_disagreement_ball_diameters": 0.25,
+}
+
+FULL_RATE_MOTION_STREAK_PROFILE = {
+    "maximum_launch_wait_seconds": 0.8,
+    "minimum_launch_separation_ball_diameters": 4.0,
+    "motion_prior_history_seconds": 0.8,
+    "minimum_search_radius_ball_diameters": 2.0,
+    "maximum_launch_acceleration_ball_diameters_per_second_squared": 80.0,
+    "minimum_confirmed_flight_seconds": 0.4,
+    "minimum_progress_ball_diameters_per_second": 8.0,
+    "maximum_evidence_gap_seconds": 0.12,
+    "difference_threshold": 18,
+    "maximum_extent_ball_diameters": 3.0,
+    "maximum_aspect_ratio": 4.0,
+    "maximum_acceleration_pixels_per_second_squared": 6250.0,
+    "minimum_visual_score": 0.45,
+    "near_best_mean_score_margin": 0.03,
+    "consensus_radius_ball_diameters": 0.75,
+    "maximum_paths": 400,
+}
+
+FULL_RATE_TRAJECTORY_CORRIDOR_PROFILE = {
+    "maximum_gap_seconds": 0.8,
+    "confirmation_seconds": 0.16,
+    "minimum_history_points": 4,
+    "history_seconds": 0.8,
+    "minimum_history_speed_ball_diameters_per_second": 4.0,
+    "maximum_acceleration_pixels_per_second_squared": 12000.0,
+    "minimum_search_radius_ball_diameters": 2.0,
+    "maximum_evidence_gap_seconds": 0.12,
+    "minimum_path_points": 5,
+    "minimum_visual_score": 0.45,
+    "minimum_appearance_score": 0.40,
+    "appearance_scale": 60.0,
+    "near_best_mean_score_margin": 0.03,
+    "consensus_radius_ball_diameters": 0.75,
+    "maximum_paths": 400,
 }
 
 SOCCERTRACK_MICRO_CROP_VERIFICATION_PROFILE = {
@@ -138,6 +201,33 @@ SOCCERTRACK_TRAJECTORY_OUTLIER_PROFILE = {
     "complete_path_attention_weight": 0.05,
     "complete_path_mode_switch_penalty": 0.08,
     "complete_path_minimum_margin": 0.08,
+    "global_fallback_outlier_maximum_confidence": 0.7,
+    "global_fallback_outlier_minimum_path_error_ball_diameters": 4.0,
+    "return_excursion_maximum_span_seconds": 2.0,
+    "return_excursion_stable_radius_ball_diameters": 3.0,
+    "return_excursion_minimum_distance_pixels": 100.0,
+    "return_excursion_minimum_distance_ball_diameters": 10.0,
+    "curved_estimate_minimum_vertical_ball_diameters": 4.0,
+    "curved_estimate_maximum_adjustment_ball_diameters": 0.75,
+    "curved_estimate_maximum_velocity_difference_ratio": 0.5,
+}
+
+FOCUSED_MULTISCALE_REDETECTION_PROFILE = {
+    "minimum_detector_confidence": 0.01,
+    "crop_radius_ball_diameters": (8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0),
+    "minimum_crop_radius_pixels": 80,
+    "inference_sizes": (640,),
+    "minimum_consensus_variants": 3,
+    "consensus_radius_ball_diameters": 1.5,
+    "maximum_trajectory_distance_ball_diameters": 7.0,
+    "maximum_path_error_ratio": 0.8,
+    "maximum_recovery_iterations": 3,
+    "weak_detector_maximum_confidence": 0.15,
+    "weak_detector_minimum_path_error_ball_diameters": 1.5,
+    "missing_point_maximum_path_error_ball_diameters": 3.0,
+    "missing_pair_maximum_separation_ball_diameters": 1.5,
+    "terminal_maximum_step_ball_diameters": 2.0,
+    "terminal_minimum_confirmation_frames": 3,
 }
 
 
@@ -291,6 +381,25 @@ class _RawMotionProposal:
 
 
 @dataclass(frozen=True)
+class _MotionStreakCandidate:
+    source_frame: int
+    x: float
+    y: float
+    width: int
+    height: int
+    area: float
+    visual_score: float
+
+
+@dataclass(frozen=True)
+class _MotionStreakPath:
+    points: tuple[_MotionStreakCandidate, ...]
+    score: float
+    velocity_x: float | None = None
+    velocity_y: float | None = None
+
+
+@dataclass(frozen=True)
 class _RawMotionDiagnostics:
     generated: int = 0
     rejected_scale_or_shape: int = 0
@@ -356,6 +465,16 @@ class _DenseFlowSample:
 
 
 @dataclass(frozen=True)
+class _FocusedBallDetection:
+    x: float
+    y: float
+    confidence: float
+    variant: tuple[int, int]
+    width: float
+    height: float
+
+
+@dataclass(frozen=True)
 class _DenseFlowDiagnostics:
     accepted_points: int = 0
     successful_bridges: int = 0
@@ -370,6 +489,60 @@ class _DenseFlowDiagnostics:
 
 
 def track_cached_balls(
+    *,
+    manifest_path: Path,
+    cache_path: Path,
+    output: Path,
+    static_cell_size: int = 20,
+    static_occupancy: float = 0.25,
+    max_gap_seconds: float = 0.56,
+    max_speed_pixels_per_second: float = 1600.0,
+    minimum_track_points: int = 3,
+    analysis_start_seconds: float | None = None,
+    analysis_end_seconds: float | None = None,
+    reuse_decoded_frame_cache: bool = False,
+) -> Path:
+    manifest = BenchmarkManifest.load(manifest_path)
+    _, records = _load_cache(cache_path, manifest.sha256)
+    records = _records_in_analysis_window(
+        records,
+        start_seconds=analysis_start_seconds,
+        end_seconds=analysis_end_seconds,
+    )
+    frame_store = _SampledGrayscaleFrameStore(
+        video=manifest.video,
+        source_frames=sorted(
+            {int(record["source_frame"]) for record in records}
+        ),
+        output=output,
+        reuse=reuse_decoded_frame_cache,
+    )
+    global _ACTIVE_GRAYSCALE_FRAME_STORE
+    previous_store = _ACTIVE_GRAYSCALE_FRAME_STORE
+    succeeded = False
+    try:
+        frame_store.open()
+        _ACTIVE_GRAYSCALE_FRAME_STORE = frame_store
+        result = _track_cached_balls_impl(
+            manifest_path=manifest_path,
+            cache_path=cache_path,
+            output=output,
+            static_cell_size=static_cell_size,
+            static_occupancy=static_occupancy,
+            max_gap_seconds=max_gap_seconds,
+            max_speed_pixels_per_second=max_speed_pixels_per_second,
+            minimum_track_points=minimum_track_points,
+            analysis_start_seconds=analysis_start_seconds,
+            analysis_end_seconds=analysis_end_seconds,
+        )
+        succeeded = True
+        return result
+    finally:
+        _ACTIVE_GRAYSCALE_FRAME_STORE = previous_store
+        frame_store.close(delete_cache=succeeded)
+
+
+def _track_cached_balls_impl(
     *,
     manifest_path: Path,
     cache_path: Path,
@@ -480,32 +653,39 @@ def track_cached_balls(
             candidates,
         )
     )
+    foot_supported_points = frozenset(
+        candidate.point
+        for candidate in candidates
+        if candidate.near_player_feet
+    )
     supported_tracks = _supported_ball_tracks(
         associated_tracks,
         minimum_track_points=minimum_track_points,
         max_speed_pixels_per_second=max_speed_pixels_per_second,
-        foot_supported_points=frozenset(
-            candidate.point
-            for candidate in candidates
-            if candidate.near_player_feet
-        ),
+        foot_supported_points=foot_supported_points,
     )
     frame_step = int(metadata["stride"])
-    motion_supported_tracks = _add_motion_supported_points(
+    motion_supported_tracks = _timed_tracker_call(
+        "motion_supported_points",
+        _add_motion_supported_points,
         supported_tracks,
         video=manifest.video,
         fps=manifest.fps,
         frame_step=frame_step,
         maximum_gap_seconds=max_gap_seconds,
     )
-    temporally_supported_tracks = _add_template_supported_points(
+    temporally_supported_tracks = _timed_tracker_call(
+        "template_supported_points",
+        _add_template_supported_points,
         motion_supported_tracks,
         video=manifest.video,
         fps=manifest.fps,
         frame_step=frame_step,
         maximum_gap_seconds=max_gap_seconds,
     )
-    accepted = select_single_ball_trajectory(
+    accepted = _timed_tracker_call(
+        "select_single_ball_trajectory",
+        select_single_ball_trajectory,
         temporally_supported_tracks,
         max_gap_seconds=max_gap_seconds,
         max_speed_pixels_per_second=max_speed_pixels_per_second,
@@ -520,7 +700,9 @@ def track_cached_balls(
             for candidate in candidates
         )
     )
-    accepted = _resolve_detector_conflicts_by_attention(
+    accepted = _timed_tracker_call(
+        "resolve_detector_conflicts",
+        _resolve_detector_conflicts_by_attention,
         accepted,
         detector_candidates=filtered_candidate_objects,
         supported_foot_points=supported_foot_points,
@@ -528,23 +710,29 @@ def track_cached_balls(
         video=manifest.video,
         frame_step=frame_step,
     )
-    accepted = _restore_plausible_detector_points(
+    accepted = _timed_tracker_call(
+        "restore_plausible_detector_points",
+        _restore_plausible_detector_points,
         accepted,
         detector_candidates=filtered_candidate_objects,
         frame_step=frame_step,
         fps=manifest.fps,
         max_speed_pixels_per_second=max_speed_pixels_per_second,
         cell_size=static_cell_size,
-        supported_foot_points=supported_foot_points,
+        supported_foot_points=foot_supported_points,
     )
-    accepted = _add_bidirectional_template_bridges(
+    accepted = _timed_tracker_call(
+        "bidirectional_template_bridges",
+        _add_bidirectional_template_bridges,
         accepted,
         video=manifest.video,
         fps=manifest.fps,
         frame_step=frame_step,
         maximum_gap_seconds=max_gap_seconds,
     )
-    accepted = _add_terminal_template_bridges(
+    accepted = _timed_tracker_call(
+        "terminal_template_bridges",
+        _add_terminal_template_bridges,
         accepted,
         candidates=filtered,
         video=manifest.video,
@@ -553,7 +741,9 @@ def track_cached_balls(
         max_speed_pixels_per_second=max_speed_pixels_per_second,
         maximum_gap_seconds=max_gap_seconds,
     )
-    accepted = _add_forward_template_consensus(
+    accepted = _timed_tracker_call(
+        "forward_template_consensus",
+        _add_forward_template_consensus,
         accepted,
         video=manifest.video,
         fps=manifest.fps,
@@ -561,7 +751,9 @@ def track_cached_balls(
         maximum_gap_seconds=max_gap_seconds,
     )
     accepted, startup_attention_rejections = (
-        _gate_unanchored_start_points_by_attention(
+        _timed_tracker_call(
+            "startup_attention_gate",
+            _gate_unanchored_start_points_by_attention,
             accepted,
             records=records,
             video=manifest.video,
@@ -571,7 +763,9 @@ def track_cached_balls(
             frame_step=frame_step,
         )
     )
-    accepted, raw_motion_diagnostics = _add_raw_motion_proposals(
+    accepted, raw_motion_diagnostics = _timed_tracker_call(
+        "raw_motion_proposals",
+        _add_raw_motion_proposals,
         accepted,
         records=records,
         video=manifest.video,
@@ -587,7 +781,9 @@ def track_cached_balls(
         startup_points_rejected=startup_attention_rejections,
     )
     accepted, kalman_reacquisition_diagnostics = (
-        _add_kalman_guided_reacquisitions(
+        _timed_tracker_call(
+            "kalman_guided_reacquisitions",
+            _add_kalman_guided_reacquisitions,
             accepted,
             detector_candidates=filtered,
             records=records,
@@ -598,7 +794,9 @@ def track_cached_balls(
             frame_step=frame_step,
         )
     )
-    accepted, dense_flow_diagnostics = _add_dense_optical_flow_bridges(
+    accepted, dense_flow_diagnostics = _timed_tracker_call(
+        "dense_optical_flow_bridges",
+        _add_dense_optical_flow_bridges,
         accepted,
         records=records,
         video=manifest.video,
@@ -608,7 +806,9 @@ def track_cached_balls(
         frame_step=frame_step,
     )
     accepted, rejected_outlier_frames = (
-        _discard_unsupported_detector_outliers(
+        _timed_tracker_call(
+            "discard_detector_outliers",
+            _discard_unsupported_detector_outliers,
             accepted,
             records=records,
             video=manifest.video,
@@ -618,7 +818,9 @@ def track_cached_balls(
             max_speed_pixels_per_second=max_speed_pixels_per_second,
         )
     )
-    accepted = _add_bracketed_outlier_motion_recoveries(
+    accepted = _timed_tracker_call(
+        "bracketed_outlier_recoveries",
+        _add_bracketed_outlier_motion_recoveries,
         accepted,
         records=records,
         video=manifest.video,
@@ -629,15 +831,81 @@ def track_cached_balls(
         rejected_frames=rejected_outlier_frames,
         max_speed_pixels_per_second=max_speed_pixels_per_second,
     )
+    accepted = _timed_tracker_call(
+        "full_rate_motion_streaks",
+        _add_full_rate_motion_streaks,
+        accepted,
+        video=manifest.video,
+        fps=manifest.fps,
+        frame_step=frame_step,
+        max_speed_pixels_per_second=max_speed_pixels_per_second,
+    )
+    accepted = _timed_tracker_call(
+        "full_rate_trajectory_corridors",
+        _add_full_rate_trajectory_corridors,
+        accepted,
+        video=manifest.video,
+        fps=manifest.fps,
+        frame_step=frame_step,
+        analysis_end_frame=max(int(record["source_frame"]) for record in records),
+        max_speed_pixels_per_second=max_speed_pixels_per_second,
+    )
     accepted, discarded_temporal_upper_body_points = (
-        _discard_temporal_upper_body_points(
+        _timed_tracker_call(
+            "discard_temporal_upper_body_points",
+            _discard_temporal_upper_body_points,
             accepted,
             records_by_frame={
                 int(record["source_frame"]): record for record in records
             },
         )
     )
+    accepted = _timed_tracker_call(
+        "focused_multiscale_points",
+        _recover_focused_multiscale_points,
+        accepted,
+        records=records,
+        video=manifest.video,
+        model_path=Path(str(metadata["model"])),
+        fps=manifest.fps,
+        frame_step=frame_step,
+    )
     accepted = _deduplicate_track_frames(accepted)
+    accepted, final_trajectory_rejections = _timed_tracker_call(
+        "final_trajectory_integrity",
+        _discard_final_trajectory_conflicts,
+        accepted,
+        fps=manifest.fps,
+        max_speed_pixels_per_second=max_speed_pixels_per_second,
+        max_acceleration_pixels_per_second_squared=float(
+            SOCCERTRACK_MICRO_CROP_VERIFICATION_PROFILE[
+                "maximum_acceleration_pixels_per_second_squared"
+            ]
+        ),
+    )
+    accepted = _timed_tracker_call(
+        "short_stationary_template_recoveries",
+        _add_short_stationary_template_recoveries,
+        accepted,
+        video=manifest.video,
+        fps=manifest.fps,
+        frame_step=frame_step,
+    )
+    accepted, post_recovery_rejections = _timed_tracker_call(
+        "post_recovery_trajectory_integrity",
+        _discard_final_trajectory_conflicts,
+        accepted,
+        fps=manifest.fps,
+        max_speed_pixels_per_second=max_speed_pixels_per_second,
+        max_acceleration_pixels_per_second_squared=float(
+            SOCCERTRACK_MICRO_CROP_VERIFICATION_PROFILE[
+                "maximum_acceleration_pixels_per_second_squared"
+            ]
+        ),
+    )
+    final_trajectory_rejections = frozenset(
+        final_trajectory_rejections | post_recovery_rejections
+    )
 
     output.mkdir(parents=True, exist_ok=True)
     track_path = output / "ball-tracks.json"
@@ -659,6 +927,17 @@ def track_cached_balls(
                     asdict(cluster)
                     for cluster in unanchored_static_clusters
                 ],
+                "final_trajectory_integrity": {
+                    "rejected_frames": sorted(final_trajectory_rejections),
+                    "maximum_speed_pixels_per_second": (
+                        max_speed_pixels_per_second
+                    ),
+                    "maximum_acceleration_pixels_per_second_squared": float(
+                        SOCCERTRACK_MICRO_CROP_VERIFICATION_PROFILE[
+                            "maximum_acceleration_pixels_per_second_squared"
+                        ]
+                    ),
+                },
                 "tracks": [
                     {
                         "track_id": track.track_id,
@@ -666,6 +945,31 @@ def track_cached_balls(
                     }
                     for track in accepted
                 ],
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    state_path = output / "ball-state-estimates.json"
+    state_path.write_text(
+        json.dumps(
+            {
+                "manifest": str(manifest.path),
+                "cache": str(cache_path.resolve()),
+                "policy": {
+                    "observed_states_are_event_evidence": True,
+                    "trajectory_estimates_are_event_evidence": False,
+                    "trajectory_estimates_are_for_continuity_and_search_only": True,
+                },
+                "states": _sampled_ball_state_estimates(
+                    accepted,
+                    records=records,
+                    fps=manifest.fps,
+                    frame_step=frame_step,
+                    width=width,
+                    height=height,
+                    max_speed_pixels_per_second=max_speed_pixels_per_second,
+                ),
             },
             indent=2,
         ),
@@ -708,12 +1012,518 @@ def track_cached_balls(
     return track_path
 
 
+def _sampled_ball_state_estimates(
+    tracks: Iterable[BallTrack],
+    *,
+    records: Iterable[dict[str, Any]],
+    fps: float,
+    frame_step: int,
+    width: int,
+    height: int,
+    max_speed_pixels_per_second: float,
+) -> list[dict[str, Any]]:
+    if fps <= 0 or frame_step < 1 or width < 1 or height < 1:
+        raise ValueError("Ball-state estimate dimensions and timing must be positive")
+    observed = sorted(
+        (point for track in tracks for point in track.points),
+        key=lambda point: point.source_frame,
+    )
+    observed_by_frame = {point.source_frame: point for point in observed}
+    sampled_frames = sorted({int(record["source_frame"]) for record in records})
+    states: list[dict[str, Any]] = []
+    for source_frame in sampled_frames:
+        point = observed_by_frame.get(source_frame)
+        if point is not None:
+            states.append(
+                {
+                    **asdict(point),
+                    "state": (
+                        "observed"
+                        if point.source_attribution == "yolo26_observed"
+                        else "visually_reacquired"
+                    ),
+                    "uncertainty_radius_pixels": round(
+                        max(1.0, point.box_diagonal / 2),
+                        3,
+                    ),
+                    "event_evidence_eligible": True,
+                }
+            )
+            continue
+
+        previous = next(
+            (
+                candidate
+                for candidate in reversed(observed)
+                if candidate.source_frame < source_frame
+            ),
+            None,
+        )
+        following = next(
+            (
+                candidate
+                for candidate in observed
+                if candidate.source_frame > source_frame
+            ),
+            None,
+        )
+        if previous is not None and following is not None:
+            alpha = (
+                (source_frame - previous.source_frame)
+                / (following.source_frame - previous.source_frame)
+            )
+            x = previous.x + (following.x - previous.x) * alpha
+            y = previous.y + (following.y - previous.y) * alpha
+            state = "trajectory_estimated_bidirectional"
+            curved_y = _bounded_vertical_curve_estimate(
+                observed,
+                previous=previous,
+                following=following,
+                source_frame=source_frame,
+            )
+            if curved_y is not None:
+                y = curved_y
+                state = "trajectory_estimated_bidirectional_curved"
+            anchor_confidence = min(previous.confidence, following.confidence)
+            nearest_gap = min(
+                source_frame - previous.source_frame,
+                following.source_frame - source_frame,
+            )
+            reference_diameter = median(
+                diameter
+                for diameter in (
+                    previous.box_diagonal,
+                    following.box_diagonal,
+                )
+                if diameter > 0
+            )
+        else:
+            anchor = previous or following
+            if anchor is None:
+                continue
+            same_side = (
+                [
+                    candidate
+                    for candidate in observed
+                    if candidate.source_frame < source_frame
+                ][-4:]
+                if previous is not None
+                else [
+                    candidate
+                    for candidate in observed
+                    if candidate.source_frame > source_frame
+                ][:4]
+            )
+            velocity_x, velocity_y = _recent_ball_velocity_per_frame(
+                same_side,
+                fps=fps,
+            )
+            if previous is None:
+                velocity_x *= -1
+                velocity_y *= -1
+            delta = source_frame - anchor.source_frame
+            maximum_displacement = (
+                max_speed_pixels_per_second * abs(delta) / fps
+            )
+            displacement_x = velocity_x * delta
+            displacement_y = velocity_y * delta
+            displacement = hypot(displacement_x, displacement_y)
+            if displacement > maximum_displacement > 0:
+                scale = maximum_displacement / displacement
+                displacement_x *= scale
+                displacement_y *= scale
+            x = anchor.x + displacement_x
+            y = anchor.y + displacement_y
+            state = (
+                "trajectory_estimated_forward"
+                if previous is not None
+                else "trajectory_estimated_backward"
+            )
+            anchor_confidence = anchor.confidence
+            nearest_gap = abs(delta)
+            reference_diameter = max(1.0, anchor.box_diagonal)
+
+        gap_steps = nearest_gap / frame_step
+        states.append(
+            {
+                "source_frame": source_frame,
+                "clip_seconds": round(source_frame / fps, 3),
+                "confidence": round(
+                    min(0.49, anchor_confidence * (0.8**gap_steps)),
+                    6,
+                ),
+                "x": min(float(width - 1), max(0.0, x)),
+                "y": min(float(height - 1), max(0.0, y)),
+                "interpolated": False,
+                "box_diagonal": reference_diameter,
+                "evidence": state,
+                "temporal_score": None,
+                "source_attribution": "trajectory_estimated",
+                "state": state,
+                "uncertainty_radius_pixels": round(
+                    reference_diameter * (1 + gap_steps),
+                    3,
+                ),
+                "event_evidence_eligible": False,
+            }
+        )
+    return states
+
+
+def _discard_final_trajectory_conflicts(
+    tracks: Iterable[BallTrack],
+    *,
+    fps: float,
+    max_speed_pixels_per_second: float,
+    max_acceleration_pixels_per_second_squared: float,
+) -> tuple[tuple[BallTrack, ...], frozenset[int]]:
+    if (
+        fps <= 0
+        or max_speed_pixels_per_second <= 0
+        or max_acceleration_pixels_per_second_squared <= 0
+    ):
+        raise ValueError("Final trajectory limits and timing must be positive")
+
+    rejected_frames: set[int] = set()
+    filtered: list[BallTrack] = []
+    for track in tracks:
+        retained = sorted(track.points, key=lambda point: point.source_frame)
+        while len(retained) >= 2:
+            conflict = _first_final_trajectory_conflict(
+                retained,
+                fps=fps,
+                max_speed_pixels_per_second=max_speed_pixels_per_second,
+                max_acceleration_pixels_per_second_squared=(
+                    max_acceleration_pixels_per_second_squared
+                ),
+            )
+            if conflict is None:
+                break
+            rejection_index = _final_trajectory_rejection_index(
+                retained,
+                conflict,
+                fps=fps,
+                max_speed_pixels_per_second=max_speed_pixels_per_second,
+            )
+            rejected_frames.add(retained[rejection_index].source_frame)
+            retained.pop(rejection_index)
+        filtered.append(BallTrack(track.track_id, retained))
+    return tuple(filtered), frozenset(rejected_frames)
+
+
+def _first_final_trajectory_conflict(
+    points: list[BallPoint],
+    *,
+    fps: float,
+    max_speed_pixels_per_second: float,
+    max_acceleration_pixels_per_second_squared: float,
+) -> tuple[int, ...] | None:
+    return_excursion = _first_recovered_return_excursion(points)
+    if return_excursion is not None:
+        return return_excursion
+
+    velocities: list[tuple[np.ndarray, float]] = []
+    for index, (first, second) in enumerate(zip(points, points[1:])):
+        elapsed = (second.source_frame - first.source_frame) / fps
+        if elapsed <= 0:
+            return (index, index + 1)
+        velocity = np.array([second.x - first.x, second.y - first.y]) / elapsed
+        if np.linalg.norm(velocity) > max_speed_pixels_per_second:
+            return (index, index + 1)
+        velocities.append((velocity, elapsed))
+    for index, (
+        (first_velocity, first_elapsed),
+        (second_velocity, second_elapsed),
+    ) in enumerate(zip(velocities, velocities[1:])):
+        acceleration = np.linalg.norm(second_velocity - first_velocity) / (
+            (first_elapsed + second_elapsed) / 2
+        )
+        if acceleration > max_acceleration_pixels_per_second_squared:
+            return (index, index + 1, index + 2)
+    return None
+
+
+def _first_recovered_return_excursion(
+    points: list[BallPoint],
+) -> tuple[int, int, int] | None:
+    if len(points) < 5:
+        return None
+    for middle in range(2, len(points) - 2):
+        support_before = points[middle - 2]
+        previous = points[middle - 1]
+        candidate = points[middle]
+        following = points[middle + 1]
+        support_after = points[middle + 2]
+        if candidate.source_attribution == "yolo26_observed":
+            continue
+        if (
+            following.clip_seconds - previous.clip_seconds
+            > float(
+                SOCCERTRACK_TRAJECTORY_OUTLIER_PROFILE[
+                    "return_excursion_maximum_span_seconds"
+                ]
+            )
+        ):
+            continue
+        diameters = [
+            diameter
+            for diameter in (
+                support_before.box_diagonal,
+                previous.box_diagonal,
+                candidate.box_diagonal,
+                following.box_diagonal,
+                support_after.box_diagonal,
+            )
+            if diameter > 0
+        ]
+        reference_diameter = median(diameters) if diameters else 1.0
+        stable_radius = max(
+            15.0,
+            reference_diameter
+            * float(
+                SOCCERTRACK_TRAJECTORY_OUTLIER_PROFILE[
+                    "return_excursion_stable_radius_ball_diameters"
+                ]
+            ),
+        )
+        if any(
+            hypot(first.x - second.x, first.y - second.y) > stable_radius
+            for first, second in (
+                (support_before, previous),
+                (previous, following),
+                (following, support_after),
+            )
+        ):
+            continue
+        frame_span = following.source_frame - previous.source_frame
+        if frame_span <= 0:
+            continue
+        alpha = (
+            candidate.source_frame - previous.source_frame
+        ) / frame_span
+        expected_x = previous.x + (following.x - previous.x) * alpha
+        expected_y = previous.y + (following.y - previous.y) * alpha
+        excursion = hypot(
+            candidate.x - expected_x,
+            candidate.y - expected_y,
+        )
+        minimum_excursion = max(
+            float(
+                SOCCERTRACK_TRAJECTORY_OUTLIER_PROFILE[
+                    "return_excursion_minimum_distance_pixels"
+                ]
+            ),
+            reference_diameter
+            * float(
+                SOCCERTRACK_TRAJECTORY_OUTLIER_PROFILE[
+                    "return_excursion_minimum_distance_ball_diameters"
+                ]
+            ),
+        )
+        if excursion >= minimum_excursion:
+            return middle - 1, middle, middle + 1
+    return None
+
+
+def _bounded_vertical_curve_estimate(
+    observed: list[BallPoint],
+    *,
+    previous: BallPoint,
+    following: BallPoint,
+    source_frame: int,
+) -> float | None:
+    frame_span = following.source_frame - previous.source_frame
+    offset = source_frame - previous.source_frame
+    if frame_span <= 0 or offset <= 0 or offset >= frame_span:
+        return None
+    reference_diameter = median(
+        diameter
+        for diameter in (previous.box_diagonal, following.box_diagonal)
+        if diameter > 0
+    )
+    vertical_displacement = following.y - previous.y
+    if abs(vertical_displacement) < max(
+        10.0,
+        reference_diameter
+        * float(
+            SOCCERTRACK_TRAJECTORY_OUTLIER_PROFILE[
+                "curved_estimate_minimum_vertical_ball_diameters"
+            ]
+        ),
+    ):
+        return None
+
+    bridge_velocity = vertical_displacement / frame_span
+    boundary_velocities: list[tuple[float, str]] = []
+    earlier = next(
+        (
+            point
+            for point in reversed(observed)
+            if point.source_frame < previous.source_frame
+        ),
+        None,
+    )
+    if earlier is not None:
+        elapsed = previous.source_frame - earlier.source_frame
+        if elapsed > 0:
+            boundary_velocities.append(
+                ((previous.y - earlier.y) / elapsed, "start")
+            )
+    later = next(
+        (
+            point
+            for point in observed
+            if point.source_frame > following.source_frame
+        ),
+        None,
+    )
+    if later is not None:
+        elapsed = later.source_frame - following.source_frame
+        if elapsed > 0:
+            boundary_velocities.append(
+                ((later.y - following.y) / elapsed, "end")
+            )
+    aligned = [
+        (velocity, boundary)
+        for velocity, boundary in boundary_velocities
+        if velocity * bridge_velocity > 0
+    ]
+    if not aligned:
+        return None
+    boundary_velocity, boundary = min(
+        aligned,
+        key=lambda item: abs(item[0] - bridge_velocity),
+    )
+    maximum_velocity_difference = max(
+        1.0,
+        abs(bridge_velocity)
+        * float(
+            SOCCERTRACK_TRAJECTORY_OUTLIER_PROFILE[
+                "curved_estimate_maximum_velocity_difference_ratio"
+            ]
+        ),
+    )
+    if abs(boundary_velocity - bridge_velocity) > maximum_velocity_difference:
+        return None
+
+    if boundary == "start":
+        acceleration = (
+            2 * (vertical_displacement - boundary_velocity * frame_span)
+            / (frame_span**2)
+        )
+        curved_y = (
+            previous.y
+            + boundary_velocity * offset
+            + 0.5 * acceleration * (offset**2)
+        )
+    else:
+        start_velocity = 2 * bridge_velocity - boundary_velocity
+        acceleration = (
+            boundary_velocity - start_velocity
+        ) / frame_span
+        curved_y = (
+            previous.y
+            + start_velocity * offset
+            + 0.5 * acceleration * (offset**2)
+        )
+    linear_y = previous.y + vertical_displacement * offset / frame_span
+    maximum_adjustment = max(
+        2.0,
+        reference_diameter
+        * float(
+            SOCCERTRACK_TRAJECTORY_OUTLIER_PROFILE[
+                "curved_estimate_maximum_adjustment_ball_diameters"
+            ]
+        ),
+    )
+    if abs(curved_y - linear_y) > maximum_adjustment:
+        return None
+    return curved_y
+
+
+def _final_trajectory_rejection_index(
+    points: list[BallPoint],
+    conflict: tuple[int, ...],
+    *,
+    fps: float,
+    max_speed_pixels_per_second: float,
+) -> int:
+    if len(conflict) == 3:
+        middle = conflict[1]
+        if _transition_within_speed_limit(
+            points[middle - 1],
+            points[middle + 1],
+            fps=fps,
+            max_speed_pixels_per_second=max_speed_pixels_per_second,
+        ):
+            return middle
+
+    candidates = list(conflict)
+    locally_valid = [
+        index
+        for index in candidates
+        if _trajectory_is_speed_valid_without(
+            points,
+            index,
+            fps=fps,
+            max_speed_pixels_per_second=max_speed_pixels_per_second,
+        )
+    ]
+    if len(locally_valid) == 1:
+        return locally_valid[0]
+    if locally_valid:
+        candidates = locally_valid
+    return min(
+        candidates,
+        key=lambda index: (
+            points[index].confidence,
+            points[index].temporal_score or 0.0,
+        ),
+    )
+
+
+def _trajectory_is_speed_valid_without(
+    points: list[BallPoint],
+    index: int,
+    *,
+    fps: float,
+    max_speed_pixels_per_second: float,
+) -> bool:
+    if index == 0 or index == len(points) - 1:
+        return True
+    return _transition_within_speed_limit(
+        points[index - 1],
+        points[index + 1],
+        fps=fps,
+        max_speed_pixels_per_second=max_speed_pixels_per_second,
+    )
+
+
+def _transition_within_speed_limit(
+    first: BallPoint,
+    second: BallPoint,
+    *,
+    fps: float,
+    max_speed_pixels_per_second: float,
+) -> bool:
+    elapsed = (second.source_frame - first.source_frame) / fps
+    return (
+        elapsed > 0
+        and hypot(second.x - first.x, second.y - first.y) / elapsed
+        <= max_speed_pixels_per_second
+    )
+
+
 def _deduplicate_track_frames(
     tracks: Iterable[BallTrack],
 ) -> tuple[BallTrack, ...]:
     evidence_priority = {
+        "template_validated_detector": 9,
+        "focused_multiscale_detector": 9,
+        "trajectory_validated_detector": 8,
+        "full_rate_motion_streak": 8,
+        "full_rate_trajectory_corridor": 8,
         "detector": 6,
-        "template_validated_detector": 5,
         "raw_motion_near_feet": 4,
         "raw_motion_trajectory_corridor": 4,
         "raw_motion_global_fallback": 4,
@@ -1142,27 +1952,22 @@ def _restore_plausible_detector_points(
                 frame_step=frame_step,
             ):
                 continue
-            bracketed_foot_contact = (
-                candidate in supported_foot_points
-                and _has_bracketed_restoration_support(
+            if not _point_path_is_plausible(
                     candidate,
                     trusted=trusted,
                     frame_step=frame_step,
-                )
-            )
-            if not bracketed_foot_contact and not _point_path_is_plausible(
-                candidate,
-                trusted=trusted,
-                frame_step=frame_step,
-                fps=fps,
-                max_speed_pixels_per_second=max_speed_pixels_per_second,
-            ):
+                    fps=fps,
+                    max_speed_pixels_per_second=max_speed_pixels_per_second,
+                ):
                 continue
         else:
             continue
+        candidate = replace(
+            candidate,
+            evidence="trajectory_validated_detector",
+            source_attribution="temporal_detector_observed",
+        )
         restored.append(candidate)
-        trusted.append(candidate)
-        trusted.sort(key=lambda point: point.source_frame)
     if not restored:
         return tracks
     return (
@@ -1708,6 +2513,105 @@ def _add_bidirectional_template_bridges(
     finally:
         capture.release()
 
+    return tuple(
+        BallTrack(
+            track.track_id,
+            sorted(
+                [*track.points, *additions[track_index]],
+                key=lambda point: point.source_frame,
+            ),
+        )
+        for track_index, track in enumerate(tracks)
+    )
+
+
+def _add_short_stationary_template_recoveries(
+    tracks: Iterable[BallTrack],
+    *,
+    video: Path,
+    fps: float,
+    frame_step: int,
+) -> tuple[BallTrack, ...]:
+    tracks = tuple(tracks)
+    if fps <= 0 or frame_step < 1:
+        raise ValueError("Short stationary recovery timing must be positive")
+
+    plans: list[_BidirectionalTemplateBridge] = []
+    for track_index, track in enumerate(tracks):
+        points = sorted(track.points, key=lambda point: point.source_frame)
+        for first, second in zip(points, points[1:]):
+            if second.source_frame - first.source_frame != frame_step * 2:
+                continue
+            if (
+                first.source_attribution
+                not in {"yolo26_observed", "yolo26_focused_multiscale"}
+                or second.source_attribution
+                not in {"yolo26_observed", "yolo26_focused_multiscale"}
+            ):
+                continue
+            diameters = [
+                diameter
+                for diameter in (first.box_diagonal, second.box_diagonal)
+                if diameter > 0
+            ]
+            if not diameters:
+                continue
+            reference_diameter = median(diameters)
+            if hypot(first.x - second.x, first.y - second.y) > (
+                reference_diameter
+                * float(
+                    SHORT_STATIONARY_TEMPLATE_PROFILE[
+                        "maximum_endpoint_distance_ball_diameters"
+                    ]
+                )
+            ):
+                continue
+            plans.append(
+                _BidirectionalTemplateBridge(
+                    track_index=track_index,
+                    frame_step=frame_step,
+                    previous=None,
+                    first=first,
+                    second=second,
+                    following=None,
+                    bridge_kind="long_stationary",
+                )
+            )
+    if not plans:
+        return tracks
+
+    grayscale = _read_sampled_grayscale_frames(
+        video,
+        sorted(
+            {
+                source_frame
+                for plan in plans
+                for source_frame in plan.frames
+            }
+        ),
+    )
+    additions: dict[int, list[BallPoint]] = defaultdict(list)
+    for plan in plans:
+        additions[plan.track_index].extend(
+            _bidirectional_template_points(
+                plan,
+                {
+                    source_frame: grayscale[source_frame]
+                    for source_frame in plan.frames
+                },
+                fps=fps,
+                minimum_template_score=float(
+                    SHORT_STATIONARY_TEMPLATE_PROFILE[
+                        "minimum_template_score"
+                    ]
+                ),
+                maximum_agreement_diameters=float(
+                    SHORT_STATIONARY_TEMPLATE_PROFILE[
+                        "maximum_template_disagreement_ball_diameters"
+                    ]
+                ),
+            )
+        )
     return tuple(
         BallTrack(
             track.track_id,
@@ -2439,7 +3343,14 @@ def _forward_template_plans(
     ordered = sorted(track.points, key=lambda point: point.source_frame)
     plans: list[_ForwardTemplatePlan] = []
     for index, seed in enumerate(ordered[:-1]):
-        if seed.evidence != "template_validated_detector":
+        is_verified_terminal_seed = seed.evidence == "template_validated_detector"
+        is_stable_detector_seed = _is_stable_direct_detector_seed(
+            ordered,
+            seed_index=index,
+            frame_step=frame_step,
+            minimum_template_seed_score=minimum_template_seed_score,
+        )
+        if not is_verified_terminal_seed and not is_stable_detector_seed:
             continue
         following = ordered[index + 1]
         if (
@@ -2463,10 +3374,26 @@ def _forward_template_plans(
         )
         if len(template_points) < 3:
             continue
+        maximum_steps = (
+            max(
+                1,
+                round(
+                    float(
+                        LONG_STATIONARY_TEMPLATE_PROFILE[
+                            "maximum_forward_seconds"
+                        ]
+                    )
+                    * fps
+                    / frame_step
+                ),
+            )
+            if is_stable_detector_seed
+            else maximum_propagated_sample_steps
+        )
         end_frame = min(
             following.source_frame,
             seed.source_frame
-            + frame_step * (maximum_propagated_sample_steps + 1),
+            + frame_step * (maximum_steps + 1),
         )
         target_frames = tuple(
             range(
@@ -2490,6 +3417,60 @@ def _forward_template_plans(
     return tuple(plans)
 
 
+def _is_stable_direct_detector_seed(
+    ordered: list[BallPoint],
+    *,
+    seed_index: int,
+    frame_step: int,
+    minimum_template_seed_score: float,
+) -> bool:
+    seed = ordered[seed_index]
+    if (
+        seed.evidence != "detector"
+        or seed.source_attribution != "yolo26_observed"
+        or seed.box_diagonal <= 0
+    ):
+        return False
+
+    profile = LONG_STATIONARY_TEMPLATE_PROFILE
+    minimum_history_points = int(profile["minimum_history_points"])
+    history = [
+        point
+        for point in ordered[: seed_index + 1]
+        if _is_reliable_template_seed(
+            point,
+            minimum_template_seed_score=minimum_template_seed_score,
+        )
+    ][-minimum_history_points:]
+    if (
+        len(history) < minimum_history_points
+        or history[-1] != seed
+        or history[-1].clip_seconds - history[0].clip_seconds
+        < float(profile["minimum_history_seconds"]) - 1e-6
+        or any(
+            current.source_frame - previous.source_frame != frame_step
+            for previous, current in zip(history, history[1:])
+        )
+    ):
+        return False
+
+    reference_diameter = median(
+        point.box_diagonal for point in history if point.box_diagonal > 0
+    )
+    if reference_diameter <= 0:
+        return False
+    center_x = median(point.x for point in history)
+    center_y = median(point.y for point in history)
+    maximum_radius = (
+        reference_diameter
+        * float(profile["maximum_history_radius_ball_diameters"])
+    )
+    return all(
+        hypot(point.x - center_x, point.y - center_y) <= maximum_radius
+        for point in history
+    )
+
+
 def _is_reliable_template_seed(
     point: BallPoint,
     *,
@@ -2509,6 +3490,1001 @@ def _is_reliable_template_seed(
             and point.temporal_score >= minimum_template_seed_score
         )
     )
+
+
+def _add_full_rate_motion_streaks(
+    tracks: Iterable[BallTrack],
+    *,
+    video: Path,
+    fps: float,
+    frame_step: int,
+    max_speed_pixels_per_second: float,
+) -> tuple[BallTrack, ...]:
+    tracks = tuple(tracks)
+    additions: dict[int, list[BallPoint]] = defaultdict(list)
+    for track_index, track in enumerate(tracks):
+        with _BoundedColorFrameReader(video) as frame_reader:
+            ordered = sorted(track.points, key=lambda point: point.source_frame)
+            for seed_index, (seed, following) in enumerate(
+                zip(ordered, ordered[1:])
+            ):
+                if following.source_frame - seed.source_frame <= frame_step:
+                    continue
+                reference_diameter = median(
+                    point.box_diagonal
+                    for point in ordered[
+                        max(0, seed_index - 7) : seed_index + 1
+                    ]
+                    if point.box_diagonal > 0
+                )
+                if not _has_stable_motion_streak_history(
+                    ordered,
+                    seed_index=seed_index,
+                    fps=fps,
+                    reference_diameter=reference_diameter,
+                ):
+                    continue
+                color_frames = frame_reader.read_range(
+                    seed.source_frame,
+                    following.source_frame,
+                )
+                grayscale = {
+                    source_frame: cv2.cvtColor(
+                        frame,
+                        cv2.COLOR_BGR2GRAY,
+                    )
+                    for source_frame, frame in color_frames.items()
+                }
+                candidates_by_frame = {
+                    source_frame: _full_rate_motion_streak_candidates(
+                        previous=grayscale[source_frame - 1],
+                        current=grayscale[source_frame],
+                        following=grayscale[source_frame + 1],
+                        source_frame=source_frame,
+                        reference_diameter=reference_diameter,
+                    )
+                    for source_frame in range(
+                        seed.source_frame + 1,
+                        following.source_frame,
+                    )
+                }
+                consensus = _full_rate_motion_streak_consensus(
+                    candidates_by_frame,
+                    seed=seed,
+                    history=ordered[: seed_index + 1],
+                    fps=fps,
+                    frame_step=frame_step,
+                    reference_diameter=reference_diameter,
+                    max_speed_pixels_per_second=max_speed_pixels_per_second,
+                )
+                additions[track_index].extend(consensus)
+    return tuple(
+        BallTrack(
+            track.track_id,
+            sorted(
+                [*track.points, *additions[index]],
+                key=lambda point: point.source_frame,
+            ),
+        )
+        for index, track in enumerate(tracks)
+    )
+
+
+def _add_full_rate_trajectory_corridors(
+    tracks: Iterable[BallTrack],
+    *,
+    video: Path,
+    fps: float,
+    frame_step: int,
+    analysis_end_frame: int,
+    max_speed_pixels_per_second: float,
+) -> tuple[BallTrack, ...]:
+    tracks = tuple(tracks)
+    if not tracks:
+        return tracks
+    additions_by_track: dict[int, list[BallPoint]] = defaultdict(list)
+    for track_index, track in enumerate(tracks):
+        with _BoundedColorFrameReader(video) as frame_reader:
+            accepted = sorted(track.points, key=lambda point: point.source_frame)
+            accepted_frames = {point.source_frame for point in accepted}
+            for target_frame in range(
+                frame_step,
+                analysis_end_frame + 1,
+                frame_step,
+            ):
+                if target_frame in accepted_frames:
+                    continue
+                current = sorted(
+                    [*accepted, *additions_by_track[track_index]],
+                    key=lambda point: point.source_frame,
+                )
+                history = [
+                    point for point in current if point.source_frame < target_frame
+                ]
+                if not history:
+                    continue
+                seed = history[-1]
+                if (
+                    target_frame - seed.source_frame
+                    > round(
+                        float(
+                            FULL_RATE_TRAJECTORY_CORRIDOR_PROFILE[
+                                "maximum_gap_seconds"
+                            ]
+                        )
+                        * fps
+                    )
+                ):
+                    continue
+                following = next(
+                    (
+                        point
+                        for point in current
+                        if point.source_frame > target_frame
+                    ),
+                    None,
+                )
+                confirmation_frames = round(
+                    float(
+                        FULL_RATE_TRAJECTORY_CORRIDOR_PROFILE[
+                            "confirmation_seconds"
+                        ]
+                    )
+                    * fps
+                )
+                end_frame = min(
+                    analysis_end_frame,
+                    target_frame + confirmation_frames,
+                    (
+                        following.source_frame - 1
+                        if following is not None
+                        else analysis_end_frame
+                    ),
+                )
+                if end_frame <= target_frame:
+                    end_frame = target_frame
+                reference_diameter = median(
+                    point.box_diagonal
+                    for point in history[-8:]
+                    if point.box_diagonal > 0
+                )
+                if not _trajectory_corridor_history_is_supported(
+                    history,
+                    fps=fps,
+                    reference_diameter=reference_diameter,
+                ):
+                    continue
+                color_frames = frame_reader.read_range(
+                    seed.source_frame,
+                    end_frame + 1,
+                )
+                grayscale = {
+                    source_frame: cv2.cvtColor(
+                        color_frames[source_frame],
+                        cv2.COLOR_BGR2GRAY,
+                    )
+                    for source_frame in range(
+                        seed.source_frame,
+                        end_frame + 2,
+                    )
+                }
+                candidates_by_frame = {
+                    source_frame: _full_rate_motion_streak_candidates(
+                        previous=grayscale[source_frame - 1],
+                        current=grayscale[source_frame],
+                        following=grayscale[source_frame + 1],
+                        source_frame=source_frame,
+                        reference_diameter=reference_diameter,
+                    )
+                    for source_frame in range(
+                        seed.source_frame + 1,
+                        end_frame + 1,
+                    )
+                }
+                point = _full_rate_trajectory_corridor_point(
+                    candidates_by_frame,
+                    color_frames=color_frames,
+                    history=history,
+                    target_frame=target_frame,
+                    fps=fps,
+                    reference_diameter=reference_diameter,
+                    max_speed_pixels_per_second=max_speed_pixels_per_second,
+                )
+                if point is not None:
+                    additions_by_track[track_index].append(point)
+    return tuple(
+        BallTrack(
+            track.track_id,
+            sorted(
+                [*track.points, *additions_by_track[index]],
+                key=lambda point: point.source_frame,
+            ),
+        )
+        for index, track in enumerate(tracks)
+    )
+
+
+class _BoundedColorFrameReader:
+    def __init__(self, video: Path) -> None:
+        self.video = video
+        self.capture: cv2.VideoCapture | None = None
+        self.frames: dict[int, np.ndarray] = {}
+        self.next_frame = 0
+
+    def __enter__(self) -> "_BoundedColorFrameReader":
+        self.capture = cv2.VideoCapture(str(self.video))
+        if not self.capture.isOpened():
+            self.capture.release()
+            self.capture = None
+            raise ValueError(f"Could not open benchmark video: {self.video}")
+        return self
+
+    def __exit__(self, *_args: object) -> None:
+        if self.capture is not None:
+            self.capture.release()
+        self.capture = None
+        self.frames.clear()
+
+    def read_range(self, first_frame: int, last_frame: int) -> dict[int, np.ndarray]:
+        if self.capture is None:
+            raise RuntimeError("Color frame reader is not open")
+        if first_frame > last_frame:
+            return {}
+        if first_frame < self.next_frame and first_frame not in self.frames:
+            self.capture.set(cv2.CAP_PROP_POS_FRAMES, first_frame)
+            self.next_frame = first_frame
+            self.frames.clear()
+        for frame_number in tuple(self.frames):
+            if frame_number < first_frame:
+                del self.frames[frame_number]
+        while self.next_frame <= last_frame:
+            ok, frame = self.capture.read()
+            if not ok:
+                raise RuntimeError(
+                    f"Could not read source frame {self.next_frame} "
+                    f"from {self.video}"
+                )
+            if self.next_frame >= first_frame:
+                self.frames[self.next_frame] = frame
+            self.next_frame += 1
+        return {
+            frame_number: self.frames[frame_number]
+            for frame_number in range(first_frame, last_frame + 1)
+        }
+
+
+def _read_sampled_color_frames(
+    video: Path,
+    source_frames: Iterable[int],
+) -> dict[int, np.ndarray]:
+    required = set(source_frames)
+    if not required:
+        return {}
+    frames: dict[int, np.ndarray] = {}
+    capture = cv2.VideoCapture(str(video))
+    try:
+        if not capture.isOpened():
+            raise ValueError(f"Could not open benchmark video: {video}")
+        for source_frame in range(max(required) + 1):
+            if source_frame not in required:
+                if not capture.grab():
+                    raise RuntimeError(
+                        f"Could not skip to source frame {source_frame} in {video}"
+                    )
+                continue
+            ok, frame = capture.read()
+            if not ok:
+                raise RuntimeError(
+                    f"Could not read source frame {source_frame} from {video}"
+                )
+            frames[source_frame] = frame
+    finally:
+        capture.release()
+    return frames
+
+
+def _trajectory_corridor_history_is_supported(
+    history: list[BallPoint],
+    *,
+    fps: float,
+    reference_diameter: float,
+) -> bool:
+    profile = FULL_RATE_TRAJECTORY_CORRIDOR_PROFILE
+    if reference_diameter <= 0:
+        return False
+    seed = history[-1]
+    history_frames = round(float(profile["history_seconds"]) * fps)
+    recent = [
+        point
+        for point in history
+        if seed.source_frame - point.source_frame <= history_frames
+    ]
+    if len(recent) < int(profile["minimum_history_points"]):
+        return False
+    velocity_x, velocity_y = _recent_ball_velocity_per_frame(recent, fps=fps)
+    return (
+        hypot(velocity_x, velocity_y) * fps
+        >= reference_diameter
+        * float(profile["minimum_history_speed_ball_diameters_per_second"])
+    )
+
+
+def _recent_ball_velocity_per_frame(
+    history: Iterable[BallPoint],
+    *,
+    fps: float,
+) -> tuple[float, float]:
+    ordered = sorted(history, key=lambda point: point.source_frame)[-4:]
+    velocities = [
+        (
+            (current.x - previous.x)
+            / (current.source_frame - previous.source_frame),
+            (current.y - previous.y)
+            / (current.source_frame - previous.source_frame),
+        )
+        for previous, current in zip(ordered, ordered[1:])
+        if current.source_frame > previous.source_frame
+    ]
+    if not velocities:
+        return 0.0, 0.0
+    return (
+        median(velocity[0] for velocity in velocities),
+        median(velocity[1] for velocity in velocities),
+    )
+
+
+def _full_rate_trajectory_corridor_point(
+    candidates_by_frame: dict[int, tuple[_MotionStreakCandidate, ...]],
+    *,
+    color_frames: dict[int, np.ndarray],
+    history: list[BallPoint],
+    target_frame: int,
+    fps: float,
+    reference_diameter: float,
+    max_speed_pixels_per_second: float,
+) -> BallPoint | None:
+    profile = FULL_RATE_TRAJECTORY_CORRIDOR_PROFILE
+    seed = history[-1]
+    velocity_x, velocity_y = _recent_ball_velocity_per_frame(
+        history,
+        fps=fps,
+    )
+    seed_appearance = _motion_point_lab_descriptor(
+        color_frames[seed.source_frame],
+        x=seed.x,
+        y=seed.y,
+    )
+    maximum_acceleration = float(
+        profile["maximum_acceleration_pixels_per_second_squared"]
+    )
+    minimum_search_radius = reference_diameter * float(
+        profile["minimum_search_radius_ball_diameters"]
+    )
+    appearance_scale = float(profile["appearance_scale"])
+    prepared: dict[int, tuple[tuple[_MotionStreakCandidate, float], ...]] = {}
+    for source_frame, candidates in candidates_by_frame.items():
+        elapsed = (source_frame - seed.source_frame) / fps
+        predicted_x = seed.x + velocity_x * (source_frame - seed.source_frame)
+        predicted_y = seed.y + velocity_y * (source_frame - seed.source_frame)
+        search_radius = max(
+            minimum_search_radius,
+            0.5 * maximum_acceleration * elapsed**2,
+        )
+        search_radius = min(
+            search_radius,
+            max_speed_pixels_per_second * elapsed + minimum_search_radius,
+        )
+        supported: list[tuple[_MotionStreakCandidate, float]] = []
+        for candidate in candidates:
+            if (
+                hypot(
+                    candidate.x - predicted_x,
+                    candidate.y - predicted_y,
+                )
+                > search_radius
+            ):
+                continue
+            descriptor = _motion_point_lab_descriptor(
+                color_frames[source_frame],
+                x=candidate.x,
+                y=candidate.y,
+            )
+            appearance_score = float(
+                np.exp(
+                    -float(np.linalg.norm(descriptor - seed_appearance))
+                    / appearance_scale
+                )
+            )
+            if appearance_score >= float(profile["minimum_appearance_score"]):
+                supported.append((candidate, appearance_score))
+        prepared[source_frame] = tuple(supported)
+
+    paths = [
+        _MotionStreakPath(
+            (),
+            0.0,
+            velocity_x=velocity_x,
+            velocity_y=velocity_y,
+        )
+    ]
+    path_positions: dict[int, tuple[int, float, float]] = {
+        id(paths[0]): (seed.source_frame, seed.x, seed.y)
+    }
+    completed: list[_MotionStreakPath] = []
+    maximum_gap = max(
+        1,
+        round(float(profile["maximum_evidence_gap_seconds"]) * fps),
+    )
+    maximum_acceleration_per_frame = maximum_acceleration / fps**2
+    for source_frame in sorted(prepared):
+        next_paths: list[_MotionStreakPath] = []
+        next_positions: dict[int, tuple[int, float, float]] = {}
+        for path in paths:
+            last_frame, last_x, last_y = path_positions[id(path)]
+            gap = source_frame - last_frame
+            if gap > maximum_gap:
+                completed.append(path)
+                continue
+            next_paths.append(path)
+            next_positions[id(path)] = (last_frame, last_x, last_y)
+            predicted_x = last_x + (path.velocity_x or 0.0) * gap
+            predicted_y = last_y + (path.velocity_y or 0.0) * gap
+            transition_radius = max(
+                reference_diameter * 1.5,
+                0.5 * maximum_acceleration_per_frame * gap**2,
+            )
+            for candidate, appearance_score in prepared[source_frame]:
+                prediction_error = hypot(
+                    candidate.x - predicted_x,
+                    candidate.y - predicted_y,
+                )
+                if prediction_error > transition_radius:
+                    continue
+                candidate_velocity_x = (candidate.x - last_x) / gap
+                candidate_velocity_y = (candidate.y - last_y) / gap
+                acceleration = hypot(
+                    candidate_velocity_x - (path.velocity_x or 0.0),
+                    candidate_velocity_y - (path.velocity_y or 0.0),
+                ) / gap
+                if acceleration > maximum_acceleration_per_frame:
+                    continue
+                candidate_path = _MotionStreakPath(
+                    (*path.points, candidate),
+                    path.score
+                    + 0.7 * candidate.visual_score
+                    + 0.3 * appearance_score
+                    - 0.7 * prediction_error / transition_radius
+                    - 0.15 * (gap - 1),
+                    candidate_velocity_x,
+                    candidate_velocity_y,
+                )
+                next_paths.append(candidate_path)
+                next_positions[id(candidate_path)] = (
+                    source_frame,
+                    candidate.x,
+                    candidate.y,
+                )
+        deduplicated: dict[tuple[int, int, int, int, int], _MotionStreakPath] = {}
+        deduplicated_positions: dict[int, tuple[int, float, float]] = {}
+        for path in sorted(next_paths, key=lambda item: item.score, reverse=True):
+            last_frame, last_x, last_y = next_positions[id(path)]
+            key = (
+                last_frame,
+                round(last_x / 6),
+                round(last_y / 6),
+                round((path.velocity_x or 0.0) / 6),
+                round((path.velocity_y or 0.0) / 6),
+            )
+            if key in deduplicated:
+                continue
+            deduplicated[key] = path
+            deduplicated_positions[id(path)] = (last_frame, last_x, last_y)
+            if len(deduplicated) >= int(profile["maximum_paths"]):
+                break
+        paths = list(deduplicated.values())
+        path_positions = deduplicated_positions
+    completed.extend(paths)
+    eligible = [
+        path
+        for path in completed
+        if len(path.points) >= int(profile["minimum_path_points"])
+    ]
+    if not eligible:
+        return None
+    latest_frame = max(path.points[-1].source_frame for path in eligible)
+    latest = [
+        path for path in eligible if path.points[-1].source_frame == latest_frame
+    ]
+    best_mean_score = max(path.score / len(path.points) for path in latest)
+    near_best = sorted(
+        (
+            path
+            for path in latest
+            if path.score / len(path.points)
+            >= best_mean_score
+            - float(profile["near_best_mean_score_margin"])
+        ),
+        key=lambda path: path.score / len(path.points),
+        reverse=True,
+    )[:100]
+    target_candidates = [
+        next(
+            (
+                point
+                for point in path.points
+                if point.source_frame == target_frame
+            ),
+            None,
+        )
+        for path in near_best
+    ]
+    if not target_candidates or any(
+        candidate is None for candidate in target_candidates
+    ):
+        return None
+    agreed = [
+        candidate
+        for candidate in target_candidates
+        if candidate is not None
+    ]
+    first = agreed[0]
+    if (
+        first.visual_score < float(profile["minimum_visual_score"])
+        or any(
+            hypot(candidate.x - first.x, candidate.y - first.y)
+            > reference_diameter
+            * float(profile["consensus_radius_ball_diameters"])
+            for candidate in agreed[1:]
+        )
+    ):
+        return None
+    appearance_score = float(
+        np.exp(
+            -float(
+                np.linalg.norm(
+                    _motion_point_lab_descriptor(
+                        color_frames[target_frame],
+                        x=first.x,
+                        y=first.y,
+                    )
+                    - seed_appearance
+                )
+            )
+            / appearance_scale
+        )
+    )
+    return BallPoint(
+        source_frame=target_frame,
+        clip_seconds=target_frame / fps,
+        confidence=round(
+            0.7 * first.visual_score + 0.3 * appearance_score,
+            6,
+        ),
+        x=first.x,
+        y=first.y,
+        box_diagonal=hypot(first.width, first.height),
+        evidence="full_rate_trajectory_corridor",
+        temporal_score=round(best_mean_score, 6),
+        source_attribution="raw_motion_micro_crop_supported",
+    )
+
+
+def _motion_point_lab_descriptor(
+    frame: np.ndarray,
+    *,
+    x: float,
+    y: float,
+    radius: int = 3,
+) -> np.ndarray:
+    center_x = round(x)
+    center_y = round(y)
+    crop = frame[
+        max(0, center_y - radius) : min(frame.shape[0], center_y + radius + 1),
+        max(0, center_x - radius) : min(frame.shape[1], center_x + radius + 1),
+    ]
+    if not crop.size:
+        return np.zeros(3, dtype=np.float64)
+    lab = cv2.cvtColor(crop, cv2.COLOR_BGR2LAB)
+    return np.median(lab.reshape(-1, 3), axis=0).astype(np.float64)
+
+
+def _has_stable_motion_streak_history(
+    ordered: list[BallPoint],
+    *,
+    seed_index: int,
+    fps: float,
+    reference_diameter: float,
+) -> bool:
+    profile = FULL_RATE_MOTION_STREAK_PROFILE
+    seed = ordered[seed_index]
+    minimum_seconds = float(LONG_STATIONARY_TEMPLATE_PROFILE["minimum_history_seconds"])
+    history = [
+        point
+        for point in ordered[: seed_index + 1]
+        if seed.clip_seconds - point.clip_seconds <= minimum_seconds + 1e-6
+    ]
+    if (
+        len(history) < int(LONG_STATIONARY_TEMPLATE_PROFILE["minimum_history_points"])
+        or history[-1] != seed
+        or history[-1].clip_seconds - history[0].clip_seconds
+        < minimum_seconds - 1 / fps
+        or reference_diameter <= 0
+    ):
+        return False
+    center_x = median(point.x for point in history)
+    center_y = median(point.y for point in history)
+    maximum_radius = reference_diameter * float(
+        LONG_STATIONARY_TEMPLATE_PROFILE["maximum_history_radius_ball_diameters"]
+    )
+    return all(
+        hypot(point.x - center_x, point.y - center_y) <= maximum_radius
+        for point in history
+    )
+
+
+def _full_rate_motion_streak_candidates(
+    *,
+    previous: np.ndarray,
+    current: np.ndarray,
+    following: np.ndarray,
+    source_frame: int,
+    reference_diameter: float,
+) -> tuple[_MotionStreakCandidate, ...]:
+    profile = FULL_RATE_MOTION_STREAK_PROFILE
+    motion = cv2.min(
+        cv2.absdiff(current, previous),
+        cv2.absdiff(current, following),
+    )
+    _, mask = cv2.threshold(
+        motion,
+        int(profile["difference_threshold"]),
+        255,
+        cv2.THRESH_BINARY,
+    )
+    contours, _ = cv2.findContours(
+        mask,
+        cv2.RETR_EXTERNAL,
+        cv2.CHAIN_APPROX_SIMPLE,
+    )
+    maximum_extent = max(
+        8.0,
+        reference_diameter * float(profile["maximum_extent_ball_diameters"]),
+    )
+    candidates: list[_MotionStreakCandidate] = []
+    for contour in contours:
+        x, y, width, height = cv2.boundingRect(contour)
+        area = float(cv2.contourArea(contour))
+        diagonal = hypot(width, height)
+        if (
+            area < 1
+            or area > reference_diameter**2 * 1.8
+            or min(width, height) < 2
+            or diagonal > maximum_extent
+            or max(width, height) / max(1, min(width, height))
+            > float(profile["maximum_aspect_ratio"])
+        ):
+            continue
+        moments = cv2.moments(contour)
+        if moments["m00"] <= 0:
+            continue
+        foreground_mask = np.zeros_like(motion)
+        cv2.drawContours(foreground_mask, [contour], -1, 255, -1)
+        strength = float(cv2.mean(motion, mask=foreground_mask)[0])
+        scale_score = float(
+            np.exp(-abs(np.log(max(1.0, diagonal) / reference_diameter)))
+        )
+        area_score = float(
+            np.exp(
+                -abs(
+                    np.log(
+                        max(1.0, area)
+                        / max(1.0, reference_diameter**2 * 0.125)
+                    )
+                )
+            )
+        )
+        visual_score = (
+            0.45 * min(1.0, strength / 50)
+            + 0.30 * scale_score
+            + 0.25 * area_score
+        )
+        candidates.append(
+            _MotionStreakCandidate(
+                source_frame=source_frame,
+                x=float(moments["m10"] / moments["m00"]),
+                y=float(moments["m01"] / moments["m00"]),
+                width=width,
+                height=height,
+                area=area,
+                visual_score=visual_score,
+            )
+        )
+    return tuple(candidates)
+
+
+def _full_rate_motion_streak_consensus(
+    candidates_by_frame: dict[int, tuple[_MotionStreakCandidate, ...]],
+    *,
+    seed: BallPoint,
+    history: Iterable[BallPoint] = (),
+    fps: float,
+    frame_step: int,
+    reference_diameter: float,
+    max_speed_pixels_per_second: float,
+) -> tuple[BallPoint, ...]:
+    profile = FULL_RATE_MOTION_STREAK_PROFILE
+    launch_end = seed.source_frame + round(
+        float(profile["maximum_launch_wait_seconds"]) * fps
+    )
+    minimum_separation = reference_diameter * float(
+        profile["minimum_launch_separation_ball_diameters"]
+    )
+    history = tuple(history)
+    paths: list[_MotionStreakPath] = []
+    for source_frame in sorted(candidates_by_frame):
+        if source_frame > launch_end:
+            break
+        elapsed = (source_frame - seed.source_frame) / fps
+        predicted_x, predicted_y, search_radius = (
+            _motion_streak_forward_search_prior(
+                history or (seed,),
+                target_frame=source_frame,
+                fps=fps,
+                reference_diameter=reference_diameter,
+                max_speed_pixels_per_second=max_speed_pixels_per_second,
+            )
+        )
+        for candidate in candidates_by_frame[source_frame]:
+            launch_distance = hypot(candidate.x - seed.x, candidate.y - seed.y)
+            prior_distance = hypot(
+                candidate.x - predicted_x,
+                candidate.y - predicted_y,
+            )
+            if (
+                launch_distance >= minimum_separation
+                and prior_distance <= search_radius
+                and launch_distance
+                <= max_speed_pixels_per_second * elapsed
+            ):
+                paths.append(
+                    _MotionStreakPath(
+                        (candidate,),
+                        candidate.visual_score
+                        - 0.03 * (source_frame - seed.source_frame - 1)
+                        - prior_distance / max(1.0, search_radius),
+                    )
+                )
+    if not paths:
+        return ()
+
+    maximum_gap_frames = max(
+        1,
+        round(float(profile["maximum_evidence_gap_seconds"]) * fps),
+    )
+    maximum_acceleration = float(
+        profile["maximum_acceleration_pixels_per_second_squared"]
+    ) / fps**2
+    completed: list[_MotionStreakPath] = []
+    for source_frame in sorted(candidates_by_frame):
+        next_paths: list[_MotionStreakPath] = []
+        for path in paths:
+            last = path.points[-1]
+            if last.source_frame >= source_frame:
+                next_paths.append(path)
+                continue
+            gap = source_frame - last.source_frame
+            if gap > maximum_gap_frames:
+                completed.append(path)
+                continue
+            next_paths.append(path)
+            for candidate in candidates_by_frame[source_frame]:
+                distance = hypot(candidate.x - last.x, candidate.y - last.y)
+                if distance > max_speed_pixels_per_second * gap / fps:
+                    continue
+                velocity_x = (candidate.x - last.x) / gap
+                velocity_y = (candidate.y - last.y) / gap
+                continuity = distance / max(
+                    1.0,
+                    max_speed_pixels_per_second * gap / fps,
+                )
+                if path.velocity_x is not None and path.velocity_y is not None:
+                    acceleration = hypot(
+                        velocity_x - path.velocity_x,
+                        velocity_y - path.velocity_y,
+                    ) / gap
+                    if acceleration > maximum_acceleration:
+                        continue
+                    if (
+                        hypot(velocity_x, velocity_y) > 4
+                        and hypot(path.velocity_x, path.velocity_y) > 4
+                        and velocity_x * path.velocity_x
+                        + velocity_y * path.velocity_y
+                        < 0
+                    ):
+                        continue
+                next_paths.append(
+                    _MotionStreakPath(
+                        (*path.points, candidate),
+                        path.score
+                        + candidate.visual_score
+                        - 0.8 * continuity
+                        - 0.25 * (gap - 1),
+                        velocity_x,
+                        velocity_y,
+                    )
+                )
+        deduplicated: dict[tuple[int, int, int, int, int], _MotionStreakPath] = {}
+        for path in sorted(
+            next_paths,
+            key=lambda item: item.score,
+            reverse=True,
+        ):
+            last = path.points[-1]
+            key = (
+                last.source_frame,
+                round(last.x / 8),
+                round(last.y / 8),
+                round((path.velocity_x or 0) / 8),
+                round((path.velocity_y or 0) / 8),
+            )
+            deduplicated.setdefault(key, path)
+            if len(deduplicated) >= int(profile["maximum_paths"]):
+                break
+        paths = list(deduplicated.values())
+    completed.extend(paths)
+
+    minimum_points = max(
+        3,
+        round(float(profile["minimum_confirmed_flight_seconds"]) * fps),
+    )
+    eligible = [
+        path
+        for path in completed
+        if len(path.points) >= minimum_points
+        and path.points[-1].source_frame - path.points[0].source_frame
+        >= minimum_points - 1
+        and hypot(
+            path.points[-1].x - path.points[0].x,
+            path.points[-1].y - path.points[0].y,
+        )
+        / (
+            (path.points[-1].source_frame - path.points[0].source_frame)
+            / fps
+        )
+        >= reference_diameter
+        * float(profile["minimum_progress_ball_diameters_per_second"])
+    ]
+    if not eligible:
+        return ()
+    latest_frame = max(path.points[-1].source_frame for path in eligible)
+    latest = [
+        path for path in eligible if path.points[-1].source_frame == latest_frame
+    ]
+    best_mean_score = max(path.score / len(path.points) for path in latest)
+    near_best = sorted(
+        (
+            path
+            for path in latest
+            if path.score / len(path.points)
+            >= best_mean_score
+            - float(profile["near_best_mean_score_margin"])
+        ),
+        key=lambda path: path.score / len(path.points),
+        reverse=True,
+    )[:100]
+    if not near_best:
+        return ()
+
+    additions: list[BallPoint] = []
+    consensus_radius = reference_diameter * float(
+        profile["consensus_radius_ball_diameters"]
+    )
+    minimum_visual_score = float(profile["minimum_visual_score"])
+    for source_frame in sorted(candidates_by_frame):
+        if source_frame % frame_step:
+            continue
+        candidates = [
+            next(
+                (
+                    point
+                    for point in path.points
+                    if point.source_frame == source_frame
+                ),
+                None,
+            )
+            for path in near_best
+        ]
+        if any(candidate is None for candidate in candidates):
+            continue
+        agreed = [candidate for candidate in candidates if candidate is not None]
+        first = agreed[0]
+        if (
+            first.visual_score < minimum_visual_score
+            or any(
+                hypot(candidate.x - first.x, candidate.y - first.y)
+                > consensus_radius
+                for candidate in agreed[1:]
+            )
+        ):
+            continue
+        additions.append(
+            BallPoint(
+                source_frame=source_frame,
+                clip_seconds=source_frame / fps,
+                confidence=round(first.visual_score, 6),
+                x=first.x,
+                y=first.y,
+                box_diagonal=hypot(first.width, first.height),
+                evidence="full_rate_motion_streak",
+                temporal_score=round(best_mean_score, 6),
+                source_attribution="raw_motion_micro_crop_supported",
+            )
+        )
+    return tuple(additions)
+
+
+def _motion_streak_forward_search_prior(
+    history: Iterable[BallPoint],
+    *,
+    target_frame: int,
+    fps: float,
+    reference_diameter: float,
+    max_speed_pixels_per_second: float,
+) -> tuple[float, float, float]:
+    profile = FULL_RATE_MOTION_STREAK_PROFILE
+    ordered = sorted(history, key=lambda point: point.source_frame)
+    seed = ordered[-1]
+    history_frames = round(
+        float(profile["motion_prior_history_seconds"]) * fps
+    )
+    recent = [
+        point
+        for point in ordered
+        if seed.source_frame - point.source_frame <= history_frames
+    ]
+    velocities = [
+        (
+            (current.x - previous.x)
+            * fps
+            / (current.source_frame - previous.source_frame),
+            (current.y - previous.y)
+            * fps
+            / (current.source_frame - previous.source_frame),
+        )
+        for previous, current in zip(recent, recent[1:])
+        if current.source_frame > previous.source_frame
+    ]
+    velocity_x = median(value[0] for value in velocities) if velocities else 0.0
+    velocity_y = median(value[1] for value in velocities) if velocities else 0.0
+    speed = hypot(velocity_x, velocity_y)
+    if speed > max_speed_pixels_per_second:
+        scale = max_speed_pixels_per_second / speed
+        velocity_x *= scale
+        velocity_y *= scale
+
+    elapsed = max(0.0, (target_frame - seed.source_frame) / fps)
+    predicted_x = seed.x + velocity_x * elapsed
+    predicted_y = seed.y + velocity_y * elapsed
+    acceleration = (
+        reference_diameter
+        * float(
+            profile[
+                "maximum_launch_acceleration_ball_diameters_per_second_squared"
+            ]
+        )
+    )
+    search_radius = max(
+        reference_diameter
+        * float(profile["minimum_search_radius_ball_diameters"]),
+        0.5 * acceleration * elapsed**2,
+    )
+    search_radius = min(
+        search_radius,
+        max_speed_pixels_per_second * elapsed
+        + reference_diameter
+        * float(profile["minimum_search_radius_ball_diameters"]),
+    )
+    return predicted_x, predicted_y, search_radius
 
 
 def _forward_template_consensus_points(
@@ -2900,6 +4876,12 @@ def _read_sampled_grayscale_frames(
     required = set(source_frames)
     if not required:
         return {}
+    if (
+        _ACTIVE_GRAYSCALE_FRAME_STORE is not None
+        and _ACTIVE_GRAYSCALE_FRAME_STORE.video == video.resolve()
+        and required.issubset(_ACTIVE_GRAYSCALE_FRAME_STORE.source_frame_set)
+    ):
+        return _ACTIVE_GRAYSCALE_FRAME_STORE.read(required)
     frames: dict[int, np.ndarray] = {}
     capture = cv2.VideoCapture(str(video))
     try:
@@ -3168,6 +5150,161 @@ def _raw_motion_frame_proposals(
             )
         )
     return tuple(proposals), counters
+
+
+class _SampledGrayscaleFrameStore:
+    def __init__(
+        self,
+        *,
+        video: Path,
+        source_frames: list[int],
+        output: Path,
+        reuse: bool,
+    ) -> None:
+        self.video = video.resolve()
+        self.source_frames = source_frames
+        self.source_frame_set = frozenset(source_frames)
+        self.output = output
+        self.reuse = reuse
+        self.data_path = output / "decoded-sampled-grayscale-u8.dat"
+        self.metadata_path = output / "decoded-sampled-grayscale.json"
+        self.metrics_path = output / "decode-cache-metrics.json"
+        self.frame_indexes = {
+            source_frame: index
+            for index, source_frame in enumerate(source_frames)
+        }
+        self.array: np.memmap | None = None
+        self.metrics: dict[str, Any] = {
+            "schema_version": 1,
+            "mode": "reuse" if reuse else "fresh",
+            "video_opens": 0,
+            "decoded_frames": 0,
+            "grabbed_frames": 0,
+            "cache_frame_hits": 0,
+            "cache_requests": 0,
+            "build_seconds": 0.0,
+        }
+
+    def _expected_metadata(self, *, width: int, height: int) -> dict[str, Any]:
+        video_stat = self.video.stat()
+        return {
+            "schema_version": 1,
+            "video": str(self.video),
+            "video_size": video_stat.st_size,
+            "video_modified_ns": video_stat.st_mtime_ns,
+            "source_frames": self.source_frames,
+            "width": width,
+            "height": height,
+            "dtype": "uint8",
+            "colorspace": "opencv_bgr_to_gray",
+        }
+
+    def open(self) -> None:
+        if not self.source_frames:
+            return
+        self.output.mkdir(parents=True, exist_ok=True)
+        capture = cv2.VideoCapture(str(self.video))
+        self.metrics["video_opens"] += 1
+        try:
+            if not capture.isOpened():
+                raise ValueError(f"Could not open benchmark video: {self.video}")
+            width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
+            height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            expected = self._expected_metadata(width=width, height=height)
+            expected_bytes = len(self.source_frames) * width * height
+            if (
+                self.reuse
+                and self.metadata_path.is_file()
+                and self.data_path.is_file()
+                and json.loads(self.metadata_path.read_text(encoding="utf-8"))
+                == expected
+                and self.data_path.stat().st_size == expected_bytes
+            ):
+                self.array = np.memmap(
+                    self.data_path,
+                    dtype=np.uint8,
+                    mode="r",
+                    shape=(len(self.source_frames), height, width),
+                )
+                self.metrics["reused_existing_cache"] = True
+                return
+
+            self.data_path.unlink(missing_ok=True)
+            self.metadata_path.unlink(missing_ok=True)
+            started = time.perf_counter()
+            array = np.memmap(
+                self.data_path,
+                dtype=np.uint8,
+                mode="w+",
+                shape=(len(self.source_frames), height, width),
+            )
+            required = self.source_frame_set
+            last_required = self.source_frames[-1]
+            for source_frame in range(last_required + 1):
+                if source_frame not in required:
+                    if not capture.grab():
+                        raise RuntimeError(
+                            f"Could not skip to source frame {source_frame} "
+                            f"in {self.video}"
+                        )
+                    self.metrics["grabbed_frames"] += 1
+                    continue
+                ok, frame = capture.read()
+                if not ok:
+                    raise RuntimeError(
+                        f"Could not read source frame {source_frame} "
+                        f"from {self.video}"
+                    )
+                array[self.frame_indexes[source_frame]] = cv2.cvtColor(
+                    frame,
+                    cv2.COLOR_BGR2GRAY,
+                )
+                self.metrics["decoded_frames"] += 1
+            array.flush()
+            self.metadata_path.write_text(
+                json.dumps(expected, indent=2),
+                encoding="utf-8",
+            )
+            self.metrics["build_seconds"] = round(
+                time.perf_counter() - started,
+                3,
+            )
+            self.metrics["reused_existing_cache"] = False
+            self.array = array
+        finally:
+            capture.release()
+
+    def read(self, required: set[int]) -> dict[int, np.ndarray]:
+        if self.array is None:
+            raise RuntimeError("Sampled grayscale frame store is not open")
+        self.metrics["cache_requests"] += 1
+        self.metrics["cache_frame_hits"] += len(required)
+        return {
+            source_frame: self.array[self.frame_indexes[source_frame]]
+            for source_frame in required
+        }
+
+    def close(self, *, delete_cache: bool) -> None:
+        self.metrics["cache_bytes"] = (
+            self.data_path.stat().st_size
+            if self.data_path.is_file()
+            else 0
+        )
+        self.metrics["deleted_after_success"] = delete_cache
+        self.metrics_path.parent.mkdir(parents=True, exist_ok=True)
+        self.metrics_path.write_text(
+            json.dumps(self.metrics, indent=2),
+            encoding="utf-8",
+        )
+        if self.array is not None:
+            self.array.flush()
+            memory_map = getattr(self.array, "_mmap", None)
+            if memory_map is not None:
+                memory_map.close()
+            self.array = None
+        if delete_cache:
+            self.data_path.unlink(missing_ok=True)
+            self.metadata_path.unlink(missing_ok=True)
 
 
 def _adjacent_appearance_consistency(
@@ -4267,6 +6404,647 @@ def _add_bracketed_outlier_motion_recoveries(
         fps=fps,
         frame_step=frame_step,
         max_speed_pixels_per_second=max_speed_pixels_per_second,
+    )
+
+
+def _replace_low_confidence_global_fallback_outliers(
+    tracks: Iterable[BallTrack],
+    *,
+    video: Path,
+    model_path: Path | None = None,
+    model: Any | None = None,
+) -> tuple[BallTrack, ...]:
+    maximum_confidence = float(
+        SOCCERTRACK_TRAJECTORY_OUTLIER_PROFILE[
+            "global_fallback_outlier_maximum_confidence"
+        ]
+    )
+    minimum_path_error_diameters = float(
+        SOCCERTRACK_TRAJECTORY_OUTLIER_PROFILE[
+            "global_fallback_outlier_minimum_path_error_ball_diameters"
+        ]
+    )
+    weak_detector_maximum_confidence = float(
+        FOCUSED_MULTISCALE_REDETECTION_PROFILE[
+            "weak_detector_maximum_confidence"
+        ]
+    )
+    weak_detector_minimum_path_error_diameters = float(
+        FOCUSED_MULTISCALE_REDETECTION_PROFILE[
+            "weak_detector_minimum_path_error_ball_diameters"
+        ]
+    )
+    suspect_frames: set[int] = set()
+    for track in tracks:
+        points = sorted(track.points, key=lambda point: point.source_frame)
+        for index, point in enumerate(points):
+            if index == 0 or index == len(points) - 1:
+                continue
+            previous = points[index - 1]
+            following = points[index + 1]
+            frame_span = following.source_frame - previous.source_frame
+            if frame_span <= 0:
+                continue
+            alpha = (
+                point.source_frame - previous.source_frame
+            ) / frame_span
+            expected_x = previous.x + (following.x - previous.x) * alpha
+            expected_y = previous.y + (following.y - previous.y) * alpha
+            reference_diameter = max(point.box_diagonal, 1.0)
+            path_error_diameters = (
+                hypot(point.x - expected_x, point.y - expected_y)
+                / reference_diameter
+            )
+            unstable_global_fallback = (
+                point.evidence == "raw_motion_global_fallback"
+                and point.confidence < maximum_confidence
+                and path_error_diameters > minimum_path_error_diameters
+            )
+            unstable_weak_detector = (
+                point.evidence == "detector"
+                and point.confidence < weak_detector_maximum_confidence
+                and path_error_diameters
+                > weak_detector_minimum_path_error_diameters
+            )
+            if unstable_global_fallback or unstable_weak_detector:
+                suspect_frames.add(point.source_frame)
+    if not suspect_frames or (model is None and model_path is None):
+        return tuple(tracks)
+
+    required_frames = set(suspect_frames)
+    for track in tracks:
+        points = sorted(track.points, key=lambda point: point.source_frame)
+        for point in points:
+            if point.source_frame in suspect_frames:
+                continue
+            if any(
+                abs(point.source_frame - target_frame) <= 25
+                for target_frame in suspect_frames
+            ):
+                required_frames.add(point.source_frame)
+    color_frames = _read_sampled_color_frames(video, sorted(required_frames))
+    if model is None:
+        from ultralytics import YOLO
+
+        model = YOLO(str(model_path))
+    replaced: list[BallTrack] = []
+    for track in tracks:
+        points = sorted(track.points, key=lambda point: point.source_frame)
+        reliable = [
+            point for point in points if point.source_frame not in suspect_frames
+        ]
+        output: list[BallPoint] = []
+        for point in points:
+            if point.source_frame not in suspect_frames:
+                output.append(point)
+                continue
+            previous = [
+                candidate
+                for candidate in reliable
+                if candidate.source_frame < point.source_frame
+            ]
+            following = [
+                candidate
+                for candidate in reliable
+                if candidate.source_frame > point.source_frame
+            ]
+            if not previous or not following:
+                continue
+            first = previous[-1]
+            second = following[0]
+            alpha = (
+                point.source_frame - first.source_frame
+            ) / (second.source_frame - first.source_frame)
+            expected_x = first.x + (second.x - first.x) * alpha
+            expected_y = first.y + (second.y - first.y) * alpha
+            reference_diameters = [
+                candidate.box_diagonal
+                for candidate in reliable
+                if candidate.box_diagonal > 0
+                and abs(candidate.source_frame - point.source_frame) <= 25
+            ]
+            replacement = _focused_multiscale_ball_reacquisition(
+                model=model,
+                frame=color_frames.get(point.source_frame),
+                source_frame=point.source_frame,
+                clip_seconds=point.clip_seconds,
+                expected_x=expected_x,
+                expected_y=expected_y,
+                reference_diameter=(
+                    median(reference_diameters)
+                    if reference_diameters
+                    else 0.0
+                ),
+            )
+            original_path_error = hypot(
+                point.x - expected_x,
+                point.y - expected_y,
+            )
+            replacement_path_error = (
+                hypot(
+                    replacement.x - expected_x,
+                    replacement.y - expected_y,
+                )
+                if replacement is not None
+                else float("inf")
+            )
+            if (
+                replacement is not None
+                and replacement_path_error
+                <= original_path_error
+                * float(
+                    FOCUSED_MULTISCALE_REDETECTION_PROFILE[
+                        "maximum_path_error_ratio"
+                    ]
+                )
+            ):
+                output.append(replacement)
+            else:
+                output.append(point)
+        replaced.append(
+            BallTrack(
+                track.track_id,
+                sorted(output, key=lambda candidate: candidate.source_frame),
+            )
+        )
+    return tuple(replaced)
+
+
+def _recover_focused_multiscale_points(
+    tracks: Iterable[BallTrack],
+    *,
+    records: Iterable[dict[str, Any]],
+    video: Path,
+    model_path: Path,
+    fps: float,
+    frame_step: int,
+) -> tuple[BallTrack, ...]:
+    from ultralytics import YOLO
+
+    model = YOLO(str(model_path))
+    recovered = tuple(tracks)
+    for _ in range(
+        int(
+            FOCUSED_MULTISCALE_REDETECTION_PROFILE[
+                "maximum_recovery_iterations"
+            ]
+        )
+    ):
+        updated = _replace_low_confidence_global_fallback_outliers(
+            recovered,
+            video=video,
+            model=model,
+        )
+        if _track_point_signatures(updated) == _track_point_signatures(recovered):
+            break
+        recovered = updated
+    recovered = _add_focused_multiscale_missing_points(
+        recovered,
+        records=records,
+        video=video,
+        model=model,
+        fps=fps,
+        frame_step=frame_step,
+    )
+    return _add_focused_multiscale_terminal_points(
+        recovered,
+        records=records,
+        video=video,
+        model=model,
+        fps=fps,
+    )
+
+
+def _track_point_signatures(
+    tracks: Iterable[BallTrack],
+) -> tuple[tuple[int, float, float, str], ...]:
+    return tuple(
+        (
+            point.source_frame,
+            round(point.x, 6),
+            round(point.y, 6),
+            point.evidence,
+        )
+        for track in tracks
+        for point in track.points
+    )
+
+
+def _add_focused_multiscale_missing_points(
+    tracks: Iterable[BallTrack],
+    *,
+    records: Iterable[dict[str, Any]],
+    video: Path,
+    model: Any,
+    fps: float,
+    frame_step: int,
+) -> tuple[BallTrack, ...]:
+    tracks = tuple(tracks)
+    if not tracks:
+        return tracks
+    points = sorted(
+        (point for track in tracks for point in track.points),
+        key=lambda point: point.source_frame,
+    )
+    points_by_frame = {point.source_frame: point for point in points}
+    records_by_frame = {
+        int(record["source_frame"]): record for record in records
+    }
+    missing_frames = [
+        source_frame
+        for source_frame in sorted(records_by_frame)
+        if source_frame not in points_by_frame
+        and any(point.source_frame < source_frame for point in points)
+        and any(point.source_frame > source_frame for point in points)
+    ]
+    if not missing_frames:
+        return tracks
+
+    color_frames = _read_sampled_color_frames(video, missing_frames)
+    candidates: dict[int, tuple[BallPoint, float, float]] = {}
+    for source_frame in missing_frames:
+        previous = next(
+            point
+            for point in reversed(points)
+            if point.source_frame < source_frame
+        )
+        following = next(
+            point for point in points if point.source_frame > source_frame
+        )
+        alpha = (
+            source_frame - previous.source_frame
+        ) / (following.source_frame - previous.source_frame)
+        expected_x = previous.x + (following.x - previous.x) * alpha
+        expected_y = previous.y + (following.y - previous.y) * alpha
+        nearby_diameters = [
+            point.box_diagonal
+            for point in sorted(
+                points,
+                key=lambda point: abs(point.source_frame - source_frame),
+            )[:6]
+            if point.box_diagonal > 0
+        ]
+        reference_diameter = (
+            median(nearby_diameters)
+            if nearby_diameters
+            else median(
+                diameter
+                for diameter in (
+                    previous.box_diagonal,
+                    following.box_diagonal,
+                )
+                if diameter > 0
+            )
+        )
+        candidate = _focused_multiscale_ball_reacquisition(
+            model=model,
+            frame=color_frames.get(source_frame),
+            source_frame=source_frame,
+            clip_seconds=float(
+                records_by_frame[source_frame].get(
+                    "clip_seconds",
+                    source_frame / fps,
+                )
+            ),
+            expected_x=expected_x,
+            expected_y=expected_y,
+            reference_diameter=reference_diameter,
+        )
+        if candidate is not None:
+            path_error_diameters = (
+                hypot(candidate.x - expected_x, candidate.y - expected_y)
+                / max(reference_diameter, 1.0)
+            )
+            candidates[source_frame] = (
+                candidate,
+                path_error_diameters,
+                reference_diameter,
+            )
+
+    maximum_path_error = float(
+        FOCUSED_MULTISCALE_REDETECTION_PROFILE[
+            "missing_point_maximum_path_error_ball_diameters"
+        ]
+    )
+    accepted_frames = {
+        source_frame
+        for source_frame, (_, path_error, _) in candidates.items()
+        if path_error <= maximum_path_error
+    }
+    maximum_pair_separation = float(
+        FOCUSED_MULTISCALE_REDETECTION_PROFILE[
+            "missing_pair_maximum_separation_ball_diameters"
+        ]
+    )
+    for source_frame in sorted(accepted_frames):
+        for adjacent_frame in (
+            source_frame - frame_step,
+            source_frame + frame_step,
+        ):
+            if adjacent_frame not in candidates:
+                continue
+            candidate, _, reference_diameter = candidates[source_frame]
+            adjacent, _, adjacent_diameter = candidates[adjacent_frame]
+            if hypot(candidate.x - adjacent.x, candidate.y - adjacent.y) <= (
+                maximum_pair_separation
+                * median((reference_diameter, adjacent_diameter))
+            ):
+                accepted_frames.add(adjacent_frame)
+
+    additions = [
+        candidates[source_frame][0]
+        for source_frame in sorted(accepted_frames)
+    ]
+    if not additions:
+        return tracks
+    return (
+        BallTrack(
+            tracks[0].track_id,
+            sorted(
+                [*tracks[0].points, *additions],
+                key=lambda point: point.source_frame,
+            ),
+        ),
+        *tracks[1:],
+    )
+
+
+def _add_focused_multiscale_terminal_points(
+    tracks: Iterable[BallTrack],
+    *,
+    records: Iterable[dict[str, Any]],
+    video: Path,
+    model: Any,
+    fps: float,
+) -> tuple[BallTrack, ...]:
+    tracks = tuple(tracks)
+    if not tracks:
+        return tracks
+    points = sorted(
+        (point for track in tracks for point in track.points),
+        key=lambda point: point.source_frame,
+    )
+    records_by_frame = {
+        int(record["source_frame"]): record for record in records
+    }
+    if not points or not records_by_frame:
+        return tracks
+    anchor = points[-1]
+    last_sampled_frame = max(records_by_frame)
+    if anchor.source_frame >= last_sampled_frame:
+        return tracks
+
+    full_rate_frames = list(
+        range(anchor.source_frame + 1, last_sampled_frame + 1)
+    )
+    color_frames = _read_sampled_color_frames(video, full_rate_frames)
+    chain: list[BallPoint] = []
+    maximum_step_diameters = float(
+        FOCUSED_MULTISCALE_REDETECTION_PROFILE[
+            "terminal_maximum_step_ball_diameters"
+        ]
+    )
+    for source_frame in full_rate_frames:
+        history = [*points, *chain][-4:]
+        velocity_x, velocity_y = _recent_ball_velocity_per_frame(
+            history,
+            fps=fps,
+        )
+        previous = history[-1]
+        delta = source_frame - previous.source_frame
+        expected_x = previous.x + velocity_x * delta
+        expected_y = previous.y + velocity_y * delta
+        reference_diameter = median(
+            point.box_diagonal
+            for point in history
+            if point.box_diagonal > 0
+        )
+        candidate = _focused_multiscale_ball_reacquisition(
+            model=model,
+            frame=color_frames.get(source_frame),
+            source_frame=source_frame,
+            clip_seconds=source_frame / fps,
+            expected_x=expected_x,
+            expected_y=expected_y,
+            reference_diameter=reference_diameter,
+        )
+        if candidate is None or hypot(
+            candidate.x - previous.x,
+            candidate.y - previous.y,
+        ) > (
+            maximum_step_diameters
+            * max(reference_diameter, candidate.box_diagonal)
+        ):
+            break
+        chain.append(candidate)
+
+    minimum_confirmations = int(
+        FOCUSED_MULTISCALE_REDETECTION_PROFILE[
+            "terminal_minimum_confirmation_frames"
+        ]
+    )
+    additions = [
+        point
+        for index, point in enumerate(chain, start=1)
+        if index >= minimum_confirmations
+        and point.source_frame in records_by_frame
+    ]
+    if not additions:
+        return tracks
+    return (
+        BallTrack(
+            tracks[0].track_id,
+            sorted(
+                [*tracks[0].points, *additions],
+                key=lambda point: point.source_frame,
+            ),
+        ),
+        *tracks[1:],
+    )
+
+
+def _focused_multiscale_ball_reacquisition(
+    *,
+    model: Any,
+    frame: np.ndarray | None,
+    source_frame: int,
+    clip_seconds: float,
+    expected_x: float,
+    expected_y: float,
+    reference_diameter: float,
+) -> BallPoint | None:
+    profile = FOCUSED_MULTISCALE_REDETECTION_PROFILE
+    if frame is None or reference_diameter <= 0:
+        return None
+    detections: list[_FocusedBallDetection] = []
+    crops_by_inference_size: dict[
+        int,
+        list[tuple[np.ndarray, int, int, int]],
+    ] = defaultdict(list)
+    for radius_scale in profile["crop_radius_ball_diameters"]:
+        radius = max(
+            int(profile["minimum_crop_radius_pixels"]),
+            round(reference_diameter * float(radius_scale)),
+        )
+        left = max(0, round(expected_x) - radius)
+        right = min(frame.shape[1], round(expected_x) + radius)
+        top = max(0, round(expected_y) - radius)
+        bottom = min(frame.shape[0], round(expected_y) + radius)
+        crop = frame[top:bottom, left:right]
+        if not crop.size:
+            continue
+        for inference_size in profile["inference_sizes"]:
+            crops_by_inference_size[int(inference_size)].append(
+                (crop, left, top, radius)
+            )
+    for inference_size, crop_entries in crops_by_inference_size.items():
+        started = time.perf_counter()
+        results = model.predict(
+            [entry[0] for entry in crop_entries],
+            imgsz=inference_size,
+            conf=float(profile["minimum_detector_confidence"]),
+            verbose=False,
+        )
+        if _ACTIVE_GRAYSCALE_FRAME_STORE is not None:
+            metrics = _ACTIVE_GRAYSCALE_FRAME_STORE.metrics
+            metrics["focused_predict_calls"] = (
+                int(metrics.get("focused_predict_calls", 0)) + 1
+            )
+            metrics["focused_predict_images"] = (
+                int(metrics.get("focused_predict_images", 0))
+                + len(crop_entries)
+            )
+            metrics["focused_predict_seconds"] = round(
+                float(metrics.get("focused_predict_seconds", 0.0))
+                + time.perf_counter()
+                - started,
+                3,
+            )
+        for result, (_, left, top, radius) in zip(
+            results,
+            crop_entries,
+            strict=True,
+        ):
+            for box in result.boxes:
+                class_id = int(box.cls[0])
+                if result.names[class_id] != "sports ball":
+                    continue
+                x1, y1, x2, y2 = (float(value) for value in box.xyxy[0])
+                detections.append(
+                    _FocusedBallDetection(
+                        x=left + (x1 + x2) / 2,
+                        y=top + (y1 + y2) / 2,
+                        confidence=float(box.conf[0]),
+                        variant=(radius, inference_size),
+                        width=x2 - x1,
+                        height=y2 - y1,
+                    )
+                )
+    consensus = _multiscale_detection_consensus(
+        detections,
+        expected_x=expected_x,
+        expected_y=expected_y,
+        reference_diameter=reference_diameter,
+    )
+    if not consensus:
+        return None
+    total_weight = sum(
+        max(detection.confidence, 1e-6) for detection in consensus
+    )
+    center_x = sum(
+        detection.x * max(detection.confidence, 1e-6)
+        for detection in consensus
+    ) / total_weight
+    center_y = sum(
+        detection.y * max(detection.confidence, 1e-6)
+        for detection in consensus
+    ) / total_weight
+    width = median(detection.width for detection in consensus)
+    height = median(detection.height for detection in consensus)
+    confidence = max(detection.confidence for detection in consensus)
+    return BallPoint(
+        source_frame=source_frame,
+        clip_seconds=clip_seconds,
+        confidence=round(confidence, 6),
+        x=center_x,
+        y=center_y,
+        box_diagonal=hypot(width, height),
+        evidence="focused_multiscale_detector",
+        temporal_score=None,
+        source_attribution="yolo26_focused_multiscale",
+    )
+
+
+def _multiscale_detection_consensus(
+    detections: Iterable[_FocusedBallDetection],
+    *,
+    expected_x: float,
+    expected_y: float,
+    reference_diameter: float,
+) -> tuple[_FocusedBallDetection, ...]:
+    if reference_diameter <= 0:
+        return ()
+    profile = FOCUSED_MULTISCALE_REDETECTION_PROFILE
+    maximum_trajectory_distance = reference_diameter * float(
+        profile["maximum_trajectory_distance_ball_diameters"]
+    )
+    eligible = [
+        detection
+        for detection in detections
+        if hypot(
+            detection.x - expected_x,
+            detection.y - expected_y,
+        )
+        <= maximum_trajectory_distance
+    ]
+    groups: list[list[_FocusedBallDetection]] = []
+    maximum_consensus_distance = reference_diameter * float(
+        profile["consensus_radius_ball_diameters"]
+    )
+    for detection in sorted(
+        eligible,
+        key=lambda candidate: (
+            -candidate.confidence,
+            candidate.x,
+            candidate.y,
+        ),
+    ):
+        for group in groups:
+            center_x = sum(candidate.x for candidate in group) / len(group)
+            center_y = sum(candidate.y for candidate in group) / len(group)
+            if (
+                hypot(
+                    detection.x - center_x,
+                    detection.y - center_y,
+                )
+                <= maximum_consensus_distance
+            ):
+                group.append(detection)
+                break
+        else:
+            groups.append([detection])
+    minimum_variants = int(profile["minimum_consensus_variants"])
+    valid_groups = [
+        group
+        for group in groups
+        if len({candidate.variant for candidate in group}) >= minimum_variants
+    ]
+    if not valid_groups:
+        return ()
+    return tuple(
+        max(
+            valid_groups,
+            key=lambda group: (
+                -hypot(
+                    sum(candidate.x for candidate in group) / len(group)
+                    - expected_x,
+                    sum(candidate.y for candidate in group) / len(group)
+                    - expected_y,
+                ),
+                len({candidate.variant for candidate in group}),
+                sum(candidate.confidence for candidate in group),
+            ),
+        )
     )
 
 
@@ -6254,7 +9032,7 @@ def _discard_temporal_upper_body_points(
     for track in tracks:
         points: list[BallPoint] = []
         for point in track.points:
-            if point.evidence == "detector":
+            if _has_protected_direct_evidence(point):
                 points.append(point)
                 continue
             record = records_by_frame.get(point.source_frame)
@@ -6270,6 +9048,17 @@ def _discard_temporal_upper_body_points(
         if points:
             filtered_tracks.append(BallTrack(track.track_id, points))
     return tuple(filtered_tracks), discarded
+
+
+def _has_protected_direct_evidence(point: BallPoint) -> bool:
+    return point.evidence in {
+        "detector",
+        "template_validated_detector",
+        "focused_multiscale_detector",
+        "trajectory_validated_detector",
+        "full_rate_motion_streak",
+        "full_rate_trajectory_corridor",
+    }
 
 
 def _video_dimensions(video: Path) -> tuple[int, int]:
@@ -6329,10 +9118,13 @@ def _write_summary(
             "partial_bidirectional_template",
             "template_validated_detector",
             "forward_template_consensus",
+            "full_rate_motion_streak",
+            "full_rate_trajectory_corridor",
             "motion_circle",
             "raw_motion_near_feet",
             "raw_motion_trajectory_corridor",
             "raw_motion_global_fallback",
+            "focused_multiscale_detector",
             "dense_bidirectional_optical_flow",
         }
         or point.evidence.startswith("kalman_guided_")
@@ -6515,6 +9307,32 @@ def _write_summary(
             "accepted_points": sum(
                 point.evidence == "stationary_bidirectional_template"
                 for point in tracked_points
+            ),
+            "prediction_only_points_published": 0,
+        },
+        "full_rate_motion_streak": {
+            "parameter_profile": FULL_RATE_MOTION_STREAK_PROFILE,
+            "accepted_points": sum(
+                point.evidence == "full_rate_motion_streak"
+                for point in tracked_points
+            ),
+            "coordinate_policy": (
+                "Raw-motion component coordinates shared by all near-best "
+                "temporally consistent paths; prediction-only samples are "
+                "never published."
+            ),
+            "prediction_only_points_published": 0,
+        },
+        "full_rate_trajectory_corridor": {
+            "parameter_profile": FULL_RATE_TRAJECTORY_CORRIDOR_PROFILE,
+            "accepted_points": sum(
+                point.evidence == "full_rate_trajectory_corridor"
+                for point in tracked_points
+            ),
+            "coordinate_policy": (
+                "Velocity and acceleration define only a bounded search prior; "
+                "publication requires an observed full-rate motion component, "
+                "appearance continuity, and near-best-path consensus."
             ),
             "prediction_only_points_published": 0,
         },

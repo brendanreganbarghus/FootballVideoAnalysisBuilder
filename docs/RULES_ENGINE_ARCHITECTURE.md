@@ -148,6 +148,27 @@ These are project definitions, not IFAB Laws:
   absence of a goal is never sufficient evidence for an off-target
   classification.
 
+#### Contact-to-event state rules
+
+These rules provide a concise explanation of how the analytics engine converts
+player-ball contacts into passes and turnovers:
+
+| Observed contact | State transition | Analytics result |
+| --- | --- | --- |
+| A teammate makes the first controlled legal touch after a deliberate play | Sender control → teammate control | Complete the pass at that touch |
+| The receiver deliberately redirects the ball with one touch | Teammate control → new pass in flight | Complete the incoming pass immediately; open a new pass candidate |
+| An opponent makes a controlled legal touch | Current-team control → opponent control | Complete the turnover at that touch |
+| The opponent then deliberately plays to a teammate, who controls it | Opponent control → opponent-teammate control | Complete the opponent's pass at the teammate's touch |
+| The ball merely ricochets, is blocked or deflected, or remains contested | Control is unresolved or remains with the prior team | Record contact evidence only; do not complete a pass or turnover |
+
+“Controlled” does not mean retaining the ball for several seconds. A single
+touch with sufficient evidence of deliberate reception or direction is enough,
+including a legal touch with the foot, head, chest, thigh, or another permitted
+part of the body. Continued tracking may confirm player identity and distinguish
+a real controlled touch from a detection flicker, but it must not delay the
+event timestamp. A pass and a later turnover are separate events even when they
+occur close together.
+
 An event must satisfy both its analytics definition and the match-state gate.
 
 ## 3. Law-derived transition contracts
@@ -297,17 +318,26 @@ The **Football Event Review** canvas enforces this sequence:
    silently bias the proposal.
 4. If the engine already agrees, no inference change is made; regression
    protection is retained or added.
-5. If the event is missing or conflicting, implement a general evidence-based
+5. Manual reviewer events are represented as `M#`, Copilot-inferred proposals
+   as `C#`, and rules-engine output as `E#`. `C#`/`E#` association may use the
+   configured one-second review tolerance. An accepted `M#` must match an `E#`
+   by team, canonical event type, and the same source-video frame; the broader
+   `C#` tolerance must never hide a manual-reference timing defect. A reviewer
+   may also require same-frame timing for an individual `C#`; once requested,
+   that proposal cannot claim `C#`/`E#` agreement through the one-second
+   tolerance. For an `M#`, run cached event building and confirm that exact
+   same-frame `E#` agreement before recording the accepted decision.
+6. If the event is missing or conflicting, implement a general evidence-based
    rule. Never use a segment timestamp, track ID, or manual label as an
    inference input.
-6. Capture a new engine fingerprint and rerun the focused and protected tests.
-7. Mark the event `Implemented · Regression Verified` only when the accepted
+7. Capture a new engine fingerprint and rerun the focused and protected tests.
+8. Mark the event `Implemented · Regression Verified` only when the accepted
    behavior matches and every protected test passes.
-8. After every proposal has a final decision, publish through the guarded
+9. After every proposal has a final decision, publish through the guarded
    Canvas action. It excludes rejected and match-state-only proposals, includes
    independently confirmed unmatched engine events, reruns protected
    regressions, and requires a dynamic one-to-one reference/output match.
-9. Mark the segment `Passed` and lock it only after the published manual
+10. Mark the segment `Passed` and lock it only after the published manual
    reference is reloaded and independently reported as validated.
 
 Engine snapshots contain:
@@ -372,6 +402,73 @@ The validated live detector profile samples every fifth source frame. A
 stride-1 diagnostic must be reported separately and must not replace the
 validated profile merely because it yields more points: denser detections also
 require possession and event inference to remain sampling-rate invariant.
+
+#### Ball Time Machine
+
+**Ball Time Machine** is the user-facing name for **Temporal Ball Coordinate
+Recovery**. When the detector cannot establish a ball coordinate for a sampled
+frame, the tracker examines the preceding and following raw-video frames,
+moving backward and forward through the local temporal window to determine
+whether the missing coordinate can be recovered from a consistent trajectory.
+It uses only raw-video detections and tracking evidence; dataset event labels,
+manual review labels, and provider coordinates are forbidden inputs.
+
+A coordinate produced by this process remains a bidirectional or forward
+trajectory estimate with its uncertainty and source-frame provenance intact.
+It is not a direct detector observation, does not count toward the minimum 90%
+direct-coordinate requirement, and must not be presented as a ball that was
+visibly detected in the missing frame.
+
+Recovery is finalized in a deterministic order. The tracker first establishes
+trusted sampled anchors, then resolves gaps from the nearest trusted anchor on
+each side, and finally applies a whole-trajectory integrity pass before state
+publication. A lone recovered point is discarded when stable support exists
+on both sides and that point creates an unsupported out-and-back excursion.
+Discarded points are not reused as recovery anchors. Long vertical gaps may
+use a bounded acceleration-aware curve when an adjacent trusted velocity
+supports it; otherwise they remain linear estimates with their uncertainty.
+Neither form of interpolation becomes direct event evidence. A single missing
+sample between stationary direct YOLO or focused-redetection anchors may become
+evidence-backed recovery only when independent templates from both endpoints
+match the same raw-video pixels with strict score and spatial-agreement gates.
+The recovered point then passes the whole-trajectory integrity check again.
+
+The 90% provenance threshold is a blocking development and localhost
+validation gate. Production live processing records the same provenance
+result and degraded-evidence status but does not pause the match pipeline for
+human review. Production continuation never promotes estimated coordinates:
+event inference must preserve and enforce each coordinate's evidence class.
+
+The live rules engine may consume the complete generated ball-state timeline
+for continuity, but it must preserve the evidence class of every sample:
+
+- direct detector and evidence-backed recovery states may provide proximity,
+  speed, and direction evidence;
+- bidirectional and forward trajectory estimates may provide continuity and
+  proximity evidence only;
+- estimated states must never be reclassified as detector observations;
+- every emitted event records whether its interval used direct, mixed, or
+  estimated ball evidence, including the estimated source-frame numbers and
+  maximum uncertainty radius;
+- the possession artifact records all input frames grouped by state so a
+  reviewer can distinguish complete processing coverage from direct-evidence
+  coverage.
+
+Human review may validate whether an estimate is visually acceptable, but that
+decision remains evaluation-only. It cannot selectively promote that frame or
+change its runtime evidence class.
+
+Each submitted ball-coordinate batch is one durable review round. While
+Copilot reviews evidence, implements a general correction, and runs focused
+tests, the batch modal remains open and reports timestamped progress. Passing
+tests automatically start one whole-segment recovery run from the saved raw
+detections; no second user authorization is required for that rerun. Starting
+the rerun closes the working modal. When persisted output is available, the
+round records each reviewed frame as fixed, unresolved, or regressed, captures
+before/after provenance and completion time, and becomes read-only. If direct
+coverage remains below the configured gate, unresolved and regressed frames
+form a new review round. Only the user may submit that round or finalize the
+segment after the gate is met.
 
 Both engines may evolve, but only independently. Every Innovation acceptance,
 whether recorded by the user or Copilot, checks the Innovation regression
@@ -451,6 +548,26 @@ The release gate is:
 - Test 3 match-state intervals remain correct;
 - every protected one-minute reference remains exact;
 - the complete test suite passes.
+
+### Developer-mode review contract
+
+The live review Canvas may expose an opt-in Developer mode to reduce repeated
+AI handovers. It is an implementation aid, not a second adjudication path:
+
+- code locations, focused tests, cached event-rebuild commands, protected
+  regressions, clipboard actions, and output refreshes are deterministic local
+  operations and do not invoke event-review AI;
+- a developer may edit code and run the displayed commands manually;
+- **Do it, Copilot** is a separate explicit coding handover and is available
+  only for an already accepted C# whose current engine output does not agree;
+- **Rerun rules engine only** means running the cached `--events-only` stage
+  without editing code, detection, tracking, or review state;
+- neither successful commands nor refreshed E# output accept, reject, confirm,
+  or publish an event;
+- C# acceptance/rejection and E# confirmation remain available only through
+  the normal or expanded event-review controls;
+- review labels and provider annotations remain evaluation-only in both manual
+  and Copilot-assisted developer workflows.
 
 ## 9. Portability contract
 

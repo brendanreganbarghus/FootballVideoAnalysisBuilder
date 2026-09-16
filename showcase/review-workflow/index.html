@@ -758,7 +758,7 @@
               <p><span translate="no">ByteTrack</span> links detections in the single-video pilot architecture.</p>
               <small><strong>Possible future use:</strong> ByteTrack for local continuity plus jersey number, team, appearance, roster, and spatial evidence for durable identity. Jersey recognition strengthens tracking; it does not replace tracking. Number recognition is not implemented.</small>
             </article>
-            <article class="flow-node" data-title="Ball movement and pitch geometry become evidence" data-copy="The current Alfheim demo converts supplied ball labels into a trajectory and applies saved pitch calibration. General cached tracking can filter ball candidates and conservatively interpolate short gaps.">
+            <article class="flow-node" data-title="Ball movement and pitch geometry become evidence" data-copy="The current review path builds ball trajectories from cold raw-video detections and applies saved pitch calibration. Provider labels remain physically separate and evaluation-only after predictions are frozen.">
               <h3>Ball &amp; Pitch</h3>
               <p>Trajectory, speed, boundary distance, goal geometry, and confidence are normalized.</p>
               <small>Interpolated points support continuity; they never become observed touches.</small>

@@ -13,6 +13,27 @@ ALFHEIM_ROOT = PROJECT_ROOT / "benchmarks" / "alfheim"
 REGISTRY = ALFHEIM_ROOT / "live-regressions.json"
 
 
+def test_accepted_black_pass_remains_in_current_live_output() -> None:
+    predicted = json.loads(
+        (
+            ALFHEIM_ROOT
+            / "generated"
+            / "segment-0540-020"
+            / "live"
+            / "analytics-data"
+            / "predicted-events.json"
+        ).read_text(encoding="utf-8")
+    )
+
+    assert (
+        predicted[0]["event_type"],
+        predicted[0]["team"],
+        predicted[0]["completion_seconds"],
+        predicted[0]["from_player_track_id"],
+        predicted[0]["to_player_track_id"],
+    ) == ("pass_candidate", "black", 12.0, 32, 42)
+
+
 def registered_segments() -> list[str]:
     payload = json.loads(REGISTRY.read_text(encoding="utf-8"))
     assert payload["workflow"] == "live_iteration_25"

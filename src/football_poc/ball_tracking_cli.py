@@ -43,6 +43,14 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Optional exclusive end for an isolated cached-analysis window.",
     )
+    parser.add_argument(
+        "--reuse-decoded-frame-cache",
+        action="store_true",
+        help=(
+            "Reuse a validated temporary lossless sampled-frame cache after "
+            "an interrupted run."
+        ),
+    )
     return parser
 
 
@@ -59,6 +67,7 @@ def main() -> None:
         minimum_track_points=args.minimum_track_points,
         analysis_start_seconds=args.analysis_start_seconds,
         analysis_end_seconds=args.analysis_end_seconds,
+        reuse_decoded_frame_cache=args.reuse_decoded_frame_cache,
     )
 
 

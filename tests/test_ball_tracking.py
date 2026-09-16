@@ -1,5 +1,6 @@
 import json
 from collections import Counter
+from dataclasses import replace
 from pathlib import Path
 
 import cv2
@@ -45,6 +46,7 @@ from football_poc.ball_tracking import (
     _kalman_missing_frame_predictions,
     _raw_motion_frame_proposals,
     _select_raw_motion_proposals,
+    _sampled_ball_state_estimates,
     _partial_bidirectional_template_points,
     _forward_template_consensus_points,
     _forward_template_plans,
@@ -73,6 +75,92 @@ def test_static_cells_require_repeated_frame_occupancy() -> None:
     )
 
     assert static == {(5, 10)}
+
+
+def test_focused_multiscale_inference_batches_crop_variants_by_size() -> None:
+    class EmptyResult:
+        boxes = ()
+        names = {}
+
+    class RecordingModel:
+        def __init__(self) -> None:
+            self.calls: list[tuple[int, int]] = []
+
+        def predict(self, crops, *, imgsz, conf, verbose):
+            self.calls.append((imgsz, len(crops)))
+            return [EmptyResult() for _ in crops]
+
+    model = RecordingModel()
+
+    candidate = ball_tracking._focused_multiscale_ball_reacquisition(
+        model=model,
+        frame=np.zeros((400, 400, 3), dtype=np.uint8),
+        source_frame=5,
+        clip_seconds=0.2,
+        expected_x=200,
+        expected_y=200,
+        reference_diameter=12,
+    )
+
+    assert candidate is None
+    assert model.calls == [(640, 7)]
+
+
+def test_raw_motion_does_not_override_frame_with_detector_candidate(
+    monkeypatch,
+) -> None:
+    searched_frames: list[int] = []
+    records = [
+        {"source_frame": frame, "clip_seconds": frame / 25, "detections": []}
+        for frame in (0, 5, 10)
+    ]
+    track = BallTrack(
+        1,
+        [
+            BallPoint(0, 0.0, 0.8, 100, 200, box_diagonal=12),
+            BallPoint(10, 0.4, 0.8, 140, 200, box_diagonal=12),
+        ],
+    )
+    false_detector_candidate = BallPoint(
+        5,
+        0.2,
+        0.8,
+        500,
+        200,
+        box_diagonal=12,
+    )
+
+    monkeypatch.setattr(
+        ball_tracking,
+        "_read_sampled_grayscale_frames",
+        lambda _video, frames: {
+            frame: np.zeros((20, 20), dtype=np.uint8) for frame in frames
+        },
+    )
+
+    def record_search(**kwargs):
+        searched_frames.append(kwargs["source_frame"])
+        return (), Counter()
+
+    monkeypatch.setattr(
+        ball_tracking,
+        "_raw_motion_frame_proposals",
+        record_search,
+    )
+
+    ball_tracking._add_raw_motion_proposals(
+        (track,),
+        records=records,
+        video=Path("unused.mp4"),
+        width=20,
+        height=20,
+        fps=25,
+        frame_step=5,
+        max_speed_pixels_per_second=1600,
+        detector_candidates=(false_detector_candidate,),
+    )
+
+    assert searched_frames == []
 
 
 def test_player_supported_stationary_cell_is_not_static_clutter() -> None:
@@ -398,6 +486,74 @@ def test_interpolates_short_gaps_with_provenance() -> None:
     assert result.points[1].source_attribution == "interpolated"
 
 
+def test_sampled_ball_states_separate_observations_from_estimates() -> None:
+    tracks = [
+        BallTrack(
+            1,
+            [
+                BallPoint(0, 0.0, 0.8, 20, 40, box_diagonal=10),
+                BallPoint(
+                    10,
+                    0.4,
+                    0.7,
+                    40,
+                    50,
+                    box_diagonal=12,
+                    evidence="full_rate_motion_streak",
+                    source_attribution="raw_motion_micro_crop_supported",
+                ),
+            ],
+        )
+    ]
+    states = _sampled_ball_state_estimates(
+        tracks,
+        records=[{"source_frame": frame} for frame in (0, 5, 10)],
+        fps=25,
+        frame_step=5,
+        width=100,
+        height=100,
+        max_speed_pixels_per_second=1600,
+    )
+
+    assert [state["state"] for state in states] == [
+        "observed",
+        "trajectory_estimated_bidirectional",
+        "visually_reacquired",
+    ]
+    assert states[1]["x"] == 30
+    assert states[1]["y"] == 45
+    assert states[1]["event_evidence_eligible"] is False
+    assert states[0]["event_evidence_eligible"] is True
+    assert states[2]["event_evidence_eligible"] is True
+
+
+def test_sampled_ball_states_extrapolate_terminal_motion_as_continuity_only() -> None:
+    tracks = [
+        BallTrack(
+            1,
+            [
+                BallPoint(0, 0.0, 0.8, 20, 40, box_diagonal=10),
+                BallPoint(5, 0.2, 0.8, 30, 45, box_diagonal=10),
+            ],
+        )
+    ]
+    states = _sampled_ball_state_estimates(
+        tracks,
+        records=[{"source_frame": frame} for frame in (0, 5, 10)],
+        fps=25,
+        frame_step=5,
+        width=100,
+        height=100,
+        max_speed_pixels_per_second=1600,
+    )
+
+    assert states[-1]["state"] == "trajectory_estimated_forward"
+    assert states[-1]["x"] == 40
+    assert states[-1]["y"] == 50
+    assert states[-1]["event_evidence_eligible"] is False
+    assert states[-1]["uncertainty_radius_pixels"] > 10
+
+
 def test_deduplicates_frames_in_favor_of_stronger_visual_evidence() -> None:
     stationary = BallPoint(
         5,
@@ -563,6 +719,101 @@ def test_bidirectional_templates_reject_missing_visual_evidence() -> None:
     )
 
     assert _bidirectional_template_points(plan, frames, fps=25) == ()
+
+
+def test_short_stationary_template_recovers_focused_detector_gap(
+    monkeypatch,
+) -> None:
+    frames = {
+        frame: _synthetic_ball_frame(40, 40)
+        for frame in (0, 5, 10)
+    }
+    monkeypatch.setattr(
+        ball_tracking,
+        "_read_sampled_grayscale_frames",
+        lambda *_args: frames,
+    )
+    tracks = ball_tracking._add_short_stationary_template_recoveries(
+        (
+            BallTrack(
+                1,
+                [
+                    BallPoint(
+                        0,
+                        0.0,
+                        0.8,
+                        40,
+                        40,
+                        box_diagonal=10,
+                        evidence="focused_multiscale_detector",
+                        source_attribution="yolo26_focused_multiscale",
+                    ),
+                    BallPoint(
+                        10,
+                        0.4,
+                        0.8,
+                        40,
+                        40,
+                        box_diagonal=10,
+                        evidence="focused_multiscale_detector",
+                        source_attribution="yolo26_focused_multiscale",
+                    ),
+                ],
+            ),
+        ),
+        video=Path("unused.mp4"),
+        fps=25,
+        frame_step=5,
+    )
+
+    assert [point.source_frame for point in tracks[0].points] == [0, 5, 10]
+    assert tracks[0].points[1].evidence == "stationary_bidirectional_template"
+    assert tracks[0].points[1].temporal_score is not None
+    assert tracks[0].points[1].temporal_score > 0.99
+
+
+def test_short_stationary_template_requires_direct_visual_anchors(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        ball_tracking,
+        "_read_sampled_grayscale_frames",
+        lambda *_args: (_ for _ in ()).throw(
+            AssertionError("ineligible anchors must not read video")
+        ),
+    )
+    track = BallTrack(
+        1,
+        [
+            BallPoint(
+                0,
+                0.0,
+                0.8,
+                40,
+                40,
+                box_diagonal=10,
+                evidence="interpolated",
+                source_attribution="interpolated",
+            ),
+            BallPoint(
+                10,
+                0.4,
+                0.8,
+                40,
+                40,
+                box_diagonal=10,
+                evidence="interpolated",
+                source_attribution="interpolated",
+            ),
+        ],
+    )
+
+    assert ball_tracking._add_short_stationary_template_recoveries(
+        (track,),
+        video=Path("unused.mp4"),
+        fps=25,
+        frame_step=5,
+    ) == (track,)
 
 
 def test_long_stationary_template_bridge_requires_stable_detector_anchors() -> None:
@@ -752,7 +1003,7 @@ def test_forward_template_consensus_propagates_visual_matches() -> None:
     )
 
 
-def test_forward_template_propagation_requires_verified_terminal_seed() -> None:
+def test_forward_template_propagation_requires_supported_terminal_seed() -> None:
     history = [
         BallPoint(0, 0.0, 0.8, 30, 40, box_diagonal=10),
         BallPoint(5, 0.2, 0.8, 32, 40, box_diagonal=10),
@@ -791,6 +1042,319 @@ def test_forward_template_propagation_requires_verified_terminal_seed() -> None:
         frame_step=5,
         maximum_gap_seconds=0.56,
     ) == ()
+
+
+def test_forward_template_allows_one_step_after_stable_detector_history() -> None:
+    history = [
+        BallPoint(
+            frame,
+            7.2 + frame / 25,
+            0.8,
+            30,
+            40,
+            box_diagonal=10,
+            evidence=(
+                "detector"
+                if frame in {0, 15, 50}
+                else "stationary_bidirectional_template"
+            ),
+            temporal_score=None if frame in {0, 15, 50} else 0.9,
+            source_attribution=(
+                "yolo26_observed"
+                if frame in {0, 15, 50}
+                else "temporal_detector_observed"
+            ),
+        )
+        for frame in (0, 5, 10, 15, 50)
+    ]
+
+    plans = _forward_template_plans(
+        BallTrack(1, history),
+        track_index=0,
+        fps=25,
+        frame_step=5,
+        maximum_gap_seconds=0.56,
+    )
+
+    assert len(plans) == 1
+    assert plans[0].seed == history[3]
+    assert plans[0].target_frames == (20, 25, 30, 35)
+
+
+def test_full_rate_motion_streak_candidates_accept_motion_blur() -> None:
+    previous = np.zeros((80, 120), dtype=np.uint8)
+    current = previous.copy()
+    following = previous.copy()
+    cv2.rectangle(current, (40, 35), (57, 40), 220, -1)
+
+    candidates = ball_tracking._full_rate_motion_streak_candidates(
+        previous=previous,
+        current=current,
+        following=following,
+        source_frame=10,
+        reference_diameter=10,
+    )
+
+    assert len(candidates) == 1
+    assert candidates[0].width > candidates[0].height * 2
+
+
+def test_full_rate_motion_streak_consensus_recovers_only_visual_samples() -> None:
+    seed = BallPoint(
+        0,
+        0.0,
+        0.8,
+        20,
+        100,
+        box_diagonal=10,
+        evidence="detector",
+        source_attribution="yolo26_observed",
+    )
+    candidates = {
+        frame: (
+            ball_tracking._MotionStreakCandidate(
+                source_frame=frame,
+                x=20 + frame * 5,
+                y=100 - frame * 2 + frame**2 * 0.03,
+                width=12,
+                height=6,
+                area=40,
+                visual_score=0.8,
+            ),
+        )
+        for frame in range(10, 36)
+        if frame != 25
+    }
+
+    recovered = ball_tracking._full_rate_motion_streak_consensus(
+        candidates,
+        seed=seed,
+        fps=25,
+        frame_step=5,
+        reference_diameter=10,
+        max_speed_pixels_per_second=1600,
+    )
+
+    assert [point.source_frame for point in recovered] == [
+        10,
+        15,
+        20,
+        30,
+        35,
+    ]
+    assert all(point.evidence == "full_rate_motion_streak" for point in recovered)
+    assert all(
+        point.source_attribution == "raw_motion_micro_crop_supported"
+        for point in recovered
+    )
+
+
+def test_motion_streak_forward_search_prior_uses_recent_velocity() -> None:
+    history = [
+        BallPoint(frame, frame / 25, 0.8, 100 + frame * 2, 200)
+        for frame in (0, 5, 10)
+    ]
+
+    x, y, radius = ball_tracking._motion_streak_forward_search_prior(
+        history,
+        target_frame=15,
+        fps=25,
+        reference_diameter=10,
+        max_speed_pixels_per_second=1600,
+    )
+
+    assert x == 130
+    assert y == 200
+    assert 20 <= radius < 100
+
+
+def test_full_rate_motion_streak_consensus_rejects_outside_search_prior() -> None:
+    seed = BallPoint(0, 0.0, 0.8, 20, 100, box_diagonal=10)
+    candidates = {
+        frame: (
+            ball_tracking._MotionStreakCandidate(
+                source_frame=frame,
+                x=500 + frame,
+                y=100,
+                width=12,
+                height=6,
+                area=40,
+                visual_score=0.8,
+            ),
+        )
+        for frame in range(10, 36)
+    }
+
+    recovered = ball_tracking._full_rate_motion_streak_consensus(
+        candidates,
+        seed=seed,
+        history=(seed,),
+        fps=25,
+        frame_step=5,
+        reference_diameter=10,
+        max_speed_pixels_per_second=1600,
+    )
+
+    assert recovered == ()
+
+
+def test_full_rate_motion_streak_consensus_rejects_ambiguous_coordinates() -> None:
+    seed = BallPoint(0, 0.0, 0.8, 20, 100, box_diagonal=10)
+    candidates = {
+        frame: tuple(
+            ball_tracking._MotionStreakCandidate(
+                source_frame=frame,
+                x=20 + frame * 5,
+                y=100 + direction * (45 + frame),
+                width=12,
+                height=6,
+                area=40,
+                visual_score=0.8,
+            )
+            for direction in (-1, 1)
+        )
+        for frame in range(10, 36)
+    }
+
+    recovered = ball_tracking._full_rate_motion_streak_consensus(
+        candidates,
+        seed=seed,
+        fps=25,
+        frame_step=5,
+        reference_diameter=10,
+        max_speed_pixels_per_second=1600,
+    )
+
+    assert recovered == ()
+
+
+def test_full_rate_trajectory_corridor_requires_matching_appearance() -> None:
+    history = [
+        BallPoint(frame, frame / 25, 0.8, 20 + frame * 5, 60, box_diagonal=10)
+        for frame in (-3, -2, -1, 0)
+    ]
+    color_frames = {
+        frame: np.full((120, 160, 3), (40, 120, 40), dtype=np.uint8)
+        for frame in range(10)
+    }
+    color_frames[0][57:64, 17:24] = (0, 140, 255)
+    candidates = {}
+    for frame in range(1, 10):
+        x = 20 + frame * 5
+        color_frames[frame][57:64, x - 3 : x + 4] = (0, 140, 255)
+        color_frames[frame][87:94, x - 3 : x + 4] = (15, 15, 15)
+        candidates[frame] = (
+            ball_tracking._MotionStreakCandidate(
+                frame,
+                x,
+                60,
+                10,
+                6,
+                30,
+                0.8,
+            ),
+            ball_tracking._MotionStreakCandidate(
+                frame,
+                x,
+                90,
+                10,
+                6,
+                30,
+                0.9,
+            ),
+        )
+
+    recovered = ball_tracking._full_rate_trajectory_corridor_point(
+        candidates,
+        color_frames=color_frames,
+        history=history,
+        target_frame=5,
+        fps=25,
+        reference_diameter=10,
+        max_speed_pixels_per_second=1600,
+    )
+
+    assert recovered is not None
+    assert recovered.source_frame == 5
+    assert recovered.x == 45
+    assert recovered.y == 60
+    assert recovered.evidence == "full_rate_trajectory_corridor"
+
+
+def test_full_rate_trajectory_corridor_rejects_occluded_target() -> None:
+    history = [
+        BallPoint(frame, frame / 25, 0.8, 20 + frame * 5, 60, box_diagonal=10)
+        for frame in (-3, -2, -1, 0)
+    ]
+    color_frames = {
+        frame: np.full((120, 160, 3), (40, 120, 40), dtype=np.uint8)
+        for frame in range(10)
+    }
+    color_frames[0][57:64, 17:24] = (0, 140, 255)
+    candidates = {}
+    for frame in range(1, 10):
+        if frame == 5:
+            candidates[frame] = ()
+            continue
+        x = 20 + frame * 5
+        color_frames[frame][57:64, x - 3 : x + 4] = (0, 140, 255)
+        candidates[frame] = (
+            ball_tracking._MotionStreakCandidate(
+                frame,
+                x,
+                60,
+                10,
+                6,
+                30,
+                0.8,
+            ),
+        )
+
+    assert (
+        ball_tracking._full_rate_trajectory_corridor_point(
+            candidates,
+            color_frames=color_frames,
+            history=history,
+            target_frame=5,
+            fps=25,
+            reference_diameter=10,
+            max_speed_pixels_per_second=1600,
+        )
+        is None
+    )
+
+
+def test_bounded_color_frame_reader_discards_frames_before_window(
+    monkeypatch,
+) -> None:
+    class FakeCapture:
+        def __init__(self, _video: str) -> None:
+            self.position = 0
+
+        def isOpened(self) -> bool:
+            return True
+
+        def read(self):
+            frame = np.full((2, 2, 3), self.position, dtype=np.uint8)
+            self.position += 1
+            return True, frame
+
+        def set(self, _property: int, value: int) -> bool:
+            self.position = int(value)
+            return True
+
+        def release(self) -> None:
+            pass
+
+    monkeypatch.setattr(ball_tracking.cv2, "VideoCapture", FakeCapture)
+
+    with ball_tracking._BoundedColorFrameReader(Path("unused.mp4")) as reader:
+        first = reader.read_range(10, 15)
+        second = reader.read_range(14, 19)
+
+        assert tuple(first) == tuple(range(10, 16))
+        assert tuple(second) == tuple(range(14, 20))
+        assert tuple(reader.frames) == tuple(range(14, 20))
 
 
 def test_motion_circle_bridge_recovers_unique_moving_ball() -> None:
@@ -870,6 +1434,91 @@ def test_discards_temporal_point_inside_player_upper_body() -> None:
 
     assert tracks == (BallTrack(1, [detector]),)
     assert discarded == 1
+
+
+def test_preserves_multiscale_detector_inside_player_upper_body() -> None:
+    detector = BallPoint(
+        5,
+        0.2,
+        0.2,
+        120,
+        130,
+        evidence="focused_multiscale_detector",
+        source_attribution="yolo26_focused_multiscale",
+    )
+
+    tracks, discarded = _discard_temporal_upper_body_points(
+        [BallTrack(1, [detector])],
+        records_by_frame={
+            5: {
+                "detections": [
+                    {
+                        "class_name": "person",
+                        "confidence": 0.8,
+                        "x1": 100,
+                        "y1": 100,
+                        "x2": 140,
+                        "y2": 200,
+                    }
+                ]
+            }
+        },
+    )
+
+    assert tracks == (BallTrack(1, [detector]),)
+    assert discarded == 0
+
+
+def test_preserves_motion_confirmed_ball_inside_player_upper_body() -> None:
+    confirmed = BallPoint(
+        5,
+        0.2,
+        0.8,
+        120,
+        130,
+        evidence="full_rate_motion_streak",
+        source_attribution="raw_motion_micro_crop_supported",
+    )
+
+    tracks, discarded = _discard_temporal_upper_body_points(
+        [BallTrack(1, [confirmed])],
+        records_by_frame={
+            5: {
+                "detections": [
+                    {
+                        "class_name": "person",
+                        "confidence": 0.8,
+                        "x1": 100,
+                        "y1": 100,
+                        "x2": 140,
+                        "y2": 200,
+                    }
+                ]
+            }
+        },
+    )
+
+    assert tracks == (BallTrack(1, [confirmed]),)
+    assert discarded == 0
+
+
+def test_deduplication_prefers_validated_ball_over_raw_detector() -> None:
+    raw = BallPoint(5, 0.2, 0.99, 500, 200)
+    validated = BallPoint(
+        5,
+        0.2,
+        0.4,
+        120,
+        200,
+        evidence="template_validated_detector",
+        source_attribution="temporal_detector_observed",
+    )
+
+    tracks = _deduplicate_track_frames(
+        (BallTrack(1, [raw, validated]),)
+    )
+
+    assert tracks == (BallTrack(1, [validated]),)
 
 
 def test_template_match_rejects_searches_outside_the_frame() -> None:
@@ -1031,6 +1680,8 @@ def test_global_motion_requires_support_on_both_adjacent_frames() -> None:
     assert [proposal.point.source_frame for proposal in selected] == [5]
 
 
+
+
 def test_near_feet_motion_requires_visual_verification() -> None:
     proposals = {
         5: [
@@ -1147,6 +1798,109 @@ def test_detector_outlier_requires_combined_visual_support(
     assert rejected == frozenset({5})
 
 
+def test_final_trajectory_integrity_demotes_isolated_contradiction() -> None:
+    points = [
+        BallPoint(0, 0.0, 0.9, 0, 0),
+        BallPoint(5, 0.2, 0.9, 20, 0),
+        BallPoint(10, 0.4, 0.2, 500, 200),
+        BallPoint(15, 0.6, 0.9, 60, 0),
+    ]
+
+    filtered, rejected = ball_tracking._discard_final_trajectory_conflicts(
+        (BallTrack(1, points),),
+        fps=25,
+        max_speed_pixels_per_second=1000,
+        max_acceleration_pixels_per_second_squared=10000,
+    )
+
+    assert [point.source_frame for point in filtered[0].points] == [0, 5, 15]
+    assert rejected == frozenset({10})
+
+
+def test_final_trajectory_integrity_preserves_coherent_fast_path() -> None:
+    points = [
+        BallPoint(0, 0.0, 0.8, 0, 0),
+        BallPoint(5, 0.2, 0.8, 100, 0),
+        BallPoint(10, 0.4, 0.8, 200, 0),
+        BallPoint(15, 0.6, 0.8, 300, 0),
+    ]
+
+    filtered, rejected = ball_tracking._discard_final_trajectory_conflicts(
+        (BallTrack(1, points),),
+        fps=25,
+        max_speed_pixels_per_second=600,
+        max_acceleration_pixels_per_second_squared=10000,
+    )
+
+    assert filtered[0].points == points
+    assert rejected == frozenset()
+
+
+def test_final_trajectory_integrity_demotes_recovered_return_excursion() -> None:
+    points = [
+        BallPoint(0, 0.0, 0.9, 100, 100, box_diagonal=10),
+        BallPoint(5, 0.2, 0.9, 101, 100, box_diagonal=10),
+        BallPoint(
+            25,
+            1.0,
+            0.8,
+            700,
+            80,
+            box_diagonal=10,
+            evidence="raw_motion_attention_convergence_near_feet",
+            source_attribution="raw_motion_micro_crop_supported",
+        ),
+        BallPoint(45, 1.8, 0.9, 102, 100, box_diagonal=10),
+        BallPoint(50, 2.0, 0.9, 101, 100, box_diagonal=10),
+    ]
+
+    filtered, rejected = ball_tracking._discard_final_trajectory_conflicts(
+        (BallTrack(1, points),),
+        fps=25,
+        max_speed_pixels_per_second=1600,
+        max_acceleration_pixels_per_second_squared=12000,
+    )
+
+    assert [point.source_frame for point in filtered[0].points] == [
+        0,
+        5,
+        45,
+        50,
+    ]
+    assert rejected == frozenset({25})
+
+
+def test_sampled_state_uses_bounded_vertical_curve_between_flight_anchors() -> None:
+    records = [
+        {"source_frame": frame}
+        for frame in (0, 5, 10, 15, 20, 25)
+    ]
+    track = BallTrack(
+        1,
+        [
+            BallPoint(0, 0.0, 0.9, 0, 100, box_diagonal=10),
+            BallPoint(20, 0.8, 0.9, 200, 60, box_diagonal=10),
+            BallPoint(25, 1.0, 0.9, 250, 55, box_diagonal=10),
+        ],
+    )
+
+    states = ball_tracking._sampled_ball_state_estimates(
+        (track,),
+        records=records,
+        fps=25,
+        frame_step=5,
+        width=1000,
+        height=500,
+        max_speed_pixels_per_second=1600,
+    )
+
+    middle = next(state for state in states if state["source_frame"] == 10)
+    assert middle["x"] == 100
+    assert middle["y"] == 75
+    assert middle["state"] == "trajectory_estimated_bidirectional_curved"
+    assert middle["event_evidence_eligible"] is False
+
+
 def test_short_motion_bridge_accepts_coherent_endpoint_bounded_chain(
     monkeypatch,
 ) -> None:
@@ -1199,6 +1953,301 @@ def test_short_motion_bridge_accepts_coherent_endpoint_bounded_chain(
     )
 
     assert [point.source_frame for point in tracks[0].points] == [0, 5, 10, 15]
+
+
+def test_low_confidence_global_fallback_outliers_are_preserved_without_reacquisition(
+    monkeypatch,
+) -> None:
+    points = [
+        BallPoint(0, 0.0, 0.8, 0, 0),
+        BallPoint(
+            5,
+            0.2,
+            0.6,
+            5,
+            60,
+            evidence="raw_motion_global_fallback",
+        ),
+        BallPoint(10, 0.4, 0.8, 10, 0),
+        BallPoint(
+            15,
+            0.6,
+            0.8,
+            15,
+            60,
+            evidence="raw_motion_global_fallback",
+        ),
+        BallPoint(20, 0.8, 0.8, 20, 0),
+        BallPoint(
+            25,
+            1.0,
+            0.6,
+            25,
+            40,
+            evidence="raw_motion_global_fallback",
+        ),
+        BallPoint(30, 1.2, 0.8, 30, 0),
+    ]
+
+    monkeypatch.setattr(
+        ball_tracking,
+        "_read_sampled_color_frames",
+        lambda *_args, **_kwargs: {},
+    )
+    tracks = ball_tracking._replace_low_confidence_global_fallback_outliers(
+        (BallTrack(1, points),),
+        video=Path("unused.mp4"),
+    )
+
+    assert [point.source_frame for point in tracks[0].points] == [
+        0,
+        5,
+        10,
+        15,
+        20,
+        25,
+        30,
+    ]
+
+
+def test_multiscale_detection_consensus_requires_independent_variants() -> None:
+    detections = [
+        ball_tracking._FocusedBallDetection(
+            30 + offset,
+            40,
+            confidence,
+            variant,
+            8,
+            7,
+        )
+        for offset, confidence, variant in [
+            (-0.5, 0.1, (80, 640)),
+            (0.0, 0.2, (100, 640)),
+            (0.5, 0.15, (120, 960)),
+        ]
+    ]
+    detections.extend(
+        [
+            ball_tracking._FocusedBallDetection(
+                70,
+                70,
+                0.9,
+                (80, 640),
+                8,
+                7,
+            ),
+            ball_tracking._FocusedBallDetection(
+                70,
+                70,
+                0.8,
+                (80, 640),
+                8,
+                7,
+            ),
+        ]
+    )
+
+    consensus = ball_tracking._multiscale_detection_consensus(
+        detections,
+        expected_x=35,
+        expected_y=40,
+        reference_diameter=10,
+    )
+
+    assert len(consensus) == 3
+    assert {detection.variant for detection in consensus} == {
+        (80, 640),
+        (100, 640),
+        (120, 960),
+    }
+
+
+def test_focused_missing_points_accepts_bracketed_and_supported_pair(
+    monkeypatch,
+) -> None:
+    tracks = (
+        BallTrack(
+            1,
+            [
+                BallPoint(0, 0.0, 0.8, 0, 0, box_diagonal=10),
+                BallPoint(20, 0.8, 0.8, 100, 0, box_diagonal=10),
+            ],
+        ),
+    )
+    records = [
+        {"source_frame": frame, "clip_seconds": frame / 25}
+        for frame in (0, 5, 10, 15, 20, 25)
+    ]
+    candidates = {
+        5: BallPoint(
+            5,
+            0.2,
+            0.1,
+            25,
+            0,
+            box_diagonal=10,
+            evidence="focused_multiscale_detector",
+        ),
+        10: BallPoint(
+            10,
+            0.4,
+            0.1,
+            27,
+            0,
+            box_diagonal=10,
+            evidence="focused_multiscale_detector",
+        ),
+        15: BallPoint(
+            15,
+            0.6,
+            0.1,
+            29,
+            0,
+            box_diagonal=10,
+            evidence="focused_multiscale_detector",
+        ),
+    }
+    monkeypatch.setattr(
+        ball_tracking,
+        "_read_sampled_color_frames",
+        lambda _video, frames: {
+            frame: np.zeros((40, 40, 3), dtype=np.uint8)
+            for frame in frames
+        },
+    )
+    monkeypatch.setattr(
+        ball_tracking,
+        "_focused_multiscale_ball_reacquisition",
+        lambda **kwargs: candidates.get(kwargs["source_frame"]),
+    )
+
+    recovered = ball_tracking._add_focused_multiscale_missing_points(
+        tracks,
+        records=records,
+        video=Path("unused.mp4"),
+        model=object(),
+        fps=25,
+        frame_step=5,
+    )
+
+    assert [point.source_frame for point in recovered[0].points] == [
+        0,
+        5,
+        10,
+        15,
+        20,
+    ]
+
+
+def test_weak_detector_point_is_eligible_for_focused_replacement(
+    monkeypatch,
+) -> None:
+    weak = BallPoint(
+        5,
+        0.2,
+        0.1,
+        5,
+        20,
+        box_diagonal=10,
+    )
+    replacement = BallPoint(
+        5,
+        0.2,
+        0.08,
+        5,
+        2,
+        box_diagonal=10,
+        evidence="focused_multiscale_detector",
+    )
+    tracks = (
+        BallTrack(
+            1,
+            [
+                BallPoint(0, 0.0, 0.8, 0, 0, box_diagonal=10),
+                weak,
+                BallPoint(10, 0.4, 0.8, 10, 0, box_diagonal=10),
+            ],
+        ),
+    )
+    monkeypatch.setattr(
+        ball_tracking,
+        "_read_sampled_color_frames",
+        lambda *_args, **_kwargs: {5: np.zeros((20, 20, 3), dtype=np.uint8)},
+    )
+    monkeypatch.setattr(
+        ball_tracking,
+        "_focused_multiscale_ball_reacquisition",
+        lambda **_kwargs: replacement,
+    )
+
+    recovered = ball_tracking._replace_low_confidence_global_fallback_outliers(
+        tracks,
+        video=Path("unused.mp4"),
+        model=object(),
+    )
+
+    assert recovered[0].points[1] == replacement
+
+
+def test_terminal_focused_points_require_continuous_anchor_chain(
+    monkeypatch,
+) -> None:
+    tracks = (
+        BallTrack(
+            1,
+            [
+                BallPoint(0, 0.0, 0.8, 0, 0, box_diagonal=10),
+            ],
+        ),
+    )
+    records = [
+        {"source_frame": frame, "clip_seconds": frame / 25}
+        for frame in (0, 5, 10)
+    ]
+    candidates = {
+        frame: BallPoint(
+            frame,
+            frame / 25,
+            0.1,
+            frame,
+            0,
+            box_diagonal=10,
+            evidence="focused_multiscale_detector",
+        )
+        for frame in range(1, 7)
+    }
+    candidates[7] = BallPoint(
+        7,
+        7 / 25,
+        0.1,
+        100,
+        0,
+        box_diagonal=10,
+        evidence="focused_multiscale_detector",
+    )
+    monkeypatch.setattr(
+        ball_tracking,
+        "_read_sampled_color_frames",
+        lambda _video, frames: {
+            frame: np.zeros((20, 20, 3), dtype=np.uint8)
+            for frame in frames
+        },
+    )
+    monkeypatch.setattr(
+        ball_tracking,
+        "_focused_multiscale_ball_reacquisition",
+        lambda **kwargs: candidates.get(kwargs["source_frame"]),
+    )
+
+    recovered = ball_tracking._add_focused_multiscale_terminal_points(
+        tracks,
+        records=records,
+        video=Path("unused.mp4"),
+        model=object(),
+        fps=25,
+    )
+
+    assert [point.source_frame for point in recovered[0].points] == [0, 5]
 
 
 def test_short_motion_bridge_rejects_unanchored_singleton(
@@ -1679,7 +2728,11 @@ def test_restores_unique_detector_candidate_on_plausible_path() -> None:
     )
 
     assert [point.x for point in restored[0].points] == [100, 120, 140, 160]
-    assert restored[0].points[2].source_attribution == "yolo26_observed"
+    assert restored[0].points[2].evidence == "trajectory_validated_detector"
+    assert (
+        restored[0].points[2].source_attribution
+        == "temporal_detector_observed"
+    )
 
 
 def test_restores_repeated_isolated_detector_points_in_anchored_cell() -> None:
@@ -1751,7 +2804,130 @@ def test_restores_supported_foot_point_into_missing_frame() -> None:
         supported_foot_points=frozenset({contact}),
     )
 
-    assert restored[0].points[-1] == contact
+    assert restored[0].points[-1] == replace(
+        contact,
+        evidence="trajectory_validated_detector",
+        source_attribution="temporal_detector_observed",
+    )
+
+
+def test_leaves_conflicted_frame_when_multiple_candidates_are_plausible() -> None:
+    selected = (
+        BallTrack(
+            1,
+            [
+                BallPoint(5, 0.2, 0.8, 120, 200),
+                BallPoint(15, 0.6, 0.8, 160, 200),
+            ],
+        ),
+    )
+
+    restored = _restore_plausible_detector_points(
+        selected,
+        detector_candidates=[
+            _BallCandidate(
+                BallPoint(10, 0.4, 0.4, 138, 200),
+                near_player_feet=False,
+            ),
+            _BallCandidate(
+                BallPoint(10, 0.4, 0.5, 142, 200),
+                near_player_feet=False,
+            ),
+        ],
+        frame_step=5,
+        fps=25,
+        max_speed_pixels_per_second=500,
+    )
+
+    assert restored == selected
+
+
+def test_conflicted_frame_stays_unresolved_with_one_plausible_candidate() -> None:
+    selected = (
+        BallTrack(
+            1,
+            [
+                BallPoint(5, 0.2, 0.8, 120, 200),
+                BallPoint(15, 0.6, 0.8, 160, 200),
+            ],
+        ),
+    )
+    ball = BallPoint(10, 0.4, 0.4, 140, 200)
+    false_positive = BallPoint(10, 0.4, 0.9, 800, 200)
+
+    restored = _restore_plausible_detector_points(
+        selected,
+        detector_candidates=[
+            _BallCandidate(ball, near_player_feet=True),
+            _BallCandidate(false_positive, near_player_feet=False),
+        ],
+        frame_step=5,
+        fps=25,
+        max_speed_pixels_per_second=500,
+    )
+
+    assert all(
+        point.source_frame != ball.source_frame
+        for track in restored
+        for point in track.points
+    )
+
+
+def test_supported_foot_contact_can_be_validated_on_player_overlap() -> None:
+    selected = (
+        BallTrack(
+            1,
+            [
+                BallPoint(5, 0.2, 0.8, 120, 200),
+                BallPoint(15, 0.6, 0.8, 160, 200),
+            ],
+        ),
+    )
+    overlapping_candidate = BallPoint(10, 0.4, 0.4, 140, 200)
+
+    restored = _restore_plausible_detector_points(
+        selected,
+        detector_candidates=[
+            _BallCandidate(overlapping_candidate, near_player_feet=True)
+        ],
+        frame_step=5,
+        fps=25,
+        max_speed_pixels_per_second=500,
+        supported_foot_points=frozenset({overlapping_candidate}),
+    )
+
+    assert restored[0].points[1] == replace(
+        overlapping_candidate,
+        evidence="trajectory_validated_detector",
+        source_attribution="temporal_detector_observed",
+    )
+
+
+def test_restored_candidate_does_not_seed_later_restoration() -> None:
+    selected = (
+        BallTrack(
+            1,
+            [
+                BallPoint(0, 0.0, 0.8, 100, 200),
+                BallPoint(5, 0.2, 0.8, 120, 200),
+            ],
+        ),
+    )
+    first_missing = BallPoint(10, 0.4, 0.4, 140, 200)
+    second_missing = BallPoint(15, 0.6, 0.4, 160, 200)
+
+    restored = _restore_plausible_detector_points(
+        selected,
+        detector_candidates=[
+            _BallCandidate(first_missing, near_player_feet=False),
+            _BallCandidate(second_missing, near_player_feet=False),
+        ],
+        frame_step=5,
+        fps=25,
+        max_speed_pixels_per_second=500,
+    )
+
+    assert [point.source_frame for point in restored[0].points] == [0, 5, 10]
 
 
 def test_does_not_restore_foot_point_across_expired_gap() -> None:
@@ -1780,7 +2956,7 @@ def test_does_not_restore_foot_point_across_expired_gap() -> None:
     assert restored == selected
 
 
-def test_restores_bracketed_foot_contact_despite_conflicting_neighbors() -> None:
+def test_rejects_bracketed_foot_contact_with_conflicting_trajectory() -> None:
     contact = BallPoint(10, 0.4, 0.12, 140, 200)
     selected = (
         BallTrack(
@@ -1803,7 +2979,7 @@ def test_restores_bracketed_foot_contact_despite_conflicting_neighbors() -> None
         supported_foot_points=frozenset({contact}),
     )
 
-    assert restored[0].points[1] == contact
+    assert restored == selected
 
 
 def test_selector_leaves_missing_frame_instead_of_forcing_distant_candidate() -> None:

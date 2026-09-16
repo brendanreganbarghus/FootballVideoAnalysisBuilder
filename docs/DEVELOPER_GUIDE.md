@@ -109,6 +109,181 @@ FootballVideoAnalysisBuilder\
 `-- README.md               Main setup, benchmark and operational reference
 ```
 
+### Innovation Day: reproducible developer workspace
+
+Use three storage tiers. Do not put raw footage, model weights, detection
+caches, track files, rendered videos, or archives in Git.
+
+| Tier | Contents | Lifecycle |
+| --- | --- | --- |
+| Git repository | Code, tests, documentation, schemas, small configuration, and manifests containing logical source IDs rather than developer-specific absolute paths | Review and merge normally |
+| Shared OneDrive artifact store | Authorized full recordings, immutable prepared 30/60-second segments, per-camera calibration, approved model packages and model cards, passed reference baselines, review receipts, engine/output fingerprints, and the SHA-256 inventory | Team-owned, checksummed, immutable after promotion |
+| Local workspace | Fresh detections, ball/player tracks, initialization evidence, possession, provisional events, logs, thumbnails, and performance reports under `benchmarks\...\generated` or `benchmarks\custom-cameras` | Disposable and reproducible; never used as another developer's hidden input |
+
+The governed OneDrive layout is:
+
+```text
+Innovationday Artifacts\
+|-- 00-governance\checksums.sha256
+|-- 00-governance\Verify-Artifacts.ps1
+|-- 10-master-data\
+|   |-- <club>\<venue>\<camera-id>\
+|       |-- camera.json
+|       |-- calibrations\<calibration-id>\pitch-calibration.json
+|       `-- recordings\<recording-id>\
+|           |-- recording.json
+|           `-- source.<container>
+|   `-- custom-cameras\custom-<camera-uuid>\
+|       |-- camera.json
+|       |-- sample.mp4
+|       `-- pitch-calibration.json
+|-- 15-prepared-segments\<camera-id>\<recording-id>\<segment-id>\
+|   |-- segment.json
+|   `-- segment.mp4
+|-- 20-approved-models\<scope>\<model>\
+|-- 30-shared-baselines\
+|   |-- event-review-state\
+|   `-- <baseline-version>\...
+`-- 40-team-runs\<dataset>\<segment>\<run-id>\
+    |-- run.json
+    |-- checksums.sha256
+    `-- selected reproducibility artifacts
+```
+
+The source hierarchy is:
+
+```text
+Club -> Venue -> Camera -> Recording -> Prepared Segment -> AI Run
+```
+
+A camera has an immutable generated UUID, club, venue, position/role, and an
+optional manufacturer serial number. The serial is metadata rather than the
+primary key because hardware metadata can be absent and a camera can be moved
+or replaced. A moved camera creates a new installation/calibration version.
+Alfheim and SoccerTrack each currently register one test camera. Their
+`TESTDATA-*` serials are assigned test identifiers, not manufacturer claims.
+
+One camera may own multiple authorized raw recordings. A developer selects the
+camera and recording, then a start position and exactly 30 or 60 seconds.
+FFmpeg creates a child clip; the AI endpoint accepts only that child clip and
+must reject the full 5-, 10-, 45-, or 90-minute recording. Store originals in
+`10-master-data` and reusable child clips plus provenance manifests in the
+append-only `15-prepared-segments` catalog. A segment manifest records the
+camera, recording, calibration and hashes, source start, duration, creator,
+creation time, and segment hash. This makes the same exact clip selectable by
+other developers without using provider event labels.
+
+The Review Canvas stores a newly uploaded custom-camera 30/60-second sample and
+its calibration in `10-master-data\custom-cameras` until full-recording upload
+is implemented. Every camera receives a unique source/calibration namespace.
+Its detections, tracks, events, logs, and timing report run locally under
+`benchmarks\custom-cameras`; they are not written into the synchronized source
+folder. Alfheim, SoccerTrack, and custom-camera files must never be used as
+fallbacks for one another.
+
+Before the Innovation Day handoff, another developer should:
+
+```powershell
+git clone <repository-url>
+cd FootballVideoAnalysisBuilder
+py -3.11 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -e ".[test,dataset]"
+
+$env:FOOTBALL_ARTIFACT_ROOT = `
+  "C:\Users\<name>\OneDrive - Xebia\Innovationday Artifacts"
+$env:FOOTBALL_ALFHEIM_PANO = Join-Path `
+  $env:FOOTBALL_ARTIFACT_ROOT "10-master-data\alfheim\pano"
+
+python .\scripts\verify-innovation-workspace.py --require-alfheim
+& "$env:FOOTBALL_ARTIFACT_ROOT\00-governance\Verify-Artifacts.ps1"
+python -m pytest -q
+python .\scripts\serve-local.py --bind 127.0.0.1 --port 8080
+```
+
+The detector is resolved in this order: explicit
+`FOOTBALL_DETECTOR_MODEL`, the checksummed shared approved model, then a local
+generic `yolo11n.pt`. The football-specific checkpoint is never selected
+implicitly because its training-data and licence provenance are unresolved.
+The exact model path and SHA-256 are written into each cold-run performance
+receipt.
+
+Use this promotion rule:
+
+1. Run the 30–60 second segment locally from raw video with cache reuse off.
+2. Review C# independently, compare it with E#, and run every protected
+   regression after any inference/rules-engine change.
+3. Publish only when the existing final gate passes and the engine source hash,
+   output hash, reference count, and one-to-one matches are current.
+4. Publish any run that teammates need to inspect into the append-only shared
+   run catalog. A passed reference is additionally promoted into
+   `30-shared-baselines`.
+5. Do not promote transient detections, tracks, logs, thumbnails, or failed and
+   provisional outputs unless a debugging package is deliberately requested.
+
+Publish a run without its large intermediate cache:
+
+```powershell
+python .\scripts\publish-segment-run.py `
+  .\benchmarks\custom-cameras\custom-home-main `
+  --dataset custom-home-main `
+  --status provisional
+```
+
+Add `--include-cache` only when another developer needs the exact detections
+and tracks for debugging. "Checked in" means published to this checksummed
+OneDrive run catalog, not committed to Git. Each run uses an immutable UUID
+folder, so developers can see one another's work without overwriting it.
+
+Full-match upload with automatic segmentation and a shared "currently in use"
+lease is a later workflow. Until that lock exists, shared master data and
+passed baselines are append-only: do not overwrite an existing camera ID or
+baseline folder.
+
+### Parallel event-rule development
+
+Use one branch, one worktree/session, and one pull request per event family.
+Suggested Innovation Day ownership:
+
+| Workstream | Owns | Must not own |
+| --- | --- | --- |
+| Shot attempts and outcomes | Shot candidate, on-target, off-target, saved/blocked evidence, and links to goals | Goal/restart law transitions |
+| Goals and goal restarts | Goal confirmation and kick-off restart state | Generic shot-direction thresholds |
+| Corners and goal kicks | Whole-ball goal-line crossing and restart-family classification | Possession/pass thresholds |
+| Four-zone analytics | Calibrated zone membership and zone aggregates | Event truth or team classification |
+| Platform integration | Shared event schema, registry, Canvas rendering, run publication, and merge sequencing | Event rules without the owning workstream |
+
+A shot, shot outcome, and goal are related but separate facts. One attempt gets
+a stable `attempt_id`. It may have exactly one terminal outcome such as
+`on_target` or `off_target`; a confirmed goal is a separate event linked to
+that attempt and also implies on-target. A saved on-target shot is not a goal.
+Do not infer off-target merely because no goal occurred.
+
+To reduce merge conflicts, event-family code should move toward separate
+modules such as `events\shots.py`, `events\goals.py`,
+`events\set_pieces.py`, and `analytics\zones.py`. A small central registry owns
+canonical names and ordering. Only the integration owner changes the registry
+or shared evidence contracts during the event. Developers should reuse a
+merged shared evidence helper rather than copy a similar rule into another
+module.
+
+Merge rule work serially:
+
+1. Branch from the same protected baseline and declare the owned event family.
+2. Add focused tests plus at least one negative or abstention case.
+3. Before review, update from the latest integration branch and resolve
+   semantic overlap with already accepted rules.
+4. Run the focused suite and every protected passed-segment regression.
+5. Merge only if the new event appears without changing protected unrelated
+   events. A failing or stale regression receipt blocks the merge.
+6. Publish the new cold run and fingerprints to `40-team-runs`.
+7. The next event-family branch updates to that merged commit and repeats the
+   complete regression gate.
+
+This cannot eliminate textual conflicts in shared contracts, but it prevents
+two rule versions from being accepted independently and then combined without
+rechecking behavior.
+
 ## 5. Algorithm and module map
 
 ### `src\football_poc\benchmark.py`

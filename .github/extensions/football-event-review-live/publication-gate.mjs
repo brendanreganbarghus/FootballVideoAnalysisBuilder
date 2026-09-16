@@ -15,6 +15,10 @@ export function buildPublicationPlan({
   const usedEngineIndexes = new Set();
   const referenceEvents = [];
   const blockers = [];
+  const isManualReview = (draft) =>
+    ["manual_review", "user_reported"].includes(draft.source);
+  const referenceLabel = (draft, index) =>
+    `${isManualReview(draft) ? "M" : "C"}${index + 1}`;
   const reviewComplete = drafts.every((_, index) =>
     ["accepted", "rejected"].includes(decisions[String(index)]?.status)
   );
@@ -26,34 +30,73 @@ export function buildPublicationPlan({
       "The current engine code and cached output must match a reviewed snapshot.",
     );
   }
-  drafts.forEach((draft, index) => {
-    const decision = decisions[String(index)];
-    if (decision?.status !== "accepted") return;
+  const acceptedAnalytics = drafts
+    .map((draft, index) => ({
+      draft,
+      index,
+      decision: decisions[String(index)],
+    }))
+    .filter(({ draft, decision }) =>
+      decision?.status === "accepted" && analyticsTypes.has(draft.type)
+    );
+  acceptedAnalytics.forEach(({ draft, index, decision }) => {
     if (!verificationIsCurrent(decision.engineVerification, current)) {
-      blockers.push(`Accepted C${index + 1} does not have a fresh engine receipt.`);
+      blockers.push(
+        `Accepted ${referenceLabel(draft, index)} does not have a fresh engine receipt.`,
+      );
     }
     if (decision.engineVerification?.status !== "already_agrees") {
-      blockers.push(`Accepted C${index + 1} does not agree with current engine output.`);
-      return;
+      blockers.push(
+        `Accepted ${referenceLabel(draft, index)} does not agree with current engine output.`,
+      );
     }
-    if (!analyticsTypes.has(draft.type)) return;
+  });
+  const matchedDrafts = [];
+  acceptedAnalytics
+    .sort((left, right) =>
+      Number(isManualReview(right.draft))
+      - Number(isManualReview(left.draft))
+    )
+    .forEach(({ draft, index, decision }) => {
+    if (decision.engineVerification?.status !== "already_agrees") return;
+    const sameFrameRequired = (
+      isManualReview(draft) || draft.sameFrameEngineReview
+    );
     const match = analyticsEngineEvents
       .map((event, engineIndex) => ({ event, engineIndex }))
       .filter(({ event, engineIndex }) =>
         !usedEngineIndexes.has(engineIndex)
         && event.type === draft.type
         && event.team === draft.team
-        && Math.abs(event.seconds - draft.seconds) <= 1
+        && (
+          sameFrameRequired
+            ? Math.round(event.seconds * 25)
+              === Math.round(draft.seconds * 25)
+            : Math.abs(event.seconds - draft.seconds) <= 1
+        )
       )
       .sort((left, right) =>
         Math.abs(left.event.seconds - draft.seconds)
         - Math.abs(right.event.seconds - draft.seconds)
       )[0];
     if (!match) {
-      blockers.push(`Accepted C${index + 1} has no unique matching engine event.`);
+      const duplicatesExactManualReference = (
+        !isManualReview(draft)
+        && matchedDrafts.some(({ draft: matchedDraft }) =>
+          isManualReview(matchedDraft)
+          && matchedDraft.type === draft.type
+          && matchedDraft.team === draft.team
+          && Math.abs(matchedDraft.seconds - draft.seconds) <= 1
+        )
+      );
+      if (duplicatesExactManualReference) return;
+      blockers.push(
+        `Accepted ${referenceLabel(draft, index)} has no unique matching engine event.`,
+      );
       return;
     }
     usedEngineIndexes.add(match.engineIndex);
+    matchedDrafts.push({ draft, index, engineIndex: match.engineIndex });
     referenceEvents.push({
       clip_seconds: Number(draft.seconds),
       team: draft.team,
@@ -75,7 +118,7 @@ export function buildPublicationPlan({
     if (rejectedMatch >= 0) {
       usedEngineIndexes.add(rejectedMatch);
       blockers.push(
-        `Rejected C${index + 1} is still emitted by current engine output.`,
+        `Rejected ${referenceLabel(draft, index)} is still emitted by current engine output.`,
       );
     }
   });

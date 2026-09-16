@@ -1,3 +1,8 @@
+import json
+from pathlib import Path
+
+import football_poc.possession as possession
+
 from football_poc.possession import (
     PredictedEvent,
     PossessionObservation,
@@ -11,6 +16,7 @@ from football_poc.possession import (
     reconcile_intervening_opponent_aerial_contacts,
     reconcile_track_identity_team_switches,
     infer_deferred_contested_turnovers,
+    infer_terminal_direct_reception,
     propagate_deferred_possession_chains,
     reconcile_delayed_turnover_chains,
     reconcile_deflected_turnover_sequences,
@@ -45,6 +51,148 @@ from football_poc.possession import (
     _event_released_outside,
     _smooth_teams,
 )
+
+
+def test_ball_state_estimates_are_loaded_for_continuity_only(
+    tmp_path: Path,
+) -> None:
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text("{}")
+    tracks = tmp_path / "ball-tracks.json"
+    tracks.write_text(
+        json.dumps(
+            {
+                "manifest": str(manifest),
+                "tracks": [
+                    {
+                        "track_id": 1,
+                        "points": [
+                            {
+                                "source_frame": 0,
+                                "clip_seconds": 0.0,
+                                "x": 10,
+                                "y": 20,
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+    )
+    states = tmp_path / "ball-state-estimates.json"
+    states.write_text(
+        json.dumps(
+            {
+                "manifest": str(manifest),
+                "policy": {
+                    "trajectory_estimates_are_for_continuity_and_search_only": True
+                },
+                "states": [
+                    {
+                        "source_frame": 0,
+                        "clip_seconds": 0.0,
+                        "x": 10,
+                        "y": 20,
+                        "event_evidence_eligible": True,
+                    },
+                    {
+                        "source_frame": 5,
+                        "clip_seconds": 0.2,
+                        "x": 15,
+                        "y": 20,
+                        "evidence": "trajectory_estimated_bidirectional",
+                        "state": "trajectory_estimated_bidirectional",
+                        "uncertainty_radius_pixels": 12,
+                        "event_evidence_eligible": False,
+                    },
+                ],
+            }
+        )
+    )
+
+    loaded = possession._load_ball_points(
+        tracks,
+        manifest.resolve(),
+        state_estimates_path=states,
+    )
+
+    assert loaded[0][0]["event_evidence_eligible"] is True
+    assert loaded[5][0]["interpolated"] is True
+    assert loaded[5][0]["event_evidence_eligible"] is False
+
+
+def test_event_ball_evidence_reports_estimated_frames() -> None:
+    event = PredictedEvent(
+        "pass_candidate",
+        1.0,
+        "red",
+        1,
+        2,
+        0.8,
+        "test",
+        1.2,
+    )
+    evidence = possession._event_ball_evidence(
+        event,
+        {
+            25: [
+                {
+                    "source_frame": 25,
+                    "clip_seconds": 1.0,
+                    "evidence": "detector",
+                    "event_evidence_eligible": True,
+                }
+            ],
+            30: [
+                {
+                    "source_frame": 30,
+                    "clip_seconds": 1.2,
+                    "evidence": "trajectory_estimated_bidirectional",
+                    "uncertainty_radius_pixels": 18,
+                    "event_evidence_eligible": False,
+                }
+            ],
+        },
+    )
+
+    assert evidence["status"] == "mixed"
+    assert evidence["direct_frames"] == [25]
+    assert evidence["estimated_frames"] == [30]
+    assert evidence["maximum_uncertainty_radius_pixels"] == 18
+
+
+def test_ball_evidence_summary_separates_direct_and_estimated_frames() -> None:
+    summary = possession._ball_evidence_summary(
+        {
+            0: [
+                {
+                    "source_frame": 0,
+                    "state": "observed",
+                    "event_evidence_eligible": True,
+                }
+            ],
+            5: [
+                {
+                    "source_frame": 5,
+                    "state": "trajectory_estimated_bidirectional",
+                    "event_evidence_eligible": False,
+                }
+            ],
+            10: [
+                {
+                    "source_frame": 10,
+                    "state": "trajectory_estimated_forward",
+                    "event_evidence_eligible": False,
+                }
+            ],
+        }
+    )
+
+    assert summary["total_frames"] == 3
+    assert summary["direct_frame_count"] == 1
+    assert summary["estimated_frame_count"] == 2
+    assert summary["direct_frames"] == [0]
+    assert summary["estimated_frames"] == [5, 10]
 
 
 def test_deflection_delays_turnover_until_opponent_control() -> None:
@@ -575,6 +723,12 @@ def test_ball_reentry_recovers_one_touch_reception_after_tracking_gap() -> None:
             observation(12.0, "black", 42, 100, 90, 0.2),
         ],
         balls,
+        {
+            70: [{"track_id": 32, "clip_seconds": 2.8}],
+            95: [{"track_id": 32, "clip_seconds": 3.8}],
+            295: [{"track_id": 42, "clip_seconds": 11.8}],
+            305: [{"track_id": 42, "clip_seconds": 12.2}],
+        },
         minimum_speed_pixels_per_second=40,
     )
 
@@ -584,6 +738,90 @@ def test_ball_reentry_recovers_one_touch_reception_after_tracking_gap() -> None:
     ]
     assert events[0].from_player_track_id == 32
     assert events[0].to_player_track_id == 42
+
+
+def test_ball_reentry_survives_improved_continuous_ball_tracking() -> None:
+    balls = {
+        frame: [
+            {
+                "track_id": 1,
+                "source_frame": frame,
+                "clip_seconds": seconds,
+                "x": x,
+                "y": 100,
+                "event_evidence_eligible": True,
+            }
+        ]
+        for frame, seconds, x in [
+            (290, 11.6, 10),
+            (295, 11.8, 40),
+            (300, 12.0, 90),
+            (305, 12.2, 150),
+            (310, 12.4, 220),
+        ]
+    }
+
+    events = infer_ball_reentry_receptions(
+        [],
+        [
+            observation(3.8, "black", 32, 20, 20),
+            observation(12.0, "black", 42, 100, 90, 0.2),
+        ],
+        balls,
+        {
+            70: [{"track_id": 32, "clip_seconds": 2.8}],
+            95: [{"track_id": 32, "clip_seconds": 3.8}],
+            295: [{"track_id": 42, "clip_seconds": 11.8}],
+            305: [{"track_id": 42, "clip_seconds": 12.2}],
+        },
+        minimum_speed_pixels_per_second=40,
+    )
+
+    assert [(event.team, event.completion_seconds) for event in events] == [
+        ("black", 12.0),
+    ]
+    assert events[0].from_player_track_id == 32
+    assert events[0].to_player_track_id == 42
+
+
+def test_ball_reentry_does_not_turn_same_player_reacquisition_into_pass() -> None:
+    balls = {
+        frame: [
+            {
+                "track_id": 1,
+                "source_frame": frame,
+                "clip_seconds": seconds,
+                "x": x,
+                "y": 100,
+                "event_evidence_eligible": True,
+            }
+        ]
+        for frame, seconds, x in [
+            (290, 11.6, 10),
+            (295, 11.8, 40),
+            (300, 12.0, 90),
+            (305, 12.2, 150),
+            (310, 12.4, 220),
+        ]
+    }
+
+    events = infer_ball_reentry_receptions(
+        [],
+        [
+            observation(3.8, "black", 42, 20, 20),
+            observation(12.0, "black", 42, 100, 90, 0.2),
+        ],
+        balls,
+        {
+            70: [{"track_id": 42, "clip_seconds": 2.8}],
+            95: [{"track_id": 42, "clip_seconds": 3.8}],
+            295: [{"track_id": 42, "clip_seconds": 11.8}],
+            305: [{"track_id": 42, "clip_seconds": 12.2}],
+        },
+        minimum_speed_pixels_per_second=40,
+    )
+
+    assert events == []
 
 
 def test_one_touch_contact_corrects_conflicting_outgoing_team() -> None:
@@ -922,6 +1160,349 @@ def test_terminal_turnover_resolves_earlier_contested_contact(
     assert events[0].event_type == "turnover_candidate"
     assert events[0].team == "black"
     assert events[0].completion_seconds == 1.0
+
+
+def test_controlled_contact_requires_direction_change_not_only_proximity() -> None:
+    players = [
+        {
+            "track_id": 7,
+            "team": "red",
+            "x1": 90,
+            "y1": 60,
+            "x2": 120,
+            "y2": 120,
+            "color_scores": {"white": 0.4, "warm": 0.3},
+        }
+    ]
+    ball = {
+        "track_id": 1,
+        "source_frame": 25,
+        "x": 110,
+        "y": 90,
+    }
+
+    assert possession._controlled_contact_team_track(
+        players,
+        ball,
+        "red",
+        {(1, 25): (120.0, 0.8)},
+        minimum_speed_pixels_per_second=45,
+    ) is None
+    assert possession._controlled_contact_team_track(
+        players,
+        ball,
+        "red",
+        {(1, 25): (120.0, -0.8)},
+        minimum_speed_pixels_per_second=45,
+    ) == 7
+def test_controlled_contact_uses_stable_team_when_frame_color_is_unknown() -> None:
+    players = [
+        {
+            "track_id": 7,
+            "team": "red",
+            "x1": 130,
+            "y1": 60,
+            "x2": 160,
+            "y2": 120,
+            "color_scores": {"white": 0.08, "warm": 0.03, "dark": 0.01},
+        },
+        {
+            "track_id": 8,
+            "team": "red",
+            "x1": 108,
+            "y1": 60,
+            "x2": 138,
+            "y2": 120,
+            "color_scores": {"dark": 0.7},
+        },
+    ]
+    ball = {
+        "track_id": 1,
+        "source_frame": 25,
+        "x": 110,
+        "y": 90,
+    }
+
+    assert possession._controlled_contact_team_track(
+        players,
+        ball,
+        "red",
+        {(1, 25): (120.0, -0.8)},
+        minimum_speed_pixels_per_second=45,
+    ) == 7
+    assert possession._controlled_contact_team_track(
+        [players[1]],
+        ball,
+        "red",
+        {(1, 25): (120.0, -0.8)},
+        minimum_speed_pixels_per_second=45,
+    ) is None
+    assert possession._controlled_contact_team_track(
+        [players[1]],
+        ball,
+        "red",
+        {(1, 25): (120.0, -0.8)},
+        minimum_speed_pixels_per_second=45,
+        locally_confirmed_team_track_ids={8},
+    ) == 8
+
+
+def test_deferred_chain_recovers_direction_changing_aerial_contact(
+    monkeypatch,
+) -> None:
+    terminal = PredictedEvent(
+        "pass_candidate", 2.4, "black", 2, 3, 0.8, "flight", 3.0
+    )
+    ball = {
+        "track_id": 1,
+        "source_frame": 40,
+        "clip_seconds": 1.6,
+        "x": 110,
+        "y": 90,
+    }
+    players = {
+        40: [
+            {
+                "track_id": 7,
+                "team": "red",
+                "x1": 130,
+                "y1": 60,
+                "x2": 160,
+                "y2": 120,
+                "color_scores": {
+                    "white": 0.08,
+                    "warm": 0.03,
+                    "dark": 0.01,
+                },
+            }
+        ]
+    }
+    monkeypatch.setattr(
+        "football_poc.possession._receiver_team_evidence",
+        lambda *args, **kwargs: ("red", 0.9, 4.0),
+    )
+    monkeypatch.setattr(
+        "football_poc.possession._contested_contact_seconds",
+        lambda *args, **kwargs: 0.4,
+    )
+    monkeypatch.setattr(
+        "football_poc.possession._ball_motion_evidence",
+        lambda *args, **kwargs: {(1, 40): (120.0, -0.8)},
+    )
+
+    events = infer_deferred_contested_turnovers(
+        [terminal],
+        players,
+        {40: [ball]},
+        minimum_speed_pixels_per_second=45,
+    )
+
+    assert any(
+        event.event_type == "pass_candidate"
+        and event.team == "red"
+        and event.completion_seconds == 1.6
+        and event.to_player_track_id == 7
+        for event in events
+    )
+
+
+def test_deferred_chain_recovers_sustained_local_team_identity_switch(
+    monkeypatch,
+) -> None:
+    terminal = PredictedEvent(
+        "pass_candidate", 2.4, "black", 2, 3, 0.8, "flight", 3.0
+    )
+
+    def switched_player(frame: int) -> dict[str, object]:
+        return {
+            "track_id": 7,
+            "team": "black",
+            "clip_seconds": frame / 25,
+            "x1": 130,
+            "y1": 60,
+            "x2": 160,
+            "y2": 120,
+            "color_scores": {"white": 0.4, "warm": 0.3},
+        }
+
+    ball = {
+        "track_id": 1,
+        "source_frame": 40,
+        "clip_seconds": 1.6,
+        "x": 110,
+        "y": 90,
+    }
+    monkeypatch.setattr(
+        "football_poc.possession._receiver_team_evidence",
+        lambda *args, **kwargs: ("red", 0.9, 4.0),
+    )
+    monkeypatch.setattr(
+        "football_poc.possession._contested_contact_seconds",
+        lambda *args, **kwargs: 0.4,
+    )
+    monkeypatch.setattr(
+        "football_poc.possession._ball_motion_evidence",
+        lambda *args, **kwargs: {(1, 40): (120.0, -0.8)},
+    )
+
+    events = infer_deferred_contested_turnovers(
+        [terminal],
+        {
+            35: [switched_player(35)],
+            40: [switched_player(40)],
+            45: [switched_player(45)],
+        },
+        {40: [ball]},
+        minimum_speed_pixels_per_second=45,
+    )
+
+    assert any(
+        event.event_type == "pass_candidate"
+        and event.team == "red"
+        and event.completion_seconds == 1.6
+        and event.to_player_track_id == 7
+        for event in events
+    )
+
+
+def test_deferred_chain_refines_terminal_reception_to_first_controlled_touch(
+    monkeypatch,
+) -> None:
+    terminal = PredictedEvent(
+        "pass_candidate", 2.4, "black", 2, 3, 0.8, "flight", 3.4
+    )
+    ball = {
+        "track_id": 1,
+        "source_frame": 65,
+        "clip_seconds": 2.6,
+        "x": 110,
+        "y": 90,
+    }
+    player = {
+        "track_id": 7,
+        "team": "red",
+        "clip_seconds": 2.6,
+        "x1": 90,
+        "y1": 60,
+        "x2": 120,
+        "y2": 120,
+        "color_scores": {"white": 0.4, "warm": 0.3},
+    }
+    monkeypatch.setattr(
+        "football_poc.possession._receiver_team_evidence",
+        lambda *args, **kwargs: ("red", 0.9, 4.0),
+    )
+    monkeypatch.setattr(
+        "football_poc.possession._contested_contact_seconds",
+        lambda *args, **kwargs: 0.4,
+    )
+    monkeypatch.setattr(
+        "football_poc.possession._ball_motion_evidence",
+        lambda *args, **kwargs: {(1, 65): (120.0, -0.8)},
+    )
+
+    events = infer_deferred_contested_turnovers(
+        [terminal],
+        {65: [player]},
+        {65: [ball]},
+        minimum_speed_pixels_per_second=45,
+    )
+
+    refined = next(
+        event
+        for event in events
+        if event.event_type == "pass_candidate"
+        and event.team == "red"
+    )
+    assert refined.completion_seconds == 2.6
+    assert refined.to_player_track_id == 7
+
+
+def test_terminal_direct_reception_recovers_segment_edge_pass(
+    monkeypatch,
+) -> None:
+    prior = PredictedEvent(
+        "pass_candidate", 1.0, "red", 3, 4, 0.8, "prior", 1.2
+    )
+    balls = {
+        35: [{
+            "track_id": 1,
+            "source_frame": 35,
+            "clip_seconds": 1.4,
+            "x": 160,
+            "y": 80,
+            "box_diagonal": 12,
+        }],
+        40: [{
+            "track_id": 1,
+            "source_frame": 40,
+            "clip_seconds": 1.6,
+            "x": 140,
+            "y": 90,
+            "box_diagonal": 12,
+        }],
+        45: [{
+            "track_id": 1,
+            "source_frame": 45,
+            "clip_seconds": 1.8,
+            "x": 120,
+            "y": 100,
+            "box_diagonal": 12,
+        }],
+    }
+    def tracked_player(
+        track_id: int,
+        team: str,
+        center_x: float,
+        timestamp: float,
+    ) -> dict[str, object]:
+        return {
+            "track_id": track_id,
+            "team": team,
+            "clip_seconds": timestamp,
+            "x1": center_x - 10,
+            "y1": 70,
+            "x2": center_x + 10,
+            "y2": 120 if team == "red" else 85,
+            "color_scores": (
+                {"white": 0.4}
+                if team == "red"
+                else {"dark": 0.5}
+            ),
+        }
+
+    players = {
+        35: [
+            tracked_player(6, "red", 155, 1.4),
+            tracked_player(7, "red", 145, 1.4),
+            tracked_player(8, "black", 160, 1.4),
+        ],
+        40: [
+            tracked_player(6, "red", 155, 1.6),
+            tracked_player(7, "red", 125, 1.6),
+            tracked_player(8, "black", 150, 1.6),
+        ],
+    }
+    monkeypatch.setattr(
+        "football_poc.possession._ball_motion_evidence",
+        lambda *args, **kwargs: {(1, 35): (120.0, -0.8)},
+    )
+
+    events = infer_terminal_direct_reception(
+        [prior],
+        players,
+        balls,
+        minimum_speed_pixels_per_second=45,
+    )
+
+    assert len(events) == 2
+    recovered = events[-1]
+    assert recovered.event_type == "pass_candidate"
+    assert recovered.team == "red"
+    assert recovered.clip_seconds == 1.4
+    assert recovered.completion_seconds == 1.8
+    assert recovered.from_player_track_id == 6
+    assert recovered.to_player_track_id == 7
 
 
 def test_terminal_control_confirms_direction_change_reception(

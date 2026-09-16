@@ -10,6 +10,9 @@ BOARD = SHOWCASE / "board" / "index.html"
 PLATFORM_BOARD = ROOT / "showcase" / "platform-board" / "index.html"
 REVIEW_WORKFLOW = ROOT / "showcase" / "review-workflow" / "index.html"
 VIDEO_BUILDER = ROOT / "demo" / "az-demo-video" / "scripts" / "build_demo_video.py"
+EXECUTIVE_SCENES = ROOT / "demo" / "az-demo-video" / "scripts" / "executive_scenes.json"
+EXECUTIVE_BUILDER = ROOT / "demo" / "az-demo-video" / "scripts" / "build_executive_video.py"
+EXECUTIVE_ARCHITECTURE = ROOT / "demo" / "landing" / "executive-architecture.html"
 
 
 def test_product_landing_explains_current_review_and_future_concept() -> None:
@@ -76,20 +79,32 @@ def test_developer_guide_matches_current_local_artifact_flow() -> None:
     assert "10-master-data\\alfheim\\pano" in html
     assert "20-approved-models" in html
     assert "30-shared-baselines\\event-review-state" in html
+    assert "40-team-runs\\" in html
     assert "benchmarks\\alfheim\\generated\\" in html
+    assert "benchmarks\\custom-cameras\\" in html
+    assert "verify-innovation-workspace.py" in html
+    assert "publish-segment-run.py" in html
+    assert "cold raw-video AI pipeline" in html
+    assert "Own separate event families and segments" in html
+    assert "A goal implies on-target" in html
+    assert "Serial merge gate" in html
+    assert "Full-match upload and team locking are not implemented yet" in html
     assert "feature/pass-shot-validation" in html
-    assert "segment-0300-020" in html
-    assert "theme innovation" in html
+    assert "segment-0180-020" in html
+    assert "event-review-state-innovation" in html
+    assert "event-review-state-live" in html
+    assert "separate engines" in html
+    assert "BAC-assisted testing" in html
     assert "Do not inspect locked blind references" in html
     assert "evaluation-only" in html
     assert "app-native Copilot panel" in html
     assert "You do not need to ask Copilot each time" in html
     assert "one-time recovery prompt" in html
-    assert "Default Theme Prompt" in html
-    assert "Innovation Theme Prompt" in html
+    assert "Live review prompt" in html
+    assert "Innovation review prompt" in html
     assert 'id="copilot-review"' in html
     assert "Use Copilot as an independent reviewer" in html
-    assert "not copied from OneDrive" in html
+    assert "be copied into the repository" in html
     assert "manual-review/" not in html
     assert "validation-lab/" not in html
     assert "innovation-day-showcase" not in html
@@ -170,6 +185,31 @@ def test_demo_keeps_calibrated_stills_static_and_limits_other_motion() -> None:
     assert "pad={W}:{H}:(ow-iw)/2:(oh-ih)/2:color=black" in source
     assert 'ImageShot(SHOTS / "review-canvas-timeline-accept.png", duration=reveal1)' in source
     assert 'ImageShot(SHOTS / "review-canvas-zoomed-action.png", duration=d4 - min(18.0, d4))' in source
+
+
+def test_executive_video_preserves_claim_boundaries_and_existing_demo() -> None:
+    scenes = EXECUTIVE_SCENES.read_text(encoding="utf-8")
+    builder = EXECUTIVE_BUILDER.read_text(encoding="utf-8")
+    architecture = EXECUTIVE_ARCHITECTURE.read_text(encoding="utf-8")
+
+    assert "next-stage capabilities, not completed claims" in scenes
+    assert "controlled pilot target is at least ninety-five percent" in scenes
+    assert "Planning target, not a quotation" in builder
+    assert "future Query By Probability concept" in scenes
+    assert 'DEFAULT_OUTPUT = DEMO_DIR / "Football_AI_Executive_Pitch_4min.mp4"' in builder
+    assert 'parser.add_argument("--audio-key", default="executive")' in builder
+    assert 'from build_demo_video import (' in builder
+    assert "Football_AI_Platform_Demo.mp4" not in builder
+    assert "FOOTBALL_EXECUTIVE_MATCH_VIDEO" in builder
+    assert "RAW_MATCH_MP4" not in builder
+    assert "TRACKING_MP4" not in builder
+    assert "tests-105-passed.png" not in builder
+    assert "AZ Alkmaar" not in scenes
+    assert "AZ Alkmaar" not in builder
+    assert "Proposed Professional Architecture" in architecture
+    assert "Main Long-Side Panoramic" in architecture
+    assert "Passing lane legend" in architecture
+    assert "Clubhouse Security Office" in architecture
 
 
 def test_review_workflow_board_explains_every_guard_and_opens_chat() -> None:

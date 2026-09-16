@@ -21,6 +21,18 @@ source text (see `scripts/synthesize_narration_edge.py`):
 | `Football_AI_Platform_Demo_relaxed.srt` | relaxed | Caption track for the relaxed cut (committed). |
 | `Football_AI_Platform_Narration.txt` | — | Exact narration text per scene, both presets share this text (committed). |
 
+The executive pitch is a separate deliverable and does not replace the
+technical video:
+
+| File | Description |
+|---|---|
+| `Football_AI_Executive_Pitch.mp4` | Preferred 1920x1080 executive cut with relaxed narration, 4:44.6, and burned-in captions. |
+| `Football_AI_Executive_Pitch_4min.mp4` | Faster 3:56.6 alternative retained for compact presentations. |
+| `Football_AI_Executive_Pitch_relaxed.srt` | Timed captions for the preferred relaxed cut. |
+| `Football_AI_Executive_Pitch.srt` | Timed captions for the faster cut. |
+| `Football_AI_Executive_Narration.txt` | Exact executive narration plus status and claim boundaries. |
+| `EXECUTIVE_STORYBOARD.md` | Exact scene-to-visual timeline and architecture narration sequence. |
+
 ## What's committed here
 
 ```
@@ -36,8 +48,11 @@ demo/az-demo-video/
     synthesize_narration.ps1              # FALLBACK: WinRT (Windows.Media.SpeechSynthesis) "Mark" voice
     generate_srt.py                       # builds the .srt from scenes.json + rendered WAV durations
     build_demo_video.py                   # assembles the final MP4 (selective HD motion + real clips + audio + captions)
+    executive_scenes.json                 # executive narration and visual intent
+    build_executive_video.py              # assembles the separate executive MP4
 demo/landing/                             # standalone HTML mockups used to capture some of the shots
     index.html, copilot-concept.html, future-vision.html, query-by-probability.html
+    executive-architecture.html           # approved proposed professional architecture visual
 ```
 
 `demo/az-demo-video/build/` (audio WAVs per pace, per-scene intermediate
@@ -110,6 +125,41 @@ Do not use paid ElevenLabs or unauthorized cloned voices for this narration.
    Calibrated pitch and goal screenshots intentionally remain fixed. Other
    presentation graphics use only a 3–4% slow zoom, rendered from a
    Lanczos-scaled 4K working frame to keep the 1080p output clean.
+
+### Reproducing the executive pitch
+
+The executive cut has its own narration, captions, renderer, and output name:
+
+```powershell
+python demo\az-demo-video\scripts\synthesize_narration_edge.py `
+  --voice en-GB-RyanNeural --pace relaxed `
+  --scenes-file demo\az-demo-video\scripts\executive_scenes.json `
+  --audio-key executive-relaxed
+
+python demo\az-demo-video\scripts\generate_srt.py `
+  --pace relaxed --audio-key executive-relaxed `
+  --scenes-file demo\az-demo-video\scripts\executive_scenes.json `
+  --output demo\az-demo-video\Football_AI_Executive_Pitch_relaxed.srt `
+  --title "Football Intelligence Platform - See the Match While You Can Still Change It" `
+  --closing "AZ Alkmaar and Xebia - a staged co-development pilot"
+
+python demo\az-demo-video\scripts\build_executive_video.py `
+  --audio-key executive-relaxed `
+  --srt demo\az-demo-video\Football_AI_Executive_Pitch_relaxed.srt `
+  --output demo\az-demo-video\Football_AI_Executive_Pitch.mp4
+```
+
+Before the executive build, set `FOOTBALL_EXECUTIVE_MATCH_VIDEO` to an owned
+or commercially licensed football clip. The builder intentionally fails when
+that variable is missing. Do not use the Simula Alfheim footage or screenshots
+derived from it in this sales-facing cut: the dataset page limits use to
+non-commercial research, and an attribution watermark does not expand that
+permission.
+
+The approved architecture source is
+`demo/landing/executive-architecture.html`; its captured 1920x1080 video asset
+is `assets/shots/executive-architecture.png`. The HTML labels the image as a
+proposed professional architecture, not current pipeline behaviour.
 
 ### External, machine-local inputs (not shipped in the repo)
 

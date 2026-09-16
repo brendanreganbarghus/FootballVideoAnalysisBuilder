@@ -2,15 +2,19 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import re
 import shutil
 import subprocess
 import sys
+from datetime import datetime, timezone
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import BinaryIO
 from urllib.parse import parse_qs, urlparse
+
+import cv2
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 LOCAL_SOURCE = PROJECT_ROOT / "src"
@@ -23,6 +27,76 @@ from football_poc.alfheim_segments import (
     resolve_alfheim_pano,
 )
 from football_poc.event_comparison import compare_manual_events
+
+
+def shared_artifact_root() -> Path | None:
+    configured = os.environ.get("FOOTBALL_ARTIFACT_ROOT", "").strip()
+    if configured:
+        return Path(configured).resolve()
+    one_drive = (
+        os.environ.get("ONEDRIVECOMMERCIAL")
+        or os.environ.get("ONEDRIVE")
+        or ""
+    ).strip()
+    candidate = Path(one_drive) / "Innovationday Artifacts" if one_drive else None
+    if candidate and (candidate / "00-governance" / "checksums.sha256").is_file():
+        return candidate.resolve()
+    return None
+
+
+SHARED_ARTIFACT_ROOT = shared_artifact_root()
+CUSTOM_CAMERA_SOURCE_ROOT: Path | None = (
+    SHARED_ARTIFACT_ROOT / "10-master-data" / "custom-cameras"
+    if SHARED_ARTIFACT_ROOT
+    else None
+)
+CUSTOM_CAMERA_RUN_ROOT = PROJECT_ROOT / "benchmarks" / "custom-cameras"
+ALLOWED_REVIEW_DURATIONS = frozenset({20, 30, 60})
+
+ALFHEIM_SOURCE = {
+    "club_id": "simula-alfheim-test-dataset",
+    "club_name": "Simula Alfheim test dataset",
+    "venue_id": "alfheim-stadium",
+    "venue_name": "Alfheim Stadium",
+    "camera_id": "f7a5f35d-9c61-5e9c-b6f3-795742c2c8f1",
+    "camera_name": "Camera Setting 2",
+    "camera_position": "main_panorama",
+    "serial_number": "TESTDATA-ALFHEIM-CAMERA-SETTING-2",
+    "serial_source": "assigned_test_identifier",
+    "recording_id": "alfheim-pano-camera-setting-2",
+}
+SOCCERTRACK_SOURCE = {
+    "club_id": "soccertrack-v2-test-dataset",
+    "club_name": "SoccerTrack v2 test dataset",
+    "venue_id": "soccertrack-recording-117093-venue",
+    "venue_name": "Dataset venue for recording 117093",
+    "camera_id": "6bf49dd4-eac0-57f3-9005-3020789c3a84",
+    "camera_name": "Panorama",
+    "camera_position": "main_panorama",
+    "serial_number": "TESTDATA-SOCCERTRACK-117093-PANORAMA",
+    "serial_source": "assigned_test_identifier",
+    "recording_id": "soccertrack-117093-first-half",
+}
+
+
+def is_review_duration(duration_seconds: object) -> bool:
+    if not isinstance(duration_seconds, (int, float)):
+        return False
+    if not math.isfinite(duration_seconds):
+        return False
+    rounded = round(duration_seconds)
+    return (
+        abs(duration_seconds - rounded) <= 0.25
+        and rounded in ALLOWED_REVIEW_DURATIONS
+    )
+
+
+def require_review_duration(duration_seconds: float) -> int:
+    if not is_review_duration(duration_seconds):
+        raise ValueError(
+            "AI execution requires an exact 30- or 60-second prepared segment"
+        )
+    return round(duration_seconds)
 
 
 def workspace_environment(workspace: Path) -> dict[str, str]:
@@ -38,6 +112,24 @@ def workspace_environment(workspace: Path) -> dict[str, str]:
 class RangeRequestHandler(SimpleHTTPRequestHandler):
     range_to_send: tuple[int, int] | None = None
     analysis_processes: dict[str, subprocess.Popen[bytes]] = {}
+
+    def translate_path(self, path: str) -> str:
+        request_path = urlparse(path).path
+        match = re.fullmatch(
+            r"/shared-custom/(custom-[a-z0-9-]+)/"
+            r"((?:[A-Za-z0-9._-]+/)*[A-Za-z0-9._-]+)",
+            request_path,
+        )
+        if match and CUSTOM_CAMERA_SOURCE_ROOT:
+            camera, filename = match.groups()
+            camera_root = (CUSTOM_CAMERA_SOURCE_ROOT / camera).resolve()
+            resolved = (
+                CUSTOM_CAMERA_SOURCE_ROOT / camera / filename
+            ).resolve()
+            if not resolved.is_relative_to(camera_root):
+                return str(CUSTOM_CAMERA_SOURCE_ROOT / "__invalid__")
+            return str(resolved)
+        return super().translate_path(path)
 
     def do_GET(self) -> None:
         request = urlparse(self.path)
@@ -85,16 +177,43 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
             return
         if request.path == "/api/alfheim/segments":
             try:
-                self._send_json(200, {"segments": self._prepared_segments()})
+                workflow = parse_qs(request.query).get("workflow", [""])[0]
+                if workflow not in {"", "innovation", "live"}:
+                    raise ValueError("Invalid Alfheim workflow")
+                self._send_json(
+                    200,
+                    {
+                        "segments": self._alfheim_review_segments(
+                            namespace=workflow or None
+                        )
+                    },
+                )
             except (FileNotFoundError, KeyError, TypeError, ValueError) as error:
                 self._send_json(400, {"error": str(error)})
             return
-        if request.path == "/api/alfheim/status":
+        if request.path == "/api/football/segments":
+            try:
+                self._send_json(200, {"segments": self._review_segments()})
+            except (FileNotFoundError, KeyError, TypeError, ValueError) as error:
+                self._send_json(400, {"error": str(error)})
+            return
+        if request.path in {
+            "/api/alfheim/status",
+            "/api/alfheim/innovation/status",
+            "/api/alfheim/live/status",
+        }:
             try:
                 cache_key = parse_qs(request.query).get("cache_key", [""])[0]
                 if not re.fullmatch(r"segment-\d{4}-\d{3}", cache_key):
                     raise ValueError("Invalid segment cache key")
-                self._send_json(200, self._segment_status(cache_key))
+                namespace = {
+                    "/api/alfheim/innovation/status": "innovation",
+                    "/api/alfheim/live/status": "live",
+                }.get(request.path)
+                self._send_json(
+                    200,
+                    self._segment_status(cache_key, namespace=namespace),
+                )
             except (FileNotFoundError, ValueError) as error:
                 self._send_json(400, {"error": str(error)})
             return
@@ -105,6 +224,18 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
         if request_path == "/api/alfheim/analyze":
             self._start_segment_analysis()
             return
+        if request_path == "/api/alfheim/innovation/analyze":
+            self._start_segment_analysis(workflow="innovation")
+            return
+        if request_path == "/api/alfheim/live/analyze":
+            self._start_segment_analysis(workflow="live")
+            return
+        if request_path == "/api/soccertrack/analyze":
+            self._start_soccertrack_analysis()
+            return
+        if request_path == "/api/custom/analyze":
+            self._start_custom_analysis()
+            return
         if request_path != "/api/alfheim/segment":
             self.send_error(404)
             return
@@ -113,12 +244,22 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
             if content_length <= 0 or content_length > 4096:
                 raise ValueError("Request body must contain a small JSON object")
             payload = json.loads(self.rfile.read(content_length))
+            if payload.get("source_id") not in {None, "alfheim"}:
+                raise ValueError("This endpoint prepares only the Alfheim source")
+            duration_seconds = require_review_duration(
+                float(payload["duration_seconds"])
+            )
             pano = resolve_alfheim_pano(Path.cwd())
             plan = plan_alfheim_segment(
                 pano,
                 start_seconds=float(payload["start_seconds"]),
-                duration_seconds=float(payload["duration_seconds"]),
+                duration_seconds=duration_seconds,
             )
+            if plan.duration_seconds != duration_seconds:
+                raise ValueError(
+                    "The recording does not contain the full requested "
+                    f"{duration_seconds}-second segment"
+                )
             output = (
                 Path.cwd()
                 / "benchmarks"
@@ -130,8 +271,20 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
                 )
             )
             playable = output / "alfheim-window-playable.mp4"
-            labels = output / "ball-ground-truth.csv"
-            if not playable.is_file() or not labels.is_file():
+            manifest_path = output / "manifest.json"
+            prepared_manifest = (
+                json.loads(manifest_path.read_text(encoding="utf-8"))
+                if manifest_path.is_file()
+                else {}
+            )
+            raw_only = (
+                "ball_ground_truth" not in prepared_manifest
+                and prepared_manifest.get("duration_seconds")
+                == duration_seconds
+                and prepared_manifest.get("source_start_seconds")
+                == float(payload["start_seconds"])
+            )
+            if not playable.is_file() or not raw_only:
                 subprocess.run(
                     [
                         sys.executable,
@@ -142,6 +295,10 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
                         str(plan.first_segment),
                         "--segment-count",
                         str(plan.segment_count),
+                        "--clip-start-seconds",
+                        str(plan.clip_start_seconds),
+                        "--duration-seconds",
+                        str(duration_seconds),
                         "--output",
                         str(output),
                     ],
@@ -153,8 +310,9 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
                 200,
                 {
                     **plan.to_dict(),
+                    "source_start_seconds": float(payload["start_seconds"]),
+                    "duration_seconds": duration_seconds,
                     "video_url": f"/{relative}/alfheim-window-playable.mp4",
-                    "labels_url": f"/{relative}/ball-ground-truth.csv",
                     "cache_key": output.name,
                 },
             )
@@ -168,7 +326,7 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
         ) as error:
             self._send_json(400, {"error": str(error)})
 
-    def _start_segment_analysis(self) -> None:
+    def _start_segment_analysis(self, workflow: str = "legacy") -> None:
         try:
             content_length = int(self.headers.get("Content-Length", "0"))
             if content_length <= 0 or content_length > 4096:
@@ -178,6 +336,17 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
             events_only = payload.get("events_only", False)
             if not isinstance(events_only, bool):
                 raise ValueError("events_only must be a boolean")
+            resume_after_detection = payload.get("resume_after_detection", False)
+            if not isinstance(resume_after_detection, bool):
+                raise ValueError("resume_after_detection must be a boolean")
+            focused_recovery = payload.get("focused_recovery", False)
+            if not isinstance(focused_recovery, bool):
+                raise ValueError("focused_recovery must be a boolean")
+            if sum((events_only, resume_after_detection, focused_recovery)) > 1:
+                raise ValueError(
+                    "events_only, resume_after_detection, and "
+                    "focused_recovery are exclusive"
+                )
             if not re.fullmatch(r"segment-\d{4}-\d{3}", cache_key):
                 raise ValueError("Invalid segment cache key")
             segment = (
@@ -189,21 +358,154 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
             )
             if not (segment / "manifest.json").is_file():
                 raise FileNotFoundError(f"Prepared segment not found: {cache_key}")
+            prepared = json.loads(
+                (segment / "manifest.json").read_text(encoding="utf-8")
+            )
+            if float(prepared.get("duration_seconds", 0)) not in {20, 30, 60}:
+                raise ValueError(
+                    "AI can run only on the prepared 20-, 30-, or 60-second "
+                    "Alfheim review segments"
+                )
+            process_key = f"{workflow}:{cache_key}"
+            current = self.analysis_processes.get(process_key)
+            if current is not None and current.poll() is None:
+                self._send_json(202, {"state": "processing"})
+                return
+            run_root = (
+                segment / workflow
+                if workflow in {"innovation", "live"}
+                else segment
+            )
+            run_root.mkdir(parents=True, exist_ok=True)
+            log_path = run_root / "analysis.log"
+            log = log_path.open("ab")
+            script_name = (
+                "process-alfheim-innovation-segment.py"
+                if workflow == "innovation"
+                else "process-alfheim-segment.py"
+            )
+            arguments = [
+                sys.executable,
+                str(Path.cwd() / "scripts" / script_name),
+                str(segment),
+            ]
+            if workflow == "live":
+                arguments.extend(["--artifact-namespace", "live"])
+            if events_only:
+                arguments.append("--events-only")
+            if resume_after_detection:
+                arguments.append("--resume-after-detection")
+            if focused_recovery:
+                arguments.append("--focused-recovery")
+            process = subprocess.Popen(
+                arguments,
+                cwd=Path.cwd(),
+                env=workspace_environment(Path.cwd()),
+                stdout=log,
+                stderr=subprocess.STDOUT,
+            )
+            log.close()
+            self.analysis_processes[process_key] = process
+            self._send_json(202, {"state": "processing", "pid": process.pid})
+        except (
+            FileNotFoundError,
+            KeyError,
+            TypeError,
+            ValueError,
+            json.JSONDecodeError,
+        ) as error:
+            self._send_json(400, {"error": str(error)})
+
+    def _start_soccertrack_analysis(self) -> None:
+        try:
+            content_length = int(self.headers.get("Content-Length", "0"))
+            if content_length <= 0 or content_length > 4096:
+                raise ValueError("Request body must contain a small JSON object")
+            payload = json.loads(self.rfile.read(content_length))
+            cache_key = str(payload["cache_key"])
+            if cache_key != "soccertrack-117093-h1-1267-060":
+                raise ValueError("Invalid SoccerTrack segment cache key")
+            require_review_duration(60)
+            segment = (
+                Path.cwd()
+                / "benchmarks"
+                / "soccertrack-117093-preview"
+            )
+            if not (segment / "pitch-calibration.json").is_file():
+                raise FileNotFoundError(
+                    "Complete and save the SoccerTrack camera calibration first"
+                )
             current = self.analysis_processes.get(cache_key)
             if current is not None and current.poll() is None:
                 self._send_json(202, {"state": "processing"})
                 return
-            log_path = segment / "analysis.log"
-            log = log_path.open("ab")
-            arguments = [
-                sys.executable,
-                str(Path.cwd() / "scripts" / "process-alfheim-segment.py"),
-                str(segment),
-            ]
-            if events_only:
-                arguments.append("--events-only")
+            log = (segment / "analysis.log").open("ab")
             process = subprocess.Popen(
-                arguments,
+                [
+                    sys.executable,
+                    str(
+                        Path.cwd()
+                        / "scripts"
+                        / "process-soccertrack-segment.py"
+                    ),
+                    str(segment),
+                ],
+                cwd=Path.cwd(),
+                env=workspace_environment(Path.cwd()),
+                stdout=log,
+                stderr=subprocess.STDOUT,
+            )
+            log.close()
+            self.analysis_processes[cache_key] = process
+            self._send_json(202, {"state": "processing", "pid": process.pid})
+        except (
+            FileNotFoundError,
+            KeyError,
+            TypeError,
+            ValueError,
+            json.JSONDecodeError,
+        ) as error:
+            self._send_json(400, {"error": str(error)})
+
+    def _start_custom_analysis(self) -> None:
+        try:
+            content_length = int(self.headers.get("Content-Length", "0"))
+            if content_length <= 0 or content_length > 4096:
+                raise ValueError("Request body must contain a small JSON object")
+            payload = json.loads(self.rfile.read(content_length))
+            cache_key = str(payload["cache_key"])
+            if not re.fullmatch(r"custom-[a-z0-9-]+", cache_key):
+                raise ValueError("Invalid custom camera key")
+            if CUSTOM_CAMERA_SOURCE_ROOT is None:
+                raise FileNotFoundError(
+                    "Shared artifact storage is unavailable"
+                )
+            source = CUSTOM_CAMERA_SOURCE_ROOT / cache_key
+            segment = CUSTOM_CAMERA_RUN_ROOT / cache_key
+            if not (source / "camera.json").is_file():
+                raise FileNotFoundError(f"Custom camera not found: {cache_key}")
+            metadata = json.loads(
+                (source / "camera.json").read_text(encoding="utf-8")
+            )
+            require_review_duration(float(metadata["duration_seconds"]))
+            if not (source / "pitch-calibration.json").is_file():
+                raise FileNotFoundError(
+                    "Complete and save this camera calibration first"
+                )
+            segment.mkdir(parents=True, exist_ok=True)
+            current = self.analysis_processes.get(cache_key)
+            if current is not None and current.poll() is None:
+                self._send_json(202, {"state": "processing"})
+                return
+            log = (segment / "analysis.log").open("ab")
+            process = subprocess.Popen(
+                [
+                    sys.executable,
+                    str(Path.cwd() / "scripts" / "process-custom-segment.py"),
+                    str(segment),
+                    "--source-root",
+                    str(source),
+                ],
                 cwd=Path.cwd(),
                 env=workspace_environment(Path.cwd()),
                 stdout=log,
@@ -229,12 +531,42 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _segment_status(self, cache_key: str) -> dict[str, object]:
-        root = Path.cwd() / "benchmarks" / "alfheim" / "generated" / cache_key
-        manifest_path = root / "manifest.json"
+    @staticmethod
+    def _analysis_receipt(root: Path) -> tuple[dict[str, object], object | None]:
+        status_path = root / "analysis-status.json"
+        status = (
+            json.loads(status_path.read_text(encoding="utf-8"))
+            if status_path.is_file()
+            else {}
+        )
+        started_at = status.get("started_at_utc")
+        if started_at and status.get("stage") not in {"ready", "failed"}:
+            started = datetime.fromisoformat(str(started_at))
+            status["elapsed_seconds"] = round(
+                (datetime.now(timezone.utc) - started).total_seconds(),
+                3,
+            )
+        report_path = root / "analytics-data" / "performance-report.json"
+        report = (
+            json.loads(report_path.read_text(encoding="utf-8"))
+            if report_path.is_file()
+            else None
+        )
+        return status, report
+
+    def _segment_status(
+        self,
+        cache_key: str,
+        namespace: str | None = None,
+    ) -> dict[str, object]:
+        segment_root = (
+            Path.cwd() / "benchmarks" / "alfheim" / "generated" / cache_key
+        )
+        manifest_path = segment_root / "manifest.json"
         if not manifest_path.is_file():
             raise FileNotFoundError(f"Prepared segment not found: {cache_key}")
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        root = segment_root / namespace if namespace else segment_root
         cache_path = root / "analytics-cache" / "detections.jsonl"
         processed_frames = 0
         expected_frames = 0
@@ -248,13 +580,9 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
             ) // int(metadata["stride"])
         events = root / "analytics-data" / "predicted-events.json"
         tracking = root / "analytics-data" / "tracking-verification.webm"
-        analysis_status_path = root / "analysis-status.json"
-        analysis_status = (
-            json.loads(analysis_status_path.read_text(encoding="utf-8"))
-            if analysis_status_path.is_file()
-            else {}
-        )
-        current_process = self.analysis_processes.get(cache_key)
+        analysis_status, performance = self._analysis_receipt(root)
+        process_key = f"{namespace or 'legacy'}:{cache_key}"
+        current_process = self.analysis_processes.get(process_key)
         relative = root.relative_to(Path.cwd()).as_posix()
         if current_process is not None and current_process.poll() is None:
             state = (
@@ -262,10 +590,10 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
                 if analysis_status.get("stage") == "detecting"
                 else "building"
             )
-        elif events.is_file():
-            state = "ready"
         elif analysis_status.get("stage") == "failed":
             state = "failed"
+        elif events.is_file():
+            state = "ready"
         elif analysis_status and expected_frames and processed_frames >= expected_frames:
             state = "building"
         elif expected_frames and processed_frames >= expected_frames:
@@ -276,11 +604,14 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
             state = "prepared"
         return {
             "cache_key": cache_key,
+            "workflow": namespace or "legacy",
             "state": state,
             "processed_frames": processed_frames,
             "expected_frames": expected_frames,
             "stage": analysis_status.get("stage"),
             "message": analysis_status.get("message"),
+            "run_provenance": analysis_status or None,
+            "performance": performance,
             "events_url": (
                 f"/{relative}/analytics-data/predicted-events.json"
                 if events.is_file()
@@ -293,27 +624,54 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
             ),
         }
 
-    def _prepared_segments(self) -> list[dict[str, object]]:
+    def _prepared_segments(
+        self,
+        namespace: str | None = None,
+    ) -> list[dict[str, object]]:
         workspace = Path.cwd()
         items: list[dict[str, object]] = []
         baseline = workspace / "benchmarks" / "alfheim" / "window-555"
         baseline_video = baseline / "alfheim-window-playable.mp4"
-        baseline_labels = baseline / "ball-ground-truth.csv"
-        baseline_events = baseline / "analytics-data" / "predicted-events.json"
-        if baseline_video.is_file() and baseline_labels.is_file():
+        baseline_run_root = baseline / namespace if namespace else baseline
+        baseline_events = (
+            baseline_run_root / "analytics-data" / "predicted-events.json"
+        )
+        if baseline_video.is_file():
+            baseline_manifest_path = baseline / "manifest.json"
+            baseline_manifest = (
+                json.loads(baseline_manifest_path.read_text(encoding="utf-8"))
+                if baseline_manifest_path.is_file()
+                else {}
+            )
+            baseline_raw_only = (
+                "ball_ground_truth" not in baseline_manifest
+                and is_review_duration(
+                    baseline_manifest.get("duration_seconds")
+                )
+            )
             baseline_relative = baseline.relative_to(workspace).as_posix()
-            baseline_ready = baseline_events.is_file()
+            baseline_ready = baseline_raw_only and baseline_events.is_file()
             items.append(
                 {
                     "cache_key": "alfheim-window-555",
                     "source_start_seconds": 555 * 3,
                     "duration_seconds": 60,
-                    "state": "ready" if baseline_ready else "prepared",
+                    "state": (
+                        "ready"
+                        if baseline_ready
+                        else "invalid_input"
+                        if not baseline_raw_only
+                        else "prepared"
+                    ),
+                    "raw_video_only": baseline_raw_only,
+                    "ball_track_available": (
+                        baseline / "analytics-cache" / "ball-tracks.json"
+                    ).is_file(),
                     "protected": False,
                     "video_url": (
                         f"/{baseline_relative}/alfheim-window-playable.mp4"
                     ),
-                    "labels_url": f"/{baseline_relative}/ball-ground-truth.csv",
+                    "labels_url": None,
                 }
             )
 
@@ -325,15 +683,34 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
             if not match or not root.is_dir():
                 continue
             video = root / "alfheim-window-playable.mp4"
-            labels = root / "ball-ground-truth.csv"
-            if not video.is_file() or not labels.is_file():
+            if not video.is_file():
                 continue
             first_segment, segment_count = map(int, match.groups())
-            status = self._segment_status(root.name)
-            manual_reference = root / "manual-reference.json"
-            predicted_events = root / "analytics-data" / "predicted-events.json"
+            status = self._segment_status(root.name, namespace=namespace)
+            manifest_path = root / "manifest.json"
+            manifest = (
+                json.loads(manifest_path.read_text(encoding="utf-8"))
+                if manifest_path.is_file()
+                else {}
+            )
+            raw_video_only = (
+                "ball_ground_truth" not in manifest
+                and float(manifest.get("duration_seconds", 0)) in {20, 30, 60}
+                and Path(str(manifest.get("video", ""))).name
+                in {"alfheim-window.mp4", "alfheim-window-playable.mp4"}
+                and video.is_file()
+            )
+            run_root = root / namespace if namespace else root
+            manual_reference = run_root / "manual-reference.json"
+            predicted_events = (
+                run_root / "analytics-data" / "predicted-events.json"
+            )
             validated = False
-            if manual_reference.is_file() and predicted_events.is_file():
+            if (
+                raw_video_only
+                and manual_reference.is_file()
+                and predicted_events.is_file()
+            ):
                 manual = json.loads(manual_reference.read_text(encoding="utf-8"))[
                     "events"
                 ]
@@ -352,9 +729,19 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
             items.append(
                 {
                     "cache_key": root.name,
-                    "source_start_seconds": first_segment * 3,
-                    "duration_seconds": segment_count * 3,
-                    "state": status["state"],
+                    "source_start_seconds": float(
+                        manifest.get("source_start_seconds", first_segment * 3)
+                    ),
+                    "duration_seconds": float(
+                        manifest.get("duration_seconds", segment_count * 3)
+                    ),
+                    "state": (
+                        status["state"] if raw_video_only else "invalid_input"
+                    ),
+                    "raw_video_only": raw_video_only,
+                    "ball_track_available": (
+                        run_root / "analytics-cache" / "ball-tracks.json"
+                    ).is_file(),
                     "validated": validated,
                     "protected": root.name
                     in {
@@ -363,9 +750,313 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
                         "segment-0615-020",
                     },
                     "video_url": f"/{relative}/alfheim-window-playable.mp4",
-                    "labels_url": f"/{relative}/ball-ground-truth.csv",
+                    "labels_url": None,
                 }
             )
+        return items
+
+    def _alfheim_review_segments(
+        self,
+        namespace: str | None = None,
+    ) -> list[dict[str, object]]:
+        segments = self._prepared_segments(namespace=namespace)
+        if namespace == "innovation":
+            innovation_keys = {
+                "segment-0060-020",
+                "segment-0300-020",
+                "segment-0540-020",
+                "segment-0540-060",
+                "segment-0575-020",
+                "segment-0595-020",
+                "segment-0615-020",
+            }
+            segments = [
+                segment for segment in segments
+                if segment.get("raw_video_only", False)
+                and segment["cache_key"] in innovation_keys
+            ]
+        elif namespace == "live":
+            registry_path = (
+                Path.cwd()
+                / "benchmarks"
+                / "alfheim"
+                / "live-regressions.json"
+            )
+            registry = (
+                json.loads(registry_path.read_text(encoding="utf-8"))
+                if registry_path.is_file()
+                else {"segments": []}
+            )
+            live_keys = {
+                "segment-0540-020",
+                "segment-0540-060",
+                *(
+                    str(entry["segment"])
+                    for entry in registry.get("segments", [])
+                ),
+            }
+            segments = [
+                segment for segment in segments
+                if segment["cache_key"] in live_keys
+                and segment.get("raw_video_only", False)
+            ]
+        return [
+            {
+                **segment,
+                **ALFHEIM_SOURCE,
+                "dataset_id": "alfheim",
+                "dataset_name": (
+                    f"{ALFHEIM_SOURCE['club_name']} · "
+                    f"{ALFHEIM_SOURCE['camera_name']}"
+                ),
+                "calibration_id": "alfheim-camera-setting-2",
+                "calibration_status": "calibrated",
+                "image_width": 4450,
+                "image_height": 2000,
+                "processing_supported": (
+                    segment.get("raw_video_only", False)
+                    and
+                    segment["duration_seconds"] in {20, 30, 60}
+                ),
+                "preparation_supported": True,
+                "attribution": (
+                    "Simula Alfheim · internal non-commercial research"
+                ),
+            }
+            for segment in segments
+        ]
+
+    def _review_segments(self) -> list[dict[str, object]]:
+        items = self._alfheim_review_segments()
+        workspace = Path.cwd()
+        soccertrack_video = (
+            workspace
+            / "benchmarks"
+            / "soccertrack-117093-preview"
+            / "soccertrack-117093-1267-1327-panorama.mp4"
+        )
+        if soccertrack_video.is_file():
+            soccertrack_root = soccertrack_video.parent
+            calibration_ready = (
+                soccertrack_root / "pitch-calibration.json"
+            ).is_file()
+            events_ready = (
+                soccertrack_root
+                / "analytics-data"
+                / "predicted-events.json"
+            ).is_file()
+            cache_path = (
+                soccertrack_root / "analytics-cache" / "detections.jsonl"
+            )
+            processed_frames = 0
+            if cache_path.is_file():
+                with cache_path.open(encoding="utf-8") as cache:
+                    next(cache, None)
+                    processed_frames = sum(1 for line in cache if line.strip())
+            tracking_webm = (
+                soccertrack_root
+                / "analytics-data"
+                / "tracking-verification.webm"
+            )
+            tracking_mp4 = (
+                soccertrack_root
+                / "analytics-data"
+                / "tracking-verification.mp4"
+            )
+            tracking = (
+                tracking_webm if tracking_webm.is_file() else tracking_mp4
+            )
+            current = self.analysis_processes.get(
+                "soccertrack-117093-h1-1267-060"
+            )
+            processing = current is not None and current.poll() is None
+            analysis_status, performance = self._analysis_receipt(
+                soccertrack_root
+            )
+            state = (
+                "processing"
+                if processing
+                else "failed"
+                if analysis_status.get("stage") == "failed"
+                else "ready"
+                if events_ready
+                else "prepared"
+            )
+            relative = soccertrack_video.relative_to(workspace).as_posix()
+            items.append(
+                {
+                    **SOCCERTRACK_SOURCE,
+                    "cache_key": "soccertrack-117093-h1-1267-060",
+                    "dataset_id": "soccertrack-v2",
+                    "dataset_name": (
+                        f"{SOCCERTRACK_SOURCE['club_name']} · "
+                        f"{SOCCERTRACK_SOURCE['camera_name']}"
+                    ),
+                    "calibration_id": "soccertrack-117093-panorama",
+                    "calibration_status": (
+                        "calibrated" if calibration_ready else "not_calibrated"
+                    ),
+                    "image_width": 4096,
+                    "image_height": 1080,
+                    "source_start_seconds": 1267.04,
+                    "duration_seconds": 60,
+                    "state": state,
+                    "raw_video_only": True,
+                    "processed_frames": processed_frames,
+                    "expected_frames": 300,
+                    "stage": analysis_status.get("stage"),
+                    "message": analysis_status.get("message"),
+                    "run_provenance": analysis_status or None,
+                    "performance": performance,
+                    "ball_track_available": (
+                        soccertrack_root
+                        / "analytics-cache"
+                        / "ball-tracks.json"
+                    ).is_file(),
+                    "validated": False,
+                    "protected": False,
+                    "processing_supported": calibration_ready,
+                    "preparation_supported": False,
+                    "video_url": f"/{relative}",
+                    "labels_url": None,
+                    "tracking_url": (
+                        f"/{tracking.relative_to(workspace).as_posix()}"
+                        if tracking.is_file()
+                        else None
+                    ),
+                    "attribution": "SoccerTrack v2 · CC BY 4.0",
+                }
+            )
+        custom_root = CUSTOM_CAMERA_SOURCE_ROOT
+        if custom_root and custom_root.is_dir():
+            for root in sorted(custom_root.iterdir()):
+                metadata_path = root / "camera.json"
+                if not root.is_dir() or not metadata_path.is_file():
+                    continue
+                metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+                video = root / str(metadata["video_filename"])
+                if not video.is_file():
+                    continue
+                capture = cv2.VideoCapture(str(video))
+                try:
+                    if not capture.isOpened():
+                        continue
+                    fps = float(capture.get(cv2.CAP_PROP_FPS))
+                    frame_count = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
+                finally:
+                    capture.release()
+                if fps <= 0 or frame_count <= 0:
+                    continue
+                duration = frame_count / fps
+                calibration_ready = (root / "pitch-calibration.json").is_file()
+                run_root = CUSTOM_CAMERA_RUN_ROOT / root.name
+                events = run_root / "analytics-data" / "predicted-events.json"
+                tracking = (
+                    run_root / "analytics-data" / "tracking-verification.webm"
+                )
+                current = self.analysis_processes.get(root.name)
+                processing = current is not None and current.poll() is None
+                analysis_status, performance = self._analysis_receipt(run_root)
+                state = (
+                    "processing"
+                    if processing
+                    else "failed"
+                    if analysis_status.get("stage") == "failed"
+                    else "ready"
+                    if events.is_file()
+                    else "prepared"
+                )
+                processed_frames = 0
+                cache_path = (
+                    run_root / "analytics-cache" / "detections.jsonl"
+                )
+                if cache_path.is_file():
+                    with cache_path.open(encoding="utf-8") as cache:
+                        next(cache, None)
+                        processed_frames = sum(
+                            1 for line in cache if line.strip()
+                        )
+                items.append(
+                    {
+                        "cache_key": root.name,
+                        "dataset_id": root.name,
+                        "club_id": str(
+                            metadata.get("club_id", metadata["camera_id"])
+                        ),
+                        "club_name": str(
+                            metadata.get("club_name", "Custom source")
+                        ),
+                        "venue_id": str(
+                            metadata.get("venue_id", metadata["camera_id"])
+                        ),
+                        "venue_name": str(
+                            metadata.get("venue_name", "Custom venue")
+                        ),
+                        "camera_id": str(metadata["camera_id"]),
+                        "camera_name": str(metadata["camera_name"]),
+                        "camera_position": str(
+                            metadata.get("camera_position", "unspecified")
+                        ),
+                        "serial_number": metadata.get(
+                            "manufacturer_serial_number"
+                        ),
+                        "serial_source": (
+                            "manufacturer"
+                            if metadata.get("manufacturer_serial_number")
+                            else None
+                        ),
+                        "recording_id": str(
+                            metadata.get("recording_id", root.name)
+                        ),
+                        "dataset_name": (
+                            f"{metadata.get('club_name', 'Custom source')} · "
+                            f"{metadata['camera_name']}"
+                        ),
+                        "calibration_id": str(metadata["camera_id"]),
+                        "calibration_status": (
+                            "calibrated"
+                            if calibration_ready
+                            else "not_calibrated"
+                        ),
+                        "image_width": int(metadata["image_width"]),
+                        "image_height": int(metadata["image_height"]),
+                        "source_start_seconds": 0,
+                        "duration_seconds": duration,
+                        "state": state,
+                        "raw_video_only": is_review_duration(duration),
+                        "processed_frames": processed_frames,
+                        "expected_frames": (frame_count + 4) // 5,
+                        "stage": analysis_status.get("stage"),
+                        "message": analysis_status.get("message"),
+                        "run_provenance": analysis_status or None,
+                        "performance": performance,
+                        "ball_track_available": (
+                            run_root
+                            / "analytics-cache"
+                            / "ball-tracks.json"
+                        ).is_file(),
+                        "validated": False,
+                        "protected": False,
+                        "processing_supported": (
+                            calibration_ready
+                            and is_review_duration(duration)
+                        ),
+                        "preparation_supported": False,
+                        "video_url": (
+                            f"/shared-custom/{root.name}/"
+                            f"{metadata['video_filename']}"
+                        ),
+                        "labels_url": None,
+                        "tracking_url": (
+                            f"/{tracking.relative_to(workspace).as_posix()}"
+                            if tracking.is_file()
+                            else None
+                        ),
+                        "attribution": (
+                            "User-provided footage · isolated camera workspace"
+                        ),
+                    }
+                )
         return items
 
     def send_head(self) -> BinaryIO | None:
