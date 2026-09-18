@@ -133,14 +133,44 @@ Demand must make every source file available locally before processing. The
 application reads the extracted `pano\` directory, not the archive.
 
 Football Event Review decisions, conversations, engine snapshots, and output
-hashes are stored under
-`30-shared-baselines\event-review-state` in the governed artifact root. The
-extension uses `FOOTBALL_ARTIFACT_ROOT` when set, otherwise it discovers
+hashes are stored in workflow-specific directories under
+`30-shared-baselines`: `event-review-state-innovation` for the BAC-assisted
+Innovation Canvas and `event-review-state-live` for the raw-video Live Canvas.
+The extensions use `FOOTBALL_ARTIFACT_ROOT` when set, otherwise they discover
 `Innovationday Artifacts` under the configured commercial OneDrive folder.
-Each state save also updates its SHA-256 entry in
+State documents carry their workflow and Canvas identities and cannot be loaded
+by the other workflow. Each state save also updates its SHA-256 entry in
 `00-governance\checksums.sha256`, so another developer can restore and verify
 the same review status. If no shared artifact root is available, review state
 falls back to the current Copilot session workspace.
+
+### Optional shared PostgreSQL coordination
+
+The application remains usable without PostgreSQL in single-user local mode.
+For coordinated development, copy `config\coordination.example.json` outside
+the repository or point `FOOTBALL_COORDINATION_CONFIG` at a
+deployment-specific copy, then provide the secret connection URL separately:
+
+```powershell
+$env:FOOTBALL_COORDINATION_CONFIG = `
+  "C:\secure-config\football-coordination.json"
+$env:FOOTBALL_DATABASE_URL = `
+  "postgresql://<user>:<password>@<host>:5432/<database>"
+python .\scripts\serve-local.py --bind 127.0.0.1 --port 8080
+```
+
+The configured database must already exist. Startup applies checked,
+forward-only table migrations and verifies the migration ledger, constraints,
+indexes, workflow identities, and imported history before enabling shared
+writes. If a configured database is unavailable, shared state remains
+read-only; the application does not silently create conflicting local changes.
+
+PostgreSQL stores only coordination and history: logical segment/artifact
+references, identities, assignments, leases, jobs, C#/E#/M# revisions,
+decisions, hashes, receipts, regressions, publications, and audit records.
+Videos, prepared segments, coordinates, caches, and result bundles remain in
+the configured OneDrive/Xebia shared artifact root. Innovation and Live records
+use separate workflow identities even when they reference the same media.
 
 Authorized raw footage, custom-camera samples, camera calibration, approved
 model packages, and passed baselines belong in the governed OneDrive store.
@@ -159,7 +189,9 @@ python .\scripts\verify-innovation-workspace.py --require-alfheim
 ```
 
 See [the developer guide](docs/DEVELOPER_GUIDE.md#innovation-day-reproducible-developer-workspace)
-for the complete Git/shared/local ownership matrix and promotion gate.
+for the complete Git/shared/local ownership matrix and promotion gate. See
+[the manual football pipeline guide](docs/MANUAL_PIPELINE_COMMANDS.md#choose-the-workflow-first)
+for the separate Innovation and Live commands, artifacts, and Canvas identities.
 
 ## SoccerTrack v2 benchmark
 
@@ -383,6 +415,9 @@ current CPU performs model inference in real time.
 
 ## Technical knowledge pack
 
+- Start with
+  [`docs\PROJECT_DOCUMENTATION.md`](docs/PROJECT_DOCUMENTATION.md) for the
+  maintained developer/agent takeover map and task-based reading paths.
 - Read [`docs\DEVELOPER_GUIDE.md`](docs/DEVELOPER_GUIDE.md) for the architecture,
   package responsibilities, code map, tuning points, and dependency-aware rerun
   commands.

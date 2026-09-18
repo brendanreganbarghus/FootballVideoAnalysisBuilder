@@ -13,7 +13,12 @@ import cv2
 from ultralytics import YOLO
 
 from football_poc.actions import Detection
-from football_poc.cli import _extract_detections, _print_progress, _wanted_class_ids
+from football_poc.cli import (
+    _extract_detections,
+    _normalized_class_name,
+    _print_progress,
+    _wanted_class_ids,
+)
 
 
 @dataclass(frozen=True)
@@ -280,6 +285,8 @@ def run_detection_cache(
     max_frames: int | None,
     frame_batch_size: int = 4,
     reuse_cache: bool = False,
+    ball_only: bool = False,
+    source_frames: tuple[int, ...] | None = None,
 ) -> Path:
     manifest = BenchmarkManifest.load(manifest_path)
     _validate_run_options(
@@ -292,6 +299,12 @@ def run_detection_cache(
         nms_iou=nms_iou,
         max_frames=max_frames,
         frame_batch_size=frame_batch_size,
+        source_frames=source_frames,
+    )
+    target_frames = _target_source_frames(
+        manifest,
+        stride=stride,
+        source_frames=source_frames,
     )
     output.mkdir(parents=True, exist_ok=True)
     cache_path = output / "detections.jsonl"
@@ -307,13 +320,15 @@ def run_detection_cache(
         "tile_height": tile_height,
         "overlap": overlap,
         "nms_iou": nms_iou,
+        "detection_scope": "ball_only" if ball_only else "person_and_ball",
+        "target_source_frames": list(target_frames) if source_frames else None,
     }
     processed = _prepare_cache(
         cache_path,
         metadata,
         reuse_cache=reuse_cache,
     )
-    expected_frames = math.ceil(manifest.source_frame_count / stride)
+    expected_frames = len(target_frames)
     remaining_frames = max(0, expected_frames - len(processed))
     if max_frames is not None:
         remaining_frames = min(remaining_frames, max_frames)
@@ -326,10 +341,13 @@ def run_detection_cache(
         f"Loading {model_name}. Caching {remaining_frames} new benchmark frames "
         f"with {tile_width}x{tile_height or 'full-height'}px tiles."
     )
+    model_load_started_at = time.perf_counter()
     model = YOLO(model_name)
-    class_ids = _wanted_class_ids(model.names)
+    model_load_seconds = time.perf_counter() - model_load_started_at
+    class_ids = _detection_class_ids(model.names, ball_only=ball_only)
     if not class_ids:
-        raise ValueError("The model has no supported person or ball class")
+        requested_classes = "ball class" if ball_only else "person or ball class"
+        raise ValueError(f"The model has no supported {requested_classes}")
 
     capture = cv2.VideoCapture(str(manifest.video))
     if not capture.isOpened():
@@ -344,20 +362,22 @@ def run_detection_cache(
         overlap=overlap,
     )
     pending_frames = [
-        frame
-        for frame in range(manifest.start_frame, manifest.end_frame, stride)
-        if frame not in processed
+        frame for frame in target_frames if frame not in processed
     ][:remaining_frames]
     capture.set(cv2.CAP_PROP_POS_FRAMES, pending_frames[0])
     next_source_frame = pending_frames[0]
     started_at = time.perf_counter()
     completed = 0
+    decode_seconds = 0.0
+    inference_seconds = 0.0
+    postprocess_write_seconds = 0.0
 
     try:
         with cache_path.open("a", encoding="utf-8") as cache:
             for offset in range(0, len(pending_frames), frame_batch_size):
                 source_frames = pending_frames[offset : offset + frame_batch_size]
                 frames: list[tuple[int, np.ndarray]] = []
+                decode_started_at = time.perf_counter()
                 for source_frame in source_frames:
                     while next_source_frame < source_frame:
                         if not capture.grab():
@@ -374,6 +394,7 @@ def run_detection_cache(
                         )
                     next_source_frame = source_frame + 1
                     frames.append((source_frame, frame))
+                decode_seconds += time.perf_counter() - decode_started_at
                 crops = [
                     frame[tile.y1 : tile.y2, tile.x1 : tile.x2]
                     for _, frame in frames
@@ -389,7 +410,10 @@ def run_detection_cache(
                 }
                 if device:
                     options["device"] = device
+                inference_started_at = time.perf_counter()
                 results = model.predict(**options)
+                inference_seconds += time.perf_counter() - inference_started_at
+                postprocess_started_at = time.perf_counter()
                 detections_by_frame: dict[int, list[Detection]] = defaultdict(list)
                 owners = [
                     (source_frame, tile)
@@ -433,12 +457,18 @@ def run_detection_cache(
                         completed=completed == remaining_frames,
                     )
                 cache.flush()
+                postprocess_write_seconds += (
+                    time.perf_counter() - postprocess_started_at
+                )
     except KeyboardInterrupt:
         print("\nStopped by user; cached frames have been preserved.")
     finally:
         capture.release()
 
     elapsed_seconds = time.perf_counter() - started_at
+    measured_work_seconds = (
+        decode_seconds + inference_seconds + postprocess_write_seconds
+    )
     _write_summary(
         output,
         manifest,
@@ -451,10 +481,63 @@ def run_detection_cache(
             if elapsed_seconds > 0
             else None,
             "cold_path": len(processed) == 0,
+            "timing_seconds": {
+                "model_load": round(model_load_seconds, 3),
+                "video_decode": round(decode_seconds, 3),
+                "model_inference": round(inference_seconds, 3),
+                "postprocess_and_write": round(postprocess_write_seconds, 3),
+                "other_run_overhead": round(
+                    max(0.0, elapsed_seconds - measured_work_seconds),
+                    3,
+                ),
+                "run_total": round(elapsed_seconds, 3),
+                "model_load_plus_run": round(
+                    model_load_seconds + elapsed_seconds,
+                    3,
+                ),
+            },
         },
     )
     print(f"Detection cache written to {cache_path.resolve()}")
     return cache_path
+
+
+def _detection_class_ids(
+    names: dict[int, str] | list[str], *, ball_only: bool
+) -> list[int]:
+    class_ids = _wanted_class_ids(names)
+    if not ball_only:
+        return class_ids
+    return [
+        class_id
+        for class_id in class_ids
+        if _normalized_class_name(names[class_id]) == "sports ball"
+    ]
+
+
+def _target_source_frames(
+    manifest: BenchmarkManifest,
+    *,
+    stride: int,
+    source_frames: tuple[int, ...] | None,
+) -> tuple[int, ...]:
+    if source_frames is None:
+        return tuple(range(manifest.start_frame, manifest.end_frame, stride))
+    if not source_frames:
+        raise ValueError("--frames must contain at least one source frame")
+    if len(set(source_frames)) != len(source_frames):
+        raise ValueError("--frames contains duplicate source frames")
+    invalid = [
+        frame
+        for frame in source_frames
+        if frame < manifest.start_frame or frame >= manifest.end_frame
+    ]
+    if invalid:
+        raise ValueError(
+            "Requested source frames are outside the manifest range: "
+            + ", ".join(str(frame) for frame in invalid)
+        )
+    return tuple(sorted(source_frames))
 
 
 def _offset_detection(detection: Detection, tile: Tile) -> Detection:
@@ -534,7 +617,12 @@ def _write_summary(
         frames_with_ball += "sports ball" in classes
         frames_with_people += "person" in classes
 
-    expected_frames = math.ceil(manifest.source_frame_count / int(metadata["stride"]))
+    target_frames = metadata.get("target_source_frames")
+    expected_frames = (
+        len(target_frames)
+        if isinstance(target_frames, list)
+        else math.ceil(manifest.source_frame_count / int(metadata["stride"]))
+    )
     summary = {
         "manifest": str(manifest.path),
         "cache": str(cache_path.resolve()),
@@ -570,6 +658,7 @@ def _validate_run_options(
     nms_iou: float,
     max_frames: int | None,
     frame_batch_size: int,
+    source_frames: tuple[int, ...] | None = None,
 ) -> None:
     if not 0 < confidence <= 1:
         raise ValueError("--confidence must be greater than 0 and at most 1")
@@ -588,5 +677,7 @@ def _validate_run_options(
         raise ValueError("--nms-iou must be between 0 and 1")
     if max_frames is not None and max_frames < 1:
         raise ValueError("--max-frames must be at least 1")
+    if source_frames is not None and max_frames is not None:
+        raise ValueError("--frames and --max-frames cannot be used together")
     if frame_batch_size < 1:
         raise ValueError("--frame-batch-size must be at least 1")

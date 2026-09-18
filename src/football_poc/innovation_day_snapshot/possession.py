@@ -241,6 +241,11 @@ def infer_cached_possession(
         segment_transfer_events,
         deduplication_seconds=transfer_deduplication_seconds,
     )
+    transfer_events = suppress_transient_proximity_receptions(
+        transfer_events,
+        state_segments,
+        balls,
+    )
     if initial_possession_team is None:
         transfer_events = filter_ambiguous_startup_transfers(
             transfer_events,
@@ -546,6 +551,7 @@ def infer_cached_possession(
         transfer_events,
         players,
         balls,
+        state_segments,
     )
     transfer_events = propagate_deferred_possession_chains(
         transfer_events,
@@ -599,6 +605,11 @@ def infer_cached_possession(
         raw_observations,
         balls,
         minimum_speed_pixels_per_second=minimum_pass_speed_pixels_per_second,
+    )
+    transfer_events = suppress_transient_proximity_receptions(
+        transfer_events,
+        state_segments,
+        balls,
     )
     transfer_events = infer_occluded_exchange_receptions(
         transfer_events,
@@ -880,10 +891,6 @@ def collapse_transient_opponent_segments(
                     if maximum_occlusion_seconds is not None
                     else maximum_transient_seconds
                 )
-                transient_bridge = (
-                    transient_duration <= maximum_transient_seconds
-                    and following_gap <= continuity_window
-                )
                 coherent_opponent_control = any(
                     len(segment.observations) >= 4
                     and sum(
@@ -892,6 +899,11 @@ def collapse_transient_opponent_segments(
                     )
                     >= 2
                     for segment in source[index:end]
+                )
+                transient_bridge = (
+                    transient_duration <= maximum_transient_seconds
+                    and following_gap <= continuity_window
+                    and not coherent_opponent_control
                 )
                 owner_continuity_allowed = owner_continuity and (
                     len(source[end].observations) >= 2
@@ -1567,6 +1579,28 @@ def infer_deferred_contested_turnovers(
         )
         if contact_seconds is None:
             continue
+        contact_receivers = {
+            prior.to_player_track_id
+            for prior in source
+            if prior.event_type == "pass_candidate"
+            and prior.team == event.team
+            and prior.to_player_track_id is not None
+            and abs(
+                (prior.completion_seconds or prior.clip_seconds)
+                - contact_seconds
+            )
+            <= 0.12
+        }
+        if contact_receivers and any(
+            prior.event_type == "pass_candidate"
+            and prior.team == event.team
+            and prior.from_player_track_id in contact_receivers
+            and contact_seconds
+            < (prior.completion_seconds or prior.clip_seconds)
+            <= event.clip_seconds
+            for prior in source
+        ):
+            continue
         if any(
             prior.event_type == "turnover_candidate"
             and abs(
@@ -2202,11 +2236,13 @@ def suppress_uncontrolled_opponent_turnovers(
     events: Iterable[PredictedEvent],
     players: dict[int, list[dict[str, Any]]],
     balls: dict[int, list[dict[str, Any]]],
+    possession_segments: Iterable[PossessionSegment] = (),
     *,
     maximum_box_distance_heights: float = 0.25,
     maximum_continuity_seconds: float = 2.0,
 ) -> list[PredictedEvent]:
     """Reject turnovers where only the current team remains in direct contact."""
+    segments = list(possession_segments)
     accepted: list[PredictedEvent] = []
     retained_team: str | None = None
     retained_at: float | None = None
@@ -2235,6 +2271,22 @@ def suppress_uncontrolled_opponent_turnovers(
             or completion is None
         ):
             accepted.append(event)
+            continue
+        retained_control = next(
+            (
+                segment
+                for segment in segments
+                if (
+                    segment.team == event.team
+                    and segment.start_seconds <= completion
+                    and segment.end_seconds > completion + 0.04
+                )
+            ),
+            None,
+        )
+        if retained_control is not None:
+            retained_team = event.team
+            retained_at = completion
             continue
         ball_and_players = next(
             (
@@ -2515,6 +2567,7 @@ def infer_flight_transfer_events(
         grouped_releases.append(release)
 
     segments = list(possession_segments)
+    motion = _ball_motion_evidence(balls)
     events: list[PredictedEvent] = []
     for timestamp, speed in grouped_releases:
         senders = [
@@ -2523,6 +2576,9 @@ def infer_flight_transfer_events(
             if segment.start_seconds <= timestamp
             and segment.end_seconds >= timestamp - sender_lookback_seconds
             and len(segment.observations) >= minimum_sender_observations
+            and _segment_has_reception_evidence(
+                segment, balls, motion_evidence=motion
+            )
         ]
         if not senders:
             continue
@@ -2533,11 +2589,40 @@ def infer_flight_transfer_events(
             if timestamp <= segment.start_seconds
             <= timestamp + receiver_window_seconds
             and segment.player_track_id != sender.player_track_id
-            and len(segment.observations) >= minimum_receiver_observations
+            and (
+                len(segment.observations) >= minimum_receiver_observations
+                or (
+                    segment.team == sender.team
+                    and _segment_has_strong_control_evidence(segment)
+                )
+            )
+            and _segment_has_reception_evidence(
+                segment, balls, motion_evidence=motion
+            )
         ]
         if not receivers:
             continue
         receiver = receivers[0]
+        completion_seconds = _contact_onset_before_control(
+            balls,
+            release_seconds=timestamp,
+            receiver=receiver,
+            motion_evidence=motion,
+        )
+        if completion_seconds < receiver.start_seconds:
+            reception_details = (
+                f"Ball release at {speed:.2f} pixels/second reached a "
+                f"direction-changing contact after "
+                f"{completion_seconds - timestamp:.2f}s; {receiver.team} "
+                f"control was independently established after "
+                f"{receiver.start_seconds - timestamp:.2f}s."
+            )
+        else:
+            reception_details = (
+                f"Ball release at {speed:.2f} pixels/second followed by "
+                f"{receiver.team} control after "
+                f"{receiver.start_seconds - timestamp:.2f}s."
+            )
         event_type = (
             "pass_candidate"
             if sender.team == receiver.team
@@ -2551,15 +2636,129 @@ def infer_flight_transfer_events(
                 from_player_track_id=sender.player_track_id,
                 to_player_track_id=receiver.player_track_id,
                 confidence=round(min(0.9, 0.45 + speed / 1000), 4),
-                details=(
-                    f"Ball release at {speed:.2f} pixels/second followed by "
-                    f"{receiver.team} control after "
-                    f"{receiver.start_seconds - timestamp:.2f}s."
-                ),
-                completion_seconds=round(receiver.start_seconds, 3),
+                details=reception_details,
+                completion_seconds=round(completion_seconds, 3),
             )
         )
     return _deduplicate_receptions(events)
+
+
+def _segment_has_control_evidence(
+    segment: PossessionSegment,
+    *,
+    maximum_control_ratio: float = 1.0,
+) -> bool:
+    return any(
+        observation.control_ratio <= maximum_control_ratio
+        for observation in segment.observations
+    )
+
+
+def _segment_has_strong_control_evidence(
+    segment: PossessionSegment,
+    *,
+    maximum_control_ratio: float = 0.5,
+) -> bool:
+    return any(
+        observation.control_ratio <= maximum_control_ratio
+        for observation in segment.observations
+    )
+
+
+def _segment_has_reception_evidence(
+    segment: PossessionSegment,
+    balls: dict[int, list[dict[str, Any]]],
+    *,
+    maximum_contact_direction_cosine: float = -0.25,
+    motion_evidence: dict[tuple[int, int], tuple[float, float]] | None = None,
+) -> bool:
+    if _segment_has_control_evidence(segment):
+        return True
+    observation_frames = {
+        observation.source_frame for observation in segment.observations
+    }
+    motion = (
+        _ball_motion_evidence(balls)
+        if motion_evidence is None
+        else motion_evidence
+    )
+    return any(
+        source_frame in observation_frames
+        and direction_cosine <= maximum_contact_direction_cosine
+        for (_, source_frame), (_, direction_cosine) in motion.items()
+    )
+
+
+def suppress_transient_proximity_receptions(
+    events: Iterable[PredictedEvent],
+    possession_segments: Iterable[PossessionSegment],
+    balls: dict[int, list[dict[str, Any]]],
+) -> list[PredictedEvent]:
+    segments = list(possession_segments)
+    motion = _ball_motion_evidence(balls)
+    return [
+        event
+        for event in events
+        if not (
+            event.completion_seconds is not None
+            and event.to_player_track_id is not None
+            and any(
+                segment.player_track_id == event.to_player_track_id
+                and abs(segment.start_seconds - event.completion_seconds)
+                <= 1e-9
+                and not _segment_has_reception_evidence(
+                    segment,
+                    balls,
+                    motion_evidence=motion,
+                )
+                for segment in segments
+            )
+        )
+    ]
+
+
+def _contact_onset_before_control(
+    balls: dict[int, list[dict[str, Any]]],
+    *,
+    release_seconds: float,
+    receiver: PossessionSegment,
+    maximum_confirmation_lag_seconds: float = 0.4,
+    maximum_direction_cosine: float = -0.8,
+    motion_evidence: dict[tuple[int, int], tuple[float, float]] | None = None,
+) -> float:
+    if not _segment_has_strong_control_evidence(receiver):
+        return receiver.start_seconds
+
+    tracks: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    for frame_points in balls.values():
+        for point in frame_points:
+            if not point.get("interpolated", False):
+                tracks[int(point["track_id"])].append(point)
+    motion = (
+        _ball_motion_evidence(balls)
+        if motion_evidence is None
+        else motion_evidence
+    )
+    candidates: list[float] = []
+    for track_id, points in tracks.items():
+        ordered = sorted(points, key=lambda point: float(point["clip_seconds"]))
+        for previous, current in zip(ordered, ordered[1:]):
+            current_seconds = float(current["clip_seconds"])
+            if (
+                current_seconds <= release_seconds
+                or current_seconds > receiver.start_seconds
+                or receiver.start_seconds - current_seconds
+                > maximum_confirmation_lag_seconds
+                or "source_frame" not in current
+            ):
+                continue
+            evidence = motion.get((track_id, int(current["source_frame"])))
+            if evidence is None or evidence[1] > maximum_direction_cosine:
+                continue
+            previous_seconds = float(previous["clip_seconds"])
+            if previous_seconds > release_seconds:
+                candidates.append(previous_seconds)
+    return max(candidates, default=receiver.start_seconds)
 
 
 def refine_weak_reception_completion_times(

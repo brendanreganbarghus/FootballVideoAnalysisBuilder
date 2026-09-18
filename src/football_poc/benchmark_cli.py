@@ -48,11 +48,24 @@ def build_parser() -> argparse.ArgumentParser:
         help="Process at most this many new frames, preserving them for resume.",
     )
     parser.add_argument(
+        "--frames",
+        default=None,
+        help="Comma-separated source-frame numbers to process exactly.",
+    )
+    parser.add_argument(
         "--reuse-cache",
         action="store_true",
         help=(
             "Resume a matching detection cache. Omit for a cold raw-video "
             "benchmark that replaces prior detections."
+        ),
+    )
+    parser.add_argument(
+        "--ball-only",
+        action="store_true",
+        help=(
+            "Detector-screening mode only. Excludes people and produces a "
+            "cache that the production ball tracker must not consume."
         ),
     )
     return parser
@@ -75,6 +88,12 @@ def main() -> None:
         max_frames=args.max_frames,
         frame_batch_size=args.frame_batch_size,
         reuse_cache=args.reuse_cache,
+        ball_only=args.ball_only,
+        source_frames=(
+            tuple(int(value.strip()) for value in args.frames.split(","))
+            if args.frames
+            else None
+        ),
     )
 
 

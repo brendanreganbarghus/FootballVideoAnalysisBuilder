@@ -1162,6 +1162,39 @@ def test_terminal_turnover_resolves_earlier_contested_contact(
     assert events[0].completion_seconds == 1.0
 
 
+def test_terminal_turnover_does_not_cross_intervening_team_pass(
+    monkeypatch,
+) -> None:
+    received_at_contact = PredictedEvent(
+        "pass_candidate", 0.5, "black", 9, 1, 0.8, "pass", 1.0
+    )
+    team_pass = PredictedEvent(
+        "pass_candidate", 1.5, "black", 1, 2, 0.8, "pass", 2.0
+    )
+    terminal_turnover = PredictedEvent(
+        "turnover_candidate", 3.0, "black", 2, 3, 0.8, "control", 3.4
+    )
+    monkeypatch.setattr(
+        "football_poc.possession._receiver_team_evidence",
+        lambda _players, _balls, seconds, **_kwargs: (
+            ("red", 0.9, 4.0) if seconds > 3 else ("black", 0.9, 4.0)
+        ),
+    )
+    monkeypatch.setattr(
+        "football_poc.possession._contested_contact_seconds",
+        lambda *args, **kwargs: 1.0,
+    )
+
+    events = infer_deferred_contested_turnovers(
+        [received_at_contact, team_pass, terminal_turnover],
+        {},
+        {},
+        minimum_speed_pixels_per_second=45,
+    )
+
+    assert events == [received_at_contact, team_pass, terminal_turnover]
+
+
 def test_controlled_contact_requires_direction_change_not_only_proximity() -> None:
     players = [
         {

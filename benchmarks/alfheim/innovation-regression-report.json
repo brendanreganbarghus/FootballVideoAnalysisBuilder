@@ -4,6 +4,10 @@
   "coordinate_source": "evaluation_only_provider_coordinates",
   "boundary_source": "calibration_derived_possible_out_of_bounds_intervals",
   "tolerance_seconds": 1.0,
+  "active": false,
+  "retired_at": "2026-09-18T20:13:10+02:00",
+  "retired_reason": "Superseded by the manual-first M#/E# review workflow.",
+  "successor_first_segment": "segment-0080-020",
   "passed": true,
   "segments": [
     {

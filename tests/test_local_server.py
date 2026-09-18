@@ -1,7 +1,17 @@
 import importlib.util
+import io
 import json
 import os
+import sys
 from pathlib import Path
+from types import SimpleNamespace
+
+from football_poc.coordination import (
+    DatabaseHealth,
+    DatabaseMode,
+    EnvironmentIdentity,
+    InMemoryCoordinationRepository,
+)
 
 
 ROOT = Path(__file__).parents[1]
@@ -13,7 +23,384 @@ SERVE_LOCAL = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(SERVE_LOCAL)
 
 
-def write_prepared_segment(root: Path, *, ai_ready: bool) -> None:
+def coordination_service() -> tuple[object, InMemoryCoordinationRepository]:
+    repository = InMemoryCoordinationRepository(
+        environment=EnvironmentIdentity("test", "test", 1)
+    )
+    identity = SimpleNamespace(
+        developer_id="example\\reviewer",
+        machine_id="79b0ab35-063c-44cb-b625-abdb062e7bb2",
+        domain="EXAMPLE",
+        username="Reviewer",
+        hostname="REVIEW-PC",
+        ip_address="192.0.2.1",
+    )
+    return SERVE_LOCAL.CoordinationService(
+        repository,
+        identity=identity,
+    ), repository
+
+
+def invoke_coordination(
+    service: object,
+    method: str,
+    path: str,
+    body: dict[str, object] | None = None,
+) -> tuple[int, dict[str, object]]:
+    handler = object.__new__(SERVE_LOCAL.RangeRequestHandler)
+    handler.coordination_service = service
+    handler.path = path
+    raw = json.dumps(body).encode("utf-8") if body is not None else b""
+    handler.headers = {"Content-Length": str(len(raw))}
+    handler.rfile = io.BytesIO(raw)
+    captured: dict[str, object] = {}
+    handler._send_json = lambda status, payload: captured.update(
+        status=status, payload=payload
+    )
+    if method == "GET":
+        handler.do_GET()
+    else:
+        handler.do_POST()
+    return int(captured["status"]), captured["payload"]
+
+
+def test_coordination_handlers_use_injected_repository_and_hide_token() -> None:
+    service, repository = coordination_service()
+
+    status, acquired = invoke_coordination(
+        service,
+        "POST",
+        "/api/coordination/acquire",
+        {
+            "workflow": "innovation_day_bac",
+            "segment": "segment-0300-020",
+            "stage": "event-review",
+        },
+    )
+    assert status == 200
+    token = acquired["lease"]["leaseToken"]
+
+    status, catalogue = invoke_coordination(
+        service,
+        "GET",
+        "/api/coordination/segments?workflow=innovation_day_bac",
+    )
+    assert status == 200
+    assert catalogue["segments"][0]["segment"] == "segment-0300-020"
+    assert "leaseToken" not in catalogue["segments"][0]["coordinationLease"]
+
+    status, saved = invoke_coordination(
+        service,
+        "POST",
+        "/api/coordination/state",
+        {
+            "workflow": "innovation_day_bac",
+            "segment": "segment-0300-020",
+            "leaseToken": token,
+            "expectedVersion": 0,
+            "state": {"decisions": {}},
+        },
+    )
+    assert status == 200
+    assert saved["version"] == 1
+    assert repository.get_state(
+        "innovation_day_bac", "segment-0300-020"
+    ).state == {"decisions": {}}
+
+    status, read = invoke_coordination(
+        service,
+        "GET",
+        "/api/coordination/state?workflow=innovation_day_bac"
+        "&segment=segment-0300-020",
+    )
+    assert status == 200
+    assert read["version"] == 1
+    assert "leaseToken" not in read["coordinationLease"]
+
+
+def test_manual_reference_endpoints_populate_normalized_coordination_state() -> None:
+    service, repository = coordination_service()
+    _, acquired = invoke_coordination(
+        service,
+        "POST",
+        "/api/coordination/acquire",
+        {
+            "workflow": "innovation_day_bac",
+            "segment": "segment-0080-020",
+        },
+    )
+    token = acquired["lease"]["leaseToken"]
+    body = {
+        "workflow": "innovation_day_bac",
+        "segment": "segment-0080-020",
+        "leaseToken": token,
+        "events": [
+            {
+                "key": "M2",
+                "timestampMs": 60000,
+                "team": "red",
+                "type": "completed_pass",
+            },
+            {
+                "key": "M1",
+                "timestampMs": 3030,
+                "team": "black",
+                "type": "completed_pass",
+            },
+        ],
+        "mappings": {"M1": "E9"},
+        "approve": False,
+    }
+    status, saved = invoke_coordination(
+        service,
+        "POST",
+        "/api/coordination/manual-reference",
+        body,
+    )
+    assert status == 200
+    assert saved["reference"]["status"] == "draft"
+    assert [event["key"] for event in saved["reference"]["events"]] == [
+        "M2",
+        "M1",
+    ]
+    assert saved["reference"]["events"][0]["sourceFrame"] == 1499
+    assert saved["reference"]["mappings"] == {"M1": "E9"}
+    assert repository.get_manual_event_revision(
+        "innovation_day_bac", "segment-0080-020", "M2"
+    ).timestamp_ms == 60000
+
+    status, approved = invoke_coordination(
+        service,
+        "POST",
+        "/api/coordination/manual-reference",
+        {**body, "approve": True},
+    )
+    assert status == 200
+    assert approved["reference"]["status"] == "approved"
+
+    status, loaded = invoke_coordination(
+        service,
+        "GET",
+        "/api/coordination/manual-reference?workflow=innovation_day_bac"
+        "&segment=segment-0080-020",
+    )
+    assert status == 200
+    assert loaded["approved"]["approvedAt"]
+    assert loaded["approved"]["mappings"] == {"M1": "E9"}
+
+
+def test_manual_reference_endpoint_requires_lease_and_one_to_one_mapping() -> None:
+    service, _ = coordination_service()
+    _, acquired = invoke_coordination(
+        service,
+        "POST",
+        "/api/coordination/acquire",
+        {
+            "workflow": "innovation_day_bac",
+            "segment": "segment-0080-020",
+        },
+    )
+    events = [
+        {
+            "key": key,
+            "timestampMs": index * 1000,
+            "team": "black",
+            "type": "turnover",
+        }
+        for index, key in enumerate(("M1", "M2"), start=1)
+    ]
+    status, missing_lease = invoke_coordination(
+        service,
+        "POST",
+        "/api/coordination/manual-reference",
+        {
+            "workflow": "innovation_day_bac",
+            "segment": "segment-0080-020",
+            "events": events,
+            "mappings": {},
+        },
+    )
+    assert (status, missing_lease["code"]) == (400, "validation_error")
+
+    status, duplicate = invoke_coordination(
+        service,
+        "POST",
+        "/api/coordination/manual-reference",
+        {
+            "workflow": "innovation_day_bac",
+            "segment": "segment-0080-020",
+            "leaseToken": acquired["lease"]["leaseToken"],
+            "events": events,
+            "mappings": {"M1": "E1", "M2": "E1"},
+        },
+    )
+    assert (status, duplicate["code"]) == (400, "validation_error")
+
+
+def test_coordination_handlers_map_conflicts_and_validation() -> None:
+    service, _ = coordination_service()
+    _, first = invoke_coordination(
+        service,
+        "POST",
+        "/api/coordination/acquire",
+        {
+            "workflow": "innovation_day_bac",
+            "segment": "segment-0300-020",
+        },
+    )
+    status, conflict = invoke_coordination(
+        service,
+        "POST",
+        "/api/coordination/acquire",
+        {
+            "workflow": "innovation_day_bac",
+            "segment": "segment-0300-020",
+        },
+    )
+    assert (status, conflict["code"]) == (423, "lease_conflict")
+
+    token = first["lease"]["leaseToken"]
+    invoke_coordination(
+        service,
+        "POST",
+        "/api/coordination/state",
+        {
+            "workflow": "innovation_day_bac",
+            "segment": "segment-0300-020",
+            "leaseToken": token,
+            "expectedVersion": 0,
+            "state": {},
+        },
+    )
+    status, conflict = invoke_coordination(
+        service,
+        "POST",
+        "/api/coordination/state",
+        {
+            "workflow": "innovation_day_bac",
+            "segment": "segment-0300-020",
+            "leaseToken": token,
+            "expectedVersion": 0,
+            "state": {},
+        },
+    )
+    assert (status, conflict["code"]) == (409, "state_version_conflict")
+
+    status, invalid = invoke_coordination(
+        service,
+        "POST",
+        "/api/coordination/state",
+        {"workflow": "wrong", "segment": "../bad"},
+    )
+    assert (status, invalid["code"]) == (400, "validation_error")
+
+
+def test_coordination_unavailable_stays_read_only() -> None:
+    class UnavailableRepository:
+        def health(self) -> DatabaseHealth:
+            return DatabaseHealth(DatabaseMode.UNAVAILABLE, "database offline")
+
+        def close(self) -> None:
+            pass
+
+    service = SERVE_LOCAL.CoordinationService(UnavailableRepository())
+    status, health = invoke_coordination(
+        service, "GET", "/api/coordination/health"
+    )
+    assert status == 200
+    assert health["mode"] == "unavailable"
+
+    status, payload = invoke_coordination(
+        service,
+        "POST",
+        "/api/coordination/acquire",
+        {
+            "workflow": "innovation_day_bac",
+            "segment": "segment-0300-020",
+        },
+    )
+    assert (status, payload["code"]) == (503, "coordination_unavailable")
+
+
+def test_coordination_bootstrap_exception_returns_unavailable(
+    monkeypatch,
+) -> None:
+    def fail_config() -> None:
+        raise ValueError("malformed coordination config")
+
+    monkeypatch.setattr(
+        SERVE_LOCAL.CoordinationConfig,
+        "from_environment",
+        staticmethod(fail_config),
+    )
+
+    service = SERVE_LOCAL.CoordinationService.bootstrap()
+
+    assert service.mode is DatabaseMode.UNAVAILABLE
+    assert service.health_payload() == {
+        "mode": "unavailable",
+        "detail": "Coordination startup configuration failed: ValueError",
+        "deployment": None,
+    }
+    service.close()
+
+
+def test_main_bootstraps_once_attaches_service_and_closes(
+    monkeypatch,
+) -> None:
+    calls = {"bootstrap": 0, "serve": 0, "server_close": 0, "close": 0}
+
+    class FakeService:
+        mode = DatabaseMode.DISABLED
+
+        def close(self) -> None:
+            calls["close"] += 1
+
+    service = FakeService()
+
+    def bootstrap() -> FakeService:
+        calls["bootstrap"] += 1
+        return service
+
+    class FakeServer:
+        def __init__(self, address, handler) -> None:
+            self.address = address
+            self.handler = handler
+            self.coordination_service = None
+
+        def serve_forever(self) -> None:
+            calls["serve"] += 1
+            assert self.coordination_service is service
+
+        def server_close(self) -> None:
+            calls["server_close"] += 1
+
+    monkeypatch.setattr(
+        SERVE_LOCAL.CoordinationService, "bootstrap", staticmethod(bootstrap)
+    )
+    monkeypatch.setattr(SERVE_LOCAL, "ThreadingHTTPServer", FakeServer)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["serve-local.py", "--directory", str(ROOT)],
+    )
+
+    SERVE_LOCAL.main()
+
+    assert calls == {
+        "bootstrap": 1,
+        "serve": 1,
+        "server_close": 1,
+        "close": 1,
+    }
+
+
+def write_prepared_segment(
+    root: Path,
+    *,
+    ai_ready: bool,
+    review_workflows: tuple[str, ...] = (),
+) -> None:
     root.mkdir(parents=True)
     (root / "alfheim-window-playable.mp4").touch()
     segment_count = int(root.name.rsplit("-", 1)[1])
@@ -24,6 +411,7 @@ def write_prepared_segment(root: Path, *, ai_ready: bool) -> None:
                 "start_frame": 0,
                 "end_frame": segment_count * 75,
                 "duration_seconds": segment_count * 3,
+                "review_workflows": list(review_workflows),
             }
         ),
         encoding="utf-8",
@@ -53,6 +441,7 @@ def test_prepared_segment_list_reports_times_protection_and_ai_state(
             "state": "ready",
             "raw_video_only": True,
             "ball_track_available": False,
+            "evidence_ready": False,
             "validated": False,
             "protected": True,
             "video_url": (
@@ -68,6 +457,7 @@ def test_prepared_segment_list_reports_times_protection_and_ai_state(
             "state": "prepared",
             "raw_video_only": True,
             "ball_track_available": False,
+            "evidence_ready": False,
             "validated": False,
             "protected": False,
             "video_url": (
@@ -112,6 +502,39 @@ def test_review_segment_list_keeps_datasets_and_calibrations_separate(
     assert segments[1]["calibration_status"] == "not_calibrated"
     assert segments[1]["processing_supported"] is False
     assert segments[1]["labels_url"] is None
+
+
+def test_dynamic_prepared_segments_stay_in_their_registered_workflow(
+    tmp_path: Path, monkeypatch
+) -> None:
+    generated = tmp_path / "benchmarks" / "alfheim" / "generated"
+    write_prepared_segment(
+        generated / "segment-0080-020",
+        ai_ready=False,
+        review_workflows=("innovation_day_bac",),
+    )
+    write_prepared_segment(
+        generated / "segment-0060-020",
+        ai_ready=True,
+        review_workflows=("innovation_day_bac",),
+    )
+    write_prepared_segment(
+        generated / "segment-0100-020",
+        ai_ready=False,
+        review_workflows=("live_iteration_25",),
+    )
+    monkeypatch.chdir(tmp_path)
+
+    handler = object.__new__(SERVE_LOCAL.RangeRequestHandler)
+    innovation = handler._alfheim_review_segments(namespace="innovation")
+    live = handler._alfheim_review_segments(namespace="live")
+
+    assert [segment["cache_key"] for segment in innovation] == [
+        "segment-0080-020"
+    ]
+    assert [segment["cache_key"] for segment in live] == [
+        "segment-0100-020"
+    ]
 
 
 def test_custom_camera_uses_its_own_sample_and_calibration_state(

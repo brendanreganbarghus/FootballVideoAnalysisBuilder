@@ -8,6 +8,7 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 from datetime import datetime, timezone
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -27,6 +28,550 @@ from football_poc.alfheim_segments import (
     resolve_alfheim_pano,
 )
 from football_poc.event_comparison import compare_manual_events
+from football_poc.coordination import (
+    CoordinationConfig,
+    DatabaseHealth,
+    DatabaseMode,
+    DatabaseUnavailableError,
+    Identity,
+    LeaseConflictError,
+    LeaseTokenError,
+    ManualEventMapping,
+    ManualReferenceMember,
+    Segment,
+    StateVersionConflictError,
+    bootstrap_coordination,
+    load_or_create_machine_identity,
+)
+from football_poc.coordination.history_import import build_reconciliation_hook
+
+
+WORKFLOW_IDS = frozenset({"innovation_day_bac", "live_iteration_25"})
+RETIRED_INNOVATION_SEGMENTS = frozenset(
+    {
+        "segment-0060-020",
+        "segment-0300-020",
+        "segment-0540-020",
+        "segment-0540-060",
+        "segment-0575-020",
+        "segment-0595-020",
+        "segment-0615-020",
+    }
+)
+
+
+def _iso(value: object) -> str | None:
+    return value.isoformat() if hasattr(value, "isoformat") else None
+
+
+class UnavailableCoordinationRepository:
+    def __init__(self, detail: str) -> None:
+        self._health = DatabaseHealth(DatabaseMode.UNAVAILABLE, detail)
+
+    def health(self) -> object:
+        return self._health
+
+    def close(self) -> None:
+        pass
+
+
+class CoordinationService:
+    """HTTP-safe facade over the finalized coordination repository API."""
+
+    def __init__(
+        self,
+        repository: object,
+        *,
+        identity: object | None = None,
+        health: object | None = None,
+    ) -> None:
+        self.repository = repository
+        self.identity = identity
+        self._health = health or repository.health()
+        self._repository_lock = threading.RLock()
+
+    @classmethod
+    def bootstrap(cls) -> "CoordinationService":
+        try:
+            config = CoordinationConfig.from_environment()
+            artifact_root = shared_artifact_root()
+            reconciliation_hook = (
+                build_reconciliation_hook(
+                    artifact_root,
+                    regression_paths={
+                        "live_iteration_25": (
+                            PROJECT_ROOT
+                            / "benchmarks"
+                            / "alfheim"
+                            / "live-regressions.json"
+                        )
+                    },
+                )
+                if artifact_root
+                else None
+            )
+            result = bootstrap_coordination(
+                config,
+                reconciliation_hook=reconciliation_hook,
+            )
+        except Exception as error:
+            repository = UnavailableCoordinationRepository(
+                "Coordination startup configuration failed: "
+                f"{type(error).__name__}"
+            )
+            return cls(repository)
+        identity = None
+        health = result.health
+        if health.mode is DatabaseMode.AVAILABLE:
+            try:
+                identity = load_or_create_machine_identity(
+                    config.machine_id_path
+                )
+                result.repository.register_identity(
+                    Identity(
+                        identity.developer_id,
+                        identity.machine_id,
+                        identity.domain,
+                        identity.username,
+                        identity.hostname,
+                        identity.ip_address,
+                    )
+                )
+            except Exception as error:
+                health = type(health)(
+                    DatabaseMode.UNAVAILABLE,
+                    "Coordination identity registration failed: "
+                    f"{type(error).__name__}",
+                    health.deployment,
+                )
+        elif health.mode is DatabaseMode.UNAVAILABLE:
+            health = type(health)(
+                DatabaseMode.UNAVAILABLE,
+                "PostgreSQL coordination is unavailable",
+                health.deployment,
+            )
+        return cls(result.repository, identity=identity, health=health)
+
+    @property
+    def mode(self) -> DatabaseMode:
+        return self._health.mode
+
+    def health_payload(self) -> dict[str, object]:
+        deployment = self._health.deployment
+        return {
+            "mode": self.mode.value,
+            "detail": self._health.detail,
+            "deployment": (
+                {
+                    "deploymentId": deployment.deployment_id,
+                    "authorityId": deployment.authority_id,
+                    "authorityEpoch": deployment.authority_epoch,
+                    "retired": deployment.retired,
+                }
+                if deployment
+                else None
+            ),
+        }
+
+    def identity_payload(self) -> dict[str, object]:
+        identity = self.identity
+        return {
+            "mode": self.mode.value,
+            "identity": (
+                {
+                    "developerId": identity.developer_id,
+                    "displayName": (
+                        f"{identity.domain}\\{identity.username}"
+                        if identity.domain
+                        else identity.username
+                    ),
+                    "machineId": identity.machine_id,
+                    "machineLabel": identity.hostname,
+                }
+                if identity
+                else None
+            ),
+        }
+
+    def require_available(self) -> None:
+        if self.mode is not DatabaseMode.AVAILABLE or self.identity is None:
+            raise DatabaseUnavailableError(self._health.detail)
+
+    @staticmethod
+    def validate_key(workflow: object, segment: object) -> tuple[str, str]:
+        workflow_id = str(workflow or "").strip()
+        segment_id = str(segment or "").strip()
+        if workflow_id not in WORKFLOW_IDS:
+            raise ValueError("Unknown coordination workflow")
+        if not re.fullmatch(r"(?:segment-\d{4}-\d{3}|alfheim-window-555)", segment_id):
+            raise ValueError("Invalid coordination segment")
+        return workflow_id, segment_id
+
+    @staticmethod
+    def lease_payload(lease: object | None, *, token: str | None = None) -> object:
+        if lease is None:
+            return None
+        return {
+            "workflow": lease.workflow_id,
+            "segment": lease.segment_id,
+            "holderId": lease.owner_id,
+            "holderName": lease.owner_id,
+            "machineId": lease.machine_id,
+            "machineLabel": lease.machine_id,
+            "stage": lease.stage,
+            "acquiredAt": _iso(lease.acquired_at),
+            "heartbeatAt": _iso(lease.heartbeat_at),
+            "expiresAt": _iso(lease.expires_at),
+            **({"leaseToken": lease.token} if token == lease.token else {}),
+        }
+
+    def list_segments(self, workflow: str) -> dict[str, object]:
+        workflow_id, _ = self.validate_key(workflow, "segment-0000-001")
+        self.require_available()
+        with self._repository_lock:
+            leases = {
+                lease.segment_id: lease
+                for lease in self.repository.list_active_leases(workflow_id)
+            }
+            segments = self.repository.list_segments(workflow_id)
+        return {
+            "workflow": workflow_id,
+            "segments": [
+                {
+                    "workflow": item.workflow_id,
+                    "segment": item.segment_id,
+                    "logicalKey": item.logical_key,
+                    "metadata": dict(item.metadata),
+                    "createdAt": _iso(item.created_at),
+                    "updatedAt": _iso(item.updated_at),
+                    "coordinationLease": self.lease_payload(
+                        leases.get(item.segment_id)
+                    ),
+                }
+                for item in segments
+            ],
+        }
+
+    def active_leases(self, workflow: str) -> dict[str, object]:
+        workflow_id, _ = self.validate_key(workflow, "segment-0000-001")
+        self.require_available()
+        with self._repository_lock:
+            leases = self.repository.list_active_leases(workflow_id)
+        return {
+            "workflow": workflow_id,
+            "leases": [
+                self.lease_payload(lease)
+                for lease in leases
+            ],
+        }
+
+    def read_state(self, workflow: str, segment: str) -> dict[str, object]:
+        workflow_id, segment_id = self.validate_key(workflow, segment)
+        self.require_available()
+        with self._repository_lock:
+            snapshot = self.repository.get_state(workflow_id, segment_id)
+            lease = self.repository.get_lease(workflow_id, segment_id)
+        return {
+            "workflow": workflow_id,
+            "segment": segment_id,
+            "version": snapshot.version if snapshot else 0,
+            "state": dict(snapshot.state) if snapshot else None,
+            "authorId": snapshot.author_id if snapshot else None,
+            "createdAt": _iso(snapshot.created_at) if snapshot else None,
+            "coordinationLease": self.lease_payload(lease),
+        }
+
+    def acquire(self, body: dict[str, object]) -> dict[str, object]:
+        self.require_available()
+        workflow, segment = self.validate_key(
+            body.get("workflow"), body.get("segment")
+        )
+        stage = str(body.get("stage") or "event-review").strip()
+        if not stage:
+            raise ValueError("stage must not be empty")
+        with self._repository_lock:
+            self.repository.upsert_segment(
+                Segment(workflow, segment, segment, {"source": "local-canvas"})
+            )
+            lease = self.repository.acquire_lease(
+                workflow,
+                segment,
+                self.identity.developer_id,
+                self.identity.machine_id,
+                stage,
+            )
+            snapshot = self.repository.get_state(workflow, segment)
+        return {
+            "lease": self.lease_payload(lease, token=lease.token),
+            "version": snapshot.version if snapshot else 0,
+        }
+
+    def heartbeat(self, body: dict[str, object]) -> dict[str, object]:
+        self.require_available()
+        token = str(body.get("leaseToken") or "").strip()
+        if not token:
+            raise ValueError("leaseToken is required")
+        with self._repository_lock:
+            lease = self.repository.heartbeat_lease(token)
+        return {"lease": self.lease_payload(lease, token=token)}
+
+    def release(self, body: dict[str, object]) -> dict[str, object]:
+        self.require_available()
+        token = str(body.get("leaseToken") or "").strip()
+        if not token:
+            raise ValueError("leaseToken is required")
+        with self._repository_lock:
+            if not self.repository.release_lease(token):
+                raise LeaseTokenError("Unknown editing lease token")
+        return {"released": True}
+
+    def mutate_state(self, body: dict[str, object]) -> dict[str, object]:
+        self.require_available()
+        workflow, segment = self.validate_key(
+            body.get("workflow"), body.get("segment")
+        )
+        token = str(body.get("leaseToken") or "").strip()
+        version = body.get("expectedVersion")
+        state = body.get("state")
+        if not token:
+            raise ValueError("leaseToken is required")
+        if isinstance(version, bool) or not isinstance(version, int) or version < 0:
+            raise ValueError("expectedVersion must be a non-negative integer")
+        if not isinstance(state, dict):
+            raise ValueError("state must be a JSON object")
+        with self._repository_lock:
+            snapshot = self.repository.mutate_state(
+                workflow,
+                segment,
+                version,
+                state,
+                self.identity.developer_id,
+                token,
+            )
+        return {
+            "workflow": workflow,
+            "segment": segment,
+            "version": snapshot.version,
+            "state": dict(snapshot.state),
+            "authorId": snapshot.author_id,
+            "createdAt": _iso(snapshot.created_at),
+        }
+
+    def _manual_reference_payload(
+        self,
+        workflow: str,
+        segment: str,
+        reference: object | None,
+    ) -> object | None:
+        if reference is None:
+            return None
+        events = []
+        for member in reference.members:
+            event = self.repository.get_manual_event_revision(
+                workflow,
+                segment,
+                member.event_key,
+                member.event_revision,
+            )
+            if event is None:
+                continue
+            events.append(
+                {
+                    "key": event.event_key,
+                    "revision": event.revision,
+                    "timestampMs": event.timestamp_ms,
+                    "seconds": event.timestamp_ms / 1000,
+                    "sourceFrame": event.source_frame,
+                    **dict(event.payload),
+                }
+            )
+        return {
+            "revision": reference.revision,
+            "status": reference.status,
+            "basedOnRevision": reference.based_on_revision,
+            "events": events,
+            "mappings": {
+                mapping.manual_event_key: mapping.engine_event_key
+                for mapping in reference.mappings
+            },
+            "createdBy": reference.created_by,
+            "createdAt": _iso(reference.created_at),
+            "approvedBy": reference.approved_by,
+            "approvedAt": _iso(reference.approved_at),
+        }
+
+    def read_manual_reference(
+        self, workflow: str, segment: str
+    ) -> dict[str, object]:
+        workflow_id, segment_id = self.validate_key(workflow, segment)
+        if workflow_id != "innovation_day_bac":
+            raise ValueError("Manual references are available only for Innovation")
+        self.require_available()
+        with self._repository_lock:
+            draft = self.repository.get_manual_reference_set(
+                workflow_id, segment_id
+            )
+            approved = self.repository.get_approved_manual_reference_set(
+                workflow_id, segment_id
+            )
+        return {
+            "workflow": workflow_id,
+            "segment": segment_id,
+            "draft": self._manual_reference_payload(
+                workflow_id, segment_id, draft
+            ) if draft and draft.status == "draft" else None,
+            "approved": self._manual_reference_payload(
+                workflow_id, segment_id, approved
+            ),
+        }
+
+    def mutate_manual_reference(
+        self, body: dict[str, object]
+    ) -> dict[str, object]:
+        self.require_available()
+        workflow, segment = self.validate_key(
+            body.get("workflow"), body.get("segment")
+        )
+        if workflow != "innovation_day_bac":
+            raise ValueError("Manual references are available only for Innovation")
+        token = str(body.get("leaseToken") or "").strip()
+        events = body.get("events")
+        mappings = body.get("mappings", {})
+        approve = body.get("approve", False)
+        if not token:
+            raise ValueError("leaseToken is required")
+        if not isinstance(events, list) or not isinstance(mappings, dict):
+            raise ValueError("events and mappings must be JSON collections")
+        if not isinstance(approve, bool):
+            raise ValueError("approve must be a boolean")
+        prepared_events = []
+        seen_keys: set[str] = set()
+        for ordinal, item in enumerate(events):
+            if not isinstance(item, dict):
+                raise ValueError("Each manual event must be a JSON object")
+            key = str(item.get("key") or "").strip()
+            timestamp_ms = item.get("timestampMs")
+            team = str(item.get("team") or "")
+            event_type = str(item.get("type") or "")
+            if not re.fullmatch(r"M[1-9]\d*", key) or key in seen_keys:
+                raise ValueError("Manual event keys must be unique M# values")
+            if (
+                isinstance(timestamp_ms, bool)
+                or not isinstance(timestamp_ms, int)
+                or timestamp_ms < 0
+                or timestamp_ms > 60_000
+            ):
+                raise ValueError("timestampMs must be an integer from 0 to 60000")
+            if team not in {"black", "red"}:
+                raise ValueError("Unknown manual event team")
+            if event_type not in {"completed_pass", "turnover"}:
+                raise ValueError("Unknown manual event type")
+            seen_keys.add(key)
+            prepared_events.append(
+                (
+                    ordinal,
+                    key,
+                    timestamp_ms,
+                    min(1499, round(timestamp_ms * 25 / 1000)),
+                    {
+                        "team": team,
+                        "type": event_type,
+                        "active": True,
+                        "deleted": False,
+                    },
+                )
+            )
+        normalized_mappings = []
+        seen_engine_keys: set[str] = set()
+        for manual_key, engine_key_value in mappings.items():
+            engine_key = str(engine_key_value)
+            if manual_key not in seen_keys:
+                raise ValueError("Mapping references a non-member M#")
+            if not re.fullmatch(r"E[1-9]\d*", engine_key):
+                raise ValueError("Mapping engine key must be an E#")
+            if engine_key in seen_engine_keys:
+                raise ValueError("Each E# may map to only one M#")
+            seen_engine_keys.add(engine_key)
+            normalized_mappings.append(
+                ManualEventMapping(manual_key, engine_key)
+            )
+        with self._repository_lock:
+            reference = self.repository.get_manual_reference_set(
+                workflow, segment
+            )
+            if reference is None or reference.status != "draft":
+                reference = self.repository.create_manual_reference_draft(
+                    workflow,
+                    segment,
+                    self.identity.developer_id,
+                    token,
+                )
+            members = []
+            for (
+                ordinal,
+                key,
+                timestamp_ms,
+                source_frame,
+                payload,
+            ) in prepared_events:
+                current = self.repository.get_manual_event_revision(
+                    workflow, segment, key
+                )
+                if (
+                    current is None
+                    or current.timestamp_ms != timestamp_ms
+                    or current.source_frame != source_frame
+                    or any(current.payload.get(name) != value
+                           for name, value in payload.items())
+                ):
+                    current = self.repository.append_manual_event(
+                        workflow,
+                        segment,
+                        key,
+                        timestamp_ms,
+                        source_frame,
+                        payload,
+                        self.identity.developer_id,
+                        token,
+                    )
+                members.append(
+                    ManualReferenceMember(ordinal, key, current.revision)
+                )
+            reference = self.repository.replace_manual_reference_membership(
+                workflow,
+                segment,
+                reference.revision,
+                members,
+                self.identity.developer_id,
+                token,
+            )
+            reference = self.repository.replace_manual_event_mappings(
+                workflow,
+                segment,
+                reference.revision,
+                normalized_mappings,
+                self.identity.developer_id,
+                token,
+            )
+            if approve:
+                reference = self.repository.approve_manual_reference_set(
+                    workflow,
+                    segment,
+                    reference.revision,
+                    self.identity.developer_id,
+                    token,
+                )
+        return {
+            "workflow": workflow,
+            "segment": segment,
+            "reference": self._manual_reference_payload(
+                workflow, segment, reference
+            ),
+        }
+
+    def close(self) -> None:
+        with self._repository_lock:
+            self.repository.close()
 
 
 def shared_artifact_root() -> Path | None:
@@ -113,6 +658,13 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
     range_to_send: tuple[int, int] | None = None
     analysis_processes: dict[str, subprocess.Popen[bytes]] = {}
 
+    @property
+    def coordination(self) -> CoordinationService:
+        service = getattr(self, "coordination_service", None)
+        if service is not None:
+            return service
+        return self.server.coordination_service
+
     def translate_path(self, path: str) -> str:
         request_path = urlparse(path).path
         match = re.fullmatch(
@@ -133,6 +685,9 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
 
     def do_GET(self) -> None:
         request = urlparse(self.path)
+        if request.path.startswith("/api/coordination/"):
+            self._coordination_get(request)
+            return
         if request.path == "/review-canvas":
             theme = parse_qs(request.query).get("theme", ["default"])[0]
             if theme not in {"default", "innovation"}:
@@ -221,6 +776,9 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
 
     def do_POST(self) -> None:
         request_path = urlparse(self.path).path
+        if request_path.startswith("/api/coordination/"):
+            self._coordination_post(request_path)
+            return
         if request_path == "/api/alfheim/analyze":
             self._start_segment_analysis()
             return
@@ -246,6 +804,13 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
             payload = json.loads(self.rfile.read(content_length))
             if payload.get("source_id") not in {None, "alfheim"}:
                 raise ValueError("This endpoint prepares only the Alfheim source")
+            workflow_id = payload.get("workflow_id")
+            if workflow_id not in {
+                None,
+                "innovation_day_bac",
+                "live_iteration_25",
+            }:
+                raise ValueError("Unknown review workflow")
             duration_seconds = require_review_duration(
                 float(payload["duration_seconds"])
             )
@@ -305,6 +870,27 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
                     cwd=Path.cwd(),
                     check=True,
                 )
+            if workflow_id is not None:
+                prepared_manifest = json.loads(
+                    manifest_path.read_text(encoding="utf-8")
+                )
+                registered_workflows = {
+                    str(value)
+                    for value in prepared_manifest.get(
+                        "review_workflows",
+                        [],
+                    )
+                }
+                registered_workflows.add(str(workflow_id))
+                prepared_manifest["review_workflows"] = sorted(
+                    registered_workflows
+                )
+                temporary_manifest = manifest_path.with_suffix(".json.tmp")
+                temporary_manifest.write_text(
+                    f"{json.dumps(prepared_manifest, indent=2)}\n",
+                    encoding="utf-8",
+                )
+                temporary_manifest.replace(manifest_path)
             relative = output.relative_to(Path.cwd()).as_posix()
             self._send_json(
                 200,
@@ -336,16 +922,28 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
             events_only = payload.get("events_only", False)
             if not isinstance(events_only, bool):
                 raise ValueError("events_only must be a boolean")
+            evidence_only = payload.get("evidence_only", False)
+            if not isinstance(evidence_only, bool):
+                raise ValueError("evidence_only must be a boolean")
             resume_after_detection = payload.get("resume_after_detection", False)
             if not isinstance(resume_after_detection, bool):
                 raise ValueError("resume_after_detection must be a boolean")
             focused_recovery = payload.get("focused_recovery", False)
             if not isinstance(focused_recovery, bool):
                 raise ValueError("focused_recovery must be a boolean")
-            if sum((events_only, resume_after_detection, focused_recovery)) > 1:
+            if sum((
+                events_only,
+                evidence_only,
+                resume_after_detection,
+                focused_recovery,
+            )) > 1:
                 raise ValueError(
-                    "events_only, resume_after_detection, and "
+                    "events_only, evidence_only, resume_after_detection, and "
                     "focused_recovery are exclusive"
+                )
+            if evidence_only and workflow != "innovation":
+                raise ValueError(
+                    "Evidence-only preparation is available only for Innovation"
                 )
             if not re.fullmatch(r"segment-\d{4}-\d{3}", cache_key):
                 raise ValueError("Invalid segment cache key")
@@ -393,6 +991,8 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
                 arguments.extend(["--artifact-namespace", "live"])
             if events_only:
                 arguments.append("--events-only")
+            if evidence_only:
+                arguments.append("--evidence-only")
             if resume_after_detection:
                 arguments.append("--resume-after-detection")
             if focused_recovery:
@@ -531,6 +1131,100 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _coordination_get(self, request: object) -> None:
+        try:
+            query = parse_qs(request.query)
+            if request.path == "/api/coordination/health":
+                payload = self.coordination.health_payload()
+            elif request.path == "/api/coordination/identity":
+                payload = self.coordination.identity_payload()
+            elif request.path in {
+                "/api/coordination/segments",
+                "/api/coordination/catalogue",
+            }:
+                payload = self.coordination.list_segments(
+                    query.get("workflow", [""])[0]
+                )
+            elif request.path in {
+                "/api/coordination/leases",
+                "/api/coordination/active-leases",
+            }:
+                payload = self.coordination.active_leases(
+                    query.get("workflow", [""])[0]
+                )
+            elif request.path == "/api/coordination/state":
+                payload = self.coordination.read_state(
+                    query.get("workflow", [""])[0],
+                    query.get("segment", [""])[0],
+                )
+            elif request.path == "/api/coordination/manual-reference":
+                payload = self.coordination.read_manual_reference(
+                    query.get("workflow", [""])[0],
+                    query.get("segment", [""])[0],
+                )
+            else:
+                self._send_json(404, {"error": "Coordination API not found"})
+                return
+            self._send_json(200, payload)
+        except Exception as error:
+            self._send_coordination_error(error)
+
+    def _coordination_post(self, path: str) -> None:
+        try:
+            content_length = int(self.headers.get("Content-Length", "0"))
+            if content_length <= 0 or content_length > 2 * 1024 * 1024:
+                raise ValueError("Request body must contain a JSON object")
+            body = json.loads(self.rfile.read(content_length))
+            if not isinstance(body, dict):
+                raise ValueError("Request body must be a JSON object")
+            if path == "/api/coordination/acquire":
+                payload = self.coordination.acquire(body)
+            elif path == "/api/coordination/heartbeat":
+                payload = self.coordination.heartbeat(body)
+            elif path == "/api/coordination/release":
+                payload = self.coordination.release(body)
+            elif path == "/api/coordination/state":
+                payload = self.coordination.mutate_state(body)
+            elif path == "/api/coordination/manual-reference":
+                payload = self.coordination.mutate_manual_reference(body)
+            else:
+                self._send_json(404, {"error": "Coordination API not found"})
+                return
+            self._send_json(200, payload)
+        except (json.JSONDecodeError, UnicodeDecodeError) as error:
+            self._send_coordination_error(ValueError(f"Invalid JSON: {error}"))
+        except Exception as error:
+            self._send_coordination_error(error)
+
+    def _send_coordination_error(self, error: Exception) -> None:
+        status = (
+            409
+            if isinstance(error, StateVersionConflictError)
+            else 423
+            if isinstance(error, (LeaseConflictError, LeaseTokenError))
+            else 503
+            if isinstance(error, DatabaseUnavailableError)
+            else 400
+            if isinstance(error, ValueError)
+            else 503
+        )
+        message = (
+            "Coordination repository request failed"
+            if status == 503 and not isinstance(error, DatabaseUnavailableError)
+            else str(error)
+        )
+        self._send_json(
+            status,
+            {
+                "error": message,
+                "code": {
+                    409: "state_version_conflict",
+                    423: "lease_conflict",
+                    503: "coordination_unavailable",
+                }.get(status, "validation_error"),
+            },
+        )
+
     @staticmethod
     def _analysis_receipt(root: Path) -> tuple[dict[str, object], object | None]:
         status_path = root / "analysis-status.json"
@@ -594,6 +1288,8 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
             state = "failed"
         elif events.is_file():
             state = "ready"
+        elif analysis_status.get("stage") == "evidence_ready":
+            state = "evidence_ready"
         elif analysis_status and expected_frames and processed_frames >= expected_frames:
             state = "building"
         elif expected_frames and processed_frames >= expected_frames:
@@ -701,6 +1397,15 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
                 and video.is_file()
             )
             run_root = root / namespace if namespace else root
+            evidence_ready = (
+                (run_root / "analytics-cache" / "ball-tracks.json").is_file()
+                and (
+                    run_root / "analytics-cache" / "detections.jsonl"
+                ).is_file()
+                and (
+                    run_root / "analytics-data" / "player-tracks.json"
+                ).is_file()
+            )
             manual_reference = run_root / "manual-reference.json"
             predicted_events = (
                 run_root / "analytics-data" / "predicted-events.json"
@@ -742,6 +1447,7 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
                     "ball_track_available": (
                         run_root / "analytics-cache" / "ball-tracks.json"
                     ).is_file(),
+                    "evidence_ready": evidence_ready,
                     "validated": validated,
                     "protected": root.name
                     in {
@@ -760,20 +1466,37 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
         namespace: str | None = None,
     ) -> list[dict[str, object]]:
         segments = self._prepared_segments(namespace=namespace)
-        if namespace == "innovation":
-            innovation_keys = {
-                "segment-0060-020",
-                "segment-0300-020",
-                "segment-0540-020",
-                "segment-0540-060",
-                "segment-0575-020",
-                "segment-0595-020",
-                "segment-0615-020",
+        def registered_for_workflow(
+            segment: dict[str, object],
+            workflow_id: str,
+        ) -> bool:
+            manifest_path = (
+                Path.cwd()
+                / "benchmarks"
+                / "alfheim"
+                / "generated"
+                / str(segment["cache_key"])
+                / "manifest.json"
+            )
+            if not manifest_path.is_file():
+                return False
+            manifest = json.loads(
+                manifest_path.read_text(encoding="utf-8")
+            )
+            return workflow_id in {
+                str(value)
+                for value in manifest.get("review_workflows", [])
             }
+
+        if namespace == "innovation":
             segments = [
                 segment for segment in segments
                 if segment.get("raw_video_only", False)
-                and segment["cache_key"] in innovation_keys
+                and segment["cache_key"] not in RETIRED_INNOVATION_SEGMENTS
+                and registered_for_workflow(
+                    segment,
+                    "innovation_day_bac",
+                )
             ]
         elif namespace == "live":
             registry_path = (
@@ -797,7 +1520,13 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
             }
             segments = [
                 segment for segment in segments
-                if segment["cache_key"] in live_keys
+                if (
+                    segment["cache_key"] in live_keys
+                    or registered_for_workflow(
+                        segment,
+                        "live_iteration_25",
+                    )
+                )
                 and segment.get("raw_video_only", False)
             ]
         return [
@@ -817,6 +1546,15 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
                     segment.get("raw_video_only", False)
                     and
                     segment["duration_seconds"] in {20, 30, 60}
+                    and (
+                        namespace != "innovation"
+                        or segment.get("evidence_ready", False)
+                    )
+                ),
+                "evidence_preparation_supported": (
+                    namespace == "innovation"
+                    and segment.get("raw_video_only", False)
+                    and segment["duration_seconds"] in {20, 30, 60}
                 ),
                 "preparation_supported": True,
                 "attribution": (
@@ -1137,9 +1875,16 @@ def main() -> None:
     parser.add_argument("--directory", type=Path, default=PROJECT_ROOT)
     args = parser.parse_args()
     os.chdir(args.directory)
+    coordination = CoordinationService.bootstrap()
     server = ThreadingHTTPServer((args.bind, args.port), RangeRequestHandler)
+    server.coordination_service = coordination
     print(f"Serving {args.directory.resolve()} on http://{args.bind}:{args.port}")
-    server.serve_forever()
+    print(f"Coordination: {coordination.mode.value}")
+    try:
+        server.serve_forever()
+    finally:
+        server.server_close()
+        coordination.close()
 
 
 if __name__ == "__main__":

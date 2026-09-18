@@ -1,0 +1,19 @@
+{
+  "mode": "postgresql",
+  "authority_id": "brendan-local-docker",
+  "authority_label": "Brendan local PostgreSQL",
+  "database_url_env": "FOOTBALL_DATABASE_URL",
+  "retired_authority_ids": [],
+  "lease": {
+    "heartbeat_seconds": 30,
+    "expiry_seconds": 300,
+    "idle_warning_seconds": 1080,
+    "idle_release_seconds": 1200
+  },
+  "artifact_providers": {
+    "xebia-shared": {
+      "root_env": "FOOTBALL_ARTIFACT_ROOT",
+      "label": "Xebia shared artifacts"
+    }
+  }
+}

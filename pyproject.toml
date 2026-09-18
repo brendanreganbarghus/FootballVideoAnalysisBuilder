@@ -17,6 +17,7 @@ dependencies = [
 [project.optional-dependencies]
 dataset = ["gdown>=5.2", "imageio-ffmpeg>=0.6"]
 docs = ["python-pptx>=1.0"]
+coordination = ["psycopg[binary]>=3.2,<4"]
 test = ["pytest>=8.0"]
 
 [project.scripts]
@@ -24,6 +25,8 @@ football-poc = "football_poc.cli:main"
 soccertrack-poc = "football_poc.soccertrack_cli:main"
 soccertrack-benchmark = "football_poc.benchmark_cli:main"
 soccertrack-ball-track = "football_poc.ball_tracking_cli:main"
+football-ball-validate = "football_poc.ball_validation_cli:main"
+football-coordination-preflight = "football_poc.coordination.cli:main"
 soccertrack-player-track = "football_poc.player_tracking_cli:main"
 soccertrack-possession = "football_poc.possession_cli:main"
 soccertrack-aggregate = "football_poc.aggregate_cli:main"

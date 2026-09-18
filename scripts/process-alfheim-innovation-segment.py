@@ -70,7 +70,9 @@ def main() -> None:
         )
     )
     parser.add_argument("segment", type=Path)
-    parser.add_argument("--events-only", action="store_true")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--evidence-only", action="store_true")
+    mode.add_argument("--events-only", action="store_true")
     parser.add_argument(
         "--pano",
         type=Path,
@@ -87,6 +89,7 @@ def main() -> None:
     status_path = run_root / "analysis-status.json"
     ball_tracks = cache / "ball-tracks.json"
     run_id = str(uuid4())
+    started_at_utc = datetime.now(timezone.utc).isoformat()
 
     prepared = json.loads(prepared_manifest.read_text(encoding="utf-8"))
     forbidden = {
@@ -158,10 +161,12 @@ def main() -> None:
     )
 
     def status(stage: str, message: str) -> None:
-        status_path.write_text(
+        temporary_status = status_path.with_suffix(".json.tmp")
+        temporary_status.write_text(
             json.dumps(
                 {
                     "run_id": run_id,
+                    "started_at_utc": started_at_utc,
                     "stage": stage,
                     "message": message,
                     "mode": "innovation_day_bac_assisted",
@@ -176,6 +181,7 @@ def main() -> None:
             + "\n",
             encoding="utf-8",
         )
+        temporary_status.replace(status_path)
 
     def run(*arguments: str) -> None:
         environment = os.environ.copy()
@@ -197,21 +203,45 @@ def main() -> None:
     try:
         cache.mkdir(parents=True, exist_ok=True)
         results.mkdir(parents=True, exist_ok=True)
-        status(
-            "bac_ball_track",
-            "BAC-assisted diagnostic: provider coordinates isolate the frozen "
-            "downstream football engine.",
-        )
-        write_bac_ball_tracks(
-            runtime_manifest=runtime_manifest,
-            pano=args.pano.resolve(),
-            output=ball_tracks,
-            source_start_seconds=source_start,
-            duration_seconds=duration,
-        )
-        if not args.events_only:
+        player_tracks = results / "player-tracks.json"
+        if args.events_only:
+            missing = [
+                path.name
+                for path in (ball_tracks, player_tracks)
+                if not path.is_file()
+            ]
+            if missing:
+                raise ValueError(
+                    "Innovation evidence preparation is incomplete; missing "
+                    + ", ".join(missing)
+                )
+        else:
+            if args.evidence_only:
+                for stale_name in (
+                    "predicted-events.json",
+                    "chunk-simulation.json",
+                    "run-provenance.json",
+                    "possession.json",
+                    "match-state-events.json",
+                ):
+                    (results / stale_name).unlink(missing_ok=True)
+            status(
+                "bac_coordinates",
+                "Preparing frozen BAC ball coordinates.",
+            )
+            write_bac_ball_tracks(
+                runtime_manifest=runtime_manifest,
+                pano=args.pano.resolve(),
+                output=ball_tracks,
+                source_start_seconds=source_start,
+                duration_seconds=duration,
+            )
             model = resolve_detector_model(PROJECT_ROOT)
             validate_innovation_detector_model(model)
+            status(
+                "player_detection",
+                "Running frozen YOLO player detection from the prepared video.",
+            )
             run(
                 "-m",
                 "football_poc.innovation_day_detector",
@@ -231,12 +261,9 @@ def main() -> None:
                 "--overlap",
                 str(INNOVATION_DETECTOR_PROFILE["overlap"]),
             )
-            write_bac_ball_tracks(
-                runtime_manifest=runtime_manifest,
-                pano=args.pano.resolve(),
-                output=ball_tracks,
-                source_start_seconds=source_start,
-                duration_seconds=duration,
+            status(
+                "player_tracking",
+                "Building player tracks against the frozen BAC ball path.",
             )
             run(
                 "-m",
@@ -268,6 +295,13 @@ def main() -> None:
                 ),
                 "--no-video",
             )
+            if args.evidence_only:
+                status(
+                    "evidence_ready",
+                    "Frozen BAC coordinates and YOLO player context are ready. "
+                    "No football events have been generated.",
+                )
+                return
         status("events", "Running the frozen Innovation Day event engine.")
         boundary_events = run_root / "boundary-events.json"
         boundary_arguments = (

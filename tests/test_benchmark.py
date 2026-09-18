@@ -6,7 +6,9 @@ import pytest
 from football_poc.actions import Detection
 from football_poc.benchmark import (
     BenchmarkManifest,
+    _detection_class_ids,
     _prepare_cache,
+    _target_source_frames,
     class_aware_nms,
     grid_tiles,
     horizontal_tiles,
@@ -213,6 +215,60 @@ def test_manifest_rejects_invalid_frame_range(tmp_path: Path) -> None:
 
 def test_ball_only_model_class_is_selected() -> None:
     assert _wanted_class_ids({0: "ball"}) == [0]
+
+
+def test_detection_scope_can_select_only_the_ball_class() -> None:
+    names = {0: "person", 32: "sports ball", 33: "kite"}
+
+    assert _detection_class_ids(names, ball_only=False) == [0, 32]
+    assert _detection_class_ids(names, ball_only=True) == [32]
+
+
+def test_target_source_frames_support_sparse_diagnostic_selection(
+    tmp_path: Path,
+) -> None:
+    video = tmp_path / "video.mp4"
+    video.touch()
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "video": str(video),
+                "fps": 25,
+                "start_frame": 0,
+                "end_frame": 1500,
+            }
+        ),
+        encoding="utf-8",
+    )
+    manifest = BenchmarkManifest.load(manifest_path)
+
+    assert _target_source_frames(
+        manifest, stride=5, source_frames=(820, 505, 650)
+    ) == (505, 650, 820)
+
+
+def test_target_source_frames_reject_frames_outside_manifest(
+    tmp_path: Path,
+) -> None:
+    video = tmp_path / "video.mp4"
+    video.touch()
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "video": str(video),
+                "fps": 25,
+                "start_frame": 0,
+                "end_frame": 100,
+            }
+        ),
+        encoding="utf-8",
+    )
+    manifest = BenchmarkManifest.load(manifest_path)
+
+    with pytest.raises(ValueError, match="outside the manifest range"):
+        _target_source_frames(manifest, stride=5, source_frames=(100,))
 
 
 def test_football_model_classes_are_normalized() -> None:

@@ -503,7 +503,12 @@ def track_cached_balls(
     reuse_decoded_frame_cache: bool = False,
 ) -> Path:
     manifest = BenchmarkManifest.load(manifest_path)
-    _, records = _load_cache(cache_path, manifest.sha256)
+    metadata, records = _load_cache(cache_path, manifest.sha256)
+    if metadata.get("detection_scope") == "ball_only":
+        raise ValueError(
+            "Ball-only detection caches cannot run the production ball tracker "
+            "because player context is required. Rerun YOLO without --ball-only."
+        )
     records = _records_in_analysis_window(
         records,
         start_seconds=analysis_start_seconds,
@@ -557,6 +562,11 @@ def _track_cached_balls_impl(
 ) -> Path:
     manifest = BenchmarkManifest.load(manifest_path)
     metadata, records = _load_cache(cache_path, manifest.sha256)
+    if metadata.get("detection_scope") == "ball_only":
+        raise ValueError(
+            "Ball-only detection caches cannot run the production ball tracker "
+            "because player context is required. Rerun YOLO without --ball-only."
+        )
     records = _records_in_analysis_window(
         records,
         start_seconds=analysis_start_seconds,
@@ -4797,7 +4807,7 @@ def _add_raw_motion_proposals(
             previous=grayscale[previous_frame],
             current=grayscale[source_frame],
             following=grayscale[following_frame],
-            record=records_by_frame[source_frame],
+            record=records_by_frame.get(source_frame),
             source_frame=source_frame,
             clip_seconds=float(records_by_frame[source_frame]["clip_seconds"]),
             width=width,

@@ -1597,6 +1597,28 @@ def infer_deferred_contested_turnovers(
         )
         if contact_seconds is None:
             continue
+        contact_receivers = {
+            prior.to_player_track_id
+            for prior in source
+            if prior.event_type == "pass_candidate"
+            and prior.team == event.team
+            and prior.to_player_track_id is not None
+            and abs(
+                (prior.completion_seconds or prior.clip_seconds)
+                - contact_seconds
+            )
+            <= 0.12
+        }
+        if contact_receivers and any(
+            prior.event_type == "pass_candidate"
+            and prior.team == event.team
+            and prior.from_player_track_id in contact_receivers
+            and contact_seconds
+            < (prior.completion_seconds or prior.clip_seconds)
+            <= event.clip_seconds
+            for prior in source
+        ):
+            continue
         if any(
             prior.event_type == "turnover_candidate"
             and abs(

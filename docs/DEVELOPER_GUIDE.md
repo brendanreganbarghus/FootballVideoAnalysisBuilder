@@ -142,13 +142,89 @@ Innovationday Artifacts\
 |   `-- segment.mp4
 |-- 20-approved-models\<scope>\<model>\
 |-- 30-shared-baselines\
-|   |-- event-review-state\
+|   |-- event-review-state-innovation\
+|   |-- event-review-state-live\
 |   `-- <baseline-version>\...
 `-- 40-team-runs\<dataset>\<segment>\<run-id>\
     |-- run.json
     |-- checksums.sha256
     `-- selected reproducibility artifacts
+`-- 40-results\coordination-backups\
+    `-- football-coordination-<UTC timestamp>.zip
 ```
+
+### Shared coordination control plane
+
+OneDrive/Xebia Shared Drive is the artifact plane; PostgreSQL is the
+coordination and history plane. PostgreSQL stores no video, frame image,
+detection cache, coordinate stream, track cache, or result bundle. It stores a
+provider-neutral logical artifact key, SHA-256, size, media type, immutable
+version, and relationships to workflow-scoped segments and runs.
+
+The first shared authority may be Brendan's local Docker PostgreSQL instance.
+The endpoint is selected through deployment configuration and the secret
+connection URL remains outside Git. The same code later points to Xebia
+PostgreSQL. Innovation and Live use separate workflow identities, leases,
+review histories, engine/tracker fingerprints, jobs, regressions, receipts, and
+publications even when they reference the same prepared media.
+
+The configured database must already exist. Backend startup obtains a
+PostgreSQL advisory migration lock, applies checked forward-only migrations,
+and verifies migration checksums, constraints, indexes, workflow seeds, and
+historical reconciliation before enabling shared mutations. A configured but
+unavailable or inconsistent database makes shared state read-only; it never
+creates an offline mutation queue or silently falls back to mutable JSON.
+
+An editing lease is exclusive per workflow and segment. Browsing does not take
+a lease. **Start working** or the first shared mutation acquires one, followed
+by a 30-second heartbeat and five-minute expiry fallback. The UI warns after 18
+minutes without keyboard, pointer, touch, or review activity and releases the
+editing lease at 20 minutes. Analysis and regression jobs use separate worker
+leases and continue after an editing lease is released.
+
+The Innovation review must also be opened from an active Copilot project
+session for the same repository worktree. A standalone, copied, or stale local
+URL remains available for viewing but is read-only and cannot acquire a lease
+or invoke any mutation endpoint. The Canvas explains the missing connection
+and provides **Refresh connection**; if the instance is stale, reopen the
+Innovation review from its Copilot project session and retry.
+
+After PostgreSQL is enabled, it is authoritative for mutable review state.
+Checksummed OneDrive review JSON is imported idempotently and retained as
+immutable source/export receipts. Before moving from local Docker to Xebia
+PostgreSQL, pause writes, take a PostgreSQL-native consistent backup, restore
+it, run migrations/reconciliation, compare deterministic row counts/digests
+and all workflow history, then switch the configured authority. The retired
+local database remains read-only and clients reject it as a writable authority.
+
+The two review-state directories are intentionally incompatible. Innovation
+state uses workflow ID `innovation_day_bac`, frozen BAC coordinates, and the
+frozen Innovation engine. Live state uses workflow ID `live_iteration_25`,
+raw-video coordinates, and the current engine. Do not rename, merge, or use
+either directory as a fallback for the other.
+
+`football-event-review` is the canonical single review screen. Its **Workflow**
+selector switches between **Innovation Day — Frozen BAC** and **Live —
+Raw-video pipeline** while remembering the last valid segment for each
+adapter. The `football-event-review-live` provider remains a temporary
+compatibility route while parity is protected. Both providers use the shared
+implementation in `.github\extensions\football-event-review\shared`.
+
+The selected adapter controls the segment catalog, artifact namespace, state
+directory, engine files, processing API, permitted actions, regression suite,
+publication gate, prompts, and theme as one unit. Never select workflow
+behavior from the theme or move state or artifacts between adapters.
+Innovation hides `segment-0540-020` from its review catalog because it is an
+exact regression prefix of the passed `segment-0540-060` run, not an
+independent published Innovation reference. Its artifacts remain available to
+the protected regression suite. Live catalog behavior is unchanged.
+
+Each published Innovation row exposes **Run regression**. This action rebuilds
+only cached event and match-state output with the current frozen Innovation
+engine, then compares its combined output hash with the hash recorded when that
+segment was published. The blocking modal reports the elapsed time and remains
+open with an explicit pass, mismatch, or execution-failure result. It does not
+run detection, use evaluation labels as inference input, or affect Live.
 
 The source hierarchy is:
 
@@ -181,25 +257,198 @@ Its detections, tracks, events, logs, and timing report run locally under
 folder. Alfheim, SoccerTrack, and custom-camera files must never be used as
 fallbacks for one another.
 
-Before the Innovation Day handoff, another developer should:
+### Windows developer onboarding
 
-```powershell
-git clone <repository-url>
-cd FootballVideoAnalysisBuilder
-py -3.11 -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -e ".[test,dataset]"
+Use this sequence on a new Xebia Windows laptop. Do not copy another
+developer's virtual environment, machine identity, database password, or local
+generated caches.
 
-$env:FOOTBALL_ARTIFACT_ROOT = `
-  "C:\Users\<name>\OneDrive - Xebia\Innovationday Artifacts"
-$env:FOOTBALL_ALFHEIM_PANO = Join-Path `
-  $env:FOOTBALL_ARTIFACT_ROOT "10-master-data\alfheim\pano"
+1. Install Git, Python 3.11, and Docker Desktop if they are not already
+   available:
 
-python .\scripts\verify-innovation-workspace.py --require-alfheim
-& "$env:FOOTBALL_ARTIFACT_ROOT\00-governance\Verify-Artifacts.ps1"
-python -m pytest -q
-python .\scripts\serve-local.py --bind 127.0.0.1 --port 8080
-```
+   ```powershell
+   winget install --exact --id Git.Git
+   winget install --exact --id Python.Python.3.11
+   winget install --exact --id Docker.DockerDesktop
+
+   git --version
+   py -3.11 --version
+   docker version
+   ```
+
+   Restart the terminal after installation. Docker is required only for the
+   developer who hosts local PostgreSQL; clients connecting to that host or to
+   Xebia PostgreSQL do not need a local database container.
+
+2. Retrieve the repository and select the agreed team branch:
+
+   ```powershell
+   git clone https://github.com/brendanreganbarghus/FootballVideoAnalysisBuilder.git
+   Set-Location .\FootballVideoAnalysisBuilder
+   git fetch --all --prune
+   git switch <shared-branch>
+   git status --short --branch
+   ```
+
+   Replace `<shared-branch>` with the branch named in the handoff. Do not start
+   work from an old local copy or infer the branch from a OneDrive folder.
+
+3. Create an isolated Python environment and install the project, tests,
+   dataset helpers, and PostgreSQL coordination support:
+
+   ```powershell
+   py -3.11 -m venv .venv
+   .\.venv\Scripts\python -m pip install --upgrade pip
+   .\.venv\Scripts\python -m pip install -e ".[test,dataset,coordination]"
+   .\.venv\Scripts\python -c "import football_poc, cv2, psycopg; print('Python environment ready')"
+   ```
+
+   Calling `.\.venv\Scripts\python` directly avoids PowerShell execution-policy
+   problems. Activating the environment is optional:
+
+   ```powershell
+   .\.venv\Scripts\Activate.ps1
+   ```
+
+4. Sync the approved **Innovationday Artifacts** folder through OneDrive and
+   configure its logical root outside Git:
+
+   ```powershell
+   $artifactRoot = "C:\Users\<name>\OneDrive - Xebia\Innovationday Artifacts"
+   [Environment]::SetEnvironmentVariable(
+     "FOOTBALL_ARTIFACT_ROOT",
+     $artifactRoot,
+     "User"
+   )
+   $env:FOOTBALL_ARTIFACT_ROOT = $artifactRoot
+   $env:FOOTBALL_ALFHEIM_PANO = Join-Path `
+     $artifactRoot "10-master-data\alfheim\pano"
+
+   & "$artifactRoot\00-governance\Verify-Artifacts.ps1"
+   .\.venv\Scripts\python .\scripts\verify-innovation-workspace.py --require-alfheim
+   ```
+
+5. Configure PostgreSQL without putting credentials in the repository. Copy
+   the non-secret profile to the per-user application directory, then obtain
+   `FOOTBALL_DATABASE_URL` from the current coordination administrator through
+   the approved Xebia secret-sharing channel:
+
+   ```powershell
+   $configHome = Join-Path $env:LOCALAPPDATA "FootballVideoPOC"
+   New-Item -ItemType Directory -Path $configHome -Force | Out-Null
+   Copy-Item .\config\coordination.example.json `
+     (Join-Path $configHome "coordination.json")
+
+   [Environment]::SetEnvironmentVariable(
+     "FOOTBALL_COORDINATION_CONFIG",
+     (Join-Path $configHome "coordination.json"),
+     "User"
+   )
+   [Environment]::SetEnvironmentVariable(
+     "FOOTBALL_DATABASE_URL",
+     "<secret PostgreSQL URL supplied outside Git>",
+     "User"
+   )
+   ```
+
+   Open a new terminal after setting user-level variables, or copy them into
+   the current process before continuing:
+
+   ```powershell
+   $env:FOOTBALL_COORDINATION_CONFIG = `
+     [Environment]::GetEnvironmentVariable(
+       "FOOTBALL_COORDINATION_CONFIG", "User"
+     )
+   $env:FOOTBALL_DATABASE_URL = `
+     [Environment]::GetEnvironmentVariable("FOOTBALL_DATABASE_URL", "User")
+   $env:FOOTBALL_ARTIFACT_ROOT = `
+     [Environment]::GetEnvironmentVariable("FOOTBALL_ARTIFACT_ROOT", "User")
+   ```
+
+   The configured database must already exist. Runtime credentials must have
+   access only to that database and must not have `SUPERUSER`, `CREATEDB`, or
+   `CREATEROLE`. Never paste the URL into Git, browser storage, screenshots, or
+   support logs.
+
+6. Bootstrap and verify the coordination authority:
+
+   ```powershell
+   .\.venv\Scripts\python -m football_poc.coordination.cli --json
+   ```
+
+   The expected result is `"mode": "available"` and `"writable": true`.
+   Server startup repeats this migration, index, authority, and checksummed
+   history-reconciliation gate. A configured but unavailable or inconsistent
+   database starts read-only; it does not silently write JSON.
+
+   Only the administrator performing the initial migration should run the
+   explicit import. Always dry-run first:
+
+   ```powershell
+   .\.venv\Scripts\python -m football_poc.coordination.history_import `
+     --source-root $env:FOOTBALL_ARTIFACT_ROOT `
+     --provider xebia-shared `
+     --dry-run
+
+   .\.venv\Scripts\python -m football_poc.coordination.history_import `
+     --source-root $env:FOOTBALL_ARTIFACT_ROOT `
+     --provider xebia-shared `
+     --apply
+   ```
+
+7. Run the workstation readiness checks and start the loopback backend:
+
+   ```powershell
+   .\.venv\Scripts\python -m pytest `
+     tests\test_coordination.py `
+     tests\test_coordination_import.py `
+     tests\test_local_server.py `
+     tests\test_event_review_canvas_extension.py -q
+
+   .\.venv\Scripts\python .\scripts\serve-local.py `
+     --bind 127.0.0.1 `
+     --port 8080
+   ```
+
+   In another terminal, confirm the backend reports the intended authority:
+
+   ```powershell
+   Invoke-RestMethod http://127.0.0.1:8080/api/coordination/health
+   Invoke-RestMethod http://127.0.0.1:8080/api/coordination/identity
+   ```
+
+   The machine is ready when the artifact verification passes, focused tests
+   pass, coordination is `available`, the expected authority ID is shown, and
+   the Review Canvas can browse a segment without taking a lease. Confirm the
+   Copilot project-session warning is absent, then select **Start working**
+   before editing and **Stop working** before leaving it.
+
+#### Monday office laptop acceptance
+
+Use a colleague's laptop as a clean-machine test rather than copying Brendan's
+working directory. Record the laptop name, Git revision, Python version,
+coordination authority ID, and result of each check.
+
+1. Clone the repository and complete the Windows onboarding steps above.
+2. Verify the OneDrive checksum inventory before opening any segment.
+3. Confirm the coordination health endpoint is `available` and identifies the
+   expected shared authority, not a retired or accidental local database.
+4. Open the same Innovation segment on both laptops. Confirm both can browse it
+   without a lease, the first **Start working** succeeds, and the second laptop
+   becomes read-only with the correct developer, machine, stage, and heartbeat.
+5. Release the first lease with **Stop working**, acquire it from the second
+   laptop, make one harmless review-state change, and confirm both screens show
+   the new version.
+6. Start a protected regression, release the editing lease, and confirm the
+   background job continues to its terminal result.
+7. Disconnect one test client and verify its abandoned editing lease expires
+   after five minutes. Do not wait for expiry on a segment with unsaved work.
+8. Restart the backend and confirm migrations and historical reconciliation
+   are idempotent and the imported review history is unchanged.
+
+The laptop passes only when all eight checks succeed. Record failures instead
+of bypassing PostgreSQL, copying mutable JSON, or changing a rule to fit one
+segment.
 
 The detector is resolved in this order: explicit
 `FOOTBALL_DETECTOR_MODEL`, the checksummed shared approved model, then a local
@@ -211,14 +460,29 @@ receipt.
 Use this promotion rule:
 
 1. Run the 30–60 second segment locally from raw video with cache reuse off.
-2. Review C# independently, compare it with E#, and run every protected
-   regression after any inference/rules-engine change.
-3. Publish only when the existing final gate passes and the engine source hash,
-   output hash, reference count, and one-to-one matches are current.
-4. Publish any run that teammates need to inspect into the append-only shared
+2. Record and approve the ordered manual M# set independently, then compare it
+   with frozen E# output. Time-based links are suggestions; explicit reviewer
+   unique same-team, same-type matches within one second update
+   automatically when the reviewer edits an M#; neither timestamp is changed,
+   and differing or ambiguous events remain unmatched without arrow-based
+   manual mapping. Use **Review missing E#** on an unmatched M# to record
+   whether the engine missed a correct event, the M# needs editing, the M# is
+   unsupported and must remain visibly rejected but excluded from the golden
+   set, an erroneous entry must be removed, or the video requires independent
+   adjudication. Cancelling or closing the guide makes no change.
+3. Keep C# optional and diagnostic-only. Run protected regressions only after
+   an inference/rules-engine change.
+   Pre-manual-first Innovation references are retired historical artifacts and
+   are excluded from active review and protected regressions. Begin the
+   replacement regression line with the independently reviewed 04:00–05:00
+   M# segment.
+4. Publish only when the golden M# revision, engine source hash, output hash,
+   reference count, automatic one-second matches, and final validation gate are
+   current.
+5. Publish any run that teammates need to inspect into the append-only shared
    run catalog. A passed reference is additionally promoted into
    `30-shared-baselines`.
-5. Do not promote transient detections, tracks, logs, thumbnails, or failed and
+6. Do not promote transient detections, tracks, logs, thumbnails, or failed and
    provisional outputs unless a debugging package is deliberately requested.
 
 Publish a run without its large intermediate cache:

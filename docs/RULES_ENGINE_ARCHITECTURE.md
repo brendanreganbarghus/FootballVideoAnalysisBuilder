@@ -308,37 +308,125 @@ This example illustrates the required separation:
 
 ## 7. Human review and engine-change workflow
 
-The **Football Event Review** canvas enforces this sequence:
+The Innovation **Football Event Review** canvas is manual-first:
 
-1. Copilot independently adjudicates one event from video evidence and the
-   architecture in this document.
-2. The user accepts, adjusts, or rejects the proposed reference.
-3. The canvas may place the already-prepared review proposal beside the frozen
-   engine result for transparent comparison. Engine output must not rewrite or
-   silently bias the proposal.
-4. If the engine already agrees, no inference change is made; regression
-   protection is retained or added.
-5. Manual reviewer events are represented as `M#`, Copilot-inferred proposals
-   as `C#`, and rules-engine output as `E#`. `C#`/`E#` association may use the
-   configured one-second review tolerance. An accepted `M#` must match an `E#`
-   by team, canonical event type, and the same source-video frame; the broader
-   `C#` tolerance must never hide a manual-reference timing defect. A reviewer
-   may also require same-frame timing for an individual `C#`; once requested,
-   that proposal cannot claim `C#`/`E#` agreement through the one-second
-   tolerance. For an `M#`, run cached event building and confirm that exact
-   same-frame `E#` agreement before recording the accepted decision.
-6. If the event is missing or conflicting, implement a general evidence-based
-   rule. Never use a segment timestamp, track ID, or manual label as an
-   inference input.
-7. Capture a new engine fingerprint and rerun the focused and protected tests.
-8. Mark the event `Implemented · Regression Verified` only when the accepted
-   behavior matches and every protected test passes.
-9. After every proposal has a final decision, publish through the guarded
-   Canvas action. It excludes rejected and match-state-only proposals, includes
-   independently confirmed unmatched engine events, reruns protected
-   regressions, and requires a dynamic one-to-one reference/output match.
-10. Mark the segment `Passed` and lock it only after the published manual
-   reference is reloaded and independently reported as validated.
+1. The professional reviewer watches the prepared segment and records `M#`
+   events at the current playhead. Each click saves a draft immediately.
+2. The reviewer corrects team, canonical event type, or approximate
+   millisecond time as needed. Event identities, order, and counts are the
+   golden claim; timestamps are navigation evidence and need not equal engine
+   timestamps exactly.
+3. The canvas compares `M#` with frozen rules-engine `E#` output automatically.
+   A one-to-one match appears immediately when a unique unused E# has the same
+   team and canonical event type within one second. This tolerance reflects
+   sampling and human playhead placement; it does not rewrite either
+   timestamp. Ambiguous events or events more than one second apart remain
+   visibly unmatched; there is no arrow-based manual mapping.
+4. The reviewer approves the complete minute when the ordered `M#` set and
+   counts are correct. Approval does not require complete mappings, exact
+   timing, same-frame agreement, Copilot review, an engine rerun, or
+   regressions.
+5. Approval freezes an immutable, fingerprinted golden revision. A later
+   correction creates a new draft revision.
+6. `C#` proposals are optional, read-only Copilot diagnostic history, hidden by
+   default. They never control M# creation, counts, mappings, approval,
+   publication, or inference.
+7. Investigate only selected missing, extra, mistyped, mis-teamed, mistimed, or
+   misordered E# discrepancies. An unmatched M# exposes a review guide where
+   the reviewer can confirm that the engine missed it, reopen the M# editor,
+   reject an unsupported M# while retaining its visible audit record, remove an
+   M# entered in error, or request independent adjudication when the camera is
+   inconclusive. A rejected M# remains visible but is excluded from matching,
+   golden counts, approval, and publication. Removal is reserved for erroneous
+   data entry. Cancelling or closing the guide changes nothing. Only the
+   confirmed-missing and inconclusive choices hand the targeted event to
+   Copilot; they do not rewrite M#. If the engine agrees, no Copilot call,
+   inference change, or regression is required.
+8. If a discrepancy requires an engine correction, implement a general
+   evidence-based rule. Never use an M# timestamp, segment, track ID, or manual
+   label as an inference input.
+9. After an engine change, capture a new engine fingerprint, rebuild cached
+    event output for every published segment in that workflow, compare each
+    result with its publication hash, and run focused and protected tests.
+10. Mark the segment passed only when current E# output satisfies the approved
+    golden reference and every protected publication gate passes.
+
+The pre-manual-first Innovation segments are retired from active review and
+protected regression coverage. Their artifacts remain historical records but
+must not be presented as current M# references or regression baselines. The
+04:00–05:00 segment is the first candidate in the replacement regression line;
+it becomes baseline one only after its independent M# review and full
+publication gate complete.
+
+### Review decision preflights
+
+The compact comparison table has permanent Manual `M#` and Engine `E#`
+columns. Editing an M# time, team, or event type saves automatically and
+immediately recomputes exact one-to-one M#/E# matches. The working panel has no
+manual arrows or mapping controls. Copilot `C#` history appears only through
+its read-only toggle. An `E#` guide applies to a selected discrepancy and
+explains the evidence outcomes below.
+
+Opening `E#` verification must first show a decision guide; it must not
+immediately launch Copilot, spend AI credits, grant temporary authorization,
+or alter review state. The guide explains these evidence outcomes:
+
+The reviewer may enter another completion time in the E# guide to seek and
+inspect that video moment. This inspection time may focus the evidence review
+and Copilot diagnosis, but it does not alter M#, rewrite E#, or become an
+inference input. Only a general engine correction and rerun may replace E#.
+
+- **Correct — exact event is supported:** the professional reviewer can see
+  that the team, canonical event type, and completion time are all correct.
+  Their explicit approval creates a hash-bound human review receipt directly.
+  Because this exact E# already exists, no further Copilot review, engine
+  check, engine change, or regression run is needed.
+- **Event exists, but details are wrong:** an event occurred, but its team,
+  canonical type, or completion time differs. The exact `E#` is not confirmed;
+  an explicitly requested Copilot review may document the mismatch and
+  diagnose the general engine cause.
+- **Incorrect — no such event occurred:** the exact `E#` is unsupported. An
+  explicitly requested Copilot review may record it as not confirmed and
+  diagnose the general engine cause.
+- **Cannot verify from this camera:** occlusion, framing, or insufficient
+  evidence prevents a reliable decision. An explicitly requested Copilot
+  review may inspect the targeted prepared context, but unresolved evidence
+  must remain unconfirmed rather than become a guessed verdict.
+
+Copilot escalation is a separate explicit action after the reviewer chooses an
+outcome; it is never an automatic consequence of opening the guide. The
+reviewer may also request independent Copilot adjudication without first
+stating a verdict. Cancel or close leaves the event, authorization, receipts,
+and conversations unchanged. A direct human confirmation records
+`reviewSource=professional_reviewer` with the current engine-source and
+cached-output hashes; it must become stale when either hash changes. An
+`M↔E` link alone remains insufficient proof of football correctness.
+
+Protected regressions run only after a rules-engine change. They are required
+when an approved M# discrepancy causes a general engine change, or when
+diagnosis of an incorrect E# produces such a change. Capturing or editing M#,
+mapping M# to E#, approving the golden minute, confirming an already-existing
+correct E#, asking a Plan-mode question, or cancelling a review does not run
+regressions.
+
+### Fast independent Innovation review
+
+An authorized Innovation review should complete as one bounded manual
+adjudication pass, not as a frame-export or engineering investigation. Watch
+the prepared 30–60-second Canvas video and use the four quick-capture actions
+to record completed passes and turnovers at the playhead. Review the ordered
+list and team/type counts, make corrections, map useful E# comparisons, then
+approve the complete minute as golden. The current Innovation scope is
+completed passes and turnovers; shots and fouls remain disabled until suitable
+segments are prepared. Use frozen BAC and prepared player context only to
+clarify an uncertain moment. Do not replace continuous viewing with
+frame-by-frame export, exhaustive coordinate analysis, an automatic Copilot
+pre-review, or a new inference run.
+
+Freeze the complete ordered `M#` set and explicit mappings atomically,
+including an approved zero-event set when no event is supported. This fast path
+never permits E#, C#, provider labels, or earlier decisions to create or alter
+the manual reference.
 
 Engine snapshots contain:
 
@@ -439,6 +527,69 @@ result and degraded-evidence status but does not pause the match pipeline for
 human review. Production continuation never promotes estimated coordinates:
 event inference must preserve and enforce each coordinate's evidence class.
 
+#### Planned ball-coordinate auto-verification contract
+
+This contract is required after the current YOLO and ball-coordinate
+investigation is complete; it is not implemented by the current 90% provenance
+gate. Direct coverage measures how many coordinates were produced, not whether
+they are correct. Production must ultimately require each coordinate to earn
+an evidence-based `auto_verified`, `ambiguous`, or `unresolved` result without
+routine frame-by-frame human approval.
+
+An `auto_verified` coordinate must pass the complete, versioned gate stack:
+
+1. exact-frame visual evidence from broad detection, focused redetection, or
+   validated raw motion;
+2. pitch and player context, including feet support and upper-body/static-object
+   rejection;
+3. temporal support from nearby past and future raw-video evidence;
+4. a sufficient winning margin over every credible competing candidate;
+5. bidirectional confirmation when the evidence class requires it;
+6. final trajectory-integrity checks with no silent removal or replacement.
+
+The runtime must persist a per-frame trace before any evaluation reference is
+loaded. Each gate entry records a stable gate ID and version, pass/fail result,
+measured score, threshold, evidence source, candidate coordinate, competing
+candidate or margin where applicable, and a reason. The trace also records the
+detector weight hash, detector/runtime versions, tracker source hash,
+configuration hash, input-cache hash, final evidence class, and final
+verification result. For example:
+
+```text
+Broad YOLO candidate       PASS
+Pitch/player context       PASS
+Temporal support           PASS
+Competing-path margin      FAIL (0.03 < 0.08)
+Bidirectional confirmation FAIL
+Final result               AMBIGUOUS — not auto-verified
+```
+
+A fresh `auto_verified` receipt remains valid without another human review only
+while all recorded hashes and gate versions match. Any mismatch makes the
+receipt stale. An ambiguous or unresolved frame is never converted into a
+success-shaped coordinate merely to improve coverage.
+
+Ball-coordinate development is fail-forward:
+
+- an independently confirmed `PASS` becoming `FAIL`, `AMBIGUOUS`, missing, or
+  materially moved is a blocking regression;
+- `FAIL` or `AMBIGUOUS` becoming `PASS` is a potential gain and is accepted
+  only after evaluation confirms it;
+- a new rule must not silently remove, move, weaken, or change the evidence
+  path of a previously confirmed passing coordinate;
+- a previously auto-verified result later proven false must be corrected, not
+  preserved for a green regression; its old receipt is invalidated and the
+  intentional correction is recorded;
+- insufficient or contradictory evidence fails forward to `AMBIGUOUS` or
+  `UNRESOLVED`, never backward to an assumed coordinate.
+
+Runtime traces and reviewed expectations are physically and logically
+separate. Detection, tracking, gate execution, scoring, and trace publication
+finish and freeze before the protected evaluation reference is loaded. The
+reference may classify a failure as a missing general rule, insufficient
+visual evidence, or a correct rejection, but it must never select a candidate,
+set a threshold, or otherwise influence inference.
+
 The live rules engine may consume the complete generated ball-state timeline
 for continuity, but it must preserve the evidence class of every sample:
 
@@ -458,25 +609,54 @@ Human review may validate whether an estimate is visually acceptable, but that
 decision remains evaluation-only. It cannot selectively promote that frame or
 change its runtime evidence class.
 
+Coordinate-review decisions have explicit visual meanings. Agreeing says the
+proposed coordinate is visually supported. Confirming a custom coordinate says
+the reviewer can see the ball at that supplied location. `Ball undefined / not
+visible` says the current camera cannot visually locate the ball, including
+player occlusion. `YOLO candidate N is correct` says the reviewer can see the
+ball at that numbered raw detection but the selector or tracker did not choose
+it. `Needs more checking` records unresolved ambiguity. A custom or selected
+YOLO coordinate must never be reinterpreted as an uncertain or invisible-ball
+decision. It is a diagnostic lead only, never a reference coordinate, ground
+truth, or expected engine target. A selected YOLO candidate directs
+investigation toward general candidate-selection logic but must not be
+force-selected. None of these review observations may become inference input
+or be used to calculate success against the supplied coordinate.
+
 Each submitted ball-coordinate batch is one durable review round. While
 Copilot reviews evidence, implements a general correction, and runs focused
 tests, the batch modal remains open and reports timestamped progress. Passing
 tests automatically start one whole-segment recovery run from the saved raw
-detections; no second user authorization is required for that rerun. Starting
-the rerun closes the working modal. When persisted output is available, the
-round records each reviewed frame as fixed, unresolved, or regressed, captures
-before/after provenance and completion time, and becomes read-only. If direct
-coverage remains below the configured gate, unresolved and regressed frames
-form a new review round. Only the user may submit that round or finalize the
-segment after the gate is met.
+detections; no second user authorization is required for that rerun. The modal
+remains open through the rerun and then changes from progress notifications to
+the persisted result. The round records each reviewed frame as fixed,
+unresolved, or regressed, captures before/after provenance and completion time,
+preserves the user's decision in the durable review-state artifact, and becomes
+read-only. A closed-round frame may show only its prior decision, rerun result,
+raw-frame navigation, review-frame navigation, and zoom controls; it cannot
+accept a new decision.
+If direct coverage remains below the configured gate, unresolved and regressed
+frames form a required new review round. Once direct coverage reaches the
+configured gate, the Canvas shows the measured result and asks the user either
+to continue to event inference or explicitly create another round from the
+remaining unresolved and regressed frames. Only the user may submit that round
+or finalize the segment after the gate is met.
 
 Both engines may evolve, but only independently. Every Innovation acceptance,
 whether recorded by the user or Copilot, checks the Innovation regression
 receipt against the exact engine and cached-output hashes. A fresh matching
 receipt is reused without rerunning the engine or tests. A missing receipt runs
-the Innovation suite once; a changed signature is stale and requires the
-cached event rebuild plus that suite. Live acceptance and publication use the
-live suite and live registry; neither regression runner discovers the other
+the Innovation suite once; a changed signature is stale and requires cached
+event rebuilding for every published Innovation segment, exact comparison with
+each publication hash, and the protected suite. Any mismatch blocks acceptance.
+The accepted review requirement remains pending while the agent reports each
+affected segment and its event differences, then adjusts the general rule and
+repeats the full gate. It must not silently discard the new requirement or
+weaken an old reference. A successful all-segment receipt is keyed by the exact
+engine content hash and published-segment set, so later review-only decisions
+reuse it without rerunning every segment. A new engine hash or newly published
+segment invalidates that receipt. Live acceptance and publication use the live
+suite and live registry; neither regression runner discovers the other
 workflow's cases.
 
 The workflow identity is carried and checked at every review boundary:
@@ -497,6 +677,27 @@ pipeline the Canvas refers to.
 
 Logic changes reuse cached detections and tracks from their own workflow. They
 must not rerun the source recording or model inference.
+
+Regression comparison is exact for published output. Preserving every old event
+while adding new events is still a failure because an added false positive
+changes the locked reference and published statistics. If a justified general
+rule adds, removes, retimes, or reclassifies an event in a published segment,
+that segment must be independently reviewed and republished before it can
+become the new baseline.
+
+An additive match-state provenance upgrade is not a football regression when
+all events and match-state behavior remain exact. The regression comparator may
+ignore only `schema_version`, the top-level `law_profile`, and per-transition
+`law_reference` while comparing behavior. It must still report the metadata
+upgrade, and any interval, transition timing, state, restart, boundary,
+confidence, event, team, or event-time difference remains blocking.
+
+When the planned ball-coordinate auto-verification contract is implemented,
+the live regression artifact must compare both the final coordinate and its
+complete per-gate trace. A final-state match with a changed or weakened
+evidence path is not sufficient. Independently confirmed passing receipts are
+protected by the fail-forward rules in Section 7; runtime traces remain
+separate from evaluation expectations.
 
 Run the Innovation engine contracts:
 

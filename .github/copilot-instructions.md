@@ -1,5 +1,19 @@
 # Football event review instructions
 
+Read `AGENTS.md` and `docs/PROJECT_DOCUMENTATION.md` before football inference,
+review workflow, dataset, benchmark, or publication work. This file supplies
+Copilot-specific persistent instructions; the rules architecture and code/tests
+remain authoritative.
+
+Live ball tracking and `football-event-review-live` are currently frozen and
+fully separate from Innovation Day. Do not inspect, run, edit, or reuse Live
+tracker code, Live state, or `live/` artifacts unless Brendan explicitly
+resumes that work. Innovation uses only frozen BAC coordinates, the frozen
+Innovation engine, `innovation/` artifacts, `event-review-state-innovation`,
+and Canvas type `football-event-review`. It is a BAC-assisted diagnostic/demo
+of the downstream football engine, not raw-video ball inference or a valid
+ball-tracking performance benchmark.
+
 For football-event analysis and rules-engine work, act as a senior football-law
 and analytics adjudicator. Identify relevant events, challenge unsupported
 proposals, and explain missing evidence. Do not assume that a proposal is
@@ -53,22 +67,52 @@ match-state engine, and analytics state machines.
   the violation, discard the affected predictions and timing result, correct
   the pipeline separation, and rerun from raw video.
 
+## Ball-coordinate batch review outcomes
+
+Treat each saved user outcome as an evaluation claim that defines what the
+reviewer says they can see:
+
+- `agree`: the user says the current proposed coordinate is visually supported;
+- `specified`: the user says the ball is visible at their supplied coordinate;
+- `yolo_candidate`: the user says the numbered raw YOLO candidate is visibly
+  correct, but the selector or tracker did not choose it;
+- `undefined`: the user says the current camera cannot visually locate the ball,
+  including player occlusion;
+- `needs_more_checking`: the user says the frame remains visually ambiguous.
+
+Use these outcomes only as reviewer observations and diagnostic leads:
+independently inspect the targeted raw-video frame/window and group general
+detector or tracker failure patterns. A supplied coordinate is never a
+reference coordinate, ground truth, expected engine target, or permission to
+make the engine match it. A `yolo_candidate` outcome is a diagnostic reason to
+investigate general candidate-selection logic, not permission to force-select
+that detection. Do not reinterpret a supplied coordinate as uncertainty, and
+do not treat a frame as generically rejected. Challenge an unsupported user
+outcome explicitly rather than silently changing its meaning. Never copy these
+outcomes or coordinates into a prediction, use them to select a candidate or
+threshold, narrow inference, calculate success against the supplied coordinate,
+or create a frame-, timestamp-, segment-, or track-specific rule.
+
 During a Canvas review, independently adjudicate the selected event against the
 global rules architecture and its event-specific evidence. Keep inspection
 limited to the selected segment and use a small frame window when possible.
 A `copilot_review` or `adjusted_proposal` source means Copilot reviewed the
 proposal; it does not mean the proposal is accepted or implemented.
 
-Keep Copilot proposals and rules-engine events independent:
+Keep manual references, Copilot diagnostics, and rules-engine events
+independent:
 
 1. The prepared segment may cache tracking, possession, match state, and
    rules-engine `E#` events.
-2. Create each Copilot `C#` proposal independently from the video evidence.
-   Never treat an `E#` event as the answer or use it to shape the proposal.
-3. Only after the proposal is complete, match `C#` and `E#` by canonical event
-   type, team, and timestamp tolerance.
-4. Verify every proposal against its targeted video evidence before accepting
-   it. A green `C↔E` match is agreement, not proof that either side is correct.
+2. In Innovation review, the professional reviewer records the ordered `M#`
+   golden set independently from the video. `E#` may be compared only after M#
+   exists and must never create or rewrite M#.
+3. Automatic `M#`/`E#` links are suggestions. The reviewer may explicitly map,
+   replace, or remove a one-to-one link without changing either timestamp.
+4. Keep `C#` optional and diagnostic-only. If requested, create it
+   independently from video evidence; it cannot control M#, mappings, approval,
+   publication, or inference.
+5. A green `M↔E` link is agreement, not proof that either side is correct.
 
 Treat unmatched and rejected rows explicitly:
 
@@ -108,6 +152,14 @@ Acceptance must follow the guarded review workflow in
 - otherwise implement a general evidence-based rule, never a timestamp,
   frame, segment, track-ID, or manual-label exception;
 - rerun cached event building and the focused and protected regressions;
+- rebuild every published segment in the selected workflow from its own cached
+  detector/tracker inputs and require an exact match with each output hash
+  recorded at publication;
+- if any published segment or protected test fails, do not record engine
+  synchronization or publish;
+  keep the accepted review requirement pending, report every affected segment
+  and its added, missing, retimed, or reclassified E# events, revise the general
+  rule without weakening the new requirement, and repeat the complete gate;
 - record synchronization only after the accepted behavior appears in engine
   output and all required tests pass.
 
@@ -172,3 +224,6 @@ against the full protected regression suite before publication. Manual review
 labels remain evaluation-only under this future cadence exactly as they are
 today — they never become inference inputs, and a "daily" cadence is a
 scheduling idea, not a license to skip regression protection.
+
+When the Live freeze or another current workstream boundary changes, update
+this file, `AGENTS.md`, and `CLAUDE.md` together.

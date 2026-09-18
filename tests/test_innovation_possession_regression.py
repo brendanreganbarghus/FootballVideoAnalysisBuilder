@@ -23,6 +23,7 @@ from football_poc.innovation_day_snapshot.possession import (
     infer_ball_reentry_receptions,
     infer_unobserved_chain_contacts,
     suppress_redundant_retained_possession_links,
+    suppress_transient_proximity_receptions,
     suppress_overlapping_opponent_handoffs,
     suppress_uncontrolled_opponent_turnovers,
     filter_disconnected_low_confidence_startup,
@@ -245,6 +246,34 @@ def test_brief_opponent_proximity_between_same_team_control_is_collapsed() -> No
     )
 
     assert [segment.team for segment in collapsed] == ["black", "black"]
+
+
+def test_coherent_opponent_control_survives_brief_owner_classification_blip() -> None:
+    segments = build_possession_segments(
+        [
+            observation(14.8, "black", 1, 100, 100),
+            observation(15.0, "black", 1, 102, 102),
+            observation(16.6, "red", 2, 200, 200, 0.5),
+            observation(16.8, "red", 2, 202, 202, 0.1),
+            observation(17.0, "red", 2, 204, 204, 0.4),
+            observation(17.2, "red", 2, 206, 206, 0.3),
+            observation(17.4, "black", 3, 208, 208, 0.2),
+            observation(17.6, "red", 2, 210, 210, 0.3),
+            observation(17.8, "red", 4, 212, 212, 0.5),
+            observation(18.0, "red", 4, 214, 214, 0.5),
+        ],
+        segment_gap_seconds=0.5,
+        identity_switch_radius_heights=0,
+    )
+
+    collapsed = collapse_transient_opponent_segments(
+        segments,
+        maximum_transient_seconds=1.2,
+    )
+
+    assert [segment.team for segment in collapsed] == ["black", "red", "red"]
+    assert collapsed[1].start_seconds == 16.6
+    assert collapsed[1].end_seconds == 17.6
 
 
 def test_transient_opponent_does_not_split_same_owner_dribble() -> None:
@@ -926,6 +955,41 @@ def test_terminal_turnover_resolves_earlier_contested_contact(
     assert events[0].completion_seconds == 1.0
 
 
+def test_terminal_turnover_does_not_cross_intervening_team_pass(
+    monkeypatch,
+) -> None:
+    received_at_contact = PredictedEvent(
+        "pass_candidate", 0.5, "black", 9, 1, 0.8, "pass", 1.0
+    )
+    team_pass = PredictedEvent(
+        "pass_candidate", 1.5, "black", 1, 2, 0.8, "pass", 2.0
+    )
+    terminal_turnover = PredictedEvent(
+        "turnover_candidate", 3.0, "black", 2, 3, 0.8, "control", 3.4
+    )
+    monkeypatch.setattr(
+        "football_poc.innovation_day_snapshot.possession."
+        "_receiver_team_evidence",
+        lambda _players, _balls, seconds, **_kwargs: (
+            ("red", 0.9, 4.0) if seconds > 3 else ("black", 0.9, 4.0)
+        ),
+    )
+    monkeypatch.setattr(
+        "football_poc.innovation_day_snapshot.possession."
+        "_contested_contact_seconds",
+        lambda *args, **kwargs: 1.0,
+    )
+
+    events = infer_deferred_contested_turnovers(
+        [received_at_contact, team_pass, terminal_turnover],
+        {},
+        {},
+        minimum_speed_pixels_per_second=45,
+    )
+
+    assert events == [received_at_contact, team_pass, terminal_turnover]
+
+
 def test_terminal_control_confirms_direction_change_reception(
     monkeypatch,
 ) -> None:
@@ -981,6 +1045,23 @@ def test_single_goalkeeper_observation_can_confirm_reception() -> None:
     )
 
 
+def test_transient_proximity_does_not_establish_reception() -> None:
+    segments = build_possession_segments(
+        [
+            observation(1.8, "black", 7, 100, 100, control_ratio=1.05),
+            observation(2.0, "black", 7, 102, 102, control_ratio=1.1),
+        ],
+        segment_gap_seconds=0.5,
+        identity_switch_radius_heights=0.75,
+    )
+
+    event = PredictedEvent(
+        "pass_candidate", 1.6, "black", 1, 7, 0.6, "flight", 1.8
+    )
+
+    assert suppress_transient_proximity_receptions([event], segments, {}) == []
+
+
 def test_ball_flight_confirms_sender_and_receiver() -> None:
     segments = build_possession_segments(
         [
@@ -1024,6 +1105,61 @@ def test_ball_flight_confirms_sender_and_receiver() -> None:
     assert [event.event_type for event in events] == ["pass_candidate"]
     assert events[0].from_player_track_id == 1
     assert events[0].to_player_track_id == 2
+
+
+def test_flight_reception_uses_contact_not_earlier_transient_proximity() -> None:
+    segments = build_possession_segments(
+        [
+            observation(0.8, "black", 1, 100, 100),
+            observation(1.0, "black", 1, 102, 102),
+            observation(1.8, "black", 2, 180, 180, control_ratio=1.05),
+            observation(2.0, "black", 2, 190, 190, control_ratio=1.1),
+            observation(3.4, "black", 3, 200, 200, control_ratio=0.25),
+        ],
+        segment_gap_seconds=0.3,
+        identity_switch_radius_heights=0,
+    )
+    balls = {
+        round(seconds * 25): [
+            {
+                "track_id": 1,
+                "source_frame": round(seconds * 25),
+                "clip_seconds": seconds,
+                "x": x,
+                "y": y,
+            }
+        ]
+        for seconds, x, y in [
+            (1.0, 100, 100),
+            (1.2, 130, 100),
+            (1.4, 160, 100),
+            (1.6, 180, 100),
+            (1.8, 200, 100),
+            (2.0, 220, 100),
+            (2.2, 240, 100),
+            (2.4, 260, 100),
+            (2.6, 280, 100),
+            (2.8, 300, 100),
+            (3.0, 305, 100),
+            (3.2, 310, 100),
+            (3.4, 300, 100),
+        ]
+    }
+
+    events = infer_flight_transfer_events(
+        balls,
+        segments,
+        minimum_speed_pixels_per_second=45,
+        maximum_step_seconds=0.24,
+        debounce_seconds=1.2,
+        sender_lookback_seconds=3,
+        receiver_window_seconds=3,
+        minimum_receiver_observations=2,
+    )
+
+    assert len(events) == 1
+    assert events[0].to_player_track_id == 3
+    assert events[0].completion_seconds == 3.0
 
 
 def test_reception_timing_waits_for_strong_control_after_weak_proximity() -> None:
@@ -1133,6 +1269,39 @@ def test_confirmed_opponent_control_remains_turnover() -> None:
     )
 
     assert reconcile_unconfirmed_turnovers([turnover], [receiver]) == [turnover]
+
+
+def test_turnover_is_rejected_when_losing_team_retains_control() -> None:
+    turnover = PredictedEvent(
+        "turnover_candidate", 1.0, "red", 8, 14, 0.8, "flight", 2.0
+    )
+    delayed_pass = PredictedEvent(
+        "pass_candidate", 2.2, "black", 14, 15, 0.8, "handoff", 2.4
+    )
+    retained = PossessionSegment(
+        "red",
+        8,
+        [
+            observation(1.8, "red", 8, 200, 200, control_ratio=0.3),
+            observation(2.0, "red", 8, 202, 202, control_ratio=0.2),
+            observation(2.2, "red", 8, 204, 204, control_ratio=0.2),
+            observation(2.4, "red", 8, 206, 206, control_ratio=0.3),
+        ],
+    )
+
+    events = suppress_uncontrolled_opponent_turnovers(
+        [turnover, delayed_pass],
+        {},
+        {},
+        [retained],
+    )
+
+    assert [(event.event_type, event.team) for event in events] == [
+        ("pass_candidate", "red")
+    ]
+    assert events[0].details.startswith(
+        "Possession continuity prevented a silent team change"
+    )
 
 
 def test_retained_possession_supersedes_its_immediate_inferred_handoff() -> None:

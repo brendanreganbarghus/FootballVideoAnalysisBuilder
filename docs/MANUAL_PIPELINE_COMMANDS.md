@@ -1,11 +1,82 @@
 # Manual Football Pipeline Commands
 
-This guide separates the live raw-video pipeline into independently runnable
+This guide separates the BAC-assisted Innovation Day workflow from the live
+raw-video pipeline, then splits the live pipeline into independently runnable
 stages. Run the commands from the repository root in PowerShell.
+
+## Choose the workflow first
+
+Innovation and Live may use the same prepared video segment, but they are
+separate workflows with separate engines, artifacts, review state, and Canvas
+providers:
+
+| Property | Innovation Day | Live |
+|---|---|---|
+| Purpose | Demonstrate and review the frozen downstream football engine | Develop and review the current raw-video pipeline |
+| Ball evidence | Frozen BAC provider coordinates | Raw-video detector and iteration-25 tracker |
+| Engine | `src\football_poc\innovation_day_snapshot` | Current `src\football_poc` engine |
+| Segment artifacts | `innovation\` | `live\` |
+| Review state | `event-review-state-innovation` | `event-review-state-live` |
+| Canvas provider | `project:football-event-review` | `project:football-event-review-live` |
+| Canvas type | `football-event-review` | `football-event-review-live` |
+| State workflow ID | `innovation_day_bac` | `live_iteration_25` |
+
+Never copy artifacts or review state between these columns. A visual theme or
+segment name does not select a workflow; the Canvas identity, state workflow
+ID, and artifact namespace do.
+
+### Run or rebuild Innovation Day
+
+The Innovation runner writes only to:
+
+```text
+benchmarks\alfheim\generated\<segment>\innovation
+```
+
+Run the frozen Innovation player pipeline and rules engine:
+
+```powershell
+$env:PYTHONPATH = "$PWD\src"
+$segment = "benchmarks\alfheim\generated\segment-0540-060"
+
+python scripts\process-alfheim-innovation-segment.py $segment
+```
+
+Rebuild only the cached Innovation event output:
+
+```powershell
+python scripts\process-alfheim-innovation-segment.py $segment --events-only
+```
+
+The runner accepts BAC only through its dedicated extraction step and writes
+`innovation\analytics-cache\ball-tracks.json` with:
+
+```text
+source_kind = evaluation_only_provider_coordinates
+pipeline_mode = innovation_day_bac_assisted
+```
+
+The Innovation Canvas rejects any other ball-track provenance. It presents
+every BAC point as a read-only `frozen_bac` coordinate; it has no coordinate
+review rounds and no Live 90% direct-coordinate gate. BAC makes this a
+diagnostic/demo workflow, not raw-video ball inference and not a valid
+ball-tracking performance benchmark.
+
+After reloading extensions, ask Copilot to open Football Event Review for the
+prepared segment. The provider uses an ephemeral loopback port, so reopen the
+Canvas instead of saving its URL. Its local endpoints are:
+
+- Segment catalog: `/api/alfheim/segments?workflow=innovation`
+- Status: `/api/alfheim/innovation/status`
+
+Existing passed Innovation segments can be reviewed from their frozen
+artifacts without rerunning AI. Run the processor only for a new prepared
+segment, an intentional frozen-pipeline rebuild, or a guarded event rebuild.
 
 ## Namespace and output safety
 
-The commands in this guide have two different destinations:
+The remaining commands in this guide operate on the Live workflow and have two
+different destinations:
 
 | Command | Destination | Changes validated `live` artifacts? |
 |---|---|---|
@@ -201,6 +272,148 @@ manual-cpu-run\analytics-cache\detection-summary.json
 Omit `--reuse-cache` for a true cold raw-video measurement. Supplying
 `--reuse-cache` makes the run an explicit interrupted-run recovery and its
 timing must not be reported as cold processing.
+
+## Developer ball-validation CLI
+
+Use this wrapper for visible 20-second YOLO model comparisons and ball-tracker
+experiments. It reuses the production tiled detector and tracker, refuses to
+write inside the protected `live` namespace, and loads the protected baseline
+only after a new prediction is complete.
+
+Set the source path once in Rider's PowerShell terminal:
+
+```powershell
+$env:PYTHONPATH = "$PWD\src"
+```
+
+Run the current `yolo26n` configuration first:
+
+```powershell
+python -m football_poc.ball_validation_cli yolo `
+  --segment segment-0540-020 `
+  --models n `
+  --compare
+```
+
+Run any comma-separated model selection:
+
+```powershell
+python -m football_poc.ball_validation_cli yolo `
+  --segment segment-0540-020 `
+  --models n,s,m `
+  --compare
+```
+
+For a quicker detector-concept screen that asks only whether each model sees a
+`sports ball`, use a separate run name and `--ball-only`:
+
+```powershell
+python -m football_poc.ball_validation_cli yolo `
+  --segment segment-0540-020 `
+  --run-name ball-only-smoke `
+  --models n,s,m `
+  --max-frames 10 `
+  --ball-only
+```
+
+This excludes person results and may reduce result post-processing, but every
+tile still passes through YOLO, so it does not remove the main neural-network
+cost. A ball-only cache is labelled `detection_scope: ball_only` and is
+deliberately rejected by the production ball tracker because player context is
+required. Use it only to compare raw detector recall, confidence, and timing.
+
+Run the three models against the 23 independently reviewed raw frames from the
+60-second segment:
+
+```powershell
+python -m football_poc.ball_validation_cli yolo `
+  --segment segment-0540-060 `
+  --run-name reviewed-23-ball-models `
+  --models n,s,m `
+  --frames 505,520,555,650,760,765,770,780,785,790,795,805,815,820,825,915,975,1065,1120,1190,1195,1230,1285 `
+  --ball-only
+```
+
+`--frames` contains source-frame numbers and cannot be combined with
+`--max-frames`. Predictions are produced without reading reviewed coordinates.
+After all three model outputs are frozen, their candidates and confidence can
+be evaluated against the separate review ledger.
+
+Use `--models all` for `yolo26n/s/m/l/x`. This can take several hours on CPU,
+especially for `l` and `x`; each completed model has an independent cache and
+report. Missing weights are resolved by Ultralytics and may be downloaded on
+first use.
+
+After a model's YOLO cache completes, run ball coordinates only:
+
+```powershell
+python -m football_poc.ball_validation_cli track `
+  --segment segment-0540-020 `
+  --models n `
+  --compare
+```
+
+Run both stages in sequence:
+
+```powershell
+python -m football_poc.ball_validation_cli pipeline `
+  --segment segment-0540-020 `
+  --models n `
+  --compare
+```
+
+Reprint comparisons without rerunning either stage:
+
+```powershell
+python -m football_poc.ball_validation_cli compare `
+  --segment segment-0540-020 `
+  --models n `
+  --stage all `
+  --show-all-frames
+```
+
+The default output is:
+
+```text
+benchmarks\alfheim\generated\segment-0540-020\
+  developer-runs\ball-validation\<model>\
+```
+
+Each YOLO run writes:
+
+```text
+detections.jsonl
+detection-summary.json
+yolo-run-report.json
+yolo-comparison.json
+```
+
+Each ball-tracking run additionally writes:
+
+```text
+ball-tracks.json
+ball-state-estimates.json
+ball-tracking-summary.json
+decode-cache-metrics.json
+tracking-run-report.json
+tracking-comparison.json
+```
+
+The terminal uses green for matches, red for missing outputs, cyan for gains,
+and yellow for changed coordinates, candidate sets, or provenance. By default
+it prints changed frames only; `--show-all-frames` prints every sampled frame.
+Use `--no-color` or the `NO_COLOR` environment variable when redirecting
+output.
+
+YOLO reports model loading, video decoding, inference, post-processing/write
+time, wall time, and real-time factor. Ball tracking reports wall time,
+decoded-frame-cache build time, and its ten slowest substages. The run reports
+record whether raw video was processed cold or a diagnostic cache was reused.
+
+For a short command check, `--max-frames 5` is available on `yolo`, but that is
+an incomplete diagnostic and its comparison will correctly report all
+unprocessed baseline frames as missing. Do not describe it as a complete
+20-second result.
 
 ## Stage 2: run only ball detection and tracking
 
