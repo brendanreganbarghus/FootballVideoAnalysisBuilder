@@ -177,13 +177,16 @@ export function renderHtml({ adapter } = {}) {
       cursor: pointer;
     }
     .engine-verification-modal {
-      width: min(720px, calc(100vw - 32px));
+      width: min(720px, calc(100vw - 48px));
       max-width: none;
+      max-height: calc(100dvh - 48px);
       padding: 0;
       border: 1px solid var(--border-color-default, #30363d);
       border-radius: 12px;
       background: var(--background-color-subtle, #161b22);
       color: var(--text-color-default, #f0f6fc);
+      overflow: auto;
+      overscroll-behavior: contain;
     }
     .engine-verification-modal::backdrop {
       background: rgb(0 0 0 / 72%);
@@ -191,6 +194,14 @@ export function renderHtml({ adapter } = {}) {
     .engine-verification-modal form {
       display: grid;
       gap: 14px;
+      margin: 0;
+      padding: 20px;
+    }
+    .engine-verification-modal[data-review-state="working"]
+      .engine-verification-cost-note {
+      border-left-color: #d29922;
+      background: rgb(210 153 34 / 12%);
+      color: #f2cc60;
     }
     .engine-verification-modal[data-review-state="working"]
       .engine-verification-cost-note::before {
@@ -203,7 +214,13 @@ export function renderHtml({ adapter } = {}) {
       border-radius: 50%;
       content: "";
       animation: spin .8s linear infinite;
-      padding: 18px;
+      vertical-align: -1px;
+    }
+    .engine-verification-modal[data-review-state="working"]
+      #ask-copilot-manual-engine-review {
+      border-color: #d29922;
+      background: rgb(210 153 34 / 12%);
+      color: #f2cc60;
     }
     .engine-verification-modal header {
       display: grid;
@@ -256,6 +273,22 @@ export function renderHtml({ adapter } = {}) {
       background: rgb(31 111 235 / 10%);
       color: var(--text-color-muted, #8b949e);
     }
+    .engine-verification-modal[data-review-state="working"]
+      :is(#engine-verification-guidance, #manual-engine-review-guidance) {
+      border-left-color: #f2cc60;
+      background: rgb(187 128 9 / 18%);
+      color: #f2cc60;
+      font-weight: 800;
+      box-shadow: 0 0 12px rgb(242 204 96 / 22%);
+      animation: engine-verification-working-pulse 1.2s ease-in-out infinite;
+    }
+    @keyframes engine-verification-working-pulse {
+      50% {
+        color: #fff4ad;
+        border-left-color: #fff4ad;
+        box-shadow: 0 0 18px rgb(242 204 96 / 48%);
+      }
+    }
     .engine-verification-time {
       display: grid;
       grid-template-columns: minmax(0, 1fr) auto;
@@ -270,6 +303,39 @@ export function renderHtml({ adapter } = {}) {
     }
     .engine-verification-time small {
       grid-column: 1 / -1;
+      color: var(--text-color-muted, #8b949e);
+    }
+    .similar-review-group {
+      display: grid;
+      gap: 8px;
+      margin: 12px 0;
+    }
+    .similar-review-group[hidden] {
+      display: none;
+    }
+    .similar-review-list {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+      gap: 6px;
+    }
+    .similar-review-item {
+      display: flex;
+      gap: 8px;
+      align-items: flex-start;
+      padding: 8px;
+      border: 1px solid var(--border-color-default, #30363d);
+      border-radius: 6px;
+      background: color-mix(
+        in srgb,
+        var(--background-color-default, #0d1117) 90%,
+        var(--true-color-blue, #58a6ff)
+      );
+    }
+    .similar-review-item span {
+      display: grid;
+      gap: 2px;
+    }
+    .similar-review-item small {
       color: var(--text-color-muted, #8b949e);
     }
     .engine-verification-actions {
@@ -354,7 +420,7 @@ export function renderHtml({ adapter } = {}) {
       white-space: nowrap;
     }
     .innovation-brand {
-      display: none;
+      display: flex;
       margin-top: 5px;
       color: #f0b7e6;
       font-size: 11px;
@@ -735,14 +801,28 @@ export function renderHtml({ adapter } = {}) {
       position: relative;
       overflow: hidden;
       background: #000;
+    }
+    .video-zoom-layer {
+      position: relative;
+      width: 100%;
       transform: scale(1);
+      transform-origin: 50% 50%;
       transition: transform 160ms ease-out;
+    }
+    .video-media.zoomed .video-zoom-layer {
+      cursor: grab;
+      touch-action: none;
+    }
+    .video-media.panning .video-zoom-layer {
+      cursor: grabbing;
+      transition: none;
     }
     .video-shell:fullscreen {
       display: grid;
       width: 100vw;
       height: 100vh;
-      grid-template-rows: minmax(0, 1fr) auto;
+      grid-template-rows: minmax(0, 1fr) auto auto;
+      overflow: hidden;
       border: 0;
       border-radius: 0;
     }
@@ -851,15 +931,39 @@ export function renderHtml({ adapter } = {}) {
       margin-left: auto;
       font-size: 12px;
     }
-    .video-shell.action-zoom .video-media { transform: scale(2.35); }
+    .video-shell.action-zoom .video-zoom-layer { transform: scale(2.35); }
     .video-shell:fullscreen .video-media,
-    .video-shell:fullscreen video { height: 100%; aspect-ratio: auto; }
+    .video-shell:fullscreen .video-zoom-layer,
+    .video-shell:fullscreen video {
+      min-height: 0;
+      height: 100%;
+      aspect-ratio: auto;
+    }
+    .video-shell:fullscreen .view-modes {
+      min-width: 0;
+      flex-wrap: nowrap;
+      overflow-x: auto;
+      overscroll-behavior: contain;
+    }
+    .video-shell:fullscreen > .transport {
+      min-width: 0;
+      max-height: min(30dvh, 220px);
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      scrollbar-gutter: stable;
+      padding-bottom: max(10px, env(safe-area-inset-bottom));
+    }
+    .video-shell:fullscreen
+      > .transport
+      > .innovation-manual-controls {
+      display: none;
+    }
     .transport {
       position: relative;
       z-index: 2;
       display: grid;
       grid-template-columns:
-        auto auto minmax(120px, 1fr) auto auto auto auto auto;
+        auto auto auto minmax(240px, 1fr) auto auto auto auto;
       gap: 8px;
       align-items: center;
       padding: 10px;
@@ -871,6 +975,13 @@ export function renderHtml({ adapter } = {}) {
       gap: 3px;
       color: var(--text-color-muted, #8b949e);
       font-size: 12px;
+    }
+    .timeline-control {
+      min-width: 0;
+    }
+    .timeline-control input {
+      width: 100%;
+      min-width: 120px;
     }
     .video-zoom-controls {
       display: inline-flex;
@@ -1028,6 +1139,20 @@ export function renderHtml({ adapter } = {}) {
     .shared-review-table .regression-action:hover {
       border-color: var(--true-color-blue, #79c0ff);
       background: rgb(31 111 235 / 34%);
+    }
+    .shared-review-table .segment-replay-action {
+      min-height: 30px;
+      margin-top: 6px;
+      padding: 4px 10px;
+      border-color: var(--true-color-green, #3fb950);
+      background: rgb(46 160 67 / 18%);
+      color: var(--true-color-green, #7ee787);
+      font-weight: var(--font-weight-semibold, 600);
+      white-space: nowrap;
+    }
+    .shared-review-table .segment-replay-action:hover {
+      border-color: var(--true-color-green, #7ee787);
+      background: rgb(46 160 67 / 30%);
     }
     .ball-coordinate-review-actions {
       display: flex;
@@ -1397,6 +1522,7 @@ export function renderHtml({ adapter } = {}) {
     .manual-review-fields button { grid-column: 1 / -1; }
     .innovation-manual-controls {
       display: flex;
+      flex: 0 0 auto;
       flex-wrap: wrap;
       gap: 8px;
       align-items: center;
@@ -1483,9 +1609,6 @@ export function renderHtml({ adapter } = {}) {
       box-shadow: 0 8px 24px rgb(0 0 0 / 34%);
       backdrop-filter: blur(5px);
     }
-    .video-shell:fullscreen .copilot-reference:not([hidden]) {
-      display: flex;
-    }
     .copilot-reference[hidden] {
       display: none !important;
     }
@@ -1510,10 +1633,11 @@ export function renderHtml({ adapter } = {}) {
       padding: 7px;
     }
     .copilot-reference-event {
+      position: relative;
       width: 100%;
       min-height: 38px;
       overflow: hidden;
-      padding: 6px 8px;
+      padding: 15px 8px 6px;
       border: 1px solid rgb(248 81 73 / 24%);
       border-radius: 7px;
       background: rgb(74 18 24 / 42%);
@@ -1522,6 +1646,29 @@ export function renderHtml({ adapter } = {}) {
       line-height: 1.2;
       text-align: left;
       text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .copilot-reference-label {
+      display: block;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .copilot-closest-manual-tag {
+      position: absolute;
+      top: 0;
+      right: 0;
+      max-width: calc(100% - 10px);
+      overflow: hidden;
+      padding: 2px 5px 2px 8px;
+      border-radius: 0 6px 0 7px;
+      background: var(--true-color-red, #cf222e);
+      color: #fff;
+      font-size: 9px;
+      font-weight: 700;
+      line-height: 1.2;
+      letter-spacing: .02em;
+      text-overflow: ellipsis;
+      text-transform: uppercase;
       white-space: nowrap;
     }
     .copilot-reference-event:hover,
@@ -1971,6 +2118,143 @@ export function renderHtml({ adapter } = {}) {
       font-weight: 700;
     }
     .replay-note { margin: 9px 0 0; }
+    .segment-replay-modal {
+      width: calc(100vw - 20px);
+      max-width: none;
+      height: calc(100dvh - 20px);
+      max-height: none;
+      padding: 0;
+      border: 1px solid var(--border-color-default, #30363d);
+      border-radius: 16px;
+      background: #070b0d;
+      color: #f0f6fc;
+      overflow: hidden;
+      box-shadow: 0 24px 80px rgb(0 0 0 / 70%);
+    }
+    .segment-replay-modal::backdrop {
+      background: rgb(0 0 0 / 82%);
+      backdrop-filter: blur(5px);
+    }
+    .segment-replay-modal-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+      padding: 13px 16px;
+      border-bottom: 1px solid rgb(255 255 255 / 14%);
+      background: linear-gradient(90deg, #071b12, #102c20);
+    }
+    .segment-replay-modal-head h2 {
+      margin: 0;
+      font-size: 18px;
+    }
+    .segment-replay-modal-head p { margin: 2px 0 0; }
+    .segment-replay-media {
+      position: relative;
+      display: flex;
+      min-width: 0;
+      height: calc(100dvh - 87px);
+      align-items: center;
+      justify-content: center;
+      background: #000;
+    }
+    .segment-replay-media video {
+      display: block;
+      width: 100%;
+      height: 100%;
+      aspect-ratio: auto;
+      object-fit: contain;
+      object-position: center bottom;
+      background: #000;
+    }
+    .stadium-scoreboard {
+      position: absolute;
+      left: 50%;
+      top: 32px;
+      width: min(820px, calc(100% - 40px));
+      overflow: hidden;
+      border: 1px solid rgb(255 255 255 / 34%);
+      border-radius: 12px;
+      background:
+        linear-gradient(105deg, rgb(7 27 18 / 94%), rgb(16 44 32 / 92%));
+      box-shadow: 0 12px 40px rgb(0 0 0 / 58%);
+      backdrop-filter: blur(8px);
+      transform: translateX(-50%);
+      pointer-events: none;
+    }
+    .stadium-scoreboard-head {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      gap: 14px;
+      align-items: center;
+      padding: 8px 12px;
+      border-bottom: 1px solid rgb(255 255 255 / 18%);
+      background: rgb(0 0 0 / 22%);
+    }
+    .stadium-scoreboard-head strong {
+      text-align: center;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+    }
+    .stadium-scoreboard-clock {
+      font-family: var(--font-mono, Consolas, monospace);
+      font-size: 16px;
+      font-weight: 800;
+    }
+    .stadium-scoreboard-brand {
+      display: inline-flex;
+      gap: 7px;
+      align-items: center;
+      justify-self: end;
+      color: #fff;
+      font-size: 10px;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+    }
+    .stadium-scoreboard-brand img {
+      display: block;
+      width: 54px;
+      height: auto;
+      filter: brightness(0) invert(1);
+    }
+    .stadium-scoreboard-teams {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      gap: 16px;
+      align-items: center;
+      padding: 8px 16px 2px;
+      text-align: center;
+      font-size: 15px;
+      font-weight: 800;
+    }
+    .stadium-scoreboard-teams span {
+      color: rgb(255 255 255 / 52%);
+      font-size: 11px;
+      text-transform: uppercase;
+    }
+    .segment-replay-stats {
+      width: 100%;
+      border-collapse: collapse;
+      font-variant-numeric: tabular-nums;
+    }
+    .segment-replay-stats th,
+    .segment-replay-stats td {
+      padding: 6px 4px;
+      border-top: 1px solid rgb(255 255 255 / 15%);
+      text-align: center;
+    }
+    .segment-replay-stats td {
+      width: 54px;
+      font-size: 18px;
+      font-weight: 800;
+    }
+    .segment-replay-provenance {
+      margin: 0;
+      padding: 4px 12px 8px;
+      color: #9fb6a8;
+      font-size: 11px;
+      text-align: center;
+    }
     .conversation {
       display: flex;
       margin-top: 14px;
@@ -2213,7 +2497,8 @@ export function renderHtml({ adapter } = {}) {
     .fullscreen-events-head {
       display: grid;
       flex: 0 0 auto;
-      grid-template-columns: minmax(0, 1fr) 88px minmax(0, 1fr) auto;
+      grid-template-columns:
+        minmax(0, 1fr) 88px minmax(0, 1fr) auto auto auto;
       gap: 8px;
       padding: 8px 10px;
       border-bottom: 1px solid rgb(240 246 252 / 16%);
@@ -2223,6 +2508,14 @@ export function renderHtml({ adapter } = {}) {
     }
     .fullscreen-events-head span:nth-child(2) { text-align: center; }
     .fullscreen-events-head span:nth-child(3) { text-align: right; }
+    .copilot-reference-toggle {
+      display: inline-flex;
+      gap: 5px;
+      align-items: center;
+      white-space: nowrap;
+      text-transform: none;
+      letter-spacing: normal;
+    }
     .fullscreen-events-drag {
       min-height: 28px;
       padding: 3px 8px;
@@ -2233,6 +2526,17 @@ export function renderHtml({ adapter } = {}) {
       white-space: nowrap;
     }
     .fullscreen-events-drag:active { cursor: grabbing; }
+    #validate-engine-reference {
+      border-color: #d4a72c;
+      background: #9a6700;
+      color: #fff;
+      font-weight: 700;
+    }
+    #validate-engine-reference:hover:not(:disabled) {
+      border-color: #f2cc60;
+      background: #b58407;
+      color: #fff;
+    }
     .comparison-summary {
       display: flex;
       flex: 0 0 auto;
@@ -2299,6 +2603,42 @@ export function renderHtml({ adapter } = {}) {
       min-height: 0;
       overflow-y: auto;
       padding: 6px;
+    }
+    .innovation-manual-panel {
+      display: block;
+      flex: 0 0 auto;
+      min-height: 0;
+      overflow: hidden;
+      border-top: 1px solid rgb(240 246 252 / 18%);
+      background: rgb(13 17 23 / 82%);
+    }
+    .innovation-manual-panel:not([open]) {
+      min-height: 34px;
+    }
+    .innovation-manual-panel > summary {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      align-items: center;
+      padding: 7px 10px;
+      list-style: none;
+      cursor: pointer;
+    }
+    .innovation-manual-panel > summary::-webkit-details-marker {
+      display: none;
+    }
+    .innovation-manual-panel > summary::after {
+      color: #c9d1d9;
+      content: "Show";
+      font-size: 11px;
+      font-weight: var(--font-weight-semibold, 600);
+    }
+    .innovation-manual-panel[open] > summary::after {
+      content: "Hide";
+    }
+    .innovation-manual-panel .innovation-manual-controls {
+      border: 0;
+      border-radius: 0;
     }
     .fullscreen-event-chat {
       display: none;
@@ -2420,6 +2760,11 @@ export function renderHtml({ adapter } = {}) {
     .comparison-row:last-child { border-bottom: 0; }
     .comparison-row.matched { background: transparent; }
     .comparison-row.reviewed { background: rgb(31 111 235 / 16%); }
+    .comparison-row.engine-selected {
+      outline: 2px solid #58a6ff;
+      outline-offset: -2px;
+      background: rgb(31 111 235 / 22%);
+    }
     .comparison-row.stoppage { background: rgb(210 153 34 / 16%); }
     .comparison-row.off { background: rgb(248 81 73 / 15%); }
     .comparison-row.manual-rejected {
@@ -2500,7 +2845,8 @@ export function renderHtml({ adapter } = {}) {
       grid-area: status;
       justify-self: start;
     }
-    .comparison-review-cell.verifying {
+    .comparison-review-cell.verifying,
+    .comparison-engine-cell.verifying {
       border-radius: 7px;
       background: rgb(210 153 34 / 24%);
       box-shadow: inset 0 0 0 1px #d29922;
@@ -2814,6 +3160,10 @@ export function renderHtml({ adapter } = {}) {
       }
       .missing-event-note { grid-column: 1 / -1; }
       .replay-layout { grid-template-columns: 1fr; }
+      .stadium-scoreboard {
+        top: 18px;
+        width: calc(100% - 24px);
+      }
     }
     @media (max-width: 600px) {
       .transport { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -2826,6 +3176,8 @@ export function renderHtml({ adapter } = {}) {
     }
     @media (prefers-reduced-motion: reduce) {
       .activity.working .activity-dot { animation: none; }
+      .engine-verification-modal[data-review-state="working"]
+        #engine-verification-guidance { animation: none; }
       .event-trigger.active { animation: none; }
       .comparison-event.playback-ping,
       .copilot-reference-event.playback-ping { animation: none; }
@@ -2908,7 +3260,7 @@ export function renderHtml({ adapter } = {}) {
       </span>
       <button id="segment-loading-close" type="button" hidden>Close</button>
       <button id="segment-loading-cancel" type="button" hidden>
-        Cancel review
+        Cancel Copilot Review
       </button>
     </div>
   </div>
@@ -2939,18 +3291,19 @@ export function renderHtml({ adapter } = {}) {
         this window does not start Copilot, spend AI credits, or change the
         event.
       </p>
-      <div class="engine-verification-time">
+      <div class="engine-verification-time" id="engine-verification-time" hidden>
         <label for="engine-check-seconds">
-          Another completion time to inspect (seconds)
+          Optional corrected E# completion time (seconds)
           <input id="engine-check-seconds" type="text" inputmode="decimal"
             autocomplete="off" placeholder="For example, 2.900">
         </label>
         <button id="seek-engine-check-time" type="button">
-          Check this time
+          Preview time in video
         </button>
         <small id="engine-check-time-status" aria-live="polite">
-          This seeks the video and focuses the review. It does not change M#
-          or rewrite E#.
+          Use this only when the E# completion time is wrong. Previewing does
+          not change M# or E#; the time is sent to Copilot with the correction
+          request.
         </small>
       </div>
       <fieldset>
@@ -2969,17 +3322,17 @@ export function renderHtml({ adapter } = {}) {
         <label class="engine-verification-choice">
           <input name="engine-verification-decision" type="radio"
             value="details_wrong">
-          <strong>Event exists, but details are wrong</strong>
+          <strong>Same play, but this E# timing or details are wrong</strong>
           <span>
-            An event occurred, but the team, event type, or completion time is
-            incorrect. Reject this E# and send only this discrepancy for a
-            general rules-engine fix and cached rerun.
+            The play occurred, but this E# has the wrong completion time, team,
+            or event type. Keep M# unchanged and send this E# discrepancy for
+            a general rules-engine fix and cached rerun.
           </span>
         </label>
         <label class="engine-verification-choice">
           <input name="engine-verification-decision" type="radio"
             value="incorrect">
-          <strong>Incorrect — no such event occurred</strong>
+          <strong>No such event occurred — reject this E#</strong>
           <span>
             The exact E# is unsupported by the video. Reject it and send only
             this discrepancy for a general rules-engine fix and cached rerun.
@@ -2996,13 +3349,23 @@ export function renderHtml({ adapter } = {}) {
           </span>
         </label>
       </fieldset>
+      <fieldset class="similar-review-group"
+        id="engine-similar-review-group" hidden>
+        <legend>Check similar E# discrepancies together</legend>
+        <div class="similar-review-list" id="engine-similar-review-list"></div>
+        <small>
+          Only unmatched, reviewable E# events with this same canonical event
+          type are available. One evidence decision and one Copilot request
+          applies to every checked E#.
+        </small>
+      </fieldset>
       <p class="engine-verification-cost-note"
         id="engine-verification-guidance" aria-live="polite">
         Choose an evidence decision to see the available next action.
       </p>
       <div class="engine-verification-actions">
         <button id="cancel-engine-verification" type="button">
-          Cancel / Close
+          Close
         </button>
         <button id="confirm-engine-without-copilot" type="button" disabled>
           Approve exact E# without Copilot
@@ -3021,27 +3384,41 @@ export function renderHtml({ adapter } = {}) {
         <p class="muted" id="manual-engine-review-event"></p>
       </header>
       <p>
-        Choose what your video review says about this unmatched M#. Nothing
-        changes until you use the action at the bottom.
+        First decide whether a current E# represents this play. Then choose
+        what your video review says. Nothing changes until you use the action
+        at the bottom.
       </p>
       <fieldset>
         <legend>Your evidence decision</legend>
         <label class="engine-verification-choice">
           <input name="manual-engine-review-decision" type="radio"
-            value="correct">
-          <strong>Correct — the engine missed this M#</strong>
+            value="engine_match_wrong">
+          <strong>Existing E# is this play, but E# timing or details are wrong</strong>
           <span>
-            Ask Copilot to verify the video, diagnose the general engine cause,
-            rebuild cached E# output, and run protected regressions.
+            M# is accepted as correct. Copilot must correct the general engine
+            cause, rebuild E# output, and make this play match M# without
+            changing the golden reference.
           </span>
         </label>
         <label class="engine-verification-choice">
           <input name="manual-engine-review-decision" type="radio"
+            value="correct">
+          <strong>No E# represents this play — the engine missed M#</strong>
+          <span>
+            M# is accepted as correct. Copilot must diagnose the general engine
+            cause, rebuild cached E# output, and run protected regressions
+            without changing the golden reference.
+          </span>
+        </label>
+        <label class="engine-verification-choice"
+          data-manual-draft-action>
+          <input name="manual-engine-review-decision" type="radio"
             value="details_wrong">
-          <strong>Event exists, but M# details need editing</strong>
+          <strong>M# itself is wrong — edit M#</strong>
           <span>Close this guide and expand the M# time/team/type editor.</span>
         </label>
-        <label class="engine-verification-choice">
+        <label class="engine-verification-choice"
+          data-manual-draft-action>
           <input name="manual-engine-review-decision" type="radio"
             value="reject">
           <strong>Reject M# — not supported by the video</strong>
@@ -3050,7 +3427,8 @@ export function renderHtml({ adapter } = {}) {
             the golden set.
           </span>
         </label>
-        <label class="engine-verification-choice">
+        <label class="engine-verification-choice"
+          data-manual-draft-action>
           <input name="manual-engine-review-decision" type="radio"
             value="remove">
           <strong>Remove M# — added in error</strong>
@@ -3068,13 +3446,31 @@ export function renderHtml({ adapter } = {}) {
           </span>
         </label>
       </fieldset>
+      <fieldset class="similar-review-group"
+        id="manual-similar-review-group" hidden>
+        <legend>Check similar unmatched M# events together</legend>
+        <div class="similar-review-list" id="manual-similar-review-list"></div>
+        <small>
+          Only unmatched M# events with this same canonical event type are
+          available. One professional verdict and one Copilot request applies
+          to every checked M#.
+        </small>
+      </fieldset>
+      <p class="engine-verification-cost-note"
+        id="manual-engine-review-frozen-note" hidden>
+        Golden M# is frozen. Reopen the manual reference before editing,
+        rejecting, or removing an M#.
+      </p>
       <p class="engine-verification-cost-note"
         id="manual-engine-review-guidance" aria-live="polite">
         Choose an evidence decision to see the available next action.
       </p>
       <div class="engine-verification-actions">
-        <button id="cancel-manual-engine-review" type="button">
-          Cancel / Close
+        <button id="close-manual-engine-review" type="button">
+          Close Modal
+        </button>
+        <button id="cancel-manual-copilot-review" type="button" hidden>
+          Cancel Copilot Review
         </button>
         <button id="ask-copilot-manual-engine-review" type="button">
           Choose a decision
@@ -3171,9 +3567,62 @@ export function renderHtml({ adapter } = {}) {
       Continue reviewing
     </button>
     <button id="cancel-copilot-review" type="button" hidden>
-      Cancel review
+      Cancel Copilot Review
     </button>
   </p>
+  <dialog class="segment-replay-modal" id="segment-replay-modal"
+    aria-labelledby="segment-replay-title">
+    <header class="segment-replay-modal-head">
+      <div>
+        <h2 id="segment-replay-title">Cached engine replay</h2>
+        <p class="muted" id="segment-replay-subtitle"></p>
+      </div>
+      <button id="close-segment-replay" type="button">Close</button>
+    </header>
+    <section class="segment-replay-media" aria-label="Stadium segment replay">
+      <video id="segment-replay-video" controls preload="metadata"></video>
+      <aside class="stadium-scoreboard"
+        aria-label="Football statistics from cached engine output">
+        <div class="stadium-scoreboard-head">
+          <span class="stadium-scoreboard-clock"
+            id="segment-replay-clock">00:00 / 00:00</span>
+          <strong>Match statistics</strong>
+          <div class="stadium-scoreboard-brand">
+            <span>Powered by</span>
+            <img src="${homeUrl.replace(/\/$/, "")}/assets/xebia-logo.svg"
+              alt="Xebia">
+          </div>
+        </div>
+        <div class="stadium-scoreboard-teams">
+          <strong class="live-team-red">Red/white</strong>
+          <span>vs</span>
+          <strong class="live-team-black">Black</strong>
+        </div>
+        <table class="segment-replay-stats">
+          <thead>
+            <tr>
+              <th class="live-team-red">Red/white</th>
+              <th>Statistic</th>
+              <th class="live-team-black">Black</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td id="segment-replay-red-passes">0</td><th>Passes</th>
+              <td id="segment-replay-black-passes">0</td></tr>
+            <tr><td id="segment-replay-red-turnovers">0</td><th>Turnovers</th>
+              <td id="segment-replay-black-turnovers">0</td></tr>
+            <tr><td id="segment-replay-red-shots">0</td><th>Shots</th>
+              <td id="segment-replay-black-shots">0</td></tr>
+            <tr><td id="segment-replay-red-on-target">0</td><th>On target</th>
+              <td id="segment-replay-black-on-target">0</td></tr>
+          </tbody>
+        </table>
+        <p class="segment-replay-provenance">
+          Read-only stadium replay · cached rules-engine statistics only
+        </p>
+      </aside>
+    </section>
+  </dialog>
   <main class="layout">
     <section class="review" aria-label="Selected football event review">
       <details class="segment-builder" id="segment-builder-panel" open>
@@ -3325,7 +3774,7 @@ export function renderHtml({ adapter } = {}) {
           </button>
         </div>
       </div>
-      <details class="shared-review-card">
+      <details class="shared-review-card" id="shared-review-panel">
         <summary>Shared approvals &amp; validation gates</summary>
         <div class="regression-batch-actions"
           id="regression-batch-actions" hidden>
@@ -3408,6 +3857,7 @@ export function renderHtml({ adapter } = {}) {
           </details>
           <div class="video-shell" id="video-shell">
         <div class="video-media" id="video-media">
+          <div class="video-zoom-layer" id="video-zoom-layer">
           <video id="video" controls preload="metadata"
             aria-label="Selected football stream segment footage"></video>
           <div class="video-empty" id="video-empty" hidden>
@@ -3425,6 +3875,7 @@ export function renderHtml({ adapter } = {}) {
           </svg>
           <canvas class="geometry-overlay" id="geometry-overlay"
             aria-label="Calibrated pitch and goal outlines"></canvas>
+          </div>
           <div class="event-trigger copilot" id="copilot-event-trigger" hidden
             role="status" aria-live="polite">
             <span class="event-trigger-dot" aria-hidden="true"></span>
@@ -3474,6 +3925,12 @@ export function renderHtml({ adapter } = {}) {
               <span>${adapter.key === "innovation" ? "Manual M#" : "Review proposal"}</span>
               <span>Seconds</span>
               <span>${adapter.key === "innovation" ? "Rules engine E#" : "Rules engine output"}</span>
+              ${adapter.key === "innovation" ? `
+              <label class="copilot-reference-toggle">
+                <input id="show-copilot-reference" type="checkbox" checked>
+                Show Copilot C# reference
+              </label>
+              ` : ""}
               <button class="fullscreen-events-drag"
                 id="move-event-panel" type="button"
                 aria-label="Drag the Events panel; use arrow keys to move it"
@@ -3519,34 +3976,45 @@ export function renderHtml({ adapter } = {}) {
             </details>
             <div class="fullscreen-event-items" id="fullscreen-event-items"></div>
             ${adapter.key === "innovation" ? `
-            <div class="innovation-manual-controls">
-              <span class="manual-capture-label">
-                Add M# at the current video time:
-              </span>
-              <button type="button" data-manual-team="black"
-                data-manual-type="completed_pass">Black completed pass</button>
-              <button type="button" data-manual-team="black"
-                data-manual-type="turnover">Black turnover</button>
-              <button type="button" data-manual-team="red"
-                data-manual-type="completed_pass">White/red completed pass</button>
-              <button type="button" data-manual-team="red"
-                data-manual-type="turnover">White/red turnover</button>
-              <label>
-                <input id="show-bac-coordinate" type="checkbox">
-                Show BAC ball coordinate
-              </label>
-              <button id="undo-manual-change" type="button">Undo last change</button>
-              <button id="approve-manual-minute" type="button">
-                Approve minute as golden
-              </button>
-              <button id="reopen-manual-minute" type="button" hidden>
-                Reopen approved minute for editing (cannot be undone)
-              </button>
-              <label>
-                <input id="show-copilot-reference" type="checkbox">
-                Show Copilot C# reference
-              </label>
-            </div>
+            <details class="innovation-manual-panel"
+              id="innovation-manual-panel" open
+              aria-labelledby="innovation-manual-panel-title">
+              <summary>
+                <strong id="innovation-manual-panel-title">
+                  Manual event and publication controls
+                </strong>
+              </summary>
+              <div class="innovation-manual-controls">
+                <span class="manual-capture-label">
+                  Add M# at the current video time:
+                </span>
+                <button type="button" data-manual-team="black"
+                  data-manual-type="completed_pass">Black completed pass</button>
+                <button type="button" data-manual-team="black"
+                  data-manual-type="turnover">Black turnover</button>
+                <button type="button" data-manual-team="red"
+                  data-manual-type="completed_pass">White/red completed pass</button>
+                <button type="button" data-manual-team="red"
+                  data-manual-type="turnover">White/red turnover</button>
+                <label>
+                  <input id="show-bac-coordinate" type="checkbox">
+                  Show BAC ball coordinate
+                </label>
+                <button id="approve-manual-minute" type="button">
+                  Freeze manual M# reference as golden
+                </button>
+                <button id="validate-engine-reference" type="button" hidden>
+                  Validate engine against golden reference
+                </button>
+                <button id="publish-passed-segment" type="button" hidden>
+                  Publish Passed segment
+                </button>
+                <button id="reopen-manual-minute" type="button" hidden>
+                  Reopen approved minute for editing (cannot be undone)
+                </button>
+                <output id="golden-workflow-status" aria-live="polite"></output>
+              </div>
+            </details>
             ` : ""}
             <details class="fullscreen-event-chat" id="fullscreen-event-chat"
               data-ai-gated
@@ -3644,7 +4112,7 @@ export function renderHtml({ adapter } = {}) {
             </details>
           </aside>
           ${adapter.key === "innovation" ? `
-          <aside class="copilot-reference" id="copilot-reference" hidden
+          <aside class="copilot-reference" id="copilot-reference"
             aria-label="Read-only Copilot C# diagnostic timeline">
             <header class="copilot-reference-head">
               <strong>Copilot C# reference · diagnostic only</strong>
@@ -3669,13 +4137,16 @@ export function renderHtml({ adapter } = {}) {
           </span>
         </div>
         <div class="transport">
+          <button id="toggle-playback" type="button">Play</button>
           <button id="previous-frame" type="button">← Frame</button>
           <button id="next-frame" type="button">Frame →</button>
-          <label>Review Position
+          <label class="timeline-control">Review Position
             <input id="timeline" name="timeline" type="range"
               min="0" max="60" step="0.04" value="0" autocomplete="off">
           </label>
           <output class="time" id="time" aria-live="polite">0.00s</output>
+          <output class="muted" id="playback-status"
+            aria-live="polite"></output>
           <label class="playback-speed fullscreen-only" for="playback-speed">
             Speed
             <select id="playback-speed" aria-label="Playback speed">
@@ -3710,7 +4181,7 @@ export function renderHtml({ adapter } = {}) {
             <output id="manual-capture-status" aria-live="polite"></output>
           </div>
           ` : ""}
-          <div class="video-zoom-controls fullscreen-only"
+          <div class="video-zoom-controls"
             aria-label="Manual video zoom">
             <button id="zoom-out" type="button"
               aria-label="Zoom video out" title="Zoom video out">−</button>
@@ -3794,7 +4265,7 @@ export function renderHtml({ adapter } = {}) {
             </div>
             <div class="coordinate-decision-guide"
               id="coordinate-decision-guide"${
-                adapter.coordinateReviewEnabled ? "" : " hidden"
+                adapter.coordinateCorrectionEnabled ? "" : " hidden"
               }>
               <strong>Choose an evidence outcome</strong>
               <ul>
@@ -3810,7 +4281,7 @@ export function renderHtml({ adapter } = {}) {
             <div class="ball-frame-modal-actions">
               <div class="ball-review-navigation"
                 id="ball-review-navigation"${
-                  adapter.coordinateReviewEnabled ? "" : " hidden"
+                  adapter.coordinateCorrectionEnabled ? "" : " hidden"
                 }>
                 <button id="previous-ball-review-frame" type="button">
                   ← Previous review
@@ -3829,7 +4300,7 @@ export function renderHtml({ adapter } = {}) {
                 id="agree-ball-coordinate" type="button"
                 aria-label="Agree with current coordinate"
                 title="Agree with current coordinate"${
-                  adapter.coordinateReviewEnabled ? "" : " hidden"
+                  adapter.coordinateCorrectionEnabled ? "" : " hidden"
                 }>
                 ✓
               </button>
@@ -3837,7 +4308,7 @@ export function renderHtml({ adapter } = {}) {
                 id="undefined-ball-coordinate" type="button"
                 aria-label="Ball undefined or not visible"
                 title="Use when the ball is hidden, occluded, or not visible"${
-                  adapter.coordinateReviewEnabled ? "" : " hidden"
+                  adapter.coordinateCorrectionEnabled ? "" : " hidden"
                 }>
                 Ball undefined / not visible
               </button>
@@ -3845,12 +4316,12 @@ export function renderHtml({ adapter } = {}) {
                 Needs more checking
               </button>
               <button id="mark-ball-location" type="button"${
-                adapter.coordinateReviewEnabled ? "" : " hidden"
+                adapter.coordinateCorrectionEnabled ? "" : " hidden"
               }>
                 Specify my own coordinate
               </button>
               <button id="approve-ball-location" type="button" disabled${
-                adapter.coordinateReviewEnabled ? "" : " hidden"
+                adapter.coordinateCorrectionEnabled ? "" : " hidden"
               }>
                 Confirm my coordinate &amp; next target
               </button>
@@ -3858,7 +4329,7 @@ export function renderHtml({ adapter } = {}) {
                 id="undo-ball-coordinate-decision" type="button" disabled
                 aria-label="Undo coordinate decision"
                 title="Undo coordinate decision"${
-                  adapter.coordinateReviewEnabled ? "" : " hidden"
+                  adapter.coordinateCorrectionEnabled ? "" : " hidden"
                 }>
                 ↶
               </button>
@@ -3885,19 +4356,32 @@ export function renderHtml({ adapter } = {}) {
             <p class="ball-frame-modal-status" id="coordinate-round-result"
               role="status" aria-live="polite" hidden></p>
             <div class="ball-frame-modal-details">
-              Review decisions remain evaluation-only and never become
-              inference inputs.
+              ${adapter.reviewerCorrectedDemoLayer
+                ? "Frozen BAC remains unchanged. Applying this batch creates "
+                  + "a shared, versioned reviewer-coordinate layer used by "
+                  + "the Innovation rules engine for this segment."
+                : "Review decisions remain evaluation-only and never become "
+                  + "inference inputs."}
             </div>
             <div class="ball-coordinate-modal-frames"
               id="ball-coordinate-modal-frames"></div>
             <p class="muted" id="ball-coordinate-review-send-status"
               aria-live="polite"></p>
             <div class="ball-frame-modal-actions">
-              <button class="copilot-handover"
+              <button id="apply-reviewer-coordinate-layer" type="button"${
+                adapter.reviewerCorrectedDemoLayer ? "" : " hidden"
+              } disabled>
+                Apply approved coordinate updates
+              </button>
+              <button class="copilot-handover"${
+                adapter.coordinateReviewEnabled ? "" : " hidden"
+              }
                 id="send-ball-coordinate-autopilot" type="button">
                 Review &amp; improve approved batch once (Autopilot)
               </button>
-              <button id="finalize-ball-coordinate-review" type="button"
+              <button id="finalize-ball-coordinate-review" type="button"${
+                adapter.coordinateReviewEnabled ? "" : " hidden"
+              }
                 disabled>
                 Start rules-engine run
               </button>
@@ -4165,6 +4649,8 @@ export function renderHtml({ adapter } = {}) {
       recoveryMessage: adapter.recoveryMessage,
       detectionMessage: adapter.detectionMessage,
       coordinateReviewEnabled: adapter.coordinateReviewEnabled,
+      coordinateCorrectionEnabled: adapter.coordinateCorrectionEnabled,
+      reviewerCorrectedDemoLayer: adapter.reviewerCorrectedDemoLayer,
       evidencePreparationEnabled: adapter.evidencePreparationEnabled,
     })};
     const stateUrl = "/api/state";
@@ -4195,6 +4681,7 @@ export function renderHtml({ adapter } = {}) {
     let selectedEngineIndex = null;
     let showBacCoordinate = false;
     let verificationModalEngineIndex = null;
+    let engineVerificationPending = null;
     let decisionModalReviewIndex = null;
     let reviewAudience =
       localStorage.getItem("football-review-audience") === "developer"
@@ -4202,9 +4689,12 @@ export function renderHtml({ adapter } = {}) {
       : "reviewer";
     let actionZoom = false;
     let manualZoom = 1;
+    let videoPanX = 0;
+    let videoPanY = 0;
     let statusTimer = null;
     let segmentPreparationPending = false;
     let runStartPending = false;
+    let validateGoldenAfterEngineRun = false;
     let analysisModalMode = null;
     let renderedSegmentKey = null;
     let viewMode = "normal";
@@ -4233,6 +4723,7 @@ export function renderHtml({ adapter } = {}) {
     let playbackFrameRequest = null;
     let replayRunId = null;
     let replaySegmentIndex = 0;
+    let segmentReplayKey = null;
     let repositoryGeometry = null;
     let geometry = {
       image_width: 4450,
@@ -4244,6 +4735,7 @@ export function renderHtml({ adapter } = {}) {
     const timeline = document.getElementById("timeline");
     const videoShell = document.getElementById("video-shell");
     const videoMedia = document.getElementById("video-media");
+    const videoZoomLayer = document.getElementById("video-zoom-layer");
     const videoEmpty = document.getElementById("video-empty");
     const segmentBuilderPanel =
       document.getElementById("segment-builder-panel");
@@ -4283,6 +4775,10 @@ export function renderHtml({ adapter } = {}) {
     const geometryStatus = document.getElementById("geometry-status");
     const replayRunSelect = document.getElementById("replay-run");
     const replayVideo = document.getElementById("replay-video");
+    const segmentReplayModal =
+      document.getElementById("segment-replay-modal");
+    const segmentReplayVideo =
+      document.getElementById("segment-replay-video");
 
     function selectedSegmentKey() {
       return new URLSearchParams(location.search).get("segment") ||
@@ -4397,6 +4893,12 @@ export function renderHtml({ adapter } = {}) {
       document.getElementById("segment-loading-cancel").hidden = true;
     }
 
+    function completeSegmentLoading(label, detail) {
+      finishSegmentLoading(label, detail);
+      analysisModalMode = null;
+      setSegmentLoading(false);
+    }
+
     function innovationAnalysisMode(segment) {
       if (
         ["bac_coordinates", "player_detection", "player_tracking"]
@@ -4420,27 +4922,32 @@ export function renderHtml({ adapter } = {}) {
             ? "Failed"
             : "In progress";
         const reviewStatus = state?.automaticCopilotReview?.status;
-        const reviewLabel = reviewStatus === "complete"
+        const copilotStatus = reviewStatus === "complete"
           ? "Complete"
           : reviewStatus === "failed"
             ? "Failed"
-            : reviewStatus === "reviewing"
-              ? "In progress"
-              : segment.state === "ready"
-                ? "Starting"
+            : reviewStatus === "cancelled"
+              ? "Cancelled"
+              : reviewStatus === "reviewing"
+                ? "In progress"
                 : "Waiting";
-        return [
+        const details = [
           "Target: " + timeLabel,
           "Playable segment: Complete",
           "Frozen BAC coordinates: Complete",
           "YOLO player context: Complete",
           "Innovation rules engine: " + eventsStatus,
-          "Independent Copilot video review: " + reviewLabel,
-          ...(reviewStatus === "failed" && state.automaticCopilotReview.error
-            ? ["Copilot review error: " + state.automaticCopilotReview.error]
-            : []),
-          segment.statusMessage || "Building football events."
-        ].join("\\n");
+          "C# protocol v6 review: " + copilotStatus
+        ];
+        if (reviewStatus === "reviewing" && state.activity?.label) {
+          details.push(
+            "Current C# step: " + state.activity.label
+              + (state.activity.detail ? " — " + state.activity.detail : "")
+          );
+        } else {
+          details.push(segment.statusMessage || "Building football events.");
+        }
+        return details.join("\\n");
       }
       const stageOrder = [
         "bac_coordinates",
@@ -4475,11 +4982,8 @@ export function renderHtml({ adapter } = {}) {
     function syncInnovationAnalysisModal(segment) {
       if (reviewWorkflow.key !== "innovation") return;
       if (
-        segment.state === "ready"
-        && reviewWorkflow.key !== "innovation"
-        && ["waiting_for_engine", "reviewing"].includes(
-          state?.automaticCopilotReview?.status
-        )
+        segment.stage === "events"
+        || (segment.state === "ready" && analysisModalMode === "evidence")
       ) {
         analysisModalMode = "rules";
       }
@@ -4498,22 +5002,14 @@ export function renderHtml({ adapter } = {}) {
         return;
       }
       if (analysisModalMode === "evidence" && segment.state === "evidence_ready") {
-        finishSegmentLoading(
+        completeSegmentLoading(
           "BAC + player context complete",
           innovationAnalysisDetail(segment, "evidence")
         );
       } else if (analysisModalMode === "rules" && segment.state === "ready") {
-        if (reviewWorkflow.key === "innovation") {
-          finishSegmentLoading(
-            "Innovation rules engine complete",
-            "Manual M# review is ready. Copilot diagnostics remain optional."
-          );
-          analysisModalMode = null;
-          return;
-        }
         const reviewStatus = state?.automaticCopilotReview?.status;
         if (reviewStatus === "complete") {
-          finishSegmentLoading(
+          completeSegmentLoading(
             "Innovation AI processing complete",
             innovationAnalysisDetail(segment, "rules")
           );
@@ -4545,7 +5041,6 @@ export function renderHtml({ adapter } = {}) {
     }
 
     async function startAutomaticCopilotReview() {
-      if (reviewWorkflow.key === "innovation") return;
       if (
         automaticReviewStartPending
         || state?.automaticCopilotReview?.status === "reviewing"
@@ -4582,7 +5077,9 @@ export function renderHtml({ adapter } = {}) {
     async function cancelCopilotReview() {
       const buttons = [
         document.getElementById("segment-loading-cancel"),
-        document.getElementById("cancel-copilot-review")
+        document.getElementById("cancel-copilot-review"),
+        document.getElementById("cancel-engine-verification"),
+        document.getElementById("cancel-manual-copilot-review")
       ];
       buttons.forEach(button => { button.disabled = true; });
       try {
@@ -4598,8 +5095,10 @@ export function renderHtml({ adapter } = {}) {
         analysisModalMode = null;
         setSegmentLoading(false);
         await loadState();
+        return true;
       } catch (error) {
         finishSegmentLoading("Could not cancel Copilot review", error.message);
+        return false;
       } finally {
         buttons.forEach(button => { button.disabled = false; });
       }
@@ -4630,7 +5129,7 @@ export function renderHtml({ adapter } = {}) {
     });
     document.getElementById("cancel-engine-verification").addEventListener(
       "click",
-      closeEngineVerificationModal
+      cancelOrCloseEngineVerification
     );
     document.getElementById("confirm-engine-without-copilot").addEventListener(
       "click",
@@ -4639,6 +5138,12 @@ export function renderHtml({ adapter } = {}) {
     document.getElementById("ask-copilot-engine-review").addEventListener(
       "click",
       askCopilotFromEngineVerification
+    );
+    document.getElementById("engine-verification-modal").addEventListener(
+      "cancel",
+      event => {
+        if (engineVerificationPending) event.preventDefault();
+      }
     );
     document.getElementById("engine-verification-modal").addEventListener(
       "close",
@@ -5515,14 +6020,19 @@ export function renderHtml({ adapter } = {}) {
         "#replay-run",
         "#replay-play",
         "#replay-restart",
+        "#segment-loading-close",
+        "#segment-loading-cancel",
         "[data-view-mode]",
         ".comparison-event",
         ".compact-engine-spot",
         "#show-bac-coordinate",
         "#cancel-engine-verification",
+        "#close-manual-engine-review",
+        "#cancel-manual-copilot-review",
         "[name=engine-verification-decision]",
         "#engine-check-seconds",
         "#seek-engine-check-time",
+        "#validate-engine-reference",
         ".ball-frame-open",
         "#ball-frame-filter",
         "#workflow-adapter",
@@ -5668,11 +6178,15 @@ export function renderHtml({ adapter } = {}) {
         "#replay-run",
         "#replay-play",
         "#replay-restart",
+        "#segment-loading-close",
+        "#segment-loading-cancel",
         "[data-view-mode]",
         ".comparison-event",
         ".compact-engine-spot",
         "#show-bac-coordinate",
         "#cancel-engine-verification",
+        "#close-manual-engine-review",
+        "#cancel-manual-copilot-review",
         "[name=engine-verification-decision]",
         "#engine-check-seconds",
         "#seek-engine-check-time",
@@ -5681,6 +6195,7 @@ export function renderHtml({ adapter } = {}) {
         ".ball-frame-open",
         ".ball-frame-flag",
         ".shared-review-table button",
+        ".segment-replay-modal button",
         "#ball-frame-filter",
         "#workflow-adapter",
         ...(regressionCandidateReviewActive()
@@ -5726,6 +6241,8 @@ export function renderHtml({ adapter } = {}) {
     function segmentRunActive() {
       return segmentPreparationPending
         || runStartPending
+        || automaticReviewStartPending
+        || state?.automaticCopilotReview?.status === "reviewing"
         || ["processing", "detections_ready", "building"]
           .includes(state.segment.state);
     }
@@ -5785,8 +6302,8 @@ export function renderHtml({ adapter } = {}) {
         ? "Passed Segment Locked"
         : reviewWorkflow.evidencePreparationEnabled
           ? segment.state === "ready"
-            ? "Rerun AI rules engine"
-            : "Process AI rules engine"
+            ? "Rerun AI + C# v6 review"
+            : "Process AI + C# v6 review"
         : segment.state === "ready"
           ? "Rerun Segment from Start"
           : segment.state === "failed" && segment.recoveryAvailable
@@ -5988,6 +6505,9 @@ export function renderHtml({ adapter } = {}) {
       );
       const selectedSummary = summaries.get(selected.key) || {};
       const selectionChanged = renderedSegmentKey !== selected.key;
+      if (selectionChanged && referenceLocked()) {
+        document.getElementById("shared-review-panel").open = true;
+      }
       const sources = Array.from(new Map(
         state.segments.map(segment => [
           segment.datasetId,
@@ -6155,6 +6675,29 @@ export function renderHtml({ adapter } = {}) {
             const text = document.createElement("span");
             text.textContent = value;
             cell.append(text);
+            if (
+              columnIndex === 0
+              && segment.validated
+              && summary.published
+            ) {
+              const replay = (state.replaySegments || []).find(
+                candidate => candidate.key === segment.key
+              );
+              if (replay) {
+                const button = document.createElement("button");
+                button.type = "button";
+                button.className = "segment-replay-action";
+                button.textContent = "Replay";
+                button.setAttribute(
+                  "aria-label",
+                  "Replay " + segment.timeLabel + " from cached engine output"
+                );
+                button.addEventListener("click", () => {
+                  openSegmentReplay(segment.key);
+                });
+                cell.append(button);
+              }
+            }
             if (
               columnIndex === 2
               && reviewWorkflow.key === "innovation"
@@ -6497,11 +7040,31 @@ export function renderHtml({ adapter } = {}) {
         + "-" + (selectedCoordinateBatchId || "unassigned");
     }
 
+    function reviewerCoordinateChangeStatus(frame, observation) {
+      if (!observation?.approved) return "base";
+      const applied =
+        state.reviewerCoordinateLayer?.corrections?.[String(frame)];
+      if (!applied || applied.outcome !== observation.decision) {
+        return "pending";
+      }
+      if (observation.decision === "undefined") return "applied";
+      return (
+        Number(applied.x) === Number(observation.x)
+        && Number(applied.y) === Number(observation.y)
+      ) ? "applied" : "pending";
+    }
+
     function loadBallFrameFlags() {
       if (state?.segment?.coordinateMode === "frozen_bac") {
         selectedCoordinateBatchId = "all";
-        flaggedBallFrames = new Set();
-        ballCoordinateObservations = {};
+        ballCoordinateObservations = {
+          ...(state.trajectoryAudit?.observations || {})
+        };
+        flaggedBallFrames = new Set(
+          Object.keys(ballCoordinateObservations)
+            .map(Number)
+            .filter(Number.isInteger)
+        );
         return;
       }
       const batches = state.coordinateReview?.batches || [];
@@ -6613,6 +7176,23 @@ export function renderHtml({ adapter } = {}) {
           ballCoordinateObservationStorageKey(),
           JSON.stringify(ballCoordinateObservations)
         );
+        if (state?.segment?.coordinateMode === "frozen_bac") {
+          const response = await fetch("/api/trajectory-audit-draft", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({
+              segment: selectedSegmentKey(),
+              observations: Object.values(ballCoordinateObservations)
+            })
+          });
+          if (!response.ok) {
+            const result = await response.json();
+            throw new Error(
+              result.error || "Could not save reviewer coordinate correction"
+            );
+          }
+          return;
+        }
         const batch = selectedCoordinateBatch();
         if (!batch || batch.status !== "ready") return;
         const response = await fetch("/api/coordinate-batch-draft", {
@@ -6982,7 +7562,11 @@ export function renderHtml({ adapter } = {}) {
         selectedCoordinateBatchId !== "all"
         && document.getElementById("ball-frame-filter").value === "flagged"
         && selectedBatch?.status === "ready";
-      const inspectionOnly = !activeRoundView;
+      const reviewerCorrectionView = Boolean(
+        reviewWorkflow.reviewerCorrectedDemoLayer
+        && state?.segment?.coordinateMode === "frozen_bac"
+      );
+      const inspectionOnly = !activeRoundView && !reviewerCorrectionView;
       const yoloCandidateActions = document.getElementById(
         "yolo-candidate-actions"
       );
@@ -7061,10 +7645,12 @@ export function renderHtml({ adapter } = {}) {
       document.getElementById("ball-frame-overlay-controls").hidden = false;
       const frozenBac =
         state?.segment?.coordinateMode === "frozen_bac";
+      const reviewerChangeStatus = reviewerCoordinateChangeStatus(
+        selectedBallTargetFrame,
+        observation
+      );
       const decisionLabel =
-        frozenBac
-          ? "BAC coordinate confirmed"
-          : observation?.decision === "agree"
+        observation?.decision === "agree"
           ? "agreed with the current coordinate"
           : observation?.decision === "needs_more_checking"
             ? "marked as needing more checking"
@@ -7074,11 +7660,15 @@ export function renderHtml({ adapter } = {}) {
               ? "confirmed a visible YOLO candidate"
             : observation?.decision === "specified"
               ? "custom coordinate confirmed"
-              : "";
+              : frozenBac
+                ? "BAC imported coordinate confirmed"
+                : "";
       const currentDecisionLabel =
-        frozenBac
-          ? "BAC coordinate confirmed"
-          : observation?.decision === "agree"
+        reviewerChangeStatus === "pending"
+          ? "User changed · pending batch apply"
+          : reviewerChangeStatus === "applied"
+            ? "✓ User change applied"
+        : observation?.decision === "agree"
           ? "✓ Agreed with coordinate"
           : observation?.decision === "needs_more_checking"
             ? "Needs more checking"
@@ -7090,7 +7680,9 @@ export function renderHtml({ adapter } = {}) {
                 ? "✓ Custom coordinate confirmed"
                 : observation?.decision === "specified"
                   ? "Custom coordinate awaiting confirmation"
-                  : "Not reviewed yet";
+                  : frozenBac
+                    ? "✓ BAC imported · confirmed"
+                    : "Not reviewed yet";
       currentDecision.textContent =
         (selectedBatch?.status === "done"
           ? "Your previous decision: "
@@ -7098,7 +7690,8 @@ export function renderHtml({ adapter } = {}) {
       currentDecision.className =
         "coordinate-review-result "
         + (
-          frozenBac
+          reviewerChangeStatus === "applied"
+          || frozenBac && reviewerChangeStatus === "base"
           || observation?.decision === "agree"
           || observation?.decision === "yolo_candidate"
           || (
@@ -7134,10 +7727,10 @@ export function renderHtml({ adapter } = {}) {
       resolutionStatus.className =
         "coordinate-review-result "
         + (carryForward ? "checking" : resolution?.[1] || "pending");
-      if (frozenBac) {
+      if (reviewerCorrectionView) {
         decisionStatus.textContent =
-          "Read-only BAC coordinate. Saved YOLO candidates remain "
-          + "available as blue rings.";
+          "Frozen BAC remains unchanged. Your confirmed coordinate is saved "
+          + "in the separate reviewer-corrected Innovation demo layer.";
       } else if (inspectionOnly) {
         decisionStatus.textContent =
           selectedBatch?.status === "done"
@@ -7257,31 +7850,49 @@ export function renderHtml({ adapter } = {}) {
         selectedRawBallFrame === selectedBallTargetFrame;
       document.getElementById("mark-ball-location").disabled =
         selectedRawBallFrame !== selectedBallTargetFrame
-        || state.coordinateReview?.status === "finalized"
+        || (
+          state.coordinateReview?.status === "finalized"
+          && !reviewerCorrectionView
+        )
         || selectedCoordinateBatch()?.status === "done";
       document.getElementById("agree-ball-coordinate").disabled =
         selectedRawBallFrame !== selectedBallTargetFrame
         || !Number.isFinite(point.x)
         || !Number.isFinite(point.y)
-        || state.coordinateReview?.status === "finalized"
+        || (
+          state.coordinateReview?.status === "finalized"
+          && !reviewerCorrectionView
+        )
         || selectedCoordinateBatch()?.status === "done";
       document.getElementById("undefined-ball-coordinate").disabled =
         selectedRawBallFrame !== selectedBallTargetFrame
-        || state.coordinateReview?.status === "finalized"
+        || (
+          state.coordinateReview?.status === "finalized"
+          && !reviewerCorrectionView
+        )
         || selectedCoordinateBatch()?.status === "done";
       document.getElementById("needs-more-checking").disabled =
         selectedRawBallFrame !== selectedBallTargetFrame
-        || state.coordinateReview?.status === "finalized"
+        || (
+          state.coordinateReview?.status === "finalized"
+          && !reviewerCorrectionView
+        )
         || selectedCoordinateBatch()?.status === "done";
       document.getElementById("approve-ball-location").disabled =
         selectedRawBallFrame !== selectedBallTargetFrame
         || observation?.decision !== "specified"
         || observation.approved
-        || state.coordinateReview?.status === "finalized"
+        || (
+          state.coordinateReview?.status === "finalized"
+          && !reviewerCorrectionView
+        )
         || selectedCoordinateBatch()?.status === "done";
       document.getElementById("undo-ball-coordinate-decision").disabled =
         !observation
-        || state.coordinateReview?.status === "finalized"
+        || (
+          state.coordinateReview?.status === "finalized"
+          && !reviewerCorrectionView
+        )
         || selectedCoordinateBatch()?.status === "done";
       if (!modal.open) modal.showModal();
     }
@@ -7347,9 +7958,13 @@ export function renderHtml({ adapter } = {}) {
       renderBallFrames();
       showRawBallFrame(reviewedFrame, true);
       document.getElementById("ball-coordinate-review-status").textContent =
-        "Frame " + reviewedFrame + ": " + description +
-        ". Saved locally for the single Copilot batch. Use Next review when " +
-        "you are ready to move on.";
+        state?.segment?.coordinateMode === "frozen_bac"
+          ? "Frame " + reviewedFrame + ": " + description
+            + ". Saved in the separate reviewer-corrected Innovation demo "
+            + "layer; frozen BAC is unchanged."
+          : "Frame " + reviewedFrame + ": " + description
+            + ". Saved locally for the single Copilot batch. Use Next review "
+            + "when you are ready to move on.";
     }
 
     function renderBallFrames() {
@@ -7367,6 +7982,10 @@ export function renderHtml({ adapter } = {}) {
       const batch = selectedCoordinateBatch();
       const batchReadOnly =
         selectedCoordinateBatchId === "all" || batch?.status === "done";
+      const reviewerCorrectionView = Boolean(
+        reviewWorkflow.reviewerCorrectedDemoLayer
+        && state?.segment?.coordinateMode === "frozen_bac"
+      );
       const activeBatchId = state.coordinateReview?.activeBatchId || null;
       const latestReviewSelected = Boolean(
         batch
@@ -7376,9 +7995,14 @@ export function renderHtml({ adapter } = {}) {
       const reviewButton = document.getElementById(
         "open-ball-coordinate-review"
       );
-      reviewButton.hidden = finalized || batchReadOnly;
-      reviewButton.disabled = !flaggedBallFrames.size;
-      reviewButton.textContent = batch
+      reviewButton.hidden =
+        !reviewerCorrectionView && (finalized || batchReadOnly);
+      reviewButton.disabled =
+        !reviewerCorrectionView && !flaggedBallFrames.size;
+      reviewButton.textContent = reviewerCorrectionView
+        ? "Open reviewer coordinate layer ("
+          + flaggedBallFrames.size + " corrected)"
+        : batch
         ? batch.status === "done"
           ? "View completed round " + batch.number
           : "Open round " + batch.number + " (" + batch.frames.length
@@ -7390,12 +8014,16 @@ export function renderHtml({ adapter } = {}) {
           ? "Open diagnostic review (" + diagnosticRemaining + " remaining)"
         : "Open batch review (" + flaggedBallFrames.size + " flagged)";
       document.getElementById("ball-coordinate-review-mode").textContent =
-        finalized
+        reviewerCorrectionView
+          ? "Reviewer-corrected Innovation demo layer"
+        : finalized
           ? "Query mode · review finalized"
           : "Coordinate recovery mode";
       document.getElementById("ball-coordinate-review-status").textContent =
-        state?.segment?.coordinateMode === "frozen_bac"
-          ? "Read-only: every sampled frame uses the prepared BAC coordinate; coordinate review is disabled."
+        reviewerCorrectionView
+          ? "Frozen BAC stays unchanged. Click any frame to agree, mark "
+            + "undefined, choose a YOLO candidate, or save your own coordinate "
+            + "in the separate reviewer-corrected demo layer."
         : finalized
           ? "Read-only: inspect coordinates; recovery submissions are closed."
           : selectedCoordinateBatchId === "all"
@@ -7488,6 +8116,17 @@ export function renderHtml({ adapter } = {}) {
         : "No coordinate states";
       document.getElementById("ball-frame-items").replaceChildren(
         ...visible.map((point, index) => {
+          const observation =
+            ballCoordinateObservations[String(point.frame)];
+          const reviewerCoordinate = Boolean(
+            reviewWorkflow.reviewerCorrectedDemoLayer
+            && observation?.decision === "specified"
+            && observation?.approved
+            && Number.isFinite(observation.x)
+            && Number.isFinite(observation.y)
+          );
+          const displayedX = reviewerCoordinate ? observation.x : point.x;
+          const displayedY = reviewerCoordinate ? observation.y : point.y;
           const row = document.createElement("tr");
           const frame = document.createElement("td");
           const openFrame = document.createElement("button");
@@ -7498,8 +8137,8 @@ export function renderHtml({ adapter } = {}) {
           frame.append(openFrame);
           const values = [
             point.seconds.toFixed(2) + "s",
-            Number.isFinite(point.x) ? point.x.toFixed(1) : "Pending",
-            Number.isFinite(point.y) ? point.y.toFixed(1) : "Pending",
+            Number.isFinite(displayedX) ? displayedX.toFixed(1) : "Pending",
+            Number.isFinite(displayedY) ? displayedY.toFixed(1) : "Pending",
           ].map(value => {
             const cell = document.createElement("td");
             cell.textContent = value;
@@ -7571,23 +8210,38 @@ export function renderHtml({ adapter } = {}) {
           evidence.append(evidenceLabel, gateInfoButton, gateDetail);
           const review = document.createElement("td");
           const decision = document.createElement("td");
-          const observation =
-            ballCoordinateObservations[String(point.frame)];
+          const savedDecisionPresentation = observation?.decision
+            ? {
+                agree: ["Agreed with coordinate", "confirmed"],
+                undefined: ["Ball undefined / not visible", "undefined"],
+                yolo_candidate: ["YOLO candidate confirmed", "confirmed"],
+                specified: [
+                  observation.approved
+                    ? "Custom coordinate confirmed"
+                    : "Custom coordinate awaiting confirmation",
+                  observation.approved ? "confirmed" : "checking"
+                ],
+                needs_more_checking: ["Needs more checking", "checking"]
+              }[observation.decision]
+            : null;
           const decisionPresentation =
-            state?.segment?.coordinateMode === "frozen_bac"
-              ? ["BAC coordinate confirmed", "confirmed"]
-              : {
-                  agree: ["Agreed with coordinate", "confirmed"],
-                  undefined: ["Ball undefined / not visible", "undefined"],
-                  yolo_candidate: ["YOLO candidate confirmed", "confirmed"],
-                  specified: [
-                    observation?.approved
-                      ? "Custom coordinate confirmed"
-                      : "Custom coordinate awaiting confirmation",
-                    observation?.approved ? "confirmed" : "checking"
-                  ],
-                  needs_more_checking: ["Needs more checking", "checking"]
-                }[observation?.decision] || ["Not reviewed yet", "pending"];
+            reviewerCorrectionView
+            && reviewerCoordinateChangeStatus(point.frame, observation)
+              === "pending"
+              ? ["User changed · pending batch apply", "checking"]
+            : reviewerCorrectionView
+            && reviewerCoordinateChangeStatus(point.frame, observation)
+              === "applied"
+              ? [
+                  "User changed · applied revision "
+                    + Number(state.reviewerCoordinateLayer?.revision || 0),
+                  "confirmed"
+                ]
+            : savedDecisionPresentation || (
+                  state?.segment?.coordinateMode === "frozen_bac"
+                    ? ["BAC imported · confirmed", "confirmed"]
+                    : ["Not reviewed yet", "pending"]
+                );
           const decisionStatus = document.createElement("span");
           decisionStatus.className =
             "coordinate-review-result " + decisionPresentation[1];
@@ -7606,7 +8260,16 @@ export function renderHtml({ adapter } = {}) {
             activeRoundView
             && batch.frames.includes(point.frame)
           );
-          if (finalized) {
+          if (reviewerCorrectionView) {
+            review.textContent =
+              reviewerCoordinateChangeStatus(point.frame, observation)
+                === "pending"
+                ? "Flagged for next coordinate update"
+                : reviewerCoordinateChangeStatus(point.frame, observation)
+                    === "applied"
+                  ? "Applied to current coordinate revision"
+                  : "No user change";
+          } else if (finalized) {
             review.textContent = "Review finalized";
           } else if (selectedCoordinateBatchId === "all") {
             review.textContent = "Inspect only";
@@ -7862,6 +8525,22 @@ export function renderHtml({ adapter } = {}) {
       finalize.disabled = !coordinateMinimumReached || segmentRunActive();
       finalize.hidden = state.coordinateReview?.status === "finalized";
       finalize.textContent = "Start rules-engine run";
+      const applyReviewerLayer = document.getElementById(
+        "apply-reviewer-coordinate-layer"
+      );
+      const approvedCoordinateChanges = Object.values(
+        ballCoordinateObservations
+      ).filter(observation =>
+        observation?.approved
+        && ["specified", "yolo_candidate", "undefined"].includes(
+          observation.decision
+        )
+      ).length;
+      applyReviewerLayer.disabled =
+        !approvedCoordinateChanges || segmentRunActive();
+      applyReviewerLayer.textContent =
+        "Apply " + approvedCoordinateChanges + " approved coordinate update"
+        + (approvedCoordinateChanges === 1 ? "" : "s");
       const improveCoverage = document.getElementById(
         "improve-coordinate-coverage"
       );
@@ -7937,13 +8616,30 @@ export function renderHtml({ adapter } = {}) {
           )
         : (ballTrack?.states || []).filter(point => !point.direct);
       modalFrames.replaceChildren(...reviewFrames.map(point => {
+        const observation =
+          ballCoordinateObservations[String(point.frame)] || null;
+        const reviewerChangeStatus = reviewerCoordinateChangeStatus(
+          point.frame,
+          observation
+        );
         const result =
           batch?.frameResults?.[String(point.frame)]?.status || null;
         const carryForward =
           batch?.carryForward?.[String(point.frame)] || null;
         const disputed = (batch?.disputedFrames || []).includes(point.frame)
           || carryForward?.status === "disputed_direct";
-        const presentation = disputed
+        const presentation =
+          reviewWorkflow.reviewerCorrectedDemoLayer
+          && reviewerChangeStatus === "pending"
+            ? ["User changed · pending batch apply", "checking"]
+          : reviewWorkflow.reviewerCorrectedDemoLayer
+          && reviewerChangeStatus === "applied"
+            ? [
+                "User changed · applied revision "
+                  + Number(state.reviewerCoordinateLayer?.revision || 0),
+                "confirmed"
+              ]
+          : disputed
           ? ["Disputed", "undefined"]
           : ["fixed", "unchanged_direct"].includes(result)
             ? ["Fixed", "confirmed"]
@@ -7952,16 +8648,23 @@ export function renderHtml({ adapter } = {}) {
               : result === "unresolved" || carryForward
                 ? ["Unresolved", "checking"]
                 : state?.segment?.coordinateMode === "frozen_bac"
-                  ? ["Frozen BAC coordinate", "pending"]
+                  ? ["BAC imported · confirmed", "confirmed"]
                   : point.direct
                     ? ["Direct coordinate · Not reviewed yet", "pending"]
                     : ["Estimated coordinate · Not reviewed yet", "pending"];
-        const chip = document.createElement("span");
+        const chip = document.createElement("button");
+        chip.type = "button";
         chip.className = "coordinate-review-result " + presentation[1];
         chip.textContent = "Frame " + point.frame + " · "
           + point.seconds.toFixed(2) + "s · "
           + presentation[0];
         chip.title = carryForward?.reason || "";
+        chip.addEventListener("click", () => {
+          const pointIndex = (ballTrack?.states || []).findIndex(
+            candidate => candidate.frame === point.frame
+          );
+          if (pointIndex >= 0) showBallFrame(pointIndex);
+        });
         return chip;
       }));
     }
@@ -8050,6 +8753,45 @@ export function renderHtml({ adapter } = {}) {
       }
     }
 
+    async function applyReviewerCoordinateLayer() {
+      const status = document.getElementById(
+        "ball-coordinate-review-send-status"
+      );
+      const button = document.getElementById(
+        "apply-reviewer-coordinate-layer"
+      );
+      button.disabled = true;
+      status.textContent =
+        "Saving the shared coordinate revision and rebuilding dependent "
+        + "player tracking and events…";
+      try {
+        const response = await fetch(
+          "/api/innovation/approve-coordinate-layer",
+          {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({segment: selectedSegmentKey()})
+          }
+        );
+        const result = await response.json();
+        if (!response.ok) {
+          throw new Error(
+            result.error || "Could not apply reviewer coordinate updates"
+          );
+        }
+        status.textContent =
+          "Coordinate revision " + result.revision + " saved. Existing YOLO "
+          + "detections are being reused while player tracking rebuilds."
+          + (result.eventsRerun
+            ? " The previously run Innovation engine will then rerun."
+            : " The Innovation engine has not run yet and will remain waiting.");
+        await loadState();
+      } catch (error) {
+        status.textContent = error.message;
+        renderBallCoordinateReviewMessages();
+      }
+    }
+
     async function continueCoordinateReview() {
       const status = document.getElementById(
         "ball-coordinate-review-send-status"
@@ -8106,8 +8848,18 @@ export function renderHtml({ adapter } = {}) {
         ballOverlay.setAttribute("hidden", "");
         return;
       }
-      const [, pointSeconds, x, y, trackId] = point;
+      const [, pointSeconds, frozenX, frozenY, trackId] = point;
       const frame = Number(point[0]);
+      const reviewerCoordinate = ballCoordinateObservations[String(frame)];
+      const useReviewerCoordinate = Boolean(
+        reviewWorkflow.reviewerCorrectedDemoLayer
+        && reviewerCoordinate?.decision === "specified"
+        && reviewerCoordinate?.approved
+        && Number.isFinite(reviewerCoordinate.x)
+        && Number.isFinite(reviewerCoordinate.y)
+      );
+      const x = useReviewerCoordinate ? reviewerCoordinate.x : frozenX;
+      const y = useReviewerCoordinate ? reviewerCoordinate.y : frozenY;
       const trajectory = ballTrack.points
         .filter(candidate =>
           candidate[4] === trackId
@@ -8146,7 +8898,8 @@ export function renderHtml({ adapter } = {}) {
           "translate(" + labelX + " " + labelY + ")"
         );
         ballCoordinateLabelText.textContent =
-          "BAC · frame " + frame + " · x " + Math.round(x)
+          (useReviewerCoordinate ? "Reviewer correction" : "BAC")
+          + " · frame " + frame + " · x " + Math.round(x)
           + " · y " + Math.round(y);
       }
     }
@@ -8224,6 +8977,59 @@ export function renderHtml({ adapter } = {}) {
       if (["shot_on_target_candidate", "shot_on_target"]
         .includes(event.type)) team.onTarget += 1;
       if (["goal", "goal_candidate"].includes(event.type)) team.goals += 1;
+    }
+
+    function cachedReplaySegment(segmentKey = segmentReplayKey) {
+      return (state?.replaySegments || []).find(
+        segment => segment.key === segmentKey
+      ) || null;
+    }
+
+    function updateSegmentReplay() {
+      const segment = cachedReplaySegment();
+      if (!segment) return;
+      const seconds = Math.max(0, segmentReplayVideo.currentTime || 0);
+      const totals = emptyStatistics();
+      segment.events.forEach(event => {
+        if (event.seconds > seconds + 0.001) return;
+        includeEventInStatistics(totals, event);
+      });
+      ["red", "black"].forEach(team => {
+        document.getElementById(
+          "segment-replay-" + team + "-passes"
+        ).textContent = String(totals[team].passes);
+        document.getElementById(
+          "segment-replay-" + team + "-turnovers"
+        ).textContent = String(totals[team].turnovers);
+        document.getElementById(
+          "segment-replay-" + team + "-shots"
+        ).textContent = String(totals[team].shots);
+        document.getElementById(
+          "segment-replay-" + team + "-on-target"
+        ).textContent = String(totals[team].onTarget);
+      });
+      document.getElementById("segment-replay-clock").textContent =
+        formatReplayTime(seconds) + " / "
+        + formatReplayTime(segment.durationSeconds);
+    }
+
+    function openSegmentReplay(segmentKey) {
+      const segment = cachedReplaySegment(segmentKey);
+      if (!segment) return;
+      segmentReplayKey = segment.key;
+      document.getElementById("segment-replay-title").textContent =
+        "Cached engine replay · " + segment.timeLabel;
+      document.getElementById("segment-replay-subtitle").textContent =
+        "Published segment · stadium playback";
+      segmentReplayVideo.src = segment.videoUrl;
+      segmentReplayVideo.currentTime = 0;
+      updateSegmentReplay();
+      segmentReplayModal.showModal();
+      segmentReplayVideo.addEventListener(
+        "loadedmetadata",
+        () => void segmentReplayVideo.play(),
+        {once: true}
+      );
     }
 
     function updateLiveStatistics(seconds) {
@@ -8661,6 +9467,12 @@ export function renderHtml({ adapter } = {}) {
         () => void finalizeBallCoordinateReview()
       );
       document.getElementById(
+        "apply-reviewer-coordinate-layer"
+      ).addEventListener(
+        "click",
+        () => void applyReviewerCoordinateLayer()
+      );
+      document.getElementById(
         "proceed-after-coordinate-gate"
       ).addEventListener(
         "click",
@@ -8881,6 +9693,12 @@ export function renderHtml({ adapter } = {}) {
         : (isManualReviewEvent(event) ? "M" : "C") + (index + 1);
     }
 
+    function manualDisplayKey(event, index) {
+      return event?.displayKey || (
+        Number.isInteger(index) ? "M" + (index + 1) : event?.key || "M"
+      );
+    }
+
     function reviewTimesMatch(reviewEvent, engineSeconds) {
       return requiresSameFrameReview(reviewEvent)
         ? Math.round(reviewEvent.seconds * 25) === Math.round(engineSeconds * 25)
@@ -8941,8 +9759,8 @@ export function renderHtml({ adapter } = {}) {
       number.className = "comparison-number";
       number.textContent = side === "review"
         ? (
-            isManualReviewEvent(event) && event.key
-              ? event.key
+            isManualReviewEvent(event)
+              ? manualDisplayKey(event, eventNumber - 1)
               : (isManualReviewEvent(event) ? "M" : "C") + eventNumber
           )
         : "E" + eventNumber;
@@ -9030,6 +9848,27 @@ export function renderHtml({ adapter } = {}) {
       return result;
     }
 
+    function missingEngineReviewButton(row) {
+      const reviewMissing = document.createElement("button");
+      reviewMissing.type = "button";
+      reviewMissing.className = "comparison-action icon-action";
+      const reviewMissingLabel =
+        "Review missing E# for "
+        + manualDisplayKey(row.review, row.reviewIndex);
+      reviewMissing.setAttribute("aria-label", reviewMissingLabel);
+      reviewMissing.title = reviewMissingLabel;
+      reviewMissing.append(comparisonActionIcon("verify"));
+      reviewMissing.disabled = state.activity?.state === "working";
+      reviewMissing.addEventListener("click", event => {
+        event.stopPropagation();
+        selectedIndex = row.reviewIndex;
+        video.pause();
+        video.currentTime = Number(row.review.seconds);
+        openManualEngineReviewModal(row.reviewIndex);
+      });
+      return reviewMissing;
+    }
+
     function manualControls(row) {
       const controls = document.createElement("div");
       controls.className = "manual-editor-summary";
@@ -9043,7 +9882,7 @@ export function renderHtml({ adapter } = {}) {
         const restore = document.createElement("button");
         restore.type = "button";
         restore.className = "comparison-action";
-        restore.textContent = "Restore " + row.review.key;
+        restore.textContent = "Restore removed event";
         restore.addEventListener("click", async event => {
           event.stopPropagation();
           await mutateManualReference({
@@ -9054,7 +9893,7 @@ export function renderHtml({ adapter } = {}) {
         const remove = document.createElement("button");
         remove.type = "button";
         remove.className = "comparison-action";
-        remove.textContent = "Remove " + row.review.key;
+        remove.textContent = "Remove event";
         remove.addEventListener("click", async event => {
           event.stopPropagation();
           await mutateManualReference({
@@ -9069,10 +9908,11 @@ export function renderHtml({ adapter } = {}) {
       details.className = "manual-editor-details";
       details.dataset.manualEditor = row.review.key;
       const summary = document.createElement("summary");
-      summary.textContent = "Edit " + row.review.key;
+      const displayKey = manualDisplayKey(row.review, row.reviewIndex);
+      summary.textContent = "Edit " + displayKey;
       summary.setAttribute(
         "aria-label",
-        "Edit " + row.review.key + " time, team, event type, or delete it"
+        "Edit " + displayKey + " time, team, event type, or delete it"
       );
       const editor = document.createElement("div");
       editor.className = "manual-editor";
@@ -9087,14 +9927,14 @@ export function renderHtml({ adapter } = {}) {
         : Number(row.review.seconds).toFixed(3);
       time.placeholder = "Seconds, e.g. 18.180…";
       time.title = "Seconds from the start of the clip";
-      time.setAttribute("aria-label", row.review.key + " timestamp in seconds");
+      time.setAttribute("aria-label", displayKey + " timestamp in seconds");
       const team = document.createElement("select");
-      team.setAttribute("aria-label", row.review.key + " team");
+      team.setAttribute("aria-label", displayKey + " team");
       [["black", "Black"], ["red", "White/red"]].forEach(([value, label]) => {
         team.add(new Option(label, value, false, row.review.team === value));
       });
       const type = document.createElement("select");
-      type.setAttribute("aria-label", row.review.key + " event type");
+      type.setAttribute("aria-label", displayKey + " event type");
       [["completed_pass", "Completed pass"], ["turnover", "Turnover"]]
         .forEach(([value, label]) => {
           type.add(new Option(label, value, false, row.review.type === value));
@@ -9144,7 +9984,7 @@ export function renderHtml({ adapter } = {}) {
       type.addEventListener("change", saveImmediately);
       const remove = document.createElement("button");
       remove.type = "button";
-      remove.textContent = "Delete " + row.review.key;
+      remove.textContent = "Delete " + displayKey;
       remove.addEventListener("click", async () => {
         await mutateManualReference({
           action: "delete",
@@ -9168,23 +10008,7 @@ export function renderHtml({ adapter } = {}) {
       details.append(summary, editor);
       controls.append(mappingLabel, details);
       if (!row.engine) {
-        const reviewMissing = document.createElement("button");
-        reviewMissing.type = "button";
-        reviewMissing.className = "comparison-action icon-action";
-        const reviewMissingLabel =
-          "Review missing E# for " + row.review.key;
-        reviewMissing.setAttribute("aria-label", reviewMissingLabel);
-        reviewMissing.title = reviewMissingLabel;
-        reviewMissing.append(comparisonActionIcon("verify"));
-        reviewMissing.disabled = state.activity?.state === "working";
-        reviewMissing.addEventListener("click", event => {
-          event.stopPropagation();
-          selectedIndex = row.reviewIndex;
-          video.pause();
-          video.currentTime = Number(row.review.seconds);
-          openManualEngineReviewModal(row.reviewIndex);
-        });
-        controls.append(reviewMissing);
+        controls.append(missingEngineReviewButton(row));
       }
       return controls;
     }
@@ -9197,8 +10021,18 @@ export function renderHtml({ adapter } = {}) {
       }
       const cell = document.createElement("div");
       cell.className = "comparison-review-cell";
+      const batchTarget = state.activeDiscrepancyBatch?.targets?.find(
+        target => (
+          target.kind === "manual"
+          && target.manualKey === row.review?.key
+          && !target.completed
+        )
+      );
       const verifying = state.activity?.state === "working"
-        && state.activeConversation?.eventIndex === row.reviewIndex;
+        && (
+          state.activeConversation?.eventIndex === row.reviewIndex
+          || Boolean(batchTarget)
+        );
       if (verifying) cell.classList.add("verifying");
       cell.append(
         comparisonButton(
@@ -9209,7 +10043,14 @@ export function renderHtml({ adapter } = {}) {
         )
       );
       if (reviewWorkflow.key === "innovation") {
-        if (!state.manualReference?.approved) cell.append(manualControls(row));
+        if (!state.manualReference?.approved) {
+          cell.append(manualControls(row));
+        } else if (
+          !row.engine
+          && row.review.reviewStatus !== "rejected"
+        ) {
+          cell.append(missingEngineReviewButton(row));
+        }
         return cell;
       }
       if (verifying) {
@@ -9292,6 +10133,20 @@ export function renderHtml({ adapter } = {}) {
       }
       const cell = document.createElement("div");
       cell.className = "comparison-engine-cell";
+      const engineBatchTarget = state.activeDiscrepancyBatch?.targets?.find(
+        target => (
+          target.kind === "engine"
+          && target.engineReviewKey === [
+            row.engine?.type,
+            row.engine?.team,
+            Number(row.engine?.seconds).toFixed(3)
+          ].join("|")
+          && !target.completed
+        )
+      );
+      if (state.activity?.state === "working" && engineBatchTarget) {
+        cell.classList.add("verifying");
+      }
       const independentEngineReview =
         !row.review || row.review.decision?.status === "rejected";
       cell.append(
@@ -9325,8 +10180,14 @@ export function renderHtml({ adapter } = {}) {
       ) {
         const unsupported = document.createElement("span");
         unsupported.className = "comparison-rejected";
-        unsupported.textContent = "✕ Not confirmed";
-        unsupported.title = "The exact engine event is unsupported";
+        unsupported.textContent =
+          row.engine.review.userVerdict === "incorrect"
+            ? "✕ Incorrect — no such event"
+            : "✕ Not confirmed";
+        unsupported.title =
+          row.engine.review.userVerdict === "incorrect"
+            ? "The professional reviewer determined that no such event occurred"
+            : "The exact engine event is unsupported";
         cell.append(unsupported);
       }
       if (
@@ -9486,6 +10347,12 @@ export function renderHtml({ adapter } = {}) {
       target.replaceChildren(...rows.map(row => {
         const item = document.createElement("div");
         item.className = "comparison-row " + row.status;
+        if (
+          row.engine
+          && row.engineIndex === selectedEngineIndex
+        ) {
+          item.classList.add("engine-selected");
+        }
         if (row.review?.decision?.status) {
           item.classList.add(
             "decision-" + row.review.decision.status
@@ -9529,10 +10396,25 @@ export function renderHtml({ adapter } = {}) {
         "copilot-reference-items"
       );
       if (copilotReferenceItems) {
+        const hasCopilotReference = Boolean(state?.copilotEvents?.length);
+        if (!hasCopilotReference) {
+          setCopilotReferenceVisible(false);
+        }
         copilotReferenceItems.replaceChildren(...(
           state?.copilotEvents || []
         ).map(
           (event, eventIndex) => {
+            const closestManual = (state?.manualEvents || []).reduce(
+              (closest, manual, manualIndex) => {
+                const delta = Math.abs(
+                  Number(manual.seconds) - Number(event.seconds)
+                );
+                return closest === null || delta < closest.delta
+                  ? {event: manual, index: manualIndex, delta}
+                  : closest;
+              },
+              null
+            );
             const item = document.createElement("button");
             item.type = "button";
             item.className = "copilot-reference-event"
@@ -9544,11 +10426,32 @@ export function renderHtml({ adapter } = {}) {
             item.dataset.eventSeconds = String(event.seconds);
             item.dataset.eventSource = "copilot-reference";
             item.dataset.eventIndex = String(eventIndex);
-            item.textContent = event.key + " · " + event.seconds.toFixed(3)
+            const label = document.createElement("span");
+            label.className = "copilot-reference-label";
+            label.textContent = event.key + " · " + event.seconds.toFixed(3)
               + "s · " + canonicalComparisonLabel(event);
+            item.append(label);
+            if (closestManual) {
+              const closestTag = document.createElement("span");
+              closestTag.className = "copilot-closest-manual-tag";
+              closestTag.textContent = "Closest "
+                + (closestManual.event.key || "M" + (closestManual.index + 1));
+              item.append(closestTag);
+            }
             item.title = event.key + " · frame "
               + Math.round(event.seconds * 25) + " · "
-              + canonicalComparisonLabel(event) + " · diagnostic only";
+              + canonicalComparisonLabel(event)
+              + (
+                closestManual
+                  ? " · closest to "
+                    + (
+                      closestManual.event.key
+                      || "M" + (closestManual.index + 1)
+                    )
+                    + " by " + closestManual.delta.toFixed(3) + "s"
+                  : ""
+              )
+              + " · diagnostic only";
             item.addEventListener("click", () => {
               selectedCopilotReferenceIndex = eventIndex;
               seekVideo(event.seconds);
@@ -9745,6 +10648,16 @@ export function renderHtml({ adapter } = {}) {
           className: "copilot"
         };
       }
+      if (
+        draft.source === "copilot_review"
+        && Number(draft.reviewProtocolVersion || 1) < 5
+      ) {
+        return {
+          label: "Legacy Copilot review · rerun required",
+          short: "Legacy C#",
+          className: "copilot"
+        };
+      }
       return {
         label: "Copilot-prepared review",
         short: "Review proposal",
@@ -9783,6 +10696,36 @@ export function renderHtml({ adapter } = {}) {
       return currentDraft()?.actionFocus || null;
     }
 
+    function currentAppliedZoom() {
+      return actionZoom ? Math.max(2.35, manualZoom) : manualZoom;
+    }
+
+    function clampVideoPan(appliedZoom, focus) {
+      if (appliedZoom <= 1) {
+        videoPanX = 0;
+        videoPanY = 0;
+        return;
+      }
+      const width = videoMedia.clientWidth;
+      const height = videoMedia.clientHeight;
+      const originX = width * Number(focus?.xPercent ?? 50) / 100;
+      const originY = height * Number(focus?.yPercent ?? 50) / 100;
+      videoPanX = Math.min(
+        (appliedZoom - 1) * originX,
+        Math.max(
+          -(appliedZoom - 1) * (width - originX),
+          videoPanX
+        )
+      );
+      videoPanY = Math.min(
+        (appliedZoom - 1) * originY,
+        Math.max(
+          -(appliedZoom - 1) * (height - originY),
+          videoPanY
+        )
+      );
+    }
+
     function applyActionZoom() {
       const draft = currentDraft();
       const focus = currentZoomFocus();
@@ -9790,11 +10733,16 @@ export function renderHtml({ adapter } = {}) {
       button.disabled = !focus;
       if (!focus) actionZoom = false;
       videoShell.classList.toggle("action-zoom", actionZoom);
-      videoMedia.style.transformOrigin = focus
+      videoZoomLayer.style.transformOrigin = focus
         ? focus.xPercent.toFixed(2) + "% " + focus.yPercent.toFixed(2) + "%"
         : "50% 50%";
-      const appliedZoom = actionZoom ? Math.max(2.35, manualZoom) : manualZoom;
-      videoMedia.style.transform = "scale(" + appliedZoom.toFixed(2) + ")";
+      const appliedZoom = currentAppliedZoom();
+      clampVideoPan(appliedZoom, focus);
+      videoMedia.classList.toggle("zoomed", appliedZoom > 1);
+      videoZoomLayer.style.transform =
+        "translate3d(" + videoPanX.toFixed(1) + "px, "
+        + videoPanY.toFixed(1) + "px, 0) scale("
+        + appliedZoom.toFixed(2) + ")";
       document.getElementById("video-zoom-level").textContent =
         manualZoom.toFixed(manualZoom % 1 ? 1 : 0) + "×";
       document.getElementById("zoom-out").disabled = manualZoom <= 1;
@@ -10052,18 +11000,55 @@ export function renderHtml({ adapter } = {}) {
         document.getElementById("proposal").hidden = true;
         document.getElementById("composer").hidden = true;
         const approved = Boolean(state.manualReference?.approved);
+        const comparisonRevealed = Boolean(
+          state.manualReference?.comparisonRevealed
+        );
         const approveMinute = document.getElementById("approve-manual-minute");
-        approveMinute.hidden = approved;
+        approveMinute.hidden = false;
         approveMinute.disabled =
-          Math.round(Number(state.segment.durationSeconds) * 1000) !== 60000;
-        const undoManual = document.getElementById("undo-manual-change");
-        undoManual.hidden = approved;
-        undoManual.disabled = !state.manualReference?.canUndo;
+          approved
+          || Math.round(Number(state.segment.durationSeconds) * 1000) !== 60000;
         document.getElementById("reopen-manual-minute").hidden = !approved;
+        const validateEngine = document.getElementById(
+          "validate-engine-reference"
+        );
+        validateEngine.hidden = false;
+        validateEngine.disabled =
+          !approved || comparisonRevealed || reviewBusy;
+        const publishPassed = document.getElementById(
+          "publish-passed-segment"
+        );
+        publishPassed.hidden = false;
+        publishPassed.disabled =
+          reviewBusy || !Boolean(state.publication?.ready);
+        publishPassed.title = state.publication?.ready
+          ? "Run the final publication gate and lock this Passed segment"
+          : (state.publication?.blockers || []).join(" ");
+        const goldenStatus = document.getElementById("golden-workflow-status");
+        if (!goldenStatus.textContent.trim()) {
+          goldenStatus.textContent = state.publication?.published
+            ? "Passed segment published and locked."
+            : comparisonRevealed
+              ? "Engine comparison revealed. Resolve every mismatch before publication."
+              : approved
+                ? "Golden M# is frozen. Validate to reveal E#."
+                : "Complete M#, then freeze the golden reference.";
+        }
+        if (
+          validateGoldenAfterEngineRun
+          && state.segment.state === "ready"
+          && !reviewBusy
+        ) {
+          validateGoldenAfterEngineRun = false;
+          queueMicrotask(() => void requestGoldenValidation());
+        }
       }
       const publishReference = document.getElementById("publish-reference");
       publishReference.hidden = !canPublish;
       publishReference.disabled = reviewBusy;
+      publishReference.textContent = reviewWorkflow.key === "innovation"
+        ? "Publish Passed segment"
+        : "Publish Validated Reference (Autopilot)";
       publishReference.title = state.publication?.regressionFresh
         ? "Run the final exact-match gate and publish this reference"
         : "Run protected regressions, then publish only if every gate passes";
@@ -10205,7 +11190,9 @@ export function renderHtml({ adapter } = {}) {
               ? "Confirmed reviewed"
               : selectedEngine.review?.status === "not_confirmed"
                 && selectedEngine.review.fresh
-                ? "Not confirmed · unsupported"
+                ? selectedEngine.review.userVerdict === "incorrect"
+                  ? "Incorrect · no such event occurred"
+                  : "Not confirmed · unsupported"
               : selectedEngine.review?.status === "confirmed"
                 ? "Review stale"
                 : selectedEngine.review?.status === "not_confirmed"
@@ -10221,7 +11208,9 @@ export function renderHtml({ adapter } = {}) {
               ? "This E# has a fresh confirmation receipt. Ask about new evidence in Plan mode, then use Re-verify E# to challenge that receipt."
               : selectedEngine.review?.status === "not_confirmed"
                 && selectedEngine.review.fresh
-                ? "This exact E# was independently reviewed and not confirmed. It remains visible as engine output; a corrected C# requires separate Add as Review Event confirmation."
+                ? selectedEngine.review.userVerdict === "incorrect"
+                  ? "The professional reviewer determined that this exact E# did not occur. It remains visible only as rejected engine output until a general engine correction removes it."
+                  : "This exact E# was independently reviewed and not confirmed. It remains visible as engine output; a corrected C# requires separate Add as Review Event confirmation."
               : selectedEngine.review?.status === "confirmed"
                 ? "This E# confirmation is stale for the current engine or output. Verify it again before relying on it."
                 : selectedEngine.review?.status === "not_confirmed"
@@ -10284,8 +11273,27 @@ export function renderHtml({ adapter } = {}) {
       sourceBadge.textContent = sourceLabel.label;
       sourceBadge.className = "event-source " + sourceLabel.className;
       document.getElementById("proposal-time").textContent =
-        draft.seconds.toFixed(3) + "s · frame " + Math.round(draft.seconds * 25);
-      document.getElementById("proposal-evidence").textContent = draft.evidence;
+        (
+          Number.isFinite(Number(draft.releaseSeconds))
+            ? "release " + Number(draft.releaseSeconds).toFixed(3) + "s"
+              + " · frame " + Math.round(Number(draft.releaseSeconds) * 25)
+              + " → completion "
+            : ""
+        )
+        + draft.seconds.toFixed(3) + "s · frame "
+        + Math.round(draft.seconds * 25);
+      document.getElementById("proposal-evidence").textContent = [
+        draft.evidence,
+        draft.senderEvidence
+          ? "Sender / prior owner: " + draft.senderEvidence
+          : null,
+        draft.receiverEvidence
+          ? "Receiver control: " + draft.receiverEvidence
+          : null,
+        draft.matchStateEvidence
+          ? "Match state: " + draft.matchStateEvidence
+          : null
+      ].filter(Boolean).join(" ");
       document.getElementById("evidence-heading").textContent =
         lockedReference
           ? "Reference Basis"
@@ -10438,6 +11446,7 @@ export function renderHtml({ adapter } = {}) {
       }
       renderActivity();
       renderMessages();
+      syncEngineVerificationModal();
       syncManualEngineReviewModal();
       applyPassedSegmentLock();
       renderCopilotSessionStatus();
@@ -10449,6 +11458,32 @@ export function renderHtml({ adapter } = {}) {
     let stateRefreshPending = false;
     let stateRefreshQueued = false;
     let stateRefreshPromise = null;
+
+    async function showPublishedSegmentOverview() {
+      video.pause();
+      if (document.fullscreenElement === videoShell) {
+        try {
+          await document.exitFullscreen();
+        } catch (error) {
+          document.getElementById("publication-status").textContent =
+            "Published, but the browser could not leave full screen: "
+            + error.message;
+        }
+      }
+      const sharedReviewPanel =
+        document.getElementById("shared-review-panel");
+      sharedReviewPanel.open = true;
+      requestAnimationFrame(() => {
+        sharedReviewPanel.scrollIntoView({
+          behavior: "smooth",
+          block: "start",
+        });
+        sharedReviewPanel.querySelector("tr.selected")?.scrollIntoView({
+          behavior: "smooth",
+          block: "center",
+        });
+      });
+    }
 
     async function loadState(queueIfPending = true) {
       if (stateRefreshPromise) {
@@ -10462,6 +11497,10 @@ export function renderHtml({ adapter } = {}) {
           stateRefreshQueued = false;
           const previousSegmentKey = state?.segment?.key || null;
           const previousSegmentReady = state?.segment?.state === "ready";
+          const previousReferenceLocked = Boolean(
+            state?.publication?.published
+            || state?.segment?.validationStatus === "passed"
+          );
           const requestedSegmentKey = selectedSegmentKey();
           const url = stateUrl + "?segment=" +
             encodeURIComponent(requestedSegmentKey) +
@@ -10476,6 +11515,14 @@ export function renderHtml({ adapter } = {}) {
             continue;
           }
           state = nextState;
+          const referenceJustPublished = Boolean(
+            previousSegmentKey === state.segment.key
+            && !previousReferenceLocked
+            && (
+              state.publication?.published
+              || state.segment.validationStatus === "passed"
+            )
+          );
           localStorage.setItem(
             workflowSegmentStorageKey(reviewWorkflow.key),
             state.segment.key
@@ -10554,6 +11601,9 @@ export function renderHtml({ adapter } = {}) {
             }
           }
           render();
+          if (referenceJustPublished) {
+            await showPublishedSegmentOverview();
+          }
           if (resetForReadySegment) {
             resetReviewPlayback();
             if (state.drafts.length) {
@@ -10919,8 +11969,71 @@ export function renderHtml({ adapter } = {}) {
       )?.value || null;
     }
 
+    function renderSimilarReviewChoices(groupId, listId, choices) {
+      const group = document.getElementById(groupId);
+      const list = document.getElementById(listId);
+      list.replaceChildren();
+      choices.forEach(choice => {
+        const label = document.createElement("label");
+        label.className = "similar-review-item";
+        const input = document.createElement("input");
+        input.type = "checkbox";
+        input.checked = Boolean(choice.selected);
+        input.disabled = Boolean(choice.selected);
+        input.dataset.primaryTarget = choice.selected ? "true" : "false";
+        input.dataset.batchIndex = String(choice.index);
+        input.addEventListener("change", () => {
+          updateEngineVerificationActions();
+          updateManualEngineReviewActions();
+        });
+        const content = document.createElement("span");
+        const title = document.createElement("strong");
+        title.textContent = choice.reference + " · " + choice.team;
+        const detail = document.createElement("small");
+        detail.textContent = Number(choice.seconds).toFixed(3) + "s";
+        content.append(title, detail);
+        label.append(input, content);
+        list.append(label);
+      });
+      group.hidden = choices.length < 2;
+    }
+
+    function selectedSimilarReviewIndices(listId) {
+      return Array.from(
+        document.querySelectorAll(
+          "#" + listId + " input[data-batch-index]:checked"
+        )
+      ).map(input => Number(input.dataset.batchIndex));
+    }
+
+    function setSimilarReviewChoicesDisabled(listId, disabled) {
+      document.querySelectorAll(
+        "#" + listId + " input[data-batch-index]"
+      ).forEach(input => {
+        input.disabled = disabled || input.dataset.primaryTarget === "true";
+      });
+    }
+
+    function selectedEngineBatchIndices() {
+      const selected = selectedSimilarReviewIndices(
+        "engine-similar-review-list"
+      );
+      return selected.length ? selected : [verificationModalEngineIndex];
+    }
+
+    function selectedManualBatchIndices() {
+      const selected = selectedSimilarReviewIndices(
+        "manual-similar-review-list"
+      );
+      return selected.length ? selected : [manualEngineReviewIndex];
+    }
+
     function updateEngineVerificationActions() {
       const decision = selectedEngineVerificationDecision();
+      const batchCount = selectedEngineBatchIndices().filter(
+        Number.isInteger
+      ).length;
+      const timePanel = document.getElementById("engine-verification-time");
       const confirm = document.getElementById(
         "confirm-engine-without-copilot"
       );
@@ -10930,18 +12043,34 @@ export function renderHtml({ adapter } = {}) {
       confirm.disabled = !["correct", "details_wrong", "incorrect"].includes(
         decision
       );
+      timePanel.hidden = decision !== "details_wrong" || batchCount > 1;
       confirm.textContent = decision === "correct"
-        ? "Approve exact E# without Copilot"
-        : ["details_wrong", "incorrect"].includes(decision)
-          ? "Reject E# & fix engine"
-          : "Choose a decision";
+        ? batchCount > 1
+          ? "Approve " + batchCount + " exact E# events without Copilot"
+          : "Approve exact E# without Copilot"
+        : decision === "details_wrong"
+          ? "Send " + batchCount + " E# correction"
+          : decision === "incorrect"
+              ? batchCount > 1
+                ? "Reject " + batchCount + " E# & fix engine"
+                : "Reject E# & fix engine"
+            : "Choose a decision";
+      document.getElementById("ask-copilot-engine-review").textContent =
+        batchCount > 1
+          ? "Ask Copilot to review " + batchCount + " similar E# events once"
+          : "Ask Copilot to review";
       guidance.textContent = decision === "correct"
         ? "Your professional review can approve this existing E# without "
           + "Copilot, an engine check, or a regression run."
         : decision === "details_wrong"
-          ? "Reject this exact E# and review only this discrepancy. Copilot "
-            + "will diagnose a general fix, rerun cached engine output, and "
-            + "replace the old E# list after protected tests pass."
+          ? batchCount > 1
+            ? "The same details-wrong verdict applies to every checked E#. "
+              + "Corrected times remain event-specific, so no single shared "
+              + "replacement time is sent. Copilot will diagnose them in one "
+              + "request and run one final cached rebuild and regression gate."
+            : "Reject this exact E# and review only this discrepancy. Copilot "
+              + "will diagnose a general fix, rerun cached engine output, and "
+              + "replace the old E# list after protected tests pass."
           : decision === "incorrect"
             ? "Reject this exact E# and review only this discrepancy. Copilot "
               + "will diagnose a general fix, rerun cached engine output, and "
@@ -10961,6 +12090,7 @@ export function renderHtml({ adapter } = {}) {
         "[name=engine-verification-decision]"
       ).forEach(input => {
         input.checked = false;
+        input.disabled = false;
       });
       document.getElementById("engine-verification-title").textContent =
         "Review E" + (engineIndex + 1) + " before continuing";
@@ -10968,21 +12098,230 @@ export function renderHtml({ adapter } = {}) {
         canonicalComparisonLabel(engine) + " at "
         + Number(engine.seconds).toFixed(3) + "s";
       document.getElementById("engine-check-seconds").value = "";
+      document.getElementById("engine-verification-time").hidden = true;
       document.getElementById("engine-check-time-status").textContent =
-        "This seeks the video and focuses the review. It does not change M# "
-        + "or rewrite E#.";
+        "Use this only when the E# completion time is wrong. Previewing does "
+        + "not change M# or E#; the time is sent to Copilot with the "
+        + "correction request.";
+      const reviewableEngineIndices = reviewWorkflow.key === "innovation"
+        ? new Set(
+            innovationComparisonRows()
+              .filter(row => row.engine && !row.review)
+              .map(row => row.engineIndex)
+          )
+        : new Set();
+      const similarChoices = reviewWorkflow.key === "innovation"
+        ? (state.engineEvents || [])
+            .map((candidate, index) => ({candidate, index}))
+            .filter(({candidate, index}) =>
+              candidate.type === engine.type
+              && (
+                index === engineIndex
+                || (
+                  reviewableEngineIndices.has(index)
+                  && !(
+                    candidate.review?.status === "confirmed"
+                    && candidate.review?.fresh
+                  )
+                )
+              )
+            )
+            .map(({candidate, index}) => ({
+              index,
+              selected: index === engineIndex,
+              reference: "E" + (index + 1),
+              team: teamLabel(candidate.team),
+              seconds: candidate.seconds,
+            }))
+        : [];
+      renderSimilarReviewChoices(
+        "engine-similar-review-group",
+        "engine-similar-review-list",
+        similarChoices
+      );
       updateEngineVerificationActions();
       const modal = document.getElementById("engine-verification-modal");
+      modal.dataset.reviewState = "ready";
+      document.getElementById("ask-copilot-engine-review").disabled = false;
+      document.getElementById("cancel-engine-verification").disabled = false;
+      document.getElementById("cancel-engine-verification").textContent =
+        "Close";
       if (!modal.open) modal.showModal();
       document.querySelector(
         "[name=engine-verification-decision]"
       )?.focus();
     }
 
+    function dismissCompletedSegmentOverlay() {
+      const overlay = document.getElementById("segment-loading-overlay");
+      const closeButton = document.getElementById("segment-loading-close");
+      if (overlay.hidden || closeButton.hidden) return;
+      analysisModalMode = null;
+      regressionDashboardOpen = false;
+      clearTimeout(regressionDashboardCloseTimer);
+      regressionDashboardCloseTimer = null;
+      setSegmentLoading(false);
+    }
+
     function closeEngineVerificationModal() {
       const modal = document.getElementById("engine-verification-modal");
       if (modal.open) modal.close();
       verificationModalEngineIndex = null;
+      dismissCompletedSegmentOverlay();
+    }
+
+    function setEngineVerificationWorking(engineIndex) {
+      if (!engineVerificationPending) {
+        const engine = state.engineEvents?.[engineIndex];
+        engineVerificationPending = {
+          engineIndex,
+          identity: engine
+            ? {
+                team: engine.team,
+                type: engine.type,
+                seconds: Number(engine.seconds),
+                releaseSeconds: Number(engine.releaseSeconds),
+              }
+            : null,
+        };
+      }
+      verificationModalEngineIndex = engineIndex;
+      const modal = document.getElementById("engine-verification-modal");
+      modal.dataset.reviewState = "working";
+      document.querySelectorAll(
+        "[name=engine-verification-decision]"
+      ).forEach(input => {
+        input.disabled = true;
+      });
+      setSimilarReviewChoicesDisabled(
+        "engine-similar-review-list",
+        true
+      );
+      document.getElementById("confirm-engine-without-copilot").disabled =
+        true;
+      document.getElementById("ask-copilot-engine-review").disabled = true;
+      const cancel = document.getElementById("cancel-engine-verification");
+      cancel.textContent = "Cancel review";
+      cancel.disabled = false;
+      document.getElementById("engine-verification-guidance").textContent =
+        "Copilot is working… Reviewing E" + (engineIndex + 1)
+        + ". The rejection is preserved; Cancel review stops only the active "
+        + "diagnosis.";
+    }
+
+    function resetEngineVerificationControls() {
+      const modal = document.getElementById("engine-verification-modal");
+      modal.dataset.reviewState = "ready";
+      document.querySelectorAll(
+        "[name=engine-verification-decision]"
+      ).forEach(input => {
+        input.disabled = false;
+      });
+      setSimilarReviewChoicesDisabled(
+        "engine-similar-review-list",
+        false
+      );
+      document.getElementById("ask-copilot-engine-review").disabled = false;
+      document.getElementById("cancel-engine-verification").textContent =
+        "Close";
+      updateEngineVerificationActions();
+    }
+
+    function syncEngineVerificationModal() {
+      const activeEngineReview = state.activeConversation?.engineIndex !== null
+        && state.activeConversation?.engineIndex !== undefined
+        ? state.activeConversation
+        : null;
+      const modal = document.getElementById("engine-verification-modal");
+      const activeBatch = state.activeDiscrepancyBatch;
+      const sameBatchActive = Boolean(
+        engineVerificationPending?.batchId
+        && activeBatch?.id === engineVerificationPending.batchId
+      );
+      if (sameBatchActive && state.activity?.state === "working") {
+        setEngineVerificationWorking(engineVerificationPending.engineIndex);
+        document.getElementById(
+          "engine-verification-guidance"
+        ).textContent =
+          "Copilot is working… Reviewing "
+          + activeBatch.targets.filter(target => !target.completed).length
+          + " remaining similar E# events in this one request.";
+        return;
+      }
+      if (
+        engineVerificationPending?.batchId
+        && !sameBatchActive
+        && state.activity?.state !== "working"
+      ) {
+        engineVerificationPending = null;
+        resetEngineVerificationControls();
+        closeEngineVerificationModal();
+        renderFullscreenEvents();
+        return;
+      }
+      if (
+        !engineVerificationPending
+        && modal.open
+        && activeEngineReview
+      ) {
+        engineVerificationPending = {
+          engineIndex: activeEngineReview.engineIndex,
+          identity: activeEngineReview.engineIdentity || null,
+          reviewKey: activeEngineReview.engineReviewKey || null,
+        };
+      }
+      if (!engineVerificationPending) return;
+      const pending = engineVerificationPending;
+      const engineIndex = pending.engineIndex;
+      const sameReviewActive = Boolean(
+        activeEngineReview
+        && (
+          pending.reviewKey
+            ? activeEngineReview.engineReviewKey === pending.reviewKey
+            : activeEngineReview.engineIndex === engineIndex
+        )
+      );
+      if (sameReviewActive && state.activity?.state === "working") {
+        setEngineVerificationWorking(engineIndex);
+        return;
+      }
+      if (!sameReviewActive && state.activity?.state !== "working") {
+        engineVerificationPending = null;
+        const refreshedIndex = pending.identity
+          ? state.engineEvents.findIndex(engine =>
+              engine.team === pending.identity.team
+              && engine.type === pending.identity.type
+              && Number(engine.seconds) === pending.identity.seconds
+              && Number(engine.releaseSeconds)
+                === pending.identity.releaseSeconds
+            )
+          : -1;
+        selectedEngineIndex = refreshedIndex >= 0 ? refreshedIndex : null;
+        resetEngineVerificationControls();
+        closeEngineVerificationModal();
+        renderFullscreenEvents();
+        if (selectedEngineIndex !== null) {
+          requestAnimationFrame(scrollSelectedComparisonIntoView);
+        }
+        return;
+      }
+      resetEngineVerificationControls();
+      document.getElementById("engine-verification-guidance").textContent =
+        state.activity?.state === "error"
+          ? state.activity.detail || "The E# review did not complete."
+          : "The previous E# review is no longer active. Controls were restored.";
+    }
+
+    async function cancelOrCloseEngineVerification() {
+      if (!engineVerificationPending) {
+        closeEngineVerificationModal();
+        return;
+      }
+      const cancelled = await cancelCopilotReview();
+      if (!cancelled) return;
+      engineVerificationPending = null;
+      resetEngineVerificationControls();
+      closeEngineVerificationModal();
     }
 
     function openManualEngineReviewModal(reviewIndex) {
@@ -10995,7 +12334,7 @@ export function renderHtml({ adapter } = {}) {
         input.checked = false;
       });
       document.getElementById("manual-engine-review-title").textContent =
-        "Review " + event.key + " missing engine event";
+        "Review " + manualDisplayKey(event, index) + " missing engine event";
       document.getElementById("manual-engine-review-event").textContent =
         canonicalComparisonLabel(event) + " at "
         + Number(event.seconds).toFixed(3) + "s";
@@ -11006,7 +12345,50 @@ export function renderHtml({ adapter } = {}) {
       ).forEach(input => {
         input.disabled = false;
       });
-      document.getElementById("cancel-manual-engine-review").disabled = false;
+      setSimilarReviewChoicesDisabled(
+        "manual-similar-review-list",
+        false
+      );
+      const manualReferenceFrozen = Boolean(state.manualReference?.approved);
+      document.querySelectorAll("[data-manual-draft-action]").forEach(
+        option => {
+          option.hidden = manualReferenceFrozen;
+        }
+      );
+      document.getElementById(
+        "manual-engine-review-frozen-note"
+      ).hidden = !manualReferenceFrozen;
+      document.getElementById("close-manual-engine-review").disabled = false;
+      const cancel = document.getElementById(
+        "cancel-manual-copilot-review"
+      );
+      cancel.hidden = true;
+      cancel.disabled = false;
+      const suggestions = state.manualReference?.suggestions || {};
+      const similarChoices = reviewWorkflow.key === "innovation"
+        ? (state.manualEvents || [])
+        .map((candidate, index) => ({candidate, index}))
+        .filter(({candidate, index}) =>
+          candidate.type === event.type
+          && candidate.reviewStatus !== "rejected"
+          && (
+            index === reviewIndex
+            || !suggestions[candidate.key]
+          )
+        )
+            .map(({candidate, index}) => ({
+              index,
+              selected: index === reviewIndex,
+              reference: candidate.key,
+              team: teamLabel(candidate.team),
+              seconds: candidate.seconds,
+            }))
+        : [];
+      renderSimilarReviewChoices(
+        "manual-similar-review-group",
+        "manual-similar-review-list",
+        similarChoices
+      );
       updateManualEngineReviewActions();
       if (!modal.open) modal.showModal();
       document.querySelector(
@@ -11018,32 +12400,140 @@ export function renderHtml({ adapter } = {}) {
       const modal = document.getElementById("manual-engine-review-modal");
       if (modal.open) modal.close();
       manualEngineReviewIndex = null;
+      dismissCompletedSegmentOverlay();
+    }
+
+    function resetManualEngineReviewControls(message) {
+      const modal = document.getElementById("manual-engine-review-modal");
+      modal.dataset.reviewState = "ready";
+      document.querySelectorAll(
+        "[name=manual-engine-review-decision]"
+      ).forEach(input => {
+        input.disabled = false;
+      });
+      document.getElementById(
+        "cancel-manual-copilot-review"
+      ).hidden = true;
+      document.getElementById("close-manual-engine-review").disabled = false;
+      document.getElementById("manual-engine-review-guidance").textContent =
+        message;
+      updateManualEngineReviewActions();
+    }
+
+    async function cancelManualEngineReview() {
+      const cancelled = await cancelCopilotReview();
+      if (!cancelled) return;
+      manualEngineReviewPending = null;
+      document.getElementById(
+        "cancel-manual-copilot-review"
+      ).hidden = true;
+      closeManualEngineReviewModal();
     }
 
     function syncManualEngineReviewModal() {
-      if (!manualEngineReviewPending) return;
       const modal = document.getElementById("manual-engine-review-modal");
+      const activeBatch = state.activeDiscrepancyBatch;
+      const sameBatchActive = Boolean(
+        manualEngineReviewPending?.batchId
+        && activeBatch?.id === manualEngineReviewPending.batchId
+      );
+      if (sameBatchActive && state.activity?.state === "working") {
+        modal.dataset.reviewState = "working";
+        setSimilarReviewChoicesDisabled(
+          "manual-similar-review-list",
+          true
+        );
+        document.getElementById(
+          "manual-engine-review-guidance"
+        ).textContent =
+          "Copilot is working… Reviewing "
+          + activeBatch.targets.filter(target => !target.completed).length
+          + " remaining similar M# events in this one request.";
+        document.getElementById("close-manual-engine-review").disabled = true;
+        document.getElementById(
+          "cancel-manual-copilot-review"
+        ).hidden = false;
+        return;
+      }
+      if (
+        manualEngineReviewPending?.batchId
+        && !sameBatchActive
+        && state.activity?.state !== "working"
+      ) {
+        manualEngineReviewPending = null;
+        closeManualEngineReviewModal();
+        renderFullscreenEvents();
+        return;
+      }
+      const activeManualReview =
+        typeof state.activeConversation?.manualReviewKey === "string"
+          ? state.activeConversation
+          : null;
+      if (
+        !manualEngineReviewPending
+        && modal.open
+        && activeManualReview
+      ) {
+        manualEngineReviewPending = {
+          index: activeManualReview.eventIndex,
+          manualKey: activeManualReview.manualReviewKey,
+          identity: activeManualReview.manualIdentity || null,
+        };
+      }
+      if (!manualEngineReviewPending) {
+        if (
+          modal.open
+          && modal.dataset.reviewState === "working"
+          && !activeManualReview
+          && state.activity?.state !== "working"
+        ) {
+          resetManualEngineReviewControls(
+            "The previous M# review is no longer active. Controls were restored."
+          );
+        }
+        return;
+      }
       const status = document.getElementById(
         "manual-engine-review-guidance"
       );
-      if (state.activity?.state === "working") {
+      const sameReviewActive = Boolean(
+        activeManualReview
+        && activeManualReview.manualReviewKey
+          === manualEngineReviewPending.manualKey
+      );
+      if (sameReviewActive && state.activity?.state === "working") {
         modal.dataset.reviewState = "working";
         status.textContent =
-          "Copilot is reviewing " + manualEngineReviewPending.manualKey
-          + ". Keep this maximized view open; the event rows will refresh "
-          + "automatically when the review finishes.";
+          "Copilot is working… Reviewing "
+          + manualEngineReviewPending.manualKey
+          + ". This stays open through diagnosis, cached rebuilding, tests, "
+          + "and the final M#/E# refresh.";
+        document.getElementById("close-manual-engine-review").disabled = true;
+        const cancel = document.getElementById(
+          "cancel-manual-copilot-review"
+        );
+        cancel.hidden = false;
+        cancel.disabled = false;
         return;
       }
       if (state.activity?.state === "error") {
-        modal.dataset.reviewState = "ready";
-        status.textContent =
-          state.activity.detail || "The Copilot review did not complete.";
-        document.getElementById(
-          "cancel-manual-engine-review"
-        ).disabled = false;
+        resetManualEngineReviewControls(
+          state.activity.detail || "The Copilot review did not complete."
+        );
         manualEngineReviewPending = null;
         return;
       }
+      if (sameReviewActive) {
+        resetManualEngineReviewControls(
+          "The M# conversation is retained, but no review is currently active. "
+          + "Controls were restored."
+        );
+        manualEngineReviewPending = null;
+        return;
+      }
+      document.getElementById(
+        "cancel-manual-copilot-review"
+      ).disabled = true;
       const completedKey = manualEngineReviewPending.manualKey;
       manualEngineReviewPending = null;
       closeManualEngineReviewModal();
@@ -11059,6 +12549,9 @@ export function renderHtml({ adapter } = {}) {
 
     function updateManualEngineReviewActions() {
       const decision = selectedManualEngineReviewDecision();
+      const batchCount = selectedManualBatchIndices().filter(
+        Number.isInteger
+      ).length;
       const button = document.getElementById(
         "ask-copilot-manual-engine-review"
       );
@@ -11066,8 +12559,10 @@ export function renderHtml({ adapter } = {}) {
         "manual-engine-review-guidance"
       );
       button.disabled = !decision;
-      button.textContent = decision === "correct"
-        ? "Ask Copilot to fix missing E#"
+      button.textContent = decision === "engine_match_wrong"
+        ? "Ask Copilot to correct " + batchCount + " existing E#"
+        : decision === "correct"
+          ? "Ask Copilot to fix " + batchCount + " missing E#"
         : decision === "details_wrong"
           ? "Open M# editor"
           : decision === "reject"
@@ -11075,11 +12570,15 @@ export function renderHtml({ adapter } = {}) {
             : decision === "remove"
               ? "Remove M#"
             : decision === "cannot_verify"
-              ? "Ask Copilot to adjudicate"
+              ? "Ask Copilot to adjudicate " + batchCount + " M# once"
               : "Choose a decision";
-      guidance.textContent = decision === "correct"
-        ? "M# stays unchanged. Copilot independently verifies the video before "
-          + "making any general engine change."
+      guidance.textContent = decision === "engine_match_wrong"
+        ? "This accepts M# as the required result. M# stays unchanged while "
+          + "Copilot corrects the general cause of the existing E# timing, "
+          + "team, or type discrepancy."
+        : decision === "correct"
+          ? "This accepts M# as the required result. M# stays unchanged while "
+            + "Copilot corrects the general cause of the missing E#."
         : decision === "details_wrong"
           ? "Use the compact editor to correct the M# yourself."
           : decision === "reject"
@@ -11123,11 +12622,15 @@ export function renderHtml({ adapter } = {}) {
         } catch (error) {
           document.getElementById("fullscreen-chat-status").textContent =
             error.message;
+          document.getElementById(
+            "manual-engine-review-guidance"
+          ).textContent = error.message;
           button.disabled = false;
         }
         return;
       }
       try {
+        const batchIndices = selectedManualBatchIndices();
         const modal = document.getElementById("manual-engine-review-modal");
         modal.dataset.reviewState = "working";
         document.querySelectorAll(
@@ -11135,22 +12638,46 @@ export function renderHtml({ adapter } = {}) {
         ).forEach(input => {
           input.disabled = true;
         });
-        document.getElementById("cancel-manual-engine-review").disabled = true;
+        setSimilarReviewChoicesDisabled(
+          "manual-similar-review-list",
+          true
+        );
+        document.getElementById(
+          "cancel-manual-copilot-review"
+        ).hidden = false;
         button.textContent = "Copilot is working…";
         document.getElementById("manual-engine-review-guidance").textContent =
           "Starting the targeted review. Keep this maximized view open; the "
           + "event rows will refresh automatically.";
+        const batchReview = batchIndices.length > 1;
         const response = await fetch(
-          "/api/copilot-review-manual-engine",
+          batchReview
+            ? "/api/copilot-review-discrepancy-batch"
+            : "/api/copilot-review-manual-engine",
           {
             method: "POST",
             headers: {"Content-Type": "application/json"},
-            body: JSON.stringify({
-              segment: selectedSegmentKey(),
-              index,
-              manualKey: event.key,
-              userVerdict: decision === "correct" ? "correct" : "unsure",
-            }),
+            body: JSON.stringify(batchReview
+              ? {
+                  segment: selectedSegmentKey(),
+                  kind: "manual",
+                  indices: batchIndices,
+                  userVerdict: decision === "engine_match_wrong"
+                    ? "engine_match_wrong"
+                    : decision === "correct"
+                      ? "correct"
+                      : "unsure",
+                }
+              : {
+                  segment: selectedSegmentKey(),
+                  index,
+                  manualKey: event.key,
+                  userVerdict: decision === "engine_match_wrong"
+                    ? "engine_match_wrong"
+                    : decision === "correct"
+                      ? "correct"
+                      : "unsure",
+                }),
           }
         );
         const result = await response.json();
@@ -11159,7 +12686,9 @@ export function renderHtml({ adapter } = {}) {
         }
         manualEngineReviewPending = {
           index,
-          manualKey: result.manualKey,
+          manualKey: result.manualKey || event.key,
+          batchId: result.batchId || null,
+          count: result.count || 1,
         };
         await loadState();
       } catch (error) {
@@ -11175,7 +12704,9 @@ export function renderHtml({ adapter } = {}) {
         ).forEach(input => {
           input.disabled = false;
         });
-        document.getElementById("cancel-manual-engine-review").disabled = false;
+        document.getElementById(
+          "cancel-manual-copilot-review"
+        ).hidden = true;
         button.disabled = false;
         updateManualEngineReviewActions();
       }
@@ -11183,6 +12714,7 @@ export function renderHtml({ adapter } = {}) {
 
     async function confirmEngineWithoutCopilot() {
       const engineIndex = verificationModalEngineIndex;
+      const batchIndices = selectedEngineBatchIndices();
       const decision = selectedEngineVerificationDecision();
       if (
         !["correct", "details_wrong", "incorrect"].includes(decision)
@@ -11195,50 +12727,92 @@ export function renderHtml({ adapter } = {}) {
       try {
         const approving = decision === "correct";
         if (!approving) {
-          const checkSeconds = engineVerificationCheckTime();
+          const checkSeconds = decision === "details_wrong"
+            ? engineVerificationCheckTime()
+            : null;
           const checkNote = checkSeconds === null
             ? ""
             : " Inspect the reviewer-supplied alternative completion time "
               + checkSeconds.toFixed(3) + "s without changing M#.";
-          closeEngineVerificationModal();
-          await requestEngineEventVerification(
-            engineIndex,
-            "fullscreen-chat-status",
-            null,
-            false,
-            {
+          const guidance = document.getElementById(
+            "engine-verification-guidance"
+          );
+          guidance.textContent =
+            "Starting the targeted E" + (engineIndex + 1)
+            + " rejection review…";
+          const batchReview = batchIndices.length > 1;
+          const response = await fetch(
+            batchReview
+              ? "/api/copilot-review-discrepancy-batch"
+              : "/api/copilot-verify-engine",
+          {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({
+              segment: selectedSegmentKey(),
+              ...(batchReview
+                ? {kind: "engine", indices: batchIndices}
+                : {index: engineIndex}),
               userVerdict: "incorrect",
               note: decision === "details_wrong"
-                ? "The reviewer rejects the exact E# because the event exists "
+                ? "The reviewer rejects each exact E# because the event exists "
                   + "but its team, canonical event type, or completion time "
                   + "is wrong. Diagnose and fix the general engine rule, "
                   + "rerun cached output, and replace the old E# list."
                   + checkNote
-                : "The reviewer rejects the exact E# because no such event "
+                : "The reviewer rejects each exact E# because no such event "
                   + "occurred. Diagnose and fix the general engine rule, "
                   + "rerun cached output, and replace the old E# list."
                   + checkNote
-            }
-          );
+            }),
+          });
+          const result = await response.json();
+          if (!response.ok) {
+            throw new Error(
+              result.error || "Could not start engine-event rejection review"
+            );
+          }
+          setEngineVerificationWorking(engineIndex);
+          const status = document.getElementById("fullscreen-chat-status");
+          status.textContent =
+            batchReview
+              ? batchIndices.length
+                + " similar E# rejection reviews started in one Copilot request."
+              : "E" + (engineIndex + 1)
+                + " rejection review started. Copilot is inspecting only this "
+                + "discrepancy.";
+          try {
+            await loadState();
+          } catch (stateError) {
+            status.textContent =
+              "E" + (engineIndex + 1)
+              + " rejection review started, but the immediate Canvas refresh "
+              + "was delayed (" + stateError.message
+              + "). The automatic refresh will retry.";
+          }
           return;
         }
-        const response = await fetch("/api/reviewer-confirm-engine", {
-          method: "POST",
-          headers: {"Content-Type": "application/json"},
-          body: JSON.stringify({
-            segment: selectedSegmentKey(),
-            index: engineIndex,
-            userVerdict: decision
-          })
-        });
-        const result = await response.json();
-        if (!response.ok) {
-          throw new Error(result.error || "Could not confirm engine event");
+        for (const index of batchIndices) {
+          const response = await fetch("/api/reviewer-confirm-engine", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({
+              segment: selectedSegmentKey(),
+              index,
+              userVerdict: decision
+            })
+          });
+          const result = await response.json();
+          if (!response.ok) {
+            throw new Error(result.error || "Could not confirm engine event");
+          }
         }
         closeEngineVerificationModal();
         await loadState();
         document.getElementById("fullscreen-chat-status").textContent =
-          "E" + (engineIndex + 1)
+          (batchIndices.length > 1
+            ? batchIndices.length + " E# events"
+            : "E" + (engineIndex + 1))
           + " approved from your professional review."
           + " No Copilot, engine check, or regression run was needed.";
       } catch (error) {
@@ -11250,11 +12824,14 @@ export function renderHtml({ adapter } = {}) {
 
     async function askCopilotFromEngineVerification() {
       const engineIndex = verificationModalEngineIndex;
+      const batchIndices = selectedEngineBatchIndices();
       if (!Number.isInteger(engineIndex)) return;
       const decision = selectedEngineVerificationDecision();
-      let checkSeconds;
+      let checkSeconds = null;
       try {
-        checkSeconds = engineVerificationCheckTime();
+        if (decision === "details_wrong") {
+          checkSeconds = engineVerificationCheckTime();
+        }
       } catch (error) {
         document.getElementById("engine-check-time-status").textContent =
           error.message;
@@ -11288,14 +12865,47 @@ export function renderHtml({ adapter } = {}) {
             : decision === "correct"
               ? {userVerdict: "correct", note: ""}
               : {userVerdict: null, note: ""};
-      closeEngineVerificationModal();
-      await requestEngineEventVerification(
-        engineIndex,
-        "fullscreen-chat-status",
-        null,
-        false,
-        reviewChoice
-      );
+      if (batchIndices.length > 1) {
+        const response = await fetch(
+          "/api/copilot-review-discrepancy-batch",
+          {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({
+              segment: selectedSegmentKey(),
+              kind: "engine",
+              indices: batchIndices,
+              userVerdict: reviewChoice.userVerdict || "unsure",
+              note: reviewChoice.note,
+            }),
+          }
+        );
+        const result = await response.json();
+        if (!response.ok) {
+          document.getElementById(
+            "engine-verification-guidance"
+          ).textContent =
+            result.error || "Could not start grouped E# review";
+          return;
+        }
+        engineVerificationPending = {
+          engineIndex,
+          batchId: result.batchId,
+          count: result.count,
+        };
+        await loadState();
+      } else {
+        await requestEngineEventVerification(
+          engineIndex,
+          "engine-verification-guidance",
+          null,
+          false,
+          reviewChoice
+        );
+      }
+      if (state.activity?.state === "working") {
+        setEngineVerificationWorking(engineIndex);
+      }
     }
 
     function openCopilotDecisionModal(reviewIndex) {
@@ -11507,10 +13117,54 @@ export function renderHtml({ adapter } = {}) {
         if (!response.ok) {
           throw new Error(result.error || "Final publication failed");
         }
+
         await loadState();
         document.getElementById("publication-status").textContent =
           "Final publication handover started. Copilot is running the "
           + "validation gate…";
+      } catch (error) {
+        status.textContent = error.message;
+        button.disabled = false;
+      }
+    }
+
+    async function requestGoldenValidation() {
+      const button = document.getElementById("validate-engine-reference");
+      const status = document.getElementById("golden-workflow-status");
+      if (state.segment.state !== "ready") {
+        if (!state.segment.evidenceReady) {
+          status.textContent =
+            "Prepare BAC + player context before validating the engine.";
+          return;
+        }
+        validateGoldenAfterEngineRun = true;
+        status.textContent =
+          "Running the Innovation engine before golden-reference validation…";
+        void startSegmentAnalysis();
+        return;
+      }
+      button.disabled = true;
+      status.textContent =
+        "Validating current E# output and creating automatic M↔E suggestions…";
+      try {
+        const response = await fetch("/api/validate-engine-reference", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({segment: selectedSegmentKey()})
+        });
+        const result = await response.json();
+        if (!response.ok) {
+          throw new Error(
+            result.error || "Could not validate the engine against golden M#"
+          );
+        }
+        await loadState();
+        document.getElementById("golden-workflow-status").textContent =
+          "Engine comparison revealed: "
+          + result.mappingCount + " automatic M↔E match"
+          + (result.mappingCount === 1 ? "" : "es")
+          + " across " + result.engineEventCount + " E# event"
+          + (result.engineEventCount === 1 ? "." : "s.");
       } catch (error) {
         status.textContent = error.message;
         button.disabled = false;
@@ -11583,11 +13237,17 @@ export function renderHtml({ adapter } = {}) {
     }
 
     function scrollSelectedComparisonIntoView() {
-      const selected = document.querySelector(
-        '#fullscreen-event-items '
-        + '[data-event-source="review"][data-event-index="'
-        + selectedIndex + '"]'
-      );
+      const selected = selectedEngineIndex === null
+        ? document.querySelector(
+            '#fullscreen-event-items '
+            + '[data-event-source="review"][data-event-index="'
+            + selectedIndex + '"]'
+          )
+        : document.querySelector(
+            '#fullscreen-event-items '
+            + '[data-event-source="engine"][data-event-index="'
+            + selectedEngineIndex + '"]'
+          );
       selected?.closest(".comparison-row")?.scrollIntoView({
         behavior: "smooth",
         block: "nearest",
@@ -11977,7 +13637,7 @@ export function renderHtml({ adapter } = {}) {
         renderAiGate();
       }
     });
-    processButton.addEventListener("click", async () => {
+    async function startSegmentAnalysis() {
       const segment = selectedSegmentKey();
       if (reviewWorkflow.key === "innovation") {
         analysisModalMode = "rules";
@@ -11988,8 +13648,7 @@ export function renderHtml({ adapter } = {}) {
             + "Playable segment: Complete\\n"
             + "Frozen BAC coordinates: Complete\\n"
             + "YOLO player context: Complete\\n"
-            + "Innovation rules engine: Waiting\\n"
-            + "Independent Copilot video review: Waiting"
+            + "Innovation rules engine: Waiting"
         );
       }
       runStartPending = true;
@@ -12021,6 +13680,7 @@ export function renderHtml({ adapter } = {}) {
         renderAiGate();
       } catch (error) {
         runStartPending = false;
+        validateGoldenAfterEngineRun = false;
         if (reviewWorkflow.key === "innovation") {
           finishSegmentLoading(
             "Could not start Innovation rules engine",
@@ -12032,7 +13692,8 @@ export function renderHtml({ adapter } = {}) {
         renderRunControls();
         renderAiGate();
       }
-    });
+    }
+    processButton.addEventListener("click", startSegmentAnalysis);
     document.getElementById("next-event").addEventListener(
       "click", () => selectEvent(selectedIndex + 1)
     );
@@ -12061,31 +13722,40 @@ export function renderHtml({ adapter } = {}) {
         }
       });
     });
-    document.getElementById("undo-manual-change")?.addEventListener(
-      "click",
-      () => mutateManualReference({action: "undo"})
-    );
     document.getElementById("approve-manual-minute")?.addEventListener(
       "click",
       () => mutateManualReference({action: "approve"})
+    );
+    document.getElementById("validate-engine-reference")?.addEventListener(
+      "click",
+      () => void requestGoldenValidation()
+    );
+    document.getElementById("publish-passed-segment")?.addEventListener(
+      "click",
+      requestReferencePublication
     );
     document.getElementById("reopen-manual-minute")?.addEventListener(
       "click",
       () => mutateManualReference({action: "reopen"})
     );
+    function setCopilotReferenceVisible(visible) {
+      const panel = document.getElementById("copilot-reference");
+      const toggle = document.getElementById("show-copilot-reference");
+      if (!panel || !toggle) return;
+      panel.hidden = !visible;
+      panel.style.display = visible ? "flex" : "none";
+      toggle.checked = visible;
+    }
+
     document.getElementById("show-copilot-reference")?.addEventListener(
       "change",
       event => {
-        document.getElementById("copilot-reference").hidden =
-          !event.currentTarget.checked;
+        setCopilotReferenceVisible(event.currentTarget.checked);
       }
     );
     document.getElementById("hide-copilot-reference")?.addEventListener(
       "click",
-      () => {
-        document.getElementById("copilot-reference").hidden = true;
-        document.getElementById("show-copilot-reference").checked = false;
-      }
+      () => setCopilotReferenceVisible(false)
     );
     document.getElementById("show-bac-coordinate")?.addEventListener(
       "change",
@@ -12156,10 +13826,13 @@ export function renderHtml({ adapter } = {}) {
         await requestCopilotAcceptance(selectedIndex);
       }
     );
-    document.getElementById("cancel-manual-engine-review").addEventListener(
+    document.getElementById("close-manual-engine-review").addEventListener(
       "click",
       closeManualEngineReviewModal
     );
+    document.getElementById(
+      "cancel-manual-copilot-review"
+    ).addEventListener("click", cancelManualEngineReview);
     document.getElementById(
       "ask-copilot-manual-engine-review"
     ).addEventListener("click", requestManualEngineReview);
@@ -12221,6 +13894,22 @@ export function renderHtml({ adapter } = {}) {
         video.currentTime + 1 / 25
       );
     });
+    document.getElementById("toggle-playback").addEventListener(
+      "click",
+      async () => {
+        const status = document.getElementById("playback-status");
+        status.textContent = "";
+        if (!video.paused) {
+          video.pause();
+          return;
+        }
+        try {
+          await video.play();
+        } catch {
+          status.textContent = "Playback could not start. Try again.";
+        }
+      }
+    );
     document.getElementById("toggle-event-panel").addEventListener(
       "click",
       () => {
@@ -12332,16 +14021,19 @@ export function renderHtml({ adapter } = {}) {
       updateFullscreenEventProgress(seconds);
     });
     video.addEventListener("play", () => {
+      document.getElementById("toggle-playback").textContent = "Pause";
       cancelAnimationFrame(playbackFrameRequest);
       previousPlaybackSeconds = video.currentTime;
       playbackFrameRequest = requestAnimationFrame(followPlaybackEvents);
     });
     video.addEventListener("pause", () => {
+      document.getElementById("toggle-playback").textContent = "Play";
       cancelAnimationFrame(playbackFrameRequest);
       playbackFrameRequest = null;
       previousPlaybackSeconds = video.currentTime;
     });
     video.addEventListener("ended", () => {
+      document.getElementById("toggle-playback").textContent = "Play";
       cancelAnimationFrame(playbackFrameRequest);
       playbackFrameRequest = null;
     });
@@ -12463,6 +14155,8 @@ export function renderHtml({ adapter } = {}) {
     });
     document.getElementById("zoom-action").addEventListener("click", () => {
       actionZoom = !actionZoom;
+      videoPanX = 0;
+      videoPanY = 0;
       applyActionZoom();
     });
     document.getElementById("zoom-out").addEventListener("click", () => {
@@ -12474,6 +14168,44 @@ export function renderHtml({ adapter } = {}) {
       actionZoom = false;
       manualZoom = Math.min(6, manualZoom + 0.5);
       applyActionZoom();
+    });
+    videoZoomLayer.addEventListener("pointerdown", event => {
+      if (
+        currentAppliedZoom() <= 1
+        || geometryCanvas.classList.contains("editing")
+        || (event.pointerType === "mouse" && event.button !== 0)
+      ) return;
+      const startX = event.clientX;
+      const startY = event.clientY;
+      const startPanX = videoPanX;
+      const startPanY = videoPanY;
+      let didDrag = false;
+      const move = moveEvent => {
+        const deltaX = moveEvent.clientX - startX;
+        const deltaY = moveEvent.clientY - startY;
+        if (!didDrag && Math.hypot(deltaX, deltaY) < 5) return;
+        if (!didDrag) {
+          didDrag = true;
+          videoMedia.classList.add("panning");
+          videoZoomLayer.setPointerCapture(event.pointerId);
+        }
+        moveEvent.preventDefault();
+        videoPanX = startPanX + deltaX;
+        videoPanY = startPanY + deltaY;
+        applyActionZoom();
+      };
+      const stop = stopEvent => {
+        videoMedia.classList.remove("panning");
+        if (videoZoomLayer.hasPointerCapture(stopEvent.pointerId)) {
+          videoZoomLayer.releasePointerCapture(stopEvent.pointerId);
+        }
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", stop);
+        window.removeEventListener("pointercancel", stop);
+      };
+      window.addEventListener("pointermove", move, {passive: false});
+      window.addEventListener("pointerup", stop);
+      window.addEventListener("pointercancel", stop);
     });
     document.addEventListener("fullscreenchange", () => {
       document.getElementById("enlarge").textContent =
@@ -12533,6 +14265,20 @@ export function renderHtml({ adapter } = {}) {
       }
       loadReplaySegment(replaySegmentIndex + 1, true);
     });
+    document.getElementById("close-segment-replay").addEventListener(
+      "click",
+      () => segmentReplayModal.close()
+    );
+    segmentReplayModal.addEventListener("close", () => {
+      segmentReplayVideo.pause();
+      segmentReplayVideo.removeAttribute("src");
+      segmentReplayVideo.load();
+      segmentReplayKey = null;
+    });
+    segmentReplayModal.addEventListener("click", event => {
+      if (event.target === segmentReplayModal) segmentReplayModal.close();
+    });
+    segmentReplayVideo.addEventListener("timeupdate", updateSegmentReplay);
 
     async function submitEventMessage(textareaId, statusId, buttonId) {
       const textarea = document.getElementById(textareaId);

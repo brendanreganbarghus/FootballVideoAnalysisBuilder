@@ -510,6 +510,32 @@ The review workflow has two local parts:
 2. The project Canvas extension creates a separate temporary loopback URL for
    each opened Canvas panel.
 
+### Windows restart recovery
+
+Install the per-user logon bootstrap once:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass `
+  -File scripts\install-innovation-review-startup.ps1
+```
+
+The installer adds a command to the current user's Windows Startup folder. At
+sign-in it runs `scripts\start-innovation-review.ps1`, starts Docker Desktop
+when necessary, applies the `unless-stopped` restart policy to the dedicated
+`postgresql-container`, starts that container, launches the loopback review
+server independently of the Copilot session, and waits until
+`/api/coordination/health` reports `available`. It reads PostgreSQL credentials
+only from the existing per-user environment variables and requires no
+administrator permission.
+
+Run the bootstrap manually after a restart if the Canvas is needed before the
+Startup command finishes:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass `
+  -File scripts\start-innovation-review.ps1
+```
+
 ### 1. Start the local server
 
 From the repository root in a PowerShell terminal:

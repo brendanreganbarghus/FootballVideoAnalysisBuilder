@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter
+from functools import lru_cache
 from typing import Any, Iterable
 
 
@@ -33,83 +34,50 @@ def compare_manual_events(
         ),
         key=lambda event: event["comparison_seconds"],
     )
-    unmatched_predictions = set(range(len(predicted)))
-    matches: list[dict[str, Any]] = []
-    unmatched_manual: list[dict[str, Any]] = []
-    for truth in manual:
-        candidates = [
-            index
-            for index in unmatched_predictions
-            if predicted[index]["comparison_type"] == truth["event_type"]
-            and predicted[index].get("team") == truth.get("team")
-            and abs(
-                predicted[index]["comparison_seconds"]
-                - float(truth["clip_seconds"])
-            )
-            <= tolerance_seconds
-        ]
-        if not candidates:
-            unmatched_manual.append(truth)
-            continue
-        index = min(
-            candidates,
-            key=lambda candidate: abs(
-                predicted[candidate]["comparison_seconds"]
-                - float(truth["clip_seconds"])
-            ),
-        )
-        prediction = predicted[index]
-        unmatched_predictions.remove(index)
-        matches.append(
-            {
-                "manual": truth,
-                "prediction": prediction,
-                "difference_seconds": round(
-                    prediction["comparison_seconds"]
-                    - float(truth["clip_seconds"]),
-                    3,
-                ),
-            }
-        )
+    matched_indexes = _optimal_event_matches(
+        manual,
+        predicted,
+        tolerance_seconds,
+    )
+    matched_manual_indexes = {manual_index for manual_index, _ in matched_indexes}
+    matched_prediction_indexes = {
+        prediction_index for _, prediction_index in matched_indexes
+    }
+    matches = [
+        _event_match(manual[manual_index], predicted[prediction_index])
+        for manual_index, prediction_index in matched_indexes
+    ]
+    unmatched_manual = [
+        truth
+        for index, truth in enumerate(manual)
+        if index not in matched_manual_indexes
+    ]
+    unmatched_predictions = [
+        index
+        for index in range(len(predicted))
+        if index not in matched_prediction_indexes
+    ]
 
     unmatched_predicted = [predicted[index] for index in sorted(unmatched_predictions)]
-    review_matches: list[dict[str, Any]] = []
-    unresolved_manual: list[dict[str, Any]] = []
-    review_prediction_indexes = set(unmatched_predictions)
-    for truth in unmatched_manual:
-        candidates = [
-            index
-            for index in review_prediction_indexes
-            if predicted[index]["comparison_type"] == truth["event_type"]
-            and predicted[index].get("team") == truth.get("team")
-            and abs(
-                predicted[index]["comparison_seconds"]
-                - float(truth["clip_seconds"])
-            )
-            <= review_tolerance_seconds
-        ]
-        if not candidates:
-            unresolved_manual.append(truth)
-            continue
-        index = min(
-            candidates,
-            key=lambda candidate: abs(
-                predicted[candidate]["comparison_seconds"]
-                - float(truth["clip_seconds"])
-            ),
+    review_predictions = [predicted[index] for index in unmatched_predictions]
+    review_indexes = _optimal_event_matches(
+        unmatched_manual,
+        review_predictions,
+        review_tolerance_seconds,
+    )
+    review_matches = [
+        _event_match(
+            unmatched_manual[manual_index],
+            review_predictions[prediction_index],
         )
-        review_prediction_indexes.remove(index)
-        review_matches.append(
-            {
-                "manual": truth,
-                "prediction": predicted[index],
-                "difference_seconds": round(
-                    predicted[index]["comparison_seconds"]
-                    - float(truth["clip_seconds"]),
-                    3,
-                ),
-            }
-        )
+        for manual_index, prediction_index in review_indexes
+    ]
+    review_manual_indexes = {manual_index for manual_index, _ in review_indexes}
+    unresolved_manual = [
+        truth
+        for index, truth in enumerate(unmatched_manual)
+        if index not in review_manual_indexes
+    ]
     nearby_disagreements = []
     for truth in unmatched_manual:
         nearby = min(
@@ -167,6 +135,71 @@ def compare_manual_events(
         "unresolved_manual_after_review": unresolved_manual,
         "nearby_disagreements": nearby_disagreements,
     }
+
+
+def _event_match(
+    manual: dict[str, Any],
+    prediction: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "manual": manual,
+        "prediction": prediction,
+        "difference_seconds": round(
+            prediction["comparison_seconds"] - float(manual["clip_seconds"]),
+            3,
+        ),
+    }
+
+
+def _optimal_event_matches(
+    manual: list[dict[str, Any]],
+    predicted: list[dict[str, Any]],
+    tolerance_seconds: float,
+) -> tuple[tuple[int, int], ...]:
+    @lru_cache(maxsize=None)
+    def align(
+        manual_index: int,
+        prediction_index: int,
+    ) -> tuple[int, float, tuple[tuple[int, int], ...]]:
+        if manual_index == len(manual) or prediction_index == len(predicted):
+            return 0, 0.0, ()
+
+        options = [
+            align(manual_index + 1, prediction_index),
+            align(manual_index, prediction_index + 1),
+        ]
+        truth = manual[manual_index]
+        prediction = predicted[prediction_index]
+        difference = abs(
+            prediction["comparison_seconds"] - float(truth["clip_seconds"])
+        )
+        if (
+            prediction["comparison_type"] == truth["event_type"]
+            and prediction.get("team") == truth.get("team")
+            and difference <= tolerance_seconds
+        ):
+            count, total_difference, pairs = align(
+                manual_index + 1,
+                prediction_index + 1,
+            )
+            options.append(
+                (
+                    count + 1,
+                    total_difference + difference,
+                    ((manual_index, prediction_index), *pairs),
+                )
+            )
+
+        return min(
+            options,
+            key=lambda candidate: (
+                -candidate[0],
+                candidate[1],
+                candidate[2],
+            ),
+        )
+
+    return align(0, 0)[2]
 
 
 def _prediction_type(event_type: str) -> str | None:

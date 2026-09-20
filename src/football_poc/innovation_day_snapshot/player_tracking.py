@@ -98,11 +98,18 @@ def track_cached_players(
         minimum_track_points=minimum_track_points,
     )
     width, height = _video_dimensions(manifest.video)
+    balls_by_frame = _load_ball_points(ball_tracks_path)
     points = [
         point
         for record in records
         for point in _player_points(record, confidence)
-        if _inside_pitch(point.foot[0], point.foot[1], width, height)
+        if (
+            _inside_pitch(point.foot[0], point.foot[1], width, height)
+            or _near_ball(
+                point,
+                balls_by_frame.get(point.source_frame, ()),
+            )
+        )
     ]
     tracks = _associate_players(
         points,
@@ -669,6 +676,20 @@ def _inside_pitch(x: float, y: float, width: int, height: int) -> bool:
     top = (80 + 180 * normalized_x**2) / 1080 * height
     bottom = (640 + 65 * (1 - normalized_x**2)) / 1080 * height
     return top <= y <= bottom
+
+
+def _near_ball(
+    point: PlayerPoint,
+    balls: Iterable[tuple[float, float]],
+    *,
+    maximum_distance_ratio: float = 1.5,
+) -> bool:
+    foot_x, foot_y = point.foot
+    return any(
+        hypot(foot_x - ball_x, foot_y - ball_y) / point.height
+        <= maximum_distance_ratio
+        for ball_x, ball_y in balls
+    )
 
 
 def _box_iou(first: PlayerPoint, second: PlayerPoint) -> float:

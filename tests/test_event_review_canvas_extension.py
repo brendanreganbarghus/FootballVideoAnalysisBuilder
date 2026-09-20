@@ -384,7 +384,8 @@ def test_innovation_published_segments_offer_exact_output_regression() -> None:
     assert "reviewWorkflow.key === \"innovation\"" in renderer
     assert 'grid-template-areas:' in renderer
     assert 'newBadge.textContent = "NEW"' in renderer
-    assert 'unsupported.textContent = "✕ Not confirmed"' in renderer
+    assert '"✕ Incorrect — no such event"' in renderer
+    assert '"✕ Not confirmed"' in renderer
     assert 'id="move-event-panel"' in renderer
     assert 'handle.addEventListener("pointerdown"' in renderer
     assert 'handle.addEventListener("keydown"' in renderer
@@ -429,8 +430,8 @@ def test_innovation_canvas_keeps_bac_and_live_workflows_separate() -> None:
     assert 'processorScript: "process-alfheim-innovation-segment.py"' in extension
     assert 'payload.source_kind !== "evaluation_only_provider_coordinates"' in extension
     assert 'payload.pipeline_mode !== "innovation_day_bac_assisted"' in extension
-    assert 'state: "frozen_bac"' in extension
-    assert 'coordinateMode: "frozen_bac"' in extension
+    assert '? "reviewer_corrected"' in extension
+    assert ': "frozen_bac"' in extension
     assert "workflow.inspectionDetectionCaches || []" in extension
     assert (
         '"developer-runs/reviewed-23-ball-models/yolo26n/detections.jsonl"'
@@ -442,7 +443,14 @@ def test_innovation_canvas_keeps_bac_and_live_workflows_separate() -> None:
     assert "workflow.disabledActionNames.includes(action.name)" in extension
     assert '"review_action_unavailable"' in extension
     assert 'selectedCoordinateBatchId = "all"' in renderer
-    assert "All frames is read-only and shows persisted direct coordinates only." in renderer
+    assert "Reviewer-corrected Innovation demo layer" in renderer
+    assert "Frozen BAC stays unchanged." in renderer
+    assert 'coordinateCorrectionEnabled: true' in extension
+    assert 'reviewerCorrectedDemoLayer: true' in extension
+    assert 'id="edit-current-ball-coordinate"' not in renderer
+    assert '"/api/trajectory-audit-draft"' in renderer
+    assert "state.trajectoryAudit?.observations" in renderer
+    assert "Reviewer correction" in renderer
     assert "function comparisonRows()" in renderer
     assert "const rows = comparisonRows();" in renderer
     assert "function renderFullscreenEvents()" in renderer
@@ -451,12 +459,68 @@ def test_innovation_canvas_keeps_bac_and_live_workflows_separate() -> None:
     assert "if (stateRefreshPromise)" in renderer
     assert "return stateRefreshPromise;" in renderer
     assert "return await stateRefreshPromise;" in renderer
-    assert 'adapter.coordinateReviewEnabled ? "" : " hidden"' in renderer
-    assert '"Frozen BAC coordinate", "pending"' in renderer
-    assert '["BAC coordinate confirmed", "confirmed"]' in renderer
+    assert 'adapter.coordinateCorrectionEnabled ? "" : " hidden"' in renderer
+    assert '"BAC imported · confirmed", "confirmed"' in renderer
+    assert "const savedDecisionPresentation = observation?.decision" in renderer
+    assert "}[observation.decision]" in renderer
+    assert '"User changed · pending batch apply", "checking"' in renderer
+    assert '"Flagged for next coordinate update"' in renderer
+    assert '"Applied to current coordinate revision"' in renderer
     assert '"Not reviewed yet", "pending"' in renderer
     assert "workflow.inspectionDetectionCaches || []" in extension
     assert "yoloCandidateSource" in extension
+
+
+def test_innovation_reviewer_coordinates_are_versioned_and_drive_reruns() -> None:
+    root = Path(__file__).parents[1]
+    extension = EXTENSION.read_text(encoding="utf-8")
+    renderer = RENDERER.read_text(encoding="utf-8")
+    processor = (
+        root / "scripts" / "process-alfheim-innovation-segment.py"
+    ).read_text(encoding="utf-8")
+    server = (root / "scripts" / "serve-local.py").read_text(encoding="utf-8")
+
+    assert "async function ensureReviewerCoordinateLayer" in extension
+    assert 'source: "frozen_bac_copy"' in extension
+    assert 'purpose: "reviewer_corrected_innovation_demo_input"' in extension
+    assert "baseCoordinates," in extension
+    assert "approvedCoordinates: baseCoordinates" in extension
+    assert "reviewerCoordinateLayer: state.reviewerCoordinateLayer || null" in extension
+    assert "materializeReviewerCoordinates" in extension
+    assert (
+        'url.pathname === "/api/innovation/approve-coordinate-layer"'
+        in extension
+    )
+    assert "layer.revision = Number(layer.revision || 0) + 1;" in extension
+    assert "playerDetectionReused: true" in extension
+    assert "playerTrackingRerun: true" in extension
+    assert "eventsRerun: priorEngineOutput" in extension
+    assert "rerun_events: priorEngineOutput" in extension
+    assert "reviewer-coordinate-layer.json" in extension
+    assert 'id="apply-reviewer-coordinate-layer"' in renderer
+    assert "Apply approved coordinate updates" in renderer
+    assert (
+        'coordinates_updated = payload.get("coordinates_updated", False)'
+        in server
+    )
+    assert 'arguments.append("--coordinates-updated")' in server
+    assert 'arguments.append("--skip-events")' in server
+    assert (
+        'mode.add_argument("--coordinates-updated", action="store_true")'
+        in processor
+    )
+    assert "if args.events_only or args.coordinates_updated:" in processor
+    assert "if args.coordinates_updated:" in processor
+    assert "if args.skip_events:" in processor
+    assert "reusing frozen YOLO detections" in processor
+    assert 'str(cache / "detections.jsonl")' in processor
+    assert "str(active_ball_tracks)" in processor
+    coordinate_update_block = processor[
+        processor.index("if args.coordinates_updated:"):
+        processor.index('status("events"')
+    ]
+    assert "innovation_day_detector" not in coordinate_update_block
+    assert "player_tracking_cli" in coordinate_update_block
 
 
 def test_canvas_locks_review_controls_until_ai_is_ready() -> None:
@@ -575,6 +639,7 @@ def test_canvas_supports_post_change_regression_verification() -> None:
     extension = EXTENSION.read_text(encoding="utf-8")
 
     assert 'name: "get_review_status"' in extension
+    assert 'name: "validate_engine_reference"' in extension
     assert 'name: "refresh_engine_snapshot"' in extension
     assert 'name: "record_regression_result"' in extension
     assert "engine_snapshot_missing" in extension
@@ -695,8 +760,8 @@ def test_canvas_can_zoom_to_each_events_ball_coordinate() -> None:
     assert '"E" + (selectedEngineIndex + 1)' in renderer
     assert "function currentZoomFocus()" in renderer
     assert "Reset Action Zoom" in renderer
-    assert ".video-shell.action-zoom .video-media" in renderer
-    assert "videoMedia.style.transformOrigin = focus" in renderer
+    assert ".video-shell.action-zoom .video-zoom-layer" in renderer
+    assert "videoZoomLayer.style.transformOrigin = focus" in renderer
 
 
 def test_canvas_can_switch_between_normal_ball_and_ai_views() -> None:
@@ -719,7 +784,7 @@ def test_canvas_can_switch_between_normal_ball_and_ai_views() -> None:
     assert "Detected ball" in renderer
     assert "Cached AI player, team, and ball tracking" in renderer
     assert "replaceVideoSource(source)" in renderer
-    assert "videoMedia.style.transformOrigin = focus" in renderer
+    assert "videoZoomLayer.style.transformOrigin = focus" in renderer
 
 
 def test_canvas_uses_a_stable_session_instance_port() -> None:
@@ -742,6 +807,20 @@ def test_passed_segments_use_locked_references_and_remain_reviewable() -> None:
     assert "Published reference" in renderer
     assert "Passed" in renderer
     assert "Protected" in renderer
+
+
+def test_publication_returns_to_selected_segment_overview() -> None:
+    renderer = RENDERER.read_text(encoding="utf-8")
+
+    assert 'id="shared-review-panel"' in renderer
+    assert "async function showPublishedSegmentOverview()" in renderer
+    assert "await document.exitFullscreen();" in renderer
+    assert "sharedReviewPanel.open = true;" in renderer
+    assert 'sharedReviewPanel.querySelector("tr.selected")?.scrollIntoView({' in renderer
+    assert "const referenceJustPublished = Boolean(" in renderer
+    assert "await showPublishedSegmentOverview();" in renderer
+    assert "if (selectionChanged && referenceLocked()) {" in renderer
+    assert 'document.getElementById("shared-review-panel").open = true;' in renderer
 
 
 def test_prepared_only_segments_do_not_start_processing() -> None:
@@ -855,7 +934,7 @@ def test_canvas_runs_ai_only_after_explicit_action() -> None:
     assert 'id="process-segment"' in renderer
     assert 'fetch("/api/analyze"' in renderer
     assert 'processButton.addEventListener("click"' in renderer
-    assert "Starting BAC-assisted Innovation analysis." in renderer
+    assert "Starting BAC-assisted Innovation analysis, followed by an independent C# protocol-v6 review." in renderer
     assert "The Live ball tracker is not used." in renderer
 
 
@@ -1307,6 +1386,29 @@ def test_completed_review_can_publish_only_through_the_final_gate() -> None:
     assert "const canPublish =" in renderer
     assert 'fetch("/api/publish-reference"' in renderer
     assert "Running protected regressions and the final exact-match gate" in renderer
+
+
+def test_shared_segment_rows_offer_cached_engine_video_replay() -> None:
+    extension = EXTENSION.read_text(encoding="utf-8")
+    renderer = RENDERER.read_text(encoding="utf-8")
+
+    assert "async function buildReplaySegments(segments)" in extension
+    assert "&& segment.validated" in extension
+    assert 'eventSource: "cached_engine_output"' in extension
+    assert "replaySegments," in extension
+    assert 'id="segment-replay-modal"' in renderer
+    assert 'id="segment-replay-video"' in renderer
+    assert 'className = "segment-replay-action"' in renderer
+    assert "&& summary.published" in renderer
+    assert '"Replay " + segment.timeLabel + " from cached engine output"' in renderer
+    assert "function openSegmentReplay(segmentKey)" in renderer
+    assert "function updateSegmentReplay()" in renderer
+    assert 'class="stadium-scoreboard"' in renderer
+    assert 'id="segment-replay-event-list"' not in renderer
+    assert "Sequential engine events" not in renderer
+    assert "<span>Powered by</span>" in renderer
+    assert 'assets/xebia-logo.svg' in renderer
+    assert "cached rules-engine statistics only" in renderer
 
 
 def test_live_publication_feedback_stays_beside_publish_button() -> None:
@@ -1915,13 +2017,47 @@ def test_fullscreen_event_panel_can_hide_and_video_can_step_forward() -> None:
 def test_fullscreen_video_supports_slow_and_fast_playback() -> None:
     renderer = LIVE_RENDERER.read_text(encoding="utf-8")
 
+    assert "grid-template-rows: minmax(0, 1fr) auto auto;" in renderer
+    assert ".video-shell:fullscreen > .transport {" in renderer
+    assert "max-height: min(30dvh, 220px);" in renderer
+    assert (
+        ".video-shell:fullscreen\n"
+        "      > .transport\n"
+        "      > .innovation-manual-controls"
+    ) in renderer
     assert 'id="playback-speed"' in renderer
+    assert 'id="toggle-playback"' in renderer
+    assert 'id="playback-status"' in renderer
+    assert 'document.getElementById("toggle-playback").textContent = "Pause";' in renderer
+    assert 'document.getElementById("toggle-playback").textContent = "Play";' in renderer
     assert '<option value="0.25">0.25×</option>' in renderer
     assert '<option value="0.5">0.5×</option>' in renderer
     assert '<option value="1" selected>1×</option>' in renderer
     assert '<option value="2">2×</option>' in renderer
     assert "video.playbackRate = Number(event.currentTarget.value);" in renderer
     assert "const seconds = Math.min(60, Math.max(0, video.currentTime || 0));" in renderer
+    assert 'class="video-zoom-layer" id="video-zoom-layer"' in renderer
+    assert ".video-shell.action-zoom .video-zoom-layer" in renderer
+    assert "videoZoomLayer.style.transformOrigin = focus" in renderer
+    assert "videoZoomLayer.style.transform =" in renderer
+    assert "videoMedia.style.transform =" not in renderer
+    assert ".video-media.zoomed .video-zoom-layer" in renderer
+    assert "cursor: grab;" in renderer
+    assert ".video-media.panning .video-zoom-layer" in renderer
+    assert 'videoZoomLayer.addEventListener("pointerdown", event =>' in renderer
+    assert "videoZoomLayer.setPointerCapture(event.pointerId)" in renderer
+    assert "Math.hypot(deltaX, deltaY) < 5" in renderer
+    assert 'window.addEventListener("pointermove", move, {passive: false})' in renderer
+    assert "event.preventDefault();" not in renderer[
+        renderer.index('videoZoomLayer.addEventListener("pointerdown", event =>'):
+        renderer.index("const startX = event.clientX;")
+    ]
+    assert "function clampVideoPan(appliedZoom, focus)" in renderer
+    assert '"translate3d(" + videoPanX.toFixed(1)' in renderer
+    assert '<div class="video-zoom-controls"' in renderer
+    assert 'class="video-zoom-controls fullscreen-only"' not in renderer
+    assert 'class="timeline-control">Review Position' in renderer
+    assert "auto auto auto minmax(240px, 1fr)" in renderer
 
 
 def test_live_canvas_shows_only_the_relevant_prepare_or_ai_action() -> None:
@@ -1958,8 +2094,11 @@ def test_innovation_requires_evidence_before_rules_engine_processing() -> None:
     assert 'id="prepare-innovation-evidence"' in renderer
     assert 'fetch("/api/innovation/prepare-evidence"' in renderer
     assert '"Prepare BAC + player context"' in renderer
-    assert '"Process AI rules engine"' in renderer
+    assert '"Process AI + C# v6 review"' in renderer
     assert "segment.evidenceReady" in renderer
+    assert 'id="show-copilot-reference" type="checkbox" checked' in renderer
+    assert '<aside class="copilot-reference" id="copilot-reference"' in renderer
+    assert "const hasCopilotReference = Boolean(state?.copilotEvents?.length)" in renderer
     assert "preparedUrl.searchParams.set(" in renderer
     assert "innovation_evidence_required" in extension
     assert "evidence_only: true" in extension
@@ -1987,7 +2126,15 @@ def test_innovation_state_polling_retries_and_shows_detection_progress() -> None
     assert '"Target: " + timeLabel' in renderer
     assert '"Innovation rules engine: " + eventsStatus' in renderer
     assert '"BAC + player context complete"' in renderer
-    assert '"Innovation rules engine complete"' in renderer
+    assert '"Innovation AI processing complete"' in renderer
+    assert '"C# protocol v6 review: " + copilotStatus' in renderer
+    assert '"Current C# step: " + state.activity.label' in renderer
+    assert 'state?.automaticCopilotReview?.status === "reviewing"' in renderer
+    assert "function completeSegmentLoading(label, detail)" in renderer
+    assert "completeSegmentLoading(\n          \"BAC + player context complete\"" in renderer
+    assert "completeSegmentLoading(\n            \"Innovation AI processing complete\"" in renderer
+    assert renderer.count('"#segment-loading-close"') == 2
+    assert renderer.count('"#segment-loading-cancel"') == 2
     assert '"Detecting player context"' in renderer
     assert '"Preparing Innovation evidence"' in extension
     assert "if (state?.segment) syncInnovationAnalysisModal(state.segment);" in renderer
@@ -1997,18 +2144,25 @@ def test_innovation_state_polling_retries_and_shows_detection_progress() -> None
     assert '<th scope="col">Frame</th>' in renderer
 
 
-def test_innovation_rules_run_does_not_start_copilot_review() -> None:
+def test_innovation_rules_run_starts_protocol_v6_copilot_review() -> None:
     extension = EXTENSION.read_text(encoding="utf-8")
     renderer = RENDERER.read_text(encoding="utf-8")
 
     assert "automaticCopilotReview: null" in extension
-    assert 'code: "manual_first_workflow"' in extension
-    assert (
-        '"Automatic C# generation is disabled in the manual-first '
-        'Innovation workflow"'
-    ) in extension
-    assert 'if (reviewWorkflow.key === "innovation") return;' in renderer
-    assert '"Manual M# review is ready. Copilot diagnostics remain optional."' in renderer
+    assert 'code: "manual_first_workflow"' not in extension
+    assert "review.state.automaticCopilotReview = null;" in extension
+    assert "function independentClipReviewVideoArtifact(segment)" in extension
+    assert "independentClipReviewAttachment" not in extension
+    assert 'displayName: `${review.selected.key}-full-resolution.mp4`' not in extension
+    assert 'fetch(\n          "/api/innovation/start-independent-review"' in renderer
+    automatic_review = renderer[
+        renderer.index("async function startAutomaticCopilotReview()"):
+        renderer.index("async function cancelCopilotReview()")
+    ]
+    assert 'if (reviewWorkflow.key === "innovation") return;' not in automatic_review
+    assert '"Process AI + C# v6 review"' in renderer
+    assert '"Rerun AI + C# v6 review"' in renderer
+    assert "completeSegmentLoading(\n            \"Innovation AI processing complete\"" in renderer
 
 
 def test_innovation_manual_reference_helpers_cover_seed_mapping_and_history() -> None:
@@ -2077,6 +2231,12 @@ def test_innovation_manual_reference_helpers_cover_seed_mapping_and_history() ->
       assert.deepEqual(activeManualEvents(reference).map(event => event.key), [
         "M2", "M1",
       ]);
+      assert.deepEqual(
+        publicManualReferenceState(
+          "innovation", {manualReference: reference}, [], []
+        ).manualEvents.map(event => [event.key, event.displayKey]),
+        [["M2", "M1"], ["M1", "M2"]],
+      );
       mutateInnovationManualReference(reference, {
         action: "edit", manualKey: "M1", timestampMs: 59999,
         team: "red", eventType: "turnover",
@@ -2086,6 +2246,12 @@ def test_innovation_manual_reference_helpers_cover_seed_mapping_and_history() ->
         action: "delete", manualKey: "M2",
       });
       assert.equal(activeManualEvents(reference).length, 1);
+      assert.deepEqual(
+        publicManualReferenceState(
+          "innovation", {manualReference: reference}, [], []
+        ).manualEvents.map(event => [event.key, event.displayKey]),
+        [["M1", "M1"]],
+      );
       mutateInnovationManualReference(reference, {action: "undo"});
       assert.equal(activeManualEvents(reference).length, 2);
       mutateInnovationManualReference(reference, {action: "undo"});
@@ -2190,6 +2356,20 @@ def test_innovation_manual_reference_helpers_cover_seed_mapping_and_history() ->
         ),
         {},
       );
+      const cascadingSuggestions = suggestManualMappings(
+        [
+          {key: "M9", timestampMs: 21760, seconds: 21.76, team: "black",
+            type: "completed_pass", active: true, deleted: false},
+          {key: "M10", timestampMs: 22600, seconds: 22.6, team: "black",
+            type: "completed_pass", active: true, deleted: false},
+        ],
+        [
+          {key: "E9", seconds: 20.8, team: "black", type: "completed_pass"},
+          {key: "E10", seconds: 22.6, team: "black", type: "completed_pass"},
+        ],
+      );
+      assert.equal(cascadingSuggestions.M9.engineKey, "E9");
+      assert.equal(cascadingSuggestions.M10.engineKey, "E10");
 
       mutateInnovationManualReference(reference, {
         action: "reject", manualKey: "M2",
@@ -2266,8 +2446,9 @@ def test_innovation_manual_first_ui_and_live_gating_contracts() -> None:
         "Black turnover",
         "White/red completed pass",
         "White/red turnover",
-        "Approve minute as golden",
-        "Undo last change",
+        "Freeze manual M# reference as golden",
+        "Validate engine against golden reference",
+        "Publish Passed segment",
         "Show Copilot C# reference",
         "diagnostic only",
         "No engine match within one second",
@@ -2282,28 +2463,62 @@ def test_innovation_manual_first_ui_and_live_gating_contracts() -> None:
     assert "Add M# at the current video time:" in renderer
     assert 'id="show-bac-coordinate"' in renderer
     assert "Show BAC ball coordinate" in renderer
-    assert '"BAC · frame " + frame + " · x "' in renderer
+    assert "Undo last change" not in renderer
+    assert 'id="undo-ball-coordinate-decision"' in renderer
+    assert '(useReviewerCoordinate ? "Reviewer correction" : "BAC")' in renderer
+    assert '+ " · frame " + frame + " · x "' in renderer
     assert "showBacCoordinate = event.currentTarget.checked" in renderer
     assert "video.pause();" in renderer
     assert 'action: "create"' in renderer
     assert 'action: "edit"' in renderer
     assert 'action: "delete"' in renderer
-    assert 'action: "undo"' in renderer
     assert 'action: "approve"' in renderer
     assert 'action: "reopen"' in renderer
+    assert 'id="fullscreen-edit-current-ball-coordinate"' not in renderer
+    assert "#validate-engine-reference {" in renderer
+    assert "background: #9a6700;" in renderer
+    assert "color: #fff;" in renderer
+    assert "function setCopilotReferenceVisible(visible)" in renderer
+    assert "approveMinute.hidden = false" in renderer
+    assert "validateEngine.hidden = false" in renderer
+    assert '"#validate-engine-reference",' in renderer
+    assert "publishPassed.hidden = false" in renderer
+    assert 'fetch("/api/validate-engine-reference"' in renderer
+    assert 'url.pathname === "/api/validate-engine-reference"' in extension
+    assert "engineComparisonRevealed" in extension
+    assert "goldenComparisonAuthorized" in extension
+    assert "refreshAuthorizedEngineComparison" in extension
+    assert '"refresh_engine_against_golden"' in extension
+    assert (
+        "await refreshAuthorizedEngineComparison(\n"
+        "      requestedSegment,\n"
+        "      state,\n"
+        "      currentEngine,\n"
+        "    );"
+    ) in extension
+    assert "innovationPublicationPlan" in extension
     assert "event.seconds.toFixed(3)" in renderer
     assert '"s · frame "' in renderer
     assert '"s · Δ"' in renderer
     assert 'details.className = "manual-editor-details"' in renderer
-    assert 'summary.textContent = "Edit " + row.review.key' in renderer
+    assert 'summary.textContent = "Edit " + displayKey' in renderer
+    assert "function manualDisplayKey(event, index)" in renderer
     assert "time, team, event type, or delete it" in renderer
     assert 'reviewMissing.className = "comparison-action icon-action"' in renderer
-    assert '"Review missing E# for " + row.review.key' in renderer
+    assert '"Review missing E# for "\n        + manualDisplayKey(' in renderer
     assert 'reviewMissing.append(comparisonActionIcon("verify"))' in renderer
     assert 'id="manual-engine-review-modal"' in renderer
     assert 'name="manual-engine-review-decision"' in renderer
-    assert "Correct — the engine missed this M#" in renderer
-    assert "Event exists, but M# details need editing" in renderer
+    assert "Existing E# is this play, but E# timing or details are wrong" in renderer
+    assert "No E# represents this play — the engine missed M#" in renderer
+    assert "M# itself is wrong — edit M#" in renderer
+    assert renderer.count("M# is accepted as correct.") == 2
+    assert "Treat M# as " in extension
+    assert "the required evaluation result: do not reject" in extension
+    assert '"that M#/E# relationship as the required evaluation result:' in extension
+    assert '"path rather than rejecting the golden event' in extension
+    assert "in this single Autopilot " in extension
+    assert "Do not start a separate Plan, adjudication, or follow-up " in extension
     assert "Reject M# — not supported by the video" in renderer
     assert "Remove M# — added in error" in renderer
     assert 'action: decision === "reject" ? "reject" : "delete"' in renderer
@@ -2312,12 +2527,56 @@ def test_innovation_manual_first_ui_and_live_gating_contracts() -> None:
     assert "Cannot verify from this camera" in renderer
     assert "manualKey: event.key" in renderer
     assert 'context.drafts.findIndex((event) => event.key === manualKey)' in extension
-    assert 'fetch(\n          "/api/copilot-review-manual-engine"' in renderer
+    assert '"/api/copilot-review-manual-engine"' in renderer
     assert 'url.pathname === "/api/copilot-review-manual-engine"' in extension
     assert "function manualEngineDiscrepancyPrompt(" in extension
     assert "let manualEngineReviewPending = null;" in renderer
+    assert "function pendingManualEngineReviewContext(state, segment)" in extension
+    assert "manualReviewKey: event.key" in extension
+    assert "manualIdentity," in extension
+    assert "activeManualReview.manualReviewKey" in renderer
+    assert "=== manualEngineReviewPending.manualKey" in renderer
+    assert '"Copilot is working… Reviewing "' in renderer
+    assert "diagnosis, cached rebuilding, tests" in renderer
+    assert 'id="close-manual-engine-review"' in renderer
+    assert "Close Modal" in renderer
+    assert 'id="cancel-manual-copilot-review"' in renderer
+    assert "Cancel Copilot Review" in renderer
+    assert renderer.count("Cancel Copilot Review") == 3
+    assert "async function cancelManualEngineReview()" in renderer
+    assert renderer.count('"#cancel-manual-copilot-review"') >= 2
+    assert renderer.count('"#close-manual-engine-review"') >= 2
+    assert (
+        'document.getElementById("close-manual-engine-review").disabled = true;'
+        in renderer
+    )
+    assert (
+        'cancel.hidden = false;\n        cancel.disabled = false;'
+        in renderer
+    )
+    assert (
+        'document.getElementById(\n'
+        '        "cancel-manual-copilot-review"\n'
+        "      ).disabled = true;"
+        in renderer
+    )
+    assert "max-height: calc(100dvh - 48px);" in renderer
+    assert "overscroll-behavior: contain;" in renderer
+    assert "border-left-color: #d29922;" in renderer
     assert 'button.textContent = "Copilot is working…"' in renderer
     assert "function syncManualEngineReviewModal()" in renderer
+    assert 'modal.dataset.reviewState === "working"' in renderer
+    assert "!activeManualReview" in renderer
+    assert 'state.activity?.state !== "working"' in renderer
+    assert (
+        "modal.open\n        && activeManualReview"
+        in renderer
+    )
+    assert (
+        'const sameReviewActive = Boolean(\n'
+        "        activeManualReview"
+        in renderer
+    )
     assert "M#/E# rows refreshed." in renderer
     assert 'id="fullscreen-event-chat"' in renderer
     assert 'class="fullscreen-event-chat"' in renderer
@@ -2326,6 +2585,12 @@ def test_innovation_manual_first_ui_and_live_gating_contracts() -> None:
     assert ".fullscreen-event-chat[open]" in renderer
     assert ".fullscreen-event-chat:not([open])" in renderer
     assert "flex: 0 0 min(220px, 48%);" in renderer
+    assert 'id="innovation-manual-panel"' in renderer
+    assert 'aria-labelledby="innovation-manual-panel-title"' in renderer
+    assert ".innovation-manual-panel:not([open])" in renderer
+    assert '.innovation-manual-panel[open] > summary::after' in renderer
+    assert 'content: "Show";' in renderer
+    assert 'content: "Hide";' in renderer
     assert "new ResizeObserver(clampPanelToShell).observe(panel);" in renderer
     assert "selectedConversation.length === 0" in renderer
     assert 'time.addEventListener("change", saveImmediately)' in renderer
@@ -2459,7 +2724,10 @@ def test_live_main_conversations_start_after_coordinate_minimum() -> None:
     assert (
         'document.getElementById("needs-more-checking").disabled =\n'
         "        selectedRawBallFrame !== selectedBallTargetFrame\n"
-        '        || state.coordinateReview?.status === "finalized"\n'
+        "        || (\n"
+        '          state.coordinateReview?.status === "finalized"\n'
+        "          && !reviewerCorrectionView\n"
+        "        )\n"
         '        || selectedCoordinateBatch()?.status === "done";'
         in renderer
     )
@@ -2577,7 +2845,8 @@ def test_live_canvas_has_segment_scoped_ball_frame_inspector() -> None:
     assert 'gateDetail.setAttribute("popover", "auto");' in renderer
     assert 'gateInfoButton.setAttribute("popovertarget", gateDetailId);' in renderer
     assert "Open this frame to view the saved YOLO candidates as blue rings." in renderer
-    assert '"Read-only BAC coordinate. Saved YOLO candidates remain "' in renderer
+    assert '"Frozen BAC stays unchanged. Click any frame to agree, mark "' in renderer
+    assert '"Read-only: inspect coordinates; recovery submissions are closed."' in renderer
     assert '"Show coordinate gate details for frame " + point.frame' in renderer
     assert '"Previous-round reason: " + carryForward.reason' in renderer
     assert '"4. Competing-path margin"' in renderer
@@ -2603,7 +2872,8 @@ def test_live_canvas_has_segment_scoped_ball_frame_inspector() -> None:
     assert "approvedCount === flaggedBallFrames.size" in renderer
     assert '"Complete all decisions before sending ("' in renderer
     assert '|| !reviewComplete' in renderer
-    assert 'const chip = document.createElement("span");' in renderer
+    assert 'const chip = document.createElement("button");' in renderer
+    assert 'chip.addEventListener("click", () => {' in renderer
     assert 'chip.className = "coordinate-review-result " + presentation[1];' in renderer
     assert 'button.className = "ball-frame-open";' not in renderer
     assert '"Copilot is reviewing the frozen evidence"' in renderer
@@ -2705,13 +2975,15 @@ def test_live_canvas_has_segment_scoped_ball_frame_inspector() -> None:
         'url.pathname === "/api/message"'
     )
     assert "trajectoryAudit: state.trajectoryAudit || {" in extension
-    assert 'fetch("/api/trajectory-audit-draft"' not in renderer
+    assert 'if (state?.segment?.coordinateMode === "frozen_bac") {' in renderer
+    assert 'fetch("/api/trajectory-audit-draft"' in renderer
+    assert "reviewerCorrectedDemoLayer: false" in renderer
     assert (
         'document.getElementById("ball-frame-filter").value = "estimated";'
         not in renderer
     )
     assert "point.frame > reviewedFrame" not in renderer
-    assert '"you are ready to move on."' in renderer
+    assert "when you are ready to move on." in renderer
     assert 'title="Previous raw frame (−1)"' in renderer
     assert 'title="Next raw frame (+1)"' in renderer
     assert 'aria-label="Agree with current coordinate"' in renderer
@@ -2856,22 +3128,103 @@ def test_innovation_engine_search_opens_guided_preflight_without_copilot() -> No
     assert "this window does not start Copilot" in renderer
     assert "This guide applies only to the selected E#" in renderer
     assert "Correct — exact event is supported" in renderer
-    assert "Event exists, but details are wrong" in renderer
-    assert "Incorrect — no such event occurred" in renderer
+    assert "Same play, but this E# timing or details are wrong" in renderer
+    assert "No such event occurred — reject this E#" in renderer
     assert "Cannot verify from this camera" in renderer
     assert renderer.count('"#cancel-engine-verification"') >= 2
     assert '"[name=engine-verification-decision]"' in renderer
     assert 'id="confirm-engine-without-copilot"' in renderer
     assert 'id="ask-copilot-engine-review"' in renderer
     assert 'id="cancel-engine-verification"' in renderer
+    assert "async function cancelOrCloseEngineVerification()" in renderer
+    assert 'cancel.textContent = "Cancel review";' in renderer
+    assert '"Copilot is working… Reviewing E" + (engineIndex + 1)' in renderer
+    assert 'syncEngineVerificationModal();' in renderer
+    assert (
+        'sameReviewActive && state.activity?.state === "working"'
+        in renderer
+    )
+    assert (
+        'input.checked = false;\n        input.disabled = false;'
+        in renderer
+    )
+    assert (
+        'document.getElementById("ask-copilot-engine-review").disabled = false;'
+        in renderer
+    )
+    assert (
+        "selectedEngineIndex = refreshedIndex >= 0 ? refreshedIndex : null;\n"
+        "        resetEngineVerificationControls();\n"
+        "        closeEngineVerificationModal();"
+        in renderer
+    )
+    assert "closeEngineVerificationModal();" in renderer
+    assert ".comparison-row.engine-selected" in renderer
+    assert 'item.classList.add("engine-selected")' in renderer
+    assert "const pending = engineVerificationPending;" in renderer
+    assert "const activeEngineReview = state.activeConversation?.engineIndex" in renderer
+    assert "const sameReviewActive = Boolean(" in renderer
+    assert (
+        "modal.open\n        && activeEngineReview"
+        in renderer
+    )
+    assert (
+        'const sameReviewActive = Boolean(\n'
+        "        activeEngineReview"
+        in renderer
+    )
+    assert "if (sameReviewActive || state.activity?.state === \"working\")" not in renderer
+    assert "activeEngineReview.engineReviewKey === pending.reviewKey" in renderer
+    assert "selectedEngineIndex = refreshedIndex >= 0 ? refreshedIndex : null;" in renderer
+    assert '[data-event-source="engine"][data-event-index="' in renderer
+    assert "const engineReviewKey = engineEventReviewKey(event)" in extension
+    assert "engineIdentity:" in extension
+    assert "function pendingEngineReviewContext(state, segment)" in extension
+    assert 'Object.hasOwn(message, "engineReviewKey")' in extension
+    assert "message.engineReviewKey === null" in extension
+    assert "message.engineIndex = null;" in extension
+    assert "pendingEngineReviewContext(state, selected.key)" in extension
+    assert "pendingManualEngineReviewContext(state, selected.key)" in extension
+    assert "pendingEngineReviewContext(review.state, segment)" in extension
+    assert "message?.role === \"assistant\"" in extension
+    assert "engineEventReviewKey(candidate) === engineReviewKey" in extension
+    assert "engineEventRemoved = engineEvent === null;" in extension
+    assert "const engineReviewKey = activeEngineReview?.engineReviewKey || null" in extension
+    assert "engineIdentity: activeEngineReview?.engineIdentity || null" in extension
+    assert "if (engineVerificationPending) event.preventDefault();" in renderer
+    assert "engine-verification-working-pulse" in renderer
+    assert ":is(#engine-verification-guidance, #manual-engine-review-guidance)" in renderer
+    assert "border-left-color: #f2cc60;" in renderer
     assert 'id="engine-check-seconds"' in renderer
     assert 'id="seek-engine-check-time"' in renderer
-    assert "Another completion time to inspect (seconds)" in renderer
+    assert "Optional corrected E# completion time (seconds)" in renderer
+    assert 'id="engine-verification-time" hidden' in renderer
+    assert (
+        'timePanel.hidden = decision !== "details_wrong" || batchCount > 1;'
+        in renderer
+    )
+    assert "Preview time in video" in renderer
     assert "function engineVerificationCheckTime()" in renderer
     assert "function seekEngineVerificationTime()" in renderer
     assert "without changing M#" in renderer
     assert "seekVideo(seconds);" in renderer
+    assert "the time is sent to Copilot with the correction" in renderer
+    assert 'userVerdict: decision === "engine_match_wrong"' in renderer
+    assert '"engine_match_wrong",' in extension
+    assert "do not reclassify the E# as a " in extension
+    assert '"different play.' in extension
+    assert "function dismissCompletedSegmentOverlay()" in renderer
+    assert "if (overlay.hidden || closeButton.hidden) return;" in renderer
+    assert renderer.count("dismissCompletedSegmentOverlay();") == 2
     assert "openEngineVerificationModal(row.engineIndex)" in renderer
+    assert "E# is a display ordinal only." in extension
+    assert "Frozen golden M# check:" in extension
+    assert "manualReference?.approved?.events || []" in extension
+    assert "function missingEngineReviewButton(row)" in renderer
+    assert "!state.manualReference?.approved" in renderer
+    assert "cell.append(missingEngineReviewButton(row));" in renderer
+    assert '"Review missing E# for "\n        + manualDisplayKey(' in renderer
+    assert "Cached event rebuilding is permitted only" in extension
     assert (
         renderer.index("openEngineVerificationModal(row.engineIndex)")
         < renderer.index("async function requestEngineEventVerification(")
@@ -2879,6 +3232,24 @@ def test_innovation_engine_search_opens_guided_preflight_without_copilot() -> No
     assert 'fetch("/api/reviewer-confirm-engine"' in renderer
     assert 'userVerdict: "correct"' in renderer
     assert 'fetch("/api/copilot-verify-engine"' in renderer
+    assert (
+        renderer.index('"Starting the targeted E" + (engineIndex + 1)')
+        < renderer.index(
+            '"Could not start engine-event rejection review"',
+        )
+        < renderer.index(
+            '" rejection review started. Copilot is inspecting only this "',
+        )
+    )
+    assert (
+        renderer.index("setEngineVerificationWorking(engineIndex);", renderer.index(
+            '"Could not start engine-event rejection review"',
+        ))
+        < renderer.index("await loadState();", renderer.index(
+            '"Could not start engine-event rejection review"',
+        ))
+    )
+    assert '"). The automatic refresh will retry."' in renderer
     assert 'url.pathname === "/api/reviewer-confirm-engine"' in extension
     assert 'body.userVerdict !== "correct"' in extension
     assert 'reviewSource: "professional_reviewer"' in extension
@@ -2887,16 +3258,81 @@ def test_innovation_engine_search_opens_guided_preflight_without_copilot() -> No
     assert "The compact comparison table has permanent Manual `M#` and Engine `E#`" in architecture
     assert "`C#` proposals are optional, read-only Copilot diagnostic history" in architecture
     assert "Show Copilot C# reference" in renderer
+    assert renderer.count('id="show-copilot-reference"') == 1
+    assert 'class="copilot-reference-toggle"' in renderer
+    assert ".innovation-manual-controls {\n      display: flex;\n      flex: 0 0 auto;" in renderer
     assert "Copilot C# reference · diagnostic only" in renderer
     assert 'item.className = "copilot-reference-event"' in renderer
+    assert 'closestTag.className = "copilot-closest-manual-tag"' in renderer
+    assert 'closestTag.textContent = "Closest "' in renderer
+    assert "state?.manualEvents || []" in renderer
+    assert ".copilot-closest-manual-tag {" in renderer
     assert 'item.title = event.key + " · frame "' in renderer
     assert 'item.dataset.eventSource = "copilot-reference"' in renderer
+    assert '"manual-engine-review-guidance"' in renderer
+    assert 'data-manual-draft-action' in renderer
+    assert '"manual-engine-review-frozen-note"' in renderer
+    assert "option.hidden = manualReferenceFrozen;" in renderer
     assert "selectedCopilotReferenceIndex = index;" in renderer
     assert "button.scrollIntoView({block: \"nearest\"});" in renderer
     assert "Reject E# & fix engine" in renderer
     assert "replace the old E# list" in renderer
     assert "Protected regressions run only after a rules-engine change" in architecture
     assert "No Copilot review, engine check, engine change, or" in renderer
+
+
+def test_innovation_modals_group_similar_discrepancies_in_one_request() -> None:
+    renderer = RENDERER.read_text(encoding="utf-8")
+    extension = EXTENSION.read_text(encoding="utf-8")
+
+    assert 'id="engine-similar-review-group"' in renderer
+    assert "Check similar E# discrepancies together" in renderer
+    assert 'id="manual-similar-review-group"' in renderer
+    assert "Check similar unmatched M# events together" in renderer
+    assert "candidate.type === engine.type" in renderer
+    assert "candidate.type === event.type" in renderer
+    assert "!suggestions[candidate.key]" in renderer
+    assert "reviewableEngineIndices.has(index)" in renderer
+    assert "selectedEngineBatchIndices()" in renderer
+    assert "selectedManualBatchIndices()" in renderer
+    assert renderer.count('"/api/copilot-review-discrepancy-batch"') >= 3
+    assert "review \" + batchCount + \" similar E# events once" in renderer
+    assert "activeDiscrepancyBatch" in renderer
+    assert "target.manualKey === row.review?.key" in renderer
+    assert "target.engineReviewKey === [" in renderer
+
+    assert (
+        'url.pathname === "/api/copilot-review-discrepancy-batch"'
+        in extension
+    )
+    assert "Grouped review can contain only one canonical event type" in extension
+    assert "review.state.pendingDiscrepancyBatch = batch;" in extension
+    assert "prompt: discrepancyBatchPrompt(review.selected, batch)" in extension
+    assert "at most one cached events-only rebuild" in extension
+    assert "publish_batch_review_results" in extension
+    assert "exactly once" in extension
+    assert "Partial result sets are rejected" in extension
+    assert extension.count("review_batch_requires_atomic_publish") == 2
+    assert "Grouped-review responses can be published only after every target" in extension
+    assert "results.length === batch.targets.length" in extension
+    assert "resultByTarget.size === batch.targets.length" in extension
+    assert "for (const target of batch.targets)" in extension
+    assert "review.state.pendingDiscrepancyBatch = null" in extension
+    assert "activeDiscrepancyBatch: state.pendingDiscrepancyBatch || null" in extension
+    cleared_batch = extension.index(
+        "review.state.pendingDiscrepancyBatch = null",
+        extension.index('name: "publish_batch_review_results"'),
+    )
+    saved_batch = extension.index(
+        "await saveState(segment, review.state);",
+        cleared_batch,
+    )
+    ready_activity = extension.index(
+        'setActivity(\n              "ready",\n'
+        '              "Grouped Copilot results ready"',
+        saved_batch,
+    )
+    assert cleared_batch < saved_batch < ready_activity
 
 
 def test_live_comparison_uses_panel_equivalent_status_and_action_labels() -> None:
@@ -2934,14 +3370,39 @@ def test_live_extension_can_publish_progress_without_completing_review() -> None
 
     assert 'name: "publish_review_progress"' in extension
     assert '"Publish an in-progress Copilot update into the Canvas conversation without completing the review."' in extension
-    assert "engineIndex," in extension
+    assert (
+        "const engineIndex = Number.isInteger(context.input.engineIndex)"
+        in extension
+    )
+    assert "message.completed !== false" in extension
+    assert "candidate.completed !== false" in extension
     assert "completed: false," in extension
+    assert "completed: true," in extension
+    assert "engineIndex," in extension
+
+
+def test_review_modals_only_pulse_for_active_work_and_restore_controls() -> None:
+    renderer = RENDERER.read_text(encoding="utf-8")
+
+    assert (
+        'sameReviewActive && state.activity?.state === "working"'
+        in renderer
+    )
+    assert "function resetManualEngineReviewControls(message)" in renderer
+    assert (
+        "The previous M# review is no longer active. Controls were restored."
+        in renderer
+    )
+    assert (
+        "The previous E# review is no longer active. Controls were restored."
+        in renderer
+    )
 
 
 def test_final_general_review_response_clears_engine_authorization_after_reload() -> None:
     extension = LIVE_EXTENSION.read_text(encoding="utf-8")
 
-    assert "const key = engineEventReviewKey(engineEvent);" in extension
+    assert "const key = engineReviewKey || engineEventReviewKey(engineEvent);" in extension
     assert "delete review.state.engineEventReviewAuthorizations[key];" in extension
     assert "reviewRequestPending = false;" in extension
 
@@ -3066,9 +3527,11 @@ def test_unconfirmed_engine_event_remains_visible_and_reviewable() -> None:
     assert 'status: "not_confirmed"' in extension
     assert "`E${index + 1} was not confirmed at `" in extension
     assert "record_engine_event_not_confirmed" in extension
-    assert 'unsupported.textContent = "✕ Not confirmed"' in renderer
+    assert '"✕ Incorrect — no such event"' in renderer
+    assert '"✕ Not confirmed"' in renderer
     assert '"The exact engine event is unsupported"' in renderer
     assert '"Not confirmed · unsupported"' in renderer
+    assert '"Incorrect · no such event occurred"' in renderer
     assert '"Re-verify unsupported E"' in renderer
     assert "It remains visible as engine output" in renderer
 
@@ -3210,10 +3673,81 @@ def test_copilot_reviews_are_recorded_without_acceptance_handover() -> None:
         assert 'source: "copilot_review"' in extension
         assert '"Copilot proposal ready"' in extension
         assert '"Copilot review ready"' in extension
+        assert "independent review protocol version 6" in extension
+        assert "touchCandidateSweepCompleted" in extension
+        assert "separateAdjudicationPassCompleted" in extension
+        assert "possessionLedgerCompleted" in extension
+        assert "controlTransitionsResolved" in extension
+        assert "eventFreeGapsChecked" in extension
+        assert "segmentLocalEvidenceOnly" in extension
+        assert "turnoverOwnershipVerified" in extension
+        assert "visualControlVerified" in extension
+        assert "trackerArtifactsRejected" in extension
+        assert "chronologicalIntervalsVerified" in extension
+        assert "team that loses controlled" in extension
+        assert "nearest-player distance" in extension
+        assert "Use visible kit identity" in extension
+        assert "continuous prepared video at full resolution" in extension
+        assert "completeLocalFrameSequenceReviewed" in extension
+        assert '"complete_local_frame_sequence"' not in extension
+        assert "coverage manifest" in extension
+        assert "proves integrity only" in extension
+        assert "tiled contact sheet is never sufficient" in extension
+        assert "release-to-completion interval" in extension
+        assert 'reviewProtocolVersion: { type: "integer", enum: [6] }' in extension
+        assert '"touchCandidateLedger"' in extension
+        assert '"possessionLedger"' in extension
+        assert '"longFlightChecks"' in extension
+        assert '"coverageWindows"' in extension
+        assert '"incomplete_review_coverage"' in extension
+        assert '"invalid_touch_candidate_ledger"' in extension
+        assert '"touch_ledger_transition_mismatch"' in extension
+        assert '"incomplete_long_flight_review"' in extension
+        assert '"ledger_proposal_mismatch"' in extension
+        assert '"coverage_event_mismatch"' in extension
+        assert "copilotReview.reviewProtocolVersion || 1" in extension
+        assert 'releaseSeconds: {' in extension
+        assert 'completionFrame: {' in extension
+        assert 'senderEvidence: { type: "string", minLength: 1 }' in extension
+        assert 'receiverEvidence: { type: "string", minLength: 1 }' in extension
+        assert 'matchStateEvidence: { type: "string", minLength: 1 }' in extension
         assert "copilotAcceptanceAuthorizations" not in extension[
             extension.index('name: "record_copilot_proposal"'):
             extension.index('name: "confirm_engine_event_reviewed"')
         ]
+    assert "Legacy Copilot review · rerun required" in (
+        RENDERER.read_text(encoding="utf-8")
+    )
+    assert '"Sender / prior owner: " + draft.senderEvidence' in (
+        RENDERER.read_text(encoding="utf-8")
+    )
+
+
+def test_full_resolution_playback_is_required_for_copilot_review() -> None:
+    extension = EXTENSION.read_text(encoding="utf-8")
+    instructions = (
+        Path(__file__).parents[1] / ".github" / "copilot-instructions.md"
+    ).read_text(encoding="utf-8")
+    architecture = (
+        Path(__file__).parents[1] / "docs" / "RULES_ENGINE_ARCHITECTURE.md"
+    ).read_text(encoding="utf-8")
+
+    assert '"visualEvidenceChannel"' in extension
+    assert '"prepared_video_playback"' in extension
+    assert '"complete_local_frame_sequence"' not in extension
+    assert "completeLocalFrameSequenceReviewed" in extension
+    assert 'continuousVideoReviewed: {\n                    type: "boolean",\n                    enum: [true]' in extension
+    assert "tiled contact sheet is never sufficient" in extension
+    assert "complete, timestamped local frame sequence" in instructions
+    assert "manifest proves sequence integrity" in instructions
+    assert "complete local visual sequence" in architecture
+    assert "manifest establishes" in architecture
+    assert "continuous playback is mandatory" in architecture
+    assert "visual touch-candidate ledger" in architecture
+    assert "1.5 seconds apart" in architecture
+    assert '"Receiver control: " + draft.receiverEvidence' in (
+        RENDERER.read_text(encoding="utf-8")
+    )
 
 
 def test_first_event_is_shown_after_video_metadata_loads() -> None:

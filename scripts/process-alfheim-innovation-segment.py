@@ -73,12 +73,16 @@ def main() -> None:
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--evidence-only", action="store_true")
     mode.add_argument("--events-only", action="store_true")
+    mode.add_argument("--coordinates-updated", action="store_true")
+    parser.add_argument("--skip-events", action="store_true")
     parser.add_argument(
         "--pano",
         type=Path,
         default=resolve_alfheim_pano(PROJECT_ROOT),
     )
     args = parser.parse_args()
+    if args.skip_events and not args.coordinates_updated:
+        parser.error("--skip-events requires --coordinates-updated")
     segment = args.segment.resolve()
     prepared_manifest = segment / "manifest.json"
     run_root = segment / "innovation"
@@ -88,6 +92,12 @@ def main() -> None:
     results = run_root / "analytics-data"
     status_path = run_root / "analysis-status.json"
     ball_tracks = cache / "ball-tracks.json"
+    reviewer_ball_tracks = run_root / "reviewer-coordinate-layer.json"
+    active_ball_tracks = (
+        reviewer_ball_tracks
+        if reviewer_ball_tracks.is_file()
+        else ball_tracks
+    )
     run_id = str(uuid4())
     started_at_utc = datetime.now(timezone.utc).isoformat()
 
@@ -204,10 +214,14 @@ def main() -> None:
         cache.mkdir(parents=True, exist_ok=True)
         results.mkdir(parents=True, exist_ok=True)
         player_tracks = results / "player-tracks.json"
-        if args.events_only:
+        if args.events_only or args.coordinates_updated:
             missing = [
                 path.name
-                for path in (ball_tracks, player_tracks)
+                for path in (
+                    active_ball_tracks,
+                    cache / "detections.jsonl",
+                    player_tracks,
+                )
                 if not path.is_file()
             ]
             if missing:
@@ -235,6 +249,11 @@ def main() -> None:
                 output=ball_tracks,
                 source_start_seconds=source_start,
                 duration_seconds=duration,
+            )
+            active_ball_tracks = (
+                reviewer_ball_tracks
+                if reviewer_ball_tracks.is_file()
+                else ball_tracks
             )
             model = resolve_detector_model(PROJECT_ROOT)
             validate_innovation_detector_model(model)
@@ -272,7 +291,7 @@ def main() -> None:
                 "--player-cache",
                 str(cache / "detections.jsonl"),
                 "--ball-tracks",
-                str(ball_tracks),
+                str(active_ball_tracks),
                 "--output",
                 str(results),
                 "--confidence",
@@ -302,6 +321,65 @@ def main() -> None:
                     "No football events have been generated.",
                 )
                 return
+        if args.coordinates_updated:
+            reviewer_payload = json.loads(
+                reviewer_ball_tracks.read_text(encoding="utf-8")
+            )
+            if (
+                reviewer_payload.get("source_kind")
+                != "reviewer_corrected_innovation_coordinates"
+                or reviewer_payload.get("base_source_kind")
+                != "evaluation_only_provider_coordinates"
+                or reviewer_payload.get("pipeline_mode")
+                != "innovation_day_reviewer_corrected_demo"
+            ):
+                raise ValueError(
+                    "The approved reviewer-coordinate layer has invalid "
+                    "Innovation provenance."
+                )
+            status(
+                "player_tracking",
+                "Rebuilding player context from approved reviewer coordinates "
+                "while reusing frozen YOLO detections.",
+            )
+            run(
+                "-m",
+                "football_poc.innovation_day_snapshot.player_tracking_cli",
+                str(runtime_manifest),
+                "--player-cache",
+                str(cache / "detections.jsonl"),
+                "--ball-tracks",
+                str(active_ball_tracks),
+                "--output",
+                str(results),
+                "--confidence",
+                "0.2",
+                "--max-gap",
+                "0.5",
+                "--max-speed",
+                "700",
+                "--minimum-track-points",
+                "3",
+                "--team-profile",
+                "red-black",
+                "--goalkeeper-affiliations",
+                str(
+                    PROJECT_ROOT
+                    / "benchmarks"
+                    / "alfheim"
+                    / "window-555"
+                    / "goalkeeper-affiliations.json"
+                ),
+                "--no-video",
+            )
+            if args.skip_events:
+                status(
+                    "evidence_ready",
+                    "Approved reviewer coordinates and dependent player "
+                    "tracking are ready. The Innovation event engine has not "
+                    "been run.",
+                )
+                return
         status("events", "Running the frozen Innovation Day event engine.")
         boundary_events = run_root / "boundary-events.json"
         boundary_arguments = (
@@ -316,7 +394,7 @@ def main() -> None:
             "--player-tracks",
             str(results / "player-tracks.json"),
             "--ball-tracks",
-            str(ball_tracks),
+            str(active_ball_tracks),
             "--output",
             str(results),
             *ALFHEIM_POSSESSION_ARGUMENTS,
@@ -348,7 +426,12 @@ def main() -> None:
                 / "football_poc"
                 / "innovation_day_detector.py"
             ),
-            "ball_tracks_sha256": sha256(ball_tracks),
+            "ball_tracks_sha256": sha256(active_ball_tracks),
+            "ball_track_source_kind": (
+                "reviewer_corrected_innovation_coordinates"
+                if active_ball_tracks == reviewer_ball_tracks
+                else "evaluation_only_provider_coordinates"
+            ),
             "events_sha256": sha256(results / "predicted-events.json"),
             "performance_benchmark_valid": False,
         }

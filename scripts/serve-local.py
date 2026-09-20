@@ -931,15 +931,30 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
             focused_recovery = payload.get("focused_recovery", False)
             if not isinstance(focused_recovery, bool):
                 raise ValueError("focused_recovery must be a boolean")
+            coordinates_updated = payload.get("coordinates_updated", False)
+            if not isinstance(coordinates_updated, bool):
+                raise ValueError("coordinates_updated must be a boolean")
+            rerun_events = payload.get("rerun_events", True)
+            if not isinstance(rerun_events, bool):
+                raise ValueError("rerun_events must be a boolean")
+            if not coordinates_updated and not rerun_events:
+                raise ValueError(
+                    "rerun_events can be false only for a coordinate update"
+                )
             if sum((
                 events_only,
                 evidence_only,
                 resume_after_detection,
                 focused_recovery,
+                coordinates_updated,
             )) > 1:
                 raise ValueError(
                     "events_only, evidence_only, resume_after_detection, and "
-                    "focused_recovery are exclusive"
+                    "focused_recovery, and coordinates_updated are exclusive"
+                )
+            if coordinates_updated and workflow != "innovation":
+                raise ValueError(
+                    "Reviewer coordinate updates are available only for Innovation"
                 )
             if evidence_only and workflow != "innovation":
                 raise ValueError(
@@ -997,6 +1012,10 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
                 arguments.append("--resume-after-detection")
             if focused_recovery:
                 arguments.append("--focused-recovery")
+            if coordinates_updated:
+                arguments.append("--coordinates-updated")
+                if not rerun_events:
+                    arguments.append("--skip-events")
             process = subprocess.Popen(
                 arguments,
                 cwd=Path.cwd(),

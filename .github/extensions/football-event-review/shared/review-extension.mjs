@@ -288,6 +288,18 @@ function manualEvent(input, key, revision = 1) {
   };
 }
 
+function manualComparisonValidationIsCurrent(reference, current) {
+  const approved = reference?.approved;
+  const validation = reference?.comparisonValidation;
+  return Boolean(
+    approved
+    && validation
+    && validation.manualFingerprint === approved.fingerprint
+    && validation.engineContentHash === current.fingerprint.contentHash
+    && validation.outputHash === current.outputHash
+  );
+}
+
 function activeManualEvents(reference) {
   return (reference?.events || [])
     .filter((event) =>
@@ -332,6 +344,7 @@ export function ensureInnovationManualReference(state, segment) {
           }]
         : [],
       approved: null,
+      comparisonValidation: null,
       approvalHistory: [],
       undoStack: [],
     };
@@ -373,6 +386,7 @@ export function ensureInnovationManualReference(state, segment) {
   state.manualReference.approvalHistory ||= [];
   state.manualReference.undoStack ||= [];
   state.manualReference.revision ||= 0;
+  state.manualReference.comparisonValidation ||= null;
   let changed = false;
   if (!state.manualFirstMigratedAt) {
     const legacyIndexState = {
@@ -462,33 +476,74 @@ export function suggestManualMappings(manualEvents, engineEvents) {
         ) <= maximumDeltaMs
       ),
   ]));
-  const engineCandidateCounts = new Map();
-  candidatesByManual.forEach((candidates) => {
-    candidates.forEach((candidate) => {
-      engineCandidateCounts.set(
-        candidate.key,
-        Number(engineCandidateCounts.get(candidate.key) || 0) + 1,
+  const remainingManual = new Map(active.map((manual) => [manual.key, manual]));
+  const usedEngineKeys = new Set();
+  while (remainingManual.size > 0) {
+    const available = new Map();
+    remainingManual.forEach((manual, manualKey) => {
+      available.set(
+        manualKey,
+        (candidatesByManual.get(manualKey) || [])
+          .filter((candidate) => !usedEngineKeys.has(candidate.key)),
       );
     });
-  });
-  active.forEach((manual) => {
-    const candidates = candidatesByManual.get(manual.key) || [];
-    if (
-      candidates.length !== 1
-      || engineCandidateCounts.get(candidates[0].key) !== 1
-    ) return;
-    const selected = candidates[0];
-    const deltaSeconds = selected.engine.seconds - manual.seconds;
-    result[manual.key] = {
-      engineKey: selected.key,
-      deltaSeconds,
-      highConfidence: true,
-      exact: Math.round(deltaSeconds * 1000) === 0,
-      withinTolerance: true,
-      teamConflict: false,
-      typeConflict: false,
-    };
-  });
+    const manualsByEngine = new Map();
+    available.forEach((candidates, manualKey) => {
+      candidates.forEach((candidate) => {
+        const linked = manualsByEngine.get(candidate.key) || [];
+        linked.push({manualKey, candidate});
+        manualsByEngine.set(candidate.key, linked);
+      });
+    });
+    const proposals = new Map();
+    available.forEach((candidates, manualKey) => {
+      if (candidates.length === 1) {
+        proposals.set(`${manualKey}:${candidates[0].key}`, {
+          manualKey,
+          candidate: candidates[0],
+        });
+      }
+    });
+    manualsByEngine.forEach((linked) => {
+      if (linked.length === 1) {
+        const {manualKey, candidate} = linked[0];
+        proposals.set(`${manualKey}:${candidate.key}`, {manualKey, candidate});
+      }
+    });
+    const manualProposalCounts = new Map();
+    const engineProposalCounts = new Map();
+    proposals.forEach(({manualKey, candidate}) => {
+      manualProposalCounts.set(
+        manualKey,
+        Number(manualProposalCounts.get(manualKey) || 0) + 1,
+      );
+      engineProposalCounts.set(
+        candidate.key,
+        Number(engineProposalCounts.get(candidate.key) || 0) + 1,
+      );
+    });
+    const accepted = [...proposals.values()].filter(
+      ({manualKey, candidate}) =>
+        manualProposalCounts.get(manualKey) === 1
+        && engineProposalCounts.get(candidate.key) === 1,
+    );
+    if (accepted.length === 0) break;
+    accepted.forEach(({manualKey, candidate}) => {
+      const manual = remainingManual.get(manualKey);
+      const deltaSeconds = candidate.engine.seconds - manual.seconds;
+      result[manualKey] = {
+        engineKey: candidate.key,
+        deltaSeconds,
+        highConfidence: true,
+        exact: Math.round(deltaSeconds * 1000) === 0,
+        withinTolerance: true,
+        teamConflict: false,
+        typeConflict: false,
+      };
+      remainingManual.delete(manualKey);
+      usedEngineKeys.add(candidate.key);
+    });
+  }
   return result;
 }
 
@@ -506,7 +561,9 @@ export function publicManualReferenceState(
       manualReference: null,
     };
   }
-  const manualEvents = activeManualEvents(state.manualReference);
+  const manualEvents = activeManualEvents(state.manualReference).map(
+    (event, index) => ({...event, displayKey: `M${index + 1}`})
+  );
   const rejectedManualEvents = visibleManualEvents(state.manualReference)
     .filter((event) => event.reviewStatus === "rejected");
   return {
@@ -518,13 +575,13 @@ export function publicManualReferenceState(
     manualReference: {
       revision: state.manualReference.revision,
       mappings: {...state.manualReference.mappings},
-      suggestions: suggestManualMappings(
-        manualEvents,
-        engineEvents,
-      ),
+      suggestions: state.manualReference.comparisonValidation
+        ? suggestManualMappings(manualEvents, engineEvents)
+        : {},
       audit: state.manualReference.audit,
       canUndo: Boolean(state.manualReference.undoStack?.length),
       approved: state.manualReference.approved,
+      comparisonValidation: state.manualReference.comparisonValidation,
       approvalHistory: state.manualReference.approvalHistory,
     },
   };
@@ -658,6 +715,7 @@ export function mutateInnovationManualReference(reference, mutation) {
       events,
       mappings,
     };
+    reference.comparisonValidation = null;
     reference.audit.push({
       revision: reference.revision,
       action: "approve",
@@ -670,6 +728,7 @@ export function mutateInnovationManualReference(reference, mutation) {
     if (!reference.approved) throw new Error("The minute is not approved");
     reference.approvalHistory.push({...reference.approved});
     reference.approved = null;
+    reference.comparisonValidation = null;
     reference.revision += 1;
     reference.undoStack = [];
     reference.audit.push({
@@ -847,11 +906,15 @@ async function loadPreparedSegments() {
   }
   const payload = await response.json();
   const hiddenSegments = new Set(workflow.hiddenSegments || []);
-  return payload.segments
+  const segments = await Promise.all(payload.segments
     .filter((segment) => !hiddenSegments.has(segment.cache_key))
-    .map((segment) => {
+    .map(async (segment) => {
       const start = Number(segment.source_start_seconds);
       const duration = Number(segment.duration_seconds);
+      const manifest = await readJson(
+        join(preparedSegmentRoot(segment.cache_key), "manifest.json"),
+        {},
+      );
       const validationStatus = segment.validated
         ? "passed"
         : segment.cache_key === defaultSegment
@@ -893,6 +956,7 @@ async function loadPreparedSegments() {
         timeLabel: `${formatClock(start)}–${formatClock(start + duration)}`,
         state: segment.state,
         rawVideoOnly: Boolean(segment.raw_video_only),
+        blindReviewOnly: Boolean(manifest.blind_review_only),
         validationStatus,
         validated: Boolean(segment.validated),
         protected: Boolean(segment.protected),
@@ -902,8 +966,8 @@ async function loadPreparedSegments() {
           ? `${localServer}${segment.tracking_url}`
           : null,
       };
-    })
-    .sort((left, right) =>
+    }));
+  return segments.sort((left, right) =>
       left.startSeconds - right.startSeconds
       || left.durationSeconds - right.durationSeconds
       || left.key.localeCompare(right.key)
@@ -976,6 +1040,9 @@ async function loadDrafts(segment, segmentInfo) {
   if (Array.isArray(copilotReview?.proposals)) {
     return copilotReview.proposals.map((proposal) => ({
       ...proposal,
+      reviewProtocolVersion: Number(
+        copilotReview.reviewProtocolVersion || 1,
+      ),
       source: "copilot_review",
     }));
   }
@@ -1021,6 +1088,7 @@ async function buildReplayRuns(segments) {
       videoUrl: segment.videoUrl,
       validated: segment.validated,
       protected: segment.protected,
+      eventSource: "cached_engine_output",
       events: await loadEngineEvents(segment.key),
     })));
     const start = group[0].startSeconds;
@@ -1050,11 +1118,31 @@ async function buildReplayRuns(segments) {
   );
 }
 
+async function buildReplaySegments(segments) {
+  return Promise.all(segments
+    .filter((segment) =>
+      segment.state === "ready"
+      && segment.validated
+      && [20, 30, 60].includes(Number(segment.durationSeconds))
+    )
+    .map(async (segment) => ({
+      key: segment.key,
+      timeLabel: segment.timeLabel,
+      startSeconds: segment.startSeconds,
+      durationSeconds: segment.durationSeconds,
+      videoUrl: segment.videoUrl,
+      validated: segment.validated,
+      protected: segment.protected,
+      eventSource: "cached_engine_output",
+      events: await loadEngineEvents(segment.key),
+    })));
+}
+
 async function loadDetectedBallTrack(
   segment,
   { allowDetectionOnly = false } = {},
 ) {
-  const payload = await readJson(
+  let payload = await readJson(
     join(segmentRoot(segment.key), "analytics-cache", "ball-tracks.json"),
     null,
   );
@@ -1069,6 +1157,26 @@ async function loadDetectedBallTrack(
         "Innovation Day requires the frozen BAC coordinate artifact.",
       );
     }
+    const reviewerPayload = await readJson(
+      join(segmentRoot(segment.key), "reviewer-coordinate-layer.json"),
+      null,
+    );
+    if (reviewerPayload) {
+      if (
+        reviewerPayload.source_kind
+          !== "reviewer_corrected_innovation_coordinates"
+        || reviewerPayload.base_source_kind
+          !== "evaluation_only_provider_coordinates"
+        || reviewerPayload.pipeline_mode
+          !== "innovation_day_reviewer_corrected_demo"
+      ) {
+        throw new CanvasError(
+          "innovation_reviewer_coordinate_source_mismatch",
+          "The reviewer-coordinate layer does not have valid Innovation provenance.",
+        );
+      }
+      payload = reviewerPayload;
+    }
     const manifest = await readJson(
       join(segmentRoot(segment.key), "runtime-manifest.json"),
       {},
@@ -1082,8 +1190,14 @@ async function loadDetectedBallTrack(
         confidence: Number.isFinite(Number(point.confidence))
           ? Number(point.confidence)
           : null,
-        evidence: "Frozen BAC coordinate",
-        state: "frozen_bac",
+        evidence: payload.source_kind
+            === "reviewer_corrected_innovation_coordinates"
+          ? "Approved reviewer coordinate layer"
+          : "Frozen BAC coordinate",
+        state: payload.source_kind
+            === "reviewer_corrected_innovation_coordinates"
+          ? "reviewer_corrected"
+          : "frozen_bac",
         uncertaintyRadius: null,
         direct: true,
         trackId: Number(track.track_id),
@@ -1140,7 +1254,10 @@ async function loadDetectedBallTrack(
       ),
       sourceKind: payload.source_kind,
       pipelineMode: payload.pipeline_mode,
-      coordinateMode: "frozen_bac",
+      coordinateMode: payload.source_kind
+          === "reviewer_corrected_innovation_coordinates"
+        ? "reviewer_corrected"
+        : "frozen_bac",
       integrityRejectedFrames: [],
       yoloCandidates,
       yoloCandidateSource,
@@ -1557,6 +1674,20 @@ async function captureEngineSnapshot(segment, knownFingerprint = null) {
     outputHash,
     predictions,
     matchState,
+  };
+}
+
+function withheldEngineSnapshot() {
+  return {
+    capturedAt: null,
+    fingerprint: {
+      gitRevision: null,
+      contentHash: null,
+    },
+    outputHash: null,
+    predictions: [],
+    matchState: {intervals: []},
+    withheld: true,
   };
 }
 
@@ -2050,8 +2181,22 @@ async function loadState(segment, segmentInfo, drafts) {
     state.conversation ||= [];
     let activeLegacyEngineIndex = null;
     state.conversation.forEach((message) => {
-      if (Number.isInteger(message.engineIndex)) {
-        activeLegacyEngineIndex = message.engineIndex;
+      if (
+        Object.hasOwn(message, "engineReviewKey")
+        && message.engineReviewKey === null
+        && message.engineIdentity === null
+      ) {
+        if (message.engineIndex !== null) {
+          message.engineIndex = null;
+          changed = true;
+        }
+        activeLegacyEngineIndex = null;
+        return;
+      }
+      if (Object.hasOwn(message, "engineIndex")) {
+        activeLegacyEngineIndex = Number.isInteger(message.engineIndex)
+          ? message.engineIndex
+          : null;
         return;
       }
       if (message.eventIndex !== null && message.eventIndex !== undefined) {
@@ -2229,7 +2374,9 @@ async function loadState(segment, segmentInfo, drafts) {
     canvasId,
     segment,
     decisions,
-    engineBefore: await captureEngineSnapshot(segment),
+    engineBefore: segmentInfo.blindReviewOnly
+      ? withheldEngineSnapshot()
+      : await captureEngineSnapshot(segment),
     engineAfter: null,
     regression: null,
     conversation: [],
@@ -2249,6 +2396,7 @@ async function loadState(segment, segmentInfo, drafts) {
       mappings: {},
       audit: [],
           approved: null,
+          comparisonValidation: null,
           approvalHistory: [],
           undoStack: [],
         }
@@ -2620,6 +2768,107 @@ function engineEventReviewKey(event) {
   ].join("|");
 }
 
+function pendingEngineReviewContext(state, segment) {
+  if (
+    reviewRequestPending
+    && lastConversationContext?.segment === segment
+    && typeof lastConversationContext?.engineReviewKey === "string"
+  ) {
+    return lastConversationContext;
+  }
+  const conversation = Array.isArray(state.conversation)
+    ? state.conversation
+    : [];
+  let requestIndex = -1;
+  for (let index = conversation.length - 1; index >= 0; index -= 1) {
+    const message = conversation[index];
+    if (
+      message?.role === "user"
+      && Number.isInteger(message.engineIndex)
+      && String(message.content || "").startsWith(
+        "Permission granted: independently verify E",
+      )
+    ) {
+      requestIndex = index;
+      break;
+    }
+  }
+  if (
+    requestIndex < 0
+    || conversation.slice(requestIndex + 1).some(
+      (message) => (
+        message?.role === "assistant" && message.completed !== false
+      ),
+    )
+  ) {
+    return null;
+  }
+  const persistedRequest = conversation[requestIndex];
+  const authorizations = Object.entries(
+    state.engineEventReviewAuthorizations || {},
+  ).sort(
+    ([, left], [, right]) => String(right?.grantedAt || "").localeCompare(
+      String(left?.grantedAt || ""),
+    ),
+  );
+  const engineReviewKey = persistedRequest.engineReviewKey
+    || authorizations[0]?.[0]
+    || null;
+  if (!engineReviewKey) return null;
+  const [type, team, seconds] = engineReviewKey.split("|");
+  return {
+    segment,
+    eventIndex: null,
+    engineIndex: persistedRequest.engineIndex,
+    engineReviewKey,
+    engineIdentity: persistedRequest.engineIdentity || {
+        team,
+        type,
+        seconds: Number(seconds),
+        releaseSeconds: null,
+      },
+  };
+}
+
+function pendingManualEngineReviewContext(state, segment) {
+  if (
+    reviewRequestPending
+    && lastConversationContext?.segment === segment
+    && typeof lastConversationContext?.manualReviewKey === "string"
+  ) {
+    return lastConversationContext;
+  }
+  const conversation = Array.isArray(state.conversation)
+    ? state.conversation
+    : [];
+  for (let index = conversation.length - 1; index >= 0; index -= 1) {
+    const message = conversation[index];
+    if (
+      message?.role !== "user"
+      || typeof message.manualReviewKey !== "string"
+    ) {
+      continue;
+    }
+    if (
+      conversation.slice(index + 1).some(
+        (candidate) => (
+          candidate?.role === "assistant" && candidate.completed !== false
+        ),
+      )
+    ) {
+      return null;
+    }
+    return {
+      segment,
+      eventIndex: message.eventIndex,
+      engineIndex: null,
+      manualReviewKey: message.manualReviewKey,
+      manualIdentity: message.manualIdentity || null,
+    };
+  }
+  return null;
+}
+
 async function confirmEngineEventReviewed(segment, index, reason) {
   const review = await reviewContext(segment);
   const cachedCurrent = await captureEngineSnapshot(segment);
@@ -2961,6 +3210,14 @@ function acceptedEngineComparison(draft, state, decision, current) {
 }
 
 function publicationFingerprint(drafts, state) {
+  if (workflow.key === "innovation") {
+    return createHash("sha256").update(JSON.stringify({
+      approved: state.manualReference?.approved || null,
+      comparisonValidation:
+        state.manualReference?.comparisonValidation || null,
+      engineEventReviews: state.engineEventReviews || {},
+    })).digest("hex");
+  }
   return createHash("sha256").update(JSON.stringify(
     drafts.map((draft, index) => ({
       proposal: proposalFingerprint(draft),
@@ -2969,7 +3226,114 @@ function publicationFingerprint(drafts, state) {
   )).digest("hex");
 }
 
+function innovationPublicationPlan(state, current) {
+  const reference = state.manualReference;
+  const approved = reference?.approved;
+  const validation = reference?.comparisonValidation;
+  const engineEvents = snapshotEvents(current)
+    .filter((event) => ["completed_pass", "turnover"].includes(event.type))
+    .map((event, index) => ({
+      ...event,
+      key: `E${index + 1}`,
+      reviewKey: engineEventReviewKey(event),
+    }));
+  const blockers = [];
+  if (!approved) {
+    blockers.push("Freeze the manual M# reference as golden first.");
+  }
+  const validationFresh = Boolean(
+    approved
+    && validation
+    && validation.manualFingerprint === approved.fingerprint
+    && validation.engineContentHash === current.fingerprint.contentHash
+    && validation.outputHash === current.outputHash
+  );
+  if (!validationFresh) {
+    blockers.push(
+      "Validate the current engine against the frozen golden reference.",
+    );
+  }
+  const usedEngineKeys = new Set();
+  const referenceEvents = [];
+  if (approved && validationFresh) {
+    approved.events.forEach((manual) => {
+      const engineKey = validation.mappings?.[manual.key]?.engineKey;
+      const engine = engineEvents.find((candidate) =>
+        candidate.key === engineKey
+      );
+      if (
+        !engine
+        || usedEngineKeys.has(engine.key)
+        || engine.team !== manual.team
+        || engine.type !== manual.type
+        || Math.abs(engine.seconds - manual.seconds) > 1
+      ) {
+        blockers.push(
+          `${manual.key} does not have exactly one current E# match.`,
+        );
+        return;
+      }
+      usedEngineKeys.add(engine.key);
+      referenceEvents.push({
+        clip_seconds: Number(manual.seconds),
+        team: manual.team,
+        event_type: manual.type,
+      });
+    });
+    engineEvents.forEach((engine) => {
+      if (usedEngineKeys.has(engine.key)) return;
+      const review = state.engineEventReviews?.[engine.reviewKey];
+      const fresh = Boolean(
+        review?.status === "confirmed"
+        && review.engineContentHash === current.fingerprint.contentHash
+        && review.outputHash === current.outputHash
+      );
+      if (!fresh) {
+        blockers.push(
+          `${engine.key} is extra and must be independently resolved.`,
+        );
+        return;
+      }
+      referenceEvents.push({
+        clip_seconds: Number(engine.seconds),
+        team: engine.team,
+        event_type: engine.type,
+      });
+    });
+  }
+  if (
+    !state.regression?.passed
+    || !isRegressionCurrent(state.regression, current)
+  ) {
+    blockers.push("Protected regressions need a fresh passing receipt.");
+  }
+  referenceEvents.sort((left, right) =>
+    left.clip_seconds - right.clip_seconds
+  );
+  return {
+    reviewComplete: Boolean(
+      approved
+      && validationFresh
+      && !blockers.some((blocker) =>
+        blocker.includes("does not have exactly one")
+        || blocker.includes("extra and must")
+      )
+    ),
+    regressionFresh: Boolean(
+      state.regression?.passed
+      && isRegressionCurrent(state.regression, current)
+    ),
+    referenceEvents,
+    engineEventCount: engineEvents.length,
+    blockers: [...new Set(blockers)],
+    ready: blockers.length === 0,
+  };
+}
+
 function publicationPlan(drafts, state, current) {
+  if (workflow.key === "innovation") {
+    return innovationPublicationPlan(state, current);
+  }
   const engineEvents = snapshotEvents(current).map((event) => ({
     ...event,
     reviewKey: engineEventReviewKey(event),
@@ -3056,6 +3420,7 @@ async function reviewContext(requestedSegment = defaultSegment) {
     && !selected.validated
     && !state.publishedReference
     && selected.key !== defaultSegment
+    && !selected.blindReviewOnly
   ) {
     const snapshot = await captureEngineSnapshot(selected.key);
     if (state.engineCandidateOutputHash !== snapshot.outputHash) {
@@ -3251,6 +3616,138 @@ function displayedActivity(selected, state) {
     };
   }
   return activity;
+}
+
+async function ensureReviewerCoordinateLayer(segment, state, selected) {
+  if (workflow.key !== "innovation") return null;
+  const existing = state.reviewerCoordinateLayer;
+  if (Array.isArray(existing?.baseCoordinates) && existing.baseCoordinates.length) {
+    return existing;
+  }
+  const track = await loadDetectedBallTrack(selected);
+  if (!track?.states?.length) {
+    throw new CanvasError(
+      "reviewer_coordinate_base_missing",
+      "Frozen BAC coordinates must be prepared before reviewer corrections can be saved.",
+    );
+  }
+  const baseCoordinates = track.states.map((point) => ({
+    frame: Number(point.frame),
+    seconds: Number(point.seconds),
+    x: Number(point.x),
+    y: Number(point.y),
+    confidence: point.confidence == null ? null : Number(point.confidence),
+    trackId: Number(point.trackId),
+    visible: true,
+  }));
+  const baseHash = createHash("sha256")
+    .update(JSON.stringify(baseCoordinates))
+    .digest("hex");
+  state.reviewerCoordinateLayer = {
+    schemaVersion: 1,
+    source: "frozen_bac_copy",
+    purpose: "reviewer_corrected_innovation_demo_input",
+    baseHash,
+    baseCoordinates,
+    approvedCoordinates: baseCoordinates,
+    corrections: {},
+    revision: 0,
+    status: "draft",
+    createdAt: new Date().toISOString(),
+    approvedAt: null,
+    downstream: {
+      status: "not_started",
+      playerDetectionReused: true,
+      playerTrackingRerun: false,
+      eventsRerun: false,
+    },
+  };
+  return state.reviewerCoordinateLayer;
+}
+
+function materializeReviewerCoordinates(layer, observations) {
+  const corrections = {};
+  for (const [frameKey, observation] of Object.entries(observations || {})) {
+    const frame = Number(frameKey);
+    const outcome = String(
+      observation?.decision || observation?.outcome || "",
+    );
+    if (!Number.isFinite(frame)) continue;
+    if (observation?.approved !== true) continue;
+    if (outcome === "specified" || outcome === "yolo_candidate") {
+      const x = Number(observation?.x);
+      const y = Number(observation?.y);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+      corrections[String(frame)] = {
+        frame,
+        outcome,
+        x,
+        y,
+        visible: true,
+      };
+    } else if (outcome === "undefined") {
+      corrections[String(frame)] = {
+        frame,
+        outcome,
+        x: null,
+        y: null,
+        visible: false,
+      };
+    }
+  }
+  const approvedCoordinates = layer.baseCoordinates.map((base) => {
+    const correction = corrections[String(base.frame)];
+    return correction
+      ? {
+          ...base,
+          x: correction.x,
+          y: correction.y,
+          visible: correction.visible,
+          reviewerOutcome: correction.outcome,
+        }
+      : {...base};
+  });
+  return {corrections, approvedCoordinates};
+}
+
+async function writeReviewerCoordinateRuntime(segment, layer) {
+  const payload = {
+    manifest: "reviewer-coordinate-layer",
+    source: "event-review-state-innovation",
+    source_kind: "reviewer_corrected_innovation_coordinates",
+    base_source_kind: "evaluation_only_provider_coordinates",
+    pipeline_mode: "innovation_day_reviewer_corrected_demo",
+    reviewer_coordinate_revision: layer.revision,
+    base_coordinates_sha256: layer.baseHash,
+    tracks: [{
+      track_id: 1,
+      points: layer.approvedCoordinates
+        .filter((point) => point.visible !== false)
+        .map((point) => ({
+          source_frame: point.frame,
+          clip_seconds: point.seconds,
+          confidence: point.confidence,
+          x: point.x,
+          y: point.y,
+          interpolated: false,
+          box_diagonal: 0,
+          evidence: point.reviewerOutcome
+            ? "reviewer_corrected_coordinate"
+            : "frozen_bac_coordinate_copy",
+          temporal_score: null,
+          source_attribution: point.reviewerOutcome
+            ? "reviewer_coordinate_layer"
+            : "frozen_bac_coordinate_copy",
+        })),
+    }],
+  };
+  const path = join(
+    segmentRoot(segment),
+    "reviewer-coordinate-layer.json",
+  );
+  const content = `${JSON.stringify(payload, null, 2)}\n`;
+  await writeFile(path, content, "utf8");
+  return createHash("sha256").update(content).digest("hex");
 }
 
 function ballCoordinateReviewRequired(selected) {
@@ -3464,6 +3961,62 @@ async function coalescedPublicState(requestedSegment, copilotSession) {
   return pending;
 }
 
+export function refreshEngineReferenceValidation(state, current, action) {
+  const approved = state.manualReference?.approved;
+  if (!approved) return null;
+  const engineEvents = snapshotEvents(current)
+    .filter((event) =>
+      ["completed_pass", "turnover"].includes(event.type)
+    )
+    .map((event, index) => ({...event, key: `E${index + 1}`}));
+  const validatedAt = new Date().toISOString();
+  state.manualReference.comparisonValidation = {
+    validatedAt,
+    manualFingerprint: approved.fingerprint,
+    engineContentHash: current.fingerprint.contentHash,
+    outputHash: current.outputHash,
+    mappings: suggestManualMappings(approved.events, engineEvents),
+  };
+  state.manualReference.audit.push({
+    revision: state.manualReference.revision,
+    action,
+    at: validatedAt,
+    manualFingerprint: approved.fingerprint,
+    engineContentHash: current.fingerprint.contentHash,
+    outputHash: current.outputHash,
+  });
+  return {
+    validatedAt,
+    engineEventCount: engineEvents.length,
+    mappingCount: Object.keys(
+      state.manualReference.comparisonValidation.mappings,
+    ).length,
+  };
+}
+
+async function refreshAuthorizedEngineComparison(segment, state, current) {
+  const validation = state.manualReference?.comparisonValidation;
+  const approved = state.manualReference?.approved;
+  if (
+    !approved
+    || !validation
+    || (
+      validation.manualFingerprint === approved.fingerprint
+      && validation.engineContentHash === current.fingerprint.contentHash
+      && validation.outputHash === current.outputHash
+    )
+  ) {
+    return false;
+  }
+  refreshEngineReferenceValidation(
+    state,
+    current,
+    "refresh_engine_against_golden",
+  );
+  await saveState(segment, state);
+  return true;
+}
+
 export async function publicState(
   requestedSegment = defaultSegment,
   copilotSession = {
@@ -3494,6 +4047,14 @@ export async function publicState(
     state,
     actionFocuses,
   } = context;
+  if (
+    workflow.reviewerCorrectedDemoLayer
+    && selected.evidenceReady
+    && !state.reviewerCoordinateLayer?.baseCoordinates?.length
+  ) {
+    await ensureReviewerCoordinateLayer(requestedSegment, state, selected);
+    await saveState(requestedSegment, state, {allowAutoAcquire: false});
+  }
   const coordinationHealth = await coordinationStatus();
   const identityResult = coordinationHealth.mode === "available"
     ? await coordinationIdentity()
@@ -3510,6 +4071,23 @@ export async function publicState(
     } catch (error) {
       coordinationHealth.mode = "unavailable";
       coordinationHealth.detail = error.message;
+    }
+  }
+  const selectedLease = activeLeases.find(
+    (lease) => lease.segment === selected.key,
+  );
+  if (
+    copilotSession.connected
+    && identityResult.identity
+    && selectedLease
+    && selectedLease.holderId === identityResult.identity.developerId
+    && selectedLease.machineId === identityResult.identity.machineId
+    && !coordinationSessions.get(coordinationKey(selected.key))?.leaseToken
+  ) {
+    try {
+      await acquireCoordinationLease(selected.key);
+    } catch {
+      // The public state below will keep the viewer locked if reattachment fails.
     }
   }
   const leasesBySegment = new Map(
@@ -3542,7 +4120,21 @@ export async function publicState(
   if (state.publishedReference && !selected.validated) {
     selected.validationStatus = "published_stale";
   }
-  const currentEngine = await captureEngineSnapshot(requestedSegment);
+  const goldenComparisonAuthorized = Boolean(
+    workflow.key === "innovation"
+    && state.manualReference?.approved
+    && state.manualReference?.comparisonValidation
+  );
+  const currentEngine = selected.blindReviewOnly && !goldenComparisonAuthorized
+    ? withheldEngineSnapshot()
+    : await captureEngineSnapshot(requestedSegment);
+  if (goldenComparisonAuthorized) {
+    await refreshAuthorizedEngineComparison(
+      requestedSegment,
+      state,
+      currentEngine,
+    );
+  }
   let ballProvenance;
   let ballRecoveryDiagnostic;
   if (workflow.key === "innovation") {
@@ -3613,12 +4205,22 @@ export async function publicState(
         : null,
     };
   });
+  const engineComparisonRevealed = workflow.key !== "innovation"
+    || manualComparisonValidationIsCurrent(
+      state.manualReference,
+      displayedEngine,
+    );
+  const publicEngineEvents = engineComparisonRevealed ? engineEvents : [];
   const manualPublicState = publicManualReferenceState(
     workflow.key,
     state,
     copilotEvents,
-    engineEvents,
+    publicEngineEvents,
   );
+  if (manualPublicState.manualReference) {
+    manualPublicState.manualReference.comparisonRevealed =
+      engineComparisonRevealed;
+  }
   const publication = publicationPlan(drafts, state, currentEngine);
   if (
     ballCoordinateReviewCanBeVerified(selected)
@@ -3761,6 +4363,11 @@ export async function publicState(
         })
       ).last_full_regression || null
     : null;
+  const replaySegments = await buildReplaySegments(segments);
+  const activeConversation = (
+    pendingEngineReviewContext(state, selected.key)
+    || pendingManualEngineReviewContext(state, selected.key)
+  );
   return {
     segment: selected,
     segments,
@@ -3797,7 +4404,7 @@ export async function publicState(
       };
     }),
     ...manualPublicState,
-    engineEvents,
+    engineEvents: publicEngineEvents,
     engineDisplayMode: showRegressionCandidate
       ? "regression_candidate"
       : "published",
@@ -3808,6 +4415,7 @@ export async function publicState(
       observations: {},
       updatedAt: null,
     },
+    reviewerCoordinateLayer: state.reviewerCoordinateLayer || null,
     engineBefore: {
       capturedAt: state.engineBefore.capturedAt,
       fingerprint: state.engineBefore.fingerprint,
@@ -3824,6 +4432,7 @@ export async function publicState(
       ? {...state.regression, fresh: regressionFresh}
       : null,
     conversation: state.conversation,
+    activeDiscrepancyBatch: state.pendingDiscrepancyBatch || null,
     pendingMissingCandidate: state.pendingMissingCandidate,
     automaticCopilotReview: state.automaticCopilotReview,
     publication: {
@@ -3839,9 +4448,10 @@ export async function publicState(
     sharedReviewStatus,
     workflowRegression,
     regressionJobs: publicSegmentRegressionProgress(),
-    activeConversation: reviewRequestPending ? lastConversationContext : null,
+    activeConversation,
     activity: displayedActivity(selected, state),
     componentVersions: await componentVersions(),
+    replaySegments,
     replayRuns: await buildReplayRuns(segments),
   };
 }
@@ -4190,13 +4800,30 @@ function clipConversationPrompt(
   ]);
 }
 
-function independentClipReviewPrompt(segment) {
-  const videoArtifact = segment.key === "alfheim-window-555"
-    ? "benchmarks\\alfheim\\window-555\\alfheim-window-playable.mp4"
-    : (
-        `benchmarks\\alfheim\\generated\\${segment.key}`
-        + "\\alfheim-window-playable.mp4"
+function independentClipReviewVideoArtifact(segment) {
+  return segment.key === "alfheim-window-555"
+    ? join(
+        projectRoot,
+        "benchmarks",
+        "alfheim",
+        "window-555",
+        "alfheim-window-playable.mp4",
+      )
+    : join(
+        projectRoot,
+        "benchmarks",
+        "alfheim",
+        "generated",
+        segment.key,
+        "alfheim-window-playable.mp4",
       );
+}
+
+function independentClipReviewPrompt(segment) {
+  const videoArtifact = relative(
+    projectRoot,
+    independentClipReviewVideoArtifact(segment),
+  );
   return joinPrompt([
     "[Football Event Review Canvas - automatic independent clip review]",
     `Independently review only segment ${segment.timeLabel} (${segment.key}).`,
@@ -4210,13 +4837,72 @@ function independentClipReviewPrompt(segment) {
     "Do not read, inspect, summarize, count, or use E# rules-engine events or "
       + "predicted-events.json while constructing the C# proposals. C# must be "
       + "complete and frozen before any later C↔E comparison.",
+    "Use independent review protocol version 6. Apply the successful protocol-3 "
+      + "method first: watch this segment's prepared video continuously at full "
+      + "resolution and build a chronological possession ledger from this "
+      + "segment alone. Never reuse a stoppage, restart, timestamp, or event "
+      + "sequence remembered from another segment.",
+    "Before finalizing that ledger, freeze a supporting chronological visual "
+      + "touch-candidate sweep containing every plausible contact, controlled "
+      + "touch, deliberate release, challenge, and possession-loss moment. "
+      + "Retain rejected and unresolved contacts with concrete visual reasons; "
+      + "never erase them by calling a broad interval loose or uninterrupted. "
+      + "Do not turn every candidate contact into an event: the possession "
+      + "ledger remains the primary adjudication structure.",
+    "Then perform a separate adjudication pass. Resolve every "
+      + "supported change of controlled player in the ledger: a "
+      + "same-team change is a completed-pass candidate, an opponent change is "
+      + "a turnover candidate, and insufficient evidence is an explicit "
+      + "abstention. Then perform a second continuity pass. Recheck every "
+      + "outgoing passer not linked to the previous controlled player and every "
+      + "event-free interval longer than three seconds while play is visibly "
+      + "live. For every claimed ball journey longer than three seconds, record "
+      + "full-resolution checkpoints no more than 1.5 seconds apart and identify "
+      + "every touch candidate considered inside the interval. This check must "
+      + "catch short adjacent and controlled one-touch passes rather than "
+      + "collapsing them into one possession.",
+    "For a turnover, assign the event to the team that loses controlled "
+      + "possession, not the opponent that gains it. BAC position, "
+      + "nearest-player distance, tracker identity, and cached team "
+      + "classification are diagnostic context only and cannot independently "
+      + "prove control, player identity, or team. Use visible kit identity and "
+      + "physical-player continuity. A team-label flicker, tracker handoff, "
+      + "brief challenge, deflection, or alternating proximity is not an event "
+      + "without a supported deliberate touch and subsequent control.",
+    "Review the continuous prepared video at full resolution as the primary "
+      + "evidence channel. Slow, pause, scrub, and zoom as needed. A complete "
+      + "timestamped sequence of full-resolution individual source frames may "
+      + "supplement playback, including synchronized frozen-BAC ball-centred "
+      + "zooms, but a tiled contact sheet is never sufficient to prove "
+      + "uninterrupted ball travel or absence of a touch. The coverage manifest "
+      + "proves integrity only and is not football evidence. Do not use sampled "
+      + "contact sheets, omitted frames, or cache-derived event evidence. Later "
+      + "comparisons must preserve chronological "
+      + "one-to-one order and consider each C# release-to-completion interval; "
+      + "do not require exact timestamp equality or match display ordinals.",
+    "Every C# proposal must be concrete: record releaseSeconds, the completion "
+      + "time in seconds, the completion frame, sender or prior-owner evidence, "
+      + "receiver controlled-touch evidence, and the current-segment match-state "
+      + "evidence that permits the event. Generic statements such as 'the team "
+      + "moves the ball' are insufficient.",
     "Inspect the entire prepared clip and adjudicate every supported completed "
       + "pass and turnover. Shots and fouls are outside the current Innovation "
-      + "review scope. Abstain where pass or turnover evidence is insufficient.",
-    "Call football-event-review-live replace_copilot_review exactly once with "
-      + "the complete independently constructed proposal list, including an "
-      + "empty list if no events are supported.",
-    "Then call football-event-review-live publish_review_response without an "
+      + "review scope. Require current-segment evidence for every stoppage or "
+      + "restart claim. Abstain where pass or turnover evidence is insufficient.",
+    "Call this Canvas's replace_copilot_review action exactly once with "
+      + "reviewProtocolVersion 6. Submit the frozen chronological possession "
+      + "ledger, the supporting visual touch-candidate ledger, "
+      + "the required long-flight checks, and contiguous coverage windows of "
+      + "no more than three seconds spanning the full clip. Each window must "
+      + "list both the touch-candidate IDs and proposal completion times "
+      + "observed within it. The "
+      + "Canvas validates that every event-bearing ledger transition has one "
+      + "matching proposal and every proposal is represented in the ledger "
+      + "and coverage windows. Also identify the visual evidence channel, "
+      + "complete the remaining coverage checks, and provide the complete "
+      + "independently constructed proposal list, including an empty list if "
+      + "no events are supported.",
+    "Then call this Canvas's publish_review_response action without an "
       + "event index to report that the independent C# review is complete. Do "
       + "not accept proposals, confirm E# events, change the engine, rerun "
       + "detection/tracking, or publish the segment.",
@@ -4319,25 +5005,45 @@ function manualEngineDiscrepancyPrompt(
       + "rules-engine output has no unique E# with the same team and canonical "
       + "event type within one second.",
     reviewerVerdict === "correct"
-      ? "The professional reviewer explicitly says this M# is correct and the "
-        + "engine missed it. Treat that as a review observation, then verify "
-        + "the raw-video evidence before changing the engine."
-      : "The professional reviewer is unsure and asked for independent "
-        + "adjudication. Do not assume either M# or the engine is correct.",
+      ? "The professional reviewer explicitly accepted this frozen golden M# "
+        + "as correct and says no current E# represents the play. Treat M# as "
+        + "the required evaluation result: do not reject, edit, or reinterpret "
+        + "it. Inspect raw video and cached runtime evidence only to diagnose "
+        + "and correct the general pipeline cause."
+      : reviewerVerdict === "engine_match_wrong"
+        ? "The professional reviewer explicitly accepted this frozen golden M# "
+          + "as correct and says the nearby current E# represents the same play "
+          + "but has the wrong completion time, team, or canonical type. Treat "
+          + "that M#/E# relationship as the required evaluation result: do not "
+          + "reject, edit, or reinterpret M#, and do not reclassify the E# as a "
+          + "different play. Inspect raw video and cached runtime evidence only "
+          + "to diagnose and correct the general pipeline cause."
+        : "The professional reviewer is unsure and asked for independent "
+          + "adjudication. Do not assume either M# or the engine is correct.",
     "Independently inspect the targeted raw-video evidence, normally within "
       + "±3 seconds. Treat the M# time only as a search anchor. Never use the "
       + "manual event or its timestamp as an inference input, hidden threshold, "
       + "or segment-specific exception.",
-    "If the video does not support this M#, do not change the engine or rewrite "
-      + "M#. Explain the missing or conflicting evidence so the reviewer can "
-      + "edit or delete M# themselves.",
-    "If the video supports M# and the engine genuinely missed it, diagnose the "
-      + "general rules-engine cause, implement only a general evidence-based "
-      + "fix in the Innovation engine, rerun cached event building, refresh the "
-      + "engine snapshot, and run the focused and protected regressions. Do not "
-      + "rerun detection or tracking.",
+    reviewerVerdict === "unsure"
+      ? "If the video does not support this M#, do not change the engine or "
+        + "rewrite M#. Explain the missing or conflicting evidence so the "
+        + "reviewer can edit or delete M# themselves."
+      : "The accepted M# must remain unchanged. If cached runtime evidence is "
+        + "insufficient, diagnose and correct the general upstream evidence "
+        + "path rather than rejecting the golden event or adding a special case.",
+    "If the video supports M#, determine whether no E# represents it or a "
+      + "current E# represents the same play with incorrect timing, team, or "
+      + "type. Diagnose the general rules-engine cause, implement only a general "
+      + "evidence-based fix in the Innovation engine, rerun cached event "
+      + "building, refresh the engine snapshot, and run the focused and "
+      + "protected regressions. Do not rerun detection or tracking.",
     "Do not create C#, accept or edit M#, confirm another E#, or publish the "
       + "segment.",
+    "Complete diagnosis, implementation, cached rebuilding, protected tests, "
+      + "comparison refresh through validate_engine_reference, and the final "
+      + "response in this single Autopilot "
+      + "request. Do not start a separate Plan, adjudication, or follow-up "
+      + "Copilot request for this accepted M# decision.",
     "Before ending, call football-event-review-live publish_review_response "
       + `with eventIndex ${index} and without an engineIndex so the result `
       + `appears in the M${index + 1} conversation.`,
@@ -4350,7 +5056,21 @@ function engineEventReviewPrompt(
   index,
   reviewFocus = "",
   userVerdict = null,
+  manualReference = null,
 ) {
+  const approvedManualEvents = manualReference?.approved?.events || [];
+  const goldenMatch = approvedManualEvents.find((manual) =>
+    manual.team === event.team
+    && manual.type === event.type
+    && Math.abs(Number(manual.seconds) - Number(event.seconds)) <= 1
+  );
+  const goldenReferenceCheck = approvedManualEvents.length
+    ? goldenMatch
+      ? `Frozen golden M# check: ${goldenMatch.key} has the same team and `
+        + `canonical type within one second of this exact engine event.`
+      : "Frozen golden M# check: no event has the same team and canonical "
+        + "type within one second of this exact engine event."
+    : "Frozen golden M# check: no approved golden reference is available.";
   const reviewerInstruction = userVerdict === "incorrect"
     ? [
         "The professional reviewer has explicitly rejected this E# as "
@@ -4399,17 +5119,91 @@ function engineEventReviewPrompt(
       : "Reviewer verdict: none supplied.",
     projectRulesInstruction,
     "The user authorized action on only this rules-engine event.",
+    "E# is a display ordinal only. Resolve the selected event by its current "
+      + "team, canonical type, release time, and completion time; after any "
+      + "engine rerun, read the current output again instead of assuming the "
+      + "same E# number identifies the same event.",
+    goldenReferenceCheck,
+    "Use the frozen M# comparison only after predictions are complete, as a "
+      + "review discrepancy check. Never use M#, its timestamp, or the "
+      + "reviewer verdict as an inference input or threshold.",
     ...reviewerInstruction,
     "If the evidence supports the exact team, canonical type, and completion "
-      + "time, call football-event-review-live confirm_engine_event_reviewed with "
+      + `time, call ${workflow.canvasId} confirm_engine_event_reviewed with `
       + "this segment, engine index, and a concise evidence reason. Otherwise "
-      + "call football-event-review-live record_engine_event_not_confirmed with "
+      + `call ${workflow.canvasId} record_engine_event_not_confirmed with `
       + "the same identifiers and the precise unsupported or uncertain evidence.",
-    "Do not create or accept a Copilot proposal, edit the engine, or rerun "
-      + "detection, tracking, or event building.",
-    "Before ending, call football-event-review-live publish_review_response "
+    userVerdict === "incorrect"
+      ? "Do not create or accept a Copilot proposal, and do not rerun "
+        + "detection or tracking. Cached event rebuilding is permitted only "
+        + "after a general evidence-based engine correction."
+      : "Do not create or accept a Copilot proposal, edit the engine, or rerun "
+        + "detection, tracking, or event building.",
+    `Before ending, call ${workflow.canvasId} publish_review_response `
       + `with engineIndex ${index} and without a C# eventIndex so the result `
       + `appears in the E${index + 1} conversation.`,
+  ]);
+}
+
+function discrepancyBatchPrompt(segment, batch) {
+  const videoArtifact = segment.key === "alfheim-window-555"
+    ? "benchmarks\\alfheim\\window-555\\alfheim-window-playable.mp4"
+    : (
+        `benchmarks\\alfheim\\generated\\${segment.key}`
+        + "\\alfheim-window-playable.mp4"
+      );
+  const targetLines = batch.targets.map((target) => {
+    const identity = target.kind === "manual"
+      ? `${target.manualKey}, ${target.team} ${target.type} at `
+        + `${target.seconds.toFixed(3)}s`
+      : `${target.displayReference}, ${target.team} ${target.type}, release `
+        + `${target.releaseSeconds.toFixed(3)}s, completion `
+        + `${target.seconds.toFixed(3)}s`;
+    return `- ${target.id}: ${identity}; reviewer verdict `
+      + `${target.userVerdict}; focus: ${target.note || "none"}.`;
+  });
+  return joinPrompt([
+    "[Football Event Review Canvas - grouped similar-discrepancy review]",
+    `Review only segment ${segment.timeLabel} (${segment.key}).`,
+    `Video artifact: ${videoArtifact}.`,
+    `Batch ${batch.id} contains ${batch.targets.length} independently `
+      + `authorized ${batch.kind === "manual" ? "M#" : "E#"} discrepancies `
+      + `of canonical type ${batch.eventType}:`,
+    ...targetLines,
+    projectRulesInstruction,
+    "The checked rows share one professional verdict and canonical event type, "
+      + "but each remains an independent football event and audit record. "
+      + "Diagnose each target against its own minimal video window and cached "
+      + "runtime evidence. Do not infer that one target proves another.",
+    batch.kind === "manual"
+      ? "For verdict correct or engine_match_wrong, each M# is a final accepted "
+        + "professional requirement. Do not reject, edit, reinterpret, or remap "
+        + "it. For verdict unsure, adjudicate independently and preserve "
+        + "uncertainty when evidence is insufficient."
+      : batch.targets[0]?.userVerdict === "correct"
+        ? "The professional reviewer confirmed every checked exact E#. Do not "
+          + "re-adjudicate them. Call confirm_engine_event_reviewed for each "
+          + "selected E# and do not edit or rerun an engine that already agrees."
+        : "For verdict incorrect, first call record_engine_event_not_confirmed "
+          + "for every exact selected E# before changing engine logic. For verdict "
+          + "unsure, adjudicate each E# independently and leave unsupported events "
+          + "unconfirmed.",
+    "Look for a shared general cause when evidence supports one, but never add "
+      + "a segment-, timestamp-, frame-, track-, team-, or reviewer-label "
+      + "exception. Manual labels and selected times are evaluation anchors "
+      + "only and must not influence inference.",
+    "Apply all supported general Innovation-engine corrections before rebuilding. "
+      + "Then perform at most one cached events-only rebuild, one focused test "
+      + "run, one protected regression run, and one comparison refresh for the "
+      + "whole batch. Do not rerun detection or tracking and do not inspect or "
+      + "touch Live artifacts.",
+    `Only after every diagnosis, supported fix, cached rebuild, regression, and `
+      + `comparison refresh is finished, call ${workflow.canvasId} `
+      + "publish_batch_review_results exactly once. Pass segment "
+      + `${segment.key}, batchId ${batch.id}, and one result object containing `
+      + "the exact targetId and concise final content for every target shown "
+      + "above. Partial result sets are rejected so the modal cannot complete "
+      + "or display responses before the whole grouped review is finished.",
   ]);
 }
 
@@ -5138,6 +5932,10 @@ async function handleRequest(request, response, serverInstanceId) {
       }),
       },
     );
+    if (workflow.key === "innovation") {
+      review.state.automaticCopilotReview = null;
+      await saveState(segment, review.state);
+    }
     sendJson(response, 202, {
       ...result,
       segment,
@@ -5153,11 +5951,6 @@ async function handleRequest(request, response, serverInstanceId) {
       sendJson(response, 404, {error: "Not found"});
       return;
     }
-    sendJson(response, 409, {
-      error: "Automatic C# generation is disabled in the manual-first Innovation workflow",
-      code: "manual_first_workflow",
-    });
-    return;
     if (reviewRequestPending) {
       sendJson(response, 409, {
         error: "Copilot is already handling a review request",
@@ -5203,12 +5996,12 @@ async function handleRequest(request, response, serverInstanceId) {
     sendJson(response, 202, {segment, status: "reviewing"});
     setTimeout(() => {
       session.send({
-        prompt: independentClipReviewPrompt(review.selected),
-        displayPrompt: (
-          `Independently review ${review.selected.timeLabel} and create C# proposals.`
-        ),
-        agentMode: "autopilot",
-      }).catch(async (error) => {
+          prompt: independentClipReviewPrompt(review.selected),
+          displayPrompt: (
+            `Independently review ${review.selected.timeLabel} and create C# proposals.`
+          ),
+          agentMode: "autopilot",
+        }).catch(async (error) => {
         reviewRequestPending = false;
         const failedReview = await reviewContext(segment);
         failedReview.state.automaticCopilotReview = {
@@ -5335,6 +6128,13 @@ async function handleRequest(request, response, serverInstanceId) {
       userVerdict,
       grantedAt: new Date().toISOString(),
     };
+    const engineReviewKey = engineEventReviewKey(event);
+    const engineIdentity = {
+      team: event.team,
+      type: event.type,
+      seconds: Number(event.seconds),
+      releaseSeconds: Number(event.releaseSeconds),
+    };
     review.state.conversation.push({
       role: "user",
       content: (
@@ -5353,6 +6153,8 @@ async function handleRequest(request, response, serverInstanceId) {
       ),
       eventIndex: null,
       engineIndex: index,
+      engineReviewKey,
+      engineIdentity,
       timestamp: new Date().toISOString(),
     });
     await saveState(segment, review.state);
@@ -5360,6 +6162,8 @@ async function handleRequest(request, response, serverInstanceId) {
       segment,
       eventIndex: null,
       engineIndex: index,
+      engineReviewKey,
+      engineIdentity,
     };
     reviewRequestPending = true;
     setActivity(
@@ -5376,6 +6180,7 @@ async function handleRequest(request, response, serverInstanceId) {
           index,
           reviewFocus,
           userVerdict,
+          review.state.manualReference,
         ),
         displayPrompt: (
           userVerdict === "incorrect"
@@ -5408,6 +6213,217 @@ async function handleRequest(request, response, serverInstanceId) {
   }
   if (
     request.method === "POST"
+    && url.pathname === "/api/copilot-review-discrepancy-batch"
+  ) {
+    if (workflow.key !== "innovation") {
+      sendJson(response, 409, {
+        error: "Grouped M#/E# review is available only in Innovation review",
+      });
+      return;
+    }
+    if (reviewRequestPending) {
+      sendJson(response, 409, {
+        error: "Copilot is already handling a review request",
+      });
+      return;
+    }
+    const body = await readBody(request);
+    const segment = requestedSegment(url, body);
+    const kind = body.kind === "engine"
+      ? "engine"
+      : body.kind === "manual"
+        ? "manual"
+        : null;
+    const indices = Array.from(new Set(
+      Array.isArray(body.indices)
+        ? body.indices.map(Number).filter(Number.isInteger)
+        : [],
+    ));
+    const userVerdict = kind === "engine"
+      ? (
+          ["correct", "incorrect", "unsure"].includes(body.userVerdict)
+            ? body.userVerdict
+            : null
+        )
+      : (
+          ["correct", "engine_match_wrong", "unsure"].includes(body.userVerdict)
+            ? body.userVerdict
+            : null
+        );
+    const note = String(body.note || "").trim();
+    if (!kind || indices.length < 2 || indices.length > 20 || !userVerdict) {
+      sendJson(response, 400, {
+        error: "Select 2–20 similar events and one valid reviewer verdict",
+      });
+      return;
+    }
+    if (note.length > 4_000) {
+      sendJson(response, 400, {
+        error: "Review focus must be at most 4,000 characters",
+      });
+      return;
+    }
+    const review = await reviewContext(segment);
+    const current = engineReviewSnapshot(
+      review.state,
+      await captureEngineSnapshot(segment),
+    );
+    const events = snapshotEvents(current);
+    const suggestions = suggestManualMappings(review.drafts, events);
+    const batchId = randomUUID();
+    const targets = [];
+    for (const index of indices) {
+      if (kind === "engine") {
+        const event = events[index];
+        if (!event) {
+          sendJson(response, 400, {
+            error: `E${index + 1} is no longer present in current output`,
+          });
+          return;
+        }
+        const engineReviewKey = engineEventReviewKey(event);
+        targets.push({
+          id: randomUUID(),
+          kind,
+          originalIndex: index,
+          displayReference: `E${index + 1}`,
+          engineReviewKey,
+          team: event.team,
+          type: event.type,
+          seconds: Number(event.seconds),
+          releaseSeconds: Number(event.releaseSeconds),
+          userVerdict,
+          note,
+          completed: false,
+        });
+      } else {
+        const event = review.drafts[index];
+        if (
+          !event
+          || !["manual_review", "user_reported"].includes(event.source)
+          || !event.key
+        ) {
+          sendJson(response, 400, {
+            error: `M# selection ${index + 1} is no longer available`,
+          });
+          return;
+        }
+        if (suggestions[event.key]) {
+          sendJson(response, 409, {
+            error: `${event.key} already has a current matching E#`,
+          });
+          return;
+        }
+        targets.push({
+          id: randomUUID(),
+          kind,
+          originalIndex: index,
+          manualKey: event.key,
+          team: event.team,
+          type: event.type,
+          seconds: Number(event.seconds),
+          releaseSeconds: Number(event.seconds),
+          userVerdict,
+          note,
+          completed: false,
+        });
+      }
+    }
+    const eventTypes = new Set(targets.map((target) => target.type));
+    if (eventTypes.size !== 1) {
+      sendJson(response, 400, {
+        error: "Grouped review can contain only one canonical event type",
+      });
+      return;
+    }
+    const batch = {
+      id: batchId,
+      kind,
+      eventType: targets[0].type,
+      status: "working",
+      targets,
+      startedAt: new Date().toISOString(),
+    };
+    for (const target of targets) {
+      if (kind === "engine") {
+        review.state.engineEventReviewAuthorizations[target.engineReviewKey] = {
+          engineContentHash: current.fingerprint.contentHash,
+          outputHash: current.outputHash,
+          userClaimedCorrect: userVerdict === "correct",
+          userVerdict,
+          grantedAt: batch.startedAt,
+          batchId,
+        };
+      }
+      review.state.conversation.push({
+        role: "user",
+        content: kind === "engine"
+          ? `Permission granted in grouped review ${batchId}: review `
+            + `${target.displayReference} at ${target.seconds.toFixed(3)}s. `
+            + `Reviewer verdict: ${userVerdict}.`
+          : `Permission granted in grouped review ${batchId}: review why `
+            + `${target.manualKey} at ${target.seconds.toFixed(3)}s has no `
+            + `matching E#. Reviewer verdict: ${userVerdict}.`,
+        eventIndex: kind === "manual" ? target.originalIndex : null,
+        engineIndex: kind === "engine" ? target.originalIndex : null,
+        engineReviewKey: target.engineReviewKey || null,
+        manualReviewKey: target.manualKey || null,
+        batchReviewId: batchId,
+        batchTargetId: target.id,
+        timestamp: batch.startedAt,
+      });
+    }
+    review.state.pendingDiscrepancyBatch = batch;
+    await saveState(segment, review.state);
+    lastConversationContext = {segment, batchId};
+    reviewRequestPending = true;
+    setActivity(
+      "working",
+      `Copilot is reviewing ${targets.length} similar ${kind === "engine" ? "E#" : "M#"} events`,
+      "The checked events are being diagnosed in one Autopilot request and one regression gate.",
+    );
+    sendJson(response, 202, {
+      sent: true,
+      batchId,
+      count: targets.length,
+      kind,
+    });
+    setTimeout(() => {
+      session.send({
+        prompt: discrepancyBatchPrompt(review.selected, batch),
+        displayPrompt: (
+          `Review ${targets.length} similar ${batch.eventType} `
+          + `${kind === "engine" ? "E#" : "M#"} discrepancies together.`
+        ),
+        agentMode: "autopilot",
+      }).catch(async (error) => {
+        reviewRequestPending = false;
+        const failedReview = await reviewContext(segment);
+        const failedBatch = failedReview.state.pendingDiscrepancyBatch;
+        if (failedBatch?.id === batchId) {
+          failedBatch.status = "failed";
+          failedBatch.error = error.message;
+        }
+        failedReview.state.conversation.push({
+          role: "system",
+          content: `Grouped discrepancy review failed: ${error.message}`,
+          eventIndex: null,
+          engineIndex: null,
+          batchReviewId: batchId,
+          timestamp: new Date().toISOString(),
+        });
+        await saveState(segment, failedReview.state);
+        setActivity(
+          "error",
+          "The grouped discrepancy review failed",
+          error.message,
+        );
+      });
+    }, 0);
+    return;
+  }
+  if (
+    request.method === "POST"
     && url.pathname === "/api/copilot-review-manual-engine"
   ) {
     if (workflow.key !== "innovation") {
@@ -5428,7 +6444,11 @@ async function handleRequest(request, response, serverInstanceId) {
     const manualKey = String(body.manualKey || "");
     const index = context.drafts.findIndex((event) => event.key === manualKey);
     const event = context.drafts[index];
-    const reviewerVerdict = ["correct", "unsure"].includes(body.userVerdict)
+    const reviewerVerdict = [
+      "correct",
+      "engine_match_wrong",
+      "unsure",
+    ].includes(body.userVerdict)
       ? body.userVerdict
       : null;
     if (!Number.isInteger(index) || !event) {
@@ -5437,17 +6457,13 @@ async function handleRequest(request, response, serverInstanceId) {
     }
     if (!reviewerVerdict) {
       sendJson(response, 400, {
-        error: "Choose whether M# is correct or needs independent adjudication",
+        error: "Choose how the unmatched M# relates to current engine output",
       });
       return;
     }
-    if (
-      context.selected.validated
-      || context.state.publishedReference
-      || context.state.manualReference?.approved
-    ) {
+    if (context.selected.validated || context.state.publishedReference) {
       sendJson(response, 409, {
-        error: "Reopen the approved manual minute before reviewing a missing E#",
+        error: "Reopen the published minute before reviewing a missing E#",
       });
       return;
     }
@@ -5465,6 +6481,12 @@ async function handleRequest(request, response, serverInstanceId) {
       });
       return;
     }
+    const manualIdentity = {
+      key: event.key,
+      team: event.team,
+      type: event.type,
+      seconds: Number(event.seconds),
+    };
     context.state.conversation.push({
       role: "user",
       content: (
@@ -5474,10 +6496,18 @@ async function handleRequest(request, response, serverInstanceId) {
       ),
       eventIndex: index,
       engineIndex: null,
+      manualReviewKey: event.key,
+      manualIdentity,
       timestamp: new Date().toISOString(),
     });
     await saveState(segment, context.state);
-    lastConversationContext = {segment, eventIndex: index, engineIndex: null};
+    lastConversationContext = {
+      segment,
+      eventIndex: index,
+      engineIndex: null,
+      manualReviewKey: event.key,
+      manualIdentity,
+    };
     reviewRequestPending = true;
     setActivity(
       "working",
@@ -6332,6 +7362,13 @@ async function handleRequest(request, response, serverInstanceId) {
     const body = await readBody(request, 131_072);
     const segment = requestedSegment(url, body);
     const context = await reviewContext(segment);
+    if (workflow.reviewerCorrectedDemoLayer) {
+      await ensureReviewerCoordinateLayer(
+        segment,
+        context.state,
+        context.selected,
+      );
+    }
     const validFrames = new Set(
       (
         await loadDetectedBallTrack(
@@ -6397,6 +7434,95 @@ async function handleRequest(request, response, serverInstanceId) {
       saved: true,
       observationCount: observations.length,
     });
+    return;
+  }
+  if (
+    request.method === "POST"
+    && url.pathname === "/api/innovation/approve-coordinate-layer"
+  ) {
+    if (!workflow.reviewerCorrectedDemoLayer) {
+      sendJson(response, 404, {error: "Not found"});
+      return;
+    }
+    const body = await readBody(request);
+    const segment = requestedSegment(url, body);
+    try {
+      const context = await reviewContext(segment);
+      if (!context.selected.evidenceReady) {
+        throw new CanvasError(
+          "innovation_evidence_required",
+          "Wait for BAC and player-context preparation to finish before applying coordinate corrections.",
+        );
+      }
+      const layer = await ensureReviewerCoordinateLayer(
+        segment,
+        context.state,
+        context.selected,
+      );
+      const {corrections, approvedCoordinates} =
+        materializeReviewerCoordinates(
+          layer,
+          context.state.trajectoryAudit?.observations || {},
+        );
+      if (!Object.keys(corrections).length) {
+        throw new CanvasError(
+          "reviewer_coordinate_corrections_missing",
+          "Record at least one specified, YOLO-candidate, or undefined coordinate before applying the batch.",
+        );
+      }
+      const priorEngineOutput = context.selected.state === "ready";
+      layer.revision = Number(layer.revision || 0) + 1;
+      layer.corrections = corrections;
+      layer.approvedCoordinates = approvedCoordinates;
+      layer.status = "approved";
+      layer.approvedAt = new Date().toISOString();
+      layer.approvedBy = "professional_reviewer";
+      layer.downstream = {
+        status: "rerun_starting",
+        priorEngineOutput,
+        playerDetectionReused: true,
+        playerTrackingRerun: true,
+        eventsRerun: priorEngineOutput,
+        startedAt: new Date().toISOString(),
+      };
+      layer.runtimeHash = await writeReviewerCoordinateRuntime(segment, layer);
+      await saveState(segment, context.state);
+      setActivity(
+        "working",
+        "Applying reviewer coordinate corrections",
+        priorEngineOutput
+          ? "Reusing completed YOLO detections while rebuilding dependent player tracking and football events."
+          : "Reusing completed YOLO detections while rebuilding dependent player tracking. The Innovation engine remains unrun.",
+      );
+      try {
+        const result = await localJson(workflow.analyzePath, {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({
+            cache_key: segment,
+            coordinates_updated: true,
+            rerun_events: priorEngineOutput,
+          }),
+        });
+        layer.downstream.status = "rerun_started";
+        await saveState(segment, context.state);
+        sendJson(response, 202, {
+          ...result,
+          segment,
+          revision: layer.revision,
+          correctionCount: Object.keys(corrections).length,
+          playerDetectionReused: true,
+          eventsRerun: priorEngineOutput,
+        });
+      } catch (error) {
+        layer.downstream.status = "failed_to_start";
+        layer.downstream.error = error.message;
+        await saveState(segment, context.state);
+        throw error;
+      }
+    } catch (error) {
+      sendJson(response, 400, {error: error.message});
+    }
     return;
   }
   if (request.method === "POST" && url.pathname === "/api/message") {
@@ -6505,6 +7631,16 @@ async function handleRequest(request, response, serverInstanceId) {
       delete review.state.copilotAcceptanceAuthorizations[
         String(active.eventIndex)
       ];
+    }
+    if (review.state.pendingDiscrepancyBatch) {
+      for (const target of review.state.pendingDiscrepancyBatch.targets || []) {
+        if (target.engineReviewKey) {
+          delete review.state.engineEventReviewAuthorizations[
+            target.engineReviewKey
+          ];
+        }
+      }
+      review.state.pendingDiscrepancyBatch = null;
     }
     review.state.pendingClipRequest = null;
     if (review.state.automaticCopilotReview?.status === "reviewing") {
@@ -6760,6 +7896,39 @@ async function handleRequest(request, response, serverInstanceId) {
         );
       });
     }, 0);
+    return;
+  }
+  if (
+    request.method === "POST"
+    && url.pathname === "/api/validate-engine-reference"
+  ) {
+    const body = await readBody(request);
+    const segment = requestedSegment(url, body);
+    const review = await reviewContext(segment);
+    if (workflow.key !== "innovation") {
+      sendJson(response, 400, {
+        error: "Golden-reference validation is available only in Innovation",
+      });
+      return;
+    }
+    const approved = review.state.manualReference?.approved;
+    if (!approved) {
+      sendJson(response, 409, {
+        error: "Freeze the manual M# reference as golden first",
+      });
+      return;
+    }
+    const current = await captureEngineSnapshot(segment);
+    const validation = refreshEngineReferenceValidation(
+      review.state,
+      current,
+      "validate_engine_against_golden",
+    );
+    await saveState(segment, review.state);
+    sendJson(response, 200, {
+      ok: true,
+      ...validation,
+    });
     return;
   }
   if (
@@ -7212,11 +8381,20 @@ session = await joinSession({
             const segment = String(context.input.segment);
             const content = String(context.input.content).trim();
             const review = await reviewContext(segment);
+            if (review.state.pendingDiscrepancyBatch) {
+              throw new CanvasError(
+                "review_batch_requires_atomic_publish",
+                "Grouped-review responses can be published only after every target is complete.",
+              );
+            }
             const eventIndex = Number.isInteger(context.input.eventIndex)
               ? Number(context.input.eventIndex)
               : null;
             const engineIndex = Number.isInteger(context.input.engineIndex)
               ? Number(context.input.engineIndex)
+              : null;
+            const activeEngineReview = eventIndex === null
+              ? pendingEngineReviewContext(review.state, segment)
               : null;
             if (eventIndex !== null && engineIndex !== null) {
               throw new CanvasError(
@@ -7254,6 +8432,7 @@ session = await joinSession({
               engineIndex,
               coordinateReview: Boolean(coordinateBatch),
               coordinateBatchId: coordinateBatch?.id || null,
+              completed: false,
               timestamp: new Date().toISOString(),
             });
             await saveState(segment, review.state);
@@ -7592,6 +8771,155 @@ session = await joinSession({
           },
         },
         {
+          name: "publish_batch_review_results",
+          description: "Atomically publish every target result only after an active grouped M#/E# review is fully complete.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              segment: { type: "string" },
+              batchId: { type: "string", minLength: 1 },
+              results: {
+                type: "array",
+                minItems: 2,
+                maxItems: 20,
+                items: {
+                  type: "object",
+                  properties: {
+                    targetId: { type: "string", minLength: 1 },
+                    content: {
+                      type: "string",
+                      minLength: 1,
+                      maxLength: 4_000,
+                    },
+                  },
+                  required: ["targetId", "content"],
+                  additionalProperties: false,
+                },
+              },
+            },
+            required: ["segment", "batchId", "results"],
+            additionalProperties: false,
+          },
+          handler: async (context) => {
+            const segment = String(context.input.segment);
+            const batchId = String(context.input.batchId);
+            const results = context.input.results.map((result) => ({
+              targetId: String(result.targetId),
+              content: String(result.content).trim(),
+            }));
+            const review = await reviewContext(segment);
+            const batch = review.state.pendingDiscrepancyBatch;
+            if (!batch || batch.id !== batchId) {
+              throw new CanvasError(
+                "review_batch_missing",
+                "The selected grouped review is no longer active.",
+              );
+            }
+            const resultByTarget = new Map(
+              results.map((result) => [result.targetId, result]),
+            );
+            const expectedIds = new Set(
+              batch.targets.map((target) => target.id),
+            );
+            const completeResultSet = (
+              results.length === batch.targets.length
+              && resultByTarget.size === batch.targets.length
+              && results.every((result) => expectedIds.has(result.targetId))
+            );
+            if (!completeResultSet) {
+              throw new CanvasError(
+                "review_batch_incomplete",
+                "Publish one result for every grouped-review target in a single call.",
+              );
+            }
+            const currentEvents = batch.kind === "engine"
+              ? snapshotEvents(engineReviewSnapshot(
+                review.state,
+                await captureEngineSnapshot(segment),
+              ))
+              : [];
+            const publishedResults = [];
+            const completedAt = new Date().toISOString();
+            for (const target of batch.targets) {
+              const result = resultByTarget.get(target.id);
+              let eventIndex = null;
+              let engineIndex = null;
+              let engineEventRemoved = false;
+              if (target.kind === "manual") {
+                eventIndex = review.drafts.findIndex(
+                  (draft) => draft.key === target.manualKey,
+                );
+                if (eventIndex < 0) {
+                  eventIndex = target.originalIndex;
+                }
+              } else {
+                engineIndex = currentEvents.findIndex(
+                  (event) => (
+                    engineEventReviewKey(event) === target.engineReviewKey
+                  ),
+                );
+                engineEventRemoved = engineIndex < 0;
+                if (engineEventRemoved) {
+                  engineIndex = null;
+                }
+              }
+              review.state.conversation.push({
+                role: "assistant",
+                content: result.content,
+                eventIndex,
+                engineIndex,
+                engineReviewKey: target.engineReviewKey || null,
+                manualReviewKey: target.manualKey || null,
+                engineIdentity: target.kind === "engine"
+                  ? {
+                      team: target.team,
+                      type: target.type,
+                      seconds: target.seconds,
+                      releaseSeconds: target.releaseSeconds,
+                    }
+                  : null,
+                engineEventRemoved,
+                batchReviewId: batchId,
+                batchTargetId: target.id,
+                completed: true,
+                timestamp: completedAt,
+              });
+              target.completed = true;
+              target.completedAt = completedAt;
+              if (target.engineReviewKey) {
+                delete review.state.engineEventReviewAuthorizations[
+                  target.engineReviewKey
+                ];
+              }
+              publishedResults.push({
+                targetId: target.id,
+                eventIndex,
+                engineIndex,
+                engineEventRemoved,
+              });
+            }
+            batch.status = "completed";
+            batch.completedAt = completedAt;
+            review.state.lastDiscrepancyBatch = batch;
+            review.state.pendingDiscrepancyBatch = null;
+            reviewRequestPending = false;
+            await saveState(segment, review.state);
+            setActivity(
+              "ready",
+              "Grouped Copilot results ready",
+              `All ${batch.targets.length} checked events completed together.`,
+            );
+            broadcast("conversation");
+            return {
+              segment,
+              batchId,
+              results: publishedResults,
+              completed: true,
+              published: true,
+            };
+          },
+        },
+        {
           name: "publish_review_response",
           description: "Publish the final concise Copilot answer into the floating Canvas conversation.",
           inputSchema: {
@@ -7609,13 +8937,26 @@ session = await joinSession({
             const segment = String(context.input.segment);
             const content = String(context.input.content).trim();
             const review = await reviewContext(segment);
+            if (review.state.pendingDiscrepancyBatch) {
+              throw new CanvasError(
+                "review_batch_requires_atomic_publish",
+                "Grouped-review responses can be published only after every target is complete.",
+              );
+            }
             const eventIndex = Number.isInteger(context.input.eventIndex)
               ? Number(context.input.eventIndex)
               : null;
-            const engineIndex = Number.isInteger(context.input.engineIndex)
+            const requestedEngineIndex = Number.isInteger(context.input.engineIndex)
               ? Number(context.input.engineIndex)
               : null;
-            if (eventIndex !== null && engineIndex !== null) {
+            const activeEngineReview = (
+              eventIndex === null
+              && lastConversationContext?.segment === segment
+              && typeof lastConversationContext?.engineReviewKey === "string"
+            )
+              ? lastConversationContext
+              : null;
+            if (eventIndex !== null && requestedEngineIndex !== null) {
               throw new CanvasError(
                 "review_conversation_ambiguous",
                 "Choose either a C# eventIndex or an E# engineIndex.",
@@ -7628,13 +8969,29 @@ session = await joinSession({
               );
             }
             let engineEvent = null;
-            if (engineIndex !== null) {
+            let engineIndex = requestedEngineIndex;
+            let engineEventRemoved = false;
+            const engineReviewKey = activeEngineReview?.engineReviewKey || null;
+            if (activeEngineReview || requestedEngineIndex !== null) {
               const cachedCurrent = await captureEngineSnapshot(segment);
               const events = snapshotEvents(
                 engineReviewSnapshot(review.state, cachedCurrent),
               );
-              engineEvent = events[engineIndex];
-              if (!engineEvent) {
+              if (activeEngineReview) {
+                engineIndex = events.findIndex(
+                  (candidate) => (
+                    engineEventReviewKey(candidate) === engineReviewKey
+                  ),
+                );
+                engineEvent = engineIndex >= 0 ? events[engineIndex] : null;
+                engineEventRemoved = engineEvent === null;
+                if (engineEventRemoved) {
+                  engineIndex = null;
+                }
+              } else {
+                engineEvent = events[requestedEngineIndex];
+              }
+              if (!activeEngineReview && !engineEvent) {
                 throw new CanvasError(
                   "engine_event_missing",
                   "The selected rules-engine event does not exist.",
@@ -7643,6 +9000,8 @@ session = await joinSession({
             }
             const previous = review.state.conversation.at(-1);
             const coordinateReviewResponse = Boolean(
+              !activeEngineReview
+              &&
               eventIndex === null
               && engineIndex === null
               && review.state.pendingClipRequest?.flaggedFrames?.length
@@ -7656,14 +9015,20 @@ session = await joinSession({
               || previous.content !== content
               || previous.eventIndex !== eventIndex
               || previous.engineIndex !== engineIndex
+              || previous.engineReviewKey !== engineReviewKey
+              || previous.engineEventRemoved !== engineEventRemoved
             ) {
               review.state.conversation.push({
                 role: "assistant",
                 content,
                 eventIndex,
                 engineIndex,
+                engineReviewKey,
+                engineIdentity: activeEngineReview?.engineIdentity || null,
+                engineEventRemoved,
                 coordinateReview: coordinateReviewResponse,
                 coordinateBatchId: coordinateBatch?.id || null,
+                completed: true,
                 timestamp: new Date().toISOString(),
               });
               changed = true;
@@ -7676,8 +9041,8 @@ session = await joinSession({
                   .copilotAcceptanceAuthorizations[String(eventIndex)];
                 changed = true;
               }
-            } else if (engineEvent) {
-              const key = engineEventReviewKey(engineEvent);
+            } else if (engineReviewKey || engineEvent) {
+              const key = engineReviewKey || engineEventReviewKey(engineEvent);
               if (review.state.engineEventReviewAuthorizations[key]) {
                 delete review.state.engineEventReviewAuthorizations[key];
                 changed = true;
@@ -7701,7 +9066,14 @@ session = await joinSession({
               "Open Copilot Chat to read the result and continue this event review.",
             );
             broadcast("conversation");
-            return { segment, eventIndex, engineIndex, published: true };
+            return {
+              segment,
+              eventIndex,
+              engineIndex,
+              engineReviewKey,
+              engineEventRemoved,
+              published: true,
+            };
           },
         },
         {
@@ -7821,6 +9193,250 @@ session = await joinSession({
             type: "object",
             properties: {
               segment: { type: "string" },
+              reviewProtocolVersion: { type: "integer", enum: [6] },
+              coverage: {
+                type: "object",
+                properties: {
+                  visualEvidenceChannel: {
+                    type: "string",
+                    enum: [
+                      "prepared_video_playback",
+                      "combined",
+                    ],
+                  },
+                  continuousVideoReviewed: {
+                    type: "boolean",
+                    enum: [true],
+                  },
+                  completeLocalFrameSequenceReviewed: { type: "boolean" },
+                  possessionLedgerCompleted: { type: "boolean", enum: [true] },
+                  touchCandidateSweepCompleted: {
+                    type: "boolean",
+                    enum: [true],
+                  },
+                  separateAdjudicationPassCompleted: {
+                    type: "boolean",
+                    enum: [true],
+                  },
+                  controlTransitionsResolved: { type: "boolean", enum: [true] },
+                  eventFreeGapsChecked: { type: "boolean", enum: [true] },
+                  segmentLocalEvidenceOnly: { type: "boolean", enum: [true] },
+                  turnoverOwnershipVerified: {
+                    type: "boolean",
+                    enum: [true],
+                  },
+                  visualControlVerified: { type: "boolean", enum: [true] },
+                  trackerArtifactsRejected: { type: "boolean", enum: [true] },
+                  chronologicalIntervalsVerified: {
+                    type: "boolean",
+                    enum: [true],
+                  },
+                },
+                required: [
+                  "visualEvidenceChannel",
+                  "continuousVideoReviewed",
+                  "completeLocalFrameSequenceReviewed",
+                  "possessionLedgerCompleted",
+                  "touchCandidateSweepCompleted",
+                  "separateAdjudicationPassCompleted",
+                  "controlTransitionsResolved",
+                  "eventFreeGapsChecked",
+                  "segmentLocalEvidenceOnly",
+                  "turnoverOwnershipVerified",
+                  "visualControlVerified",
+                  "trackerArtifactsRejected",
+                  "chronologicalIntervalsVerified",
+                ],
+                additionalProperties: false,
+              },
+              touchCandidateLedger: {
+                type: "array",
+                minItems: 1,
+                maxItems: 400,
+                items: {
+                  type: "object",
+                  properties: {
+                    id: { type: "string", minLength: 1 },
+                    seconds: {
+                      type: "number",
+                      minimum: 0,
+                      maximum: 60,
+                    },
+                    frame: {
+                      type: "integer",
+                      minimum: 0,
+                      maximum: 1500,
+                    },
+                    candidateType: {
+                      type: "string",
+                      enum: [
+                        "possible_contact",
+                        "controlled_touch",
+                        "deliberate_release",
+                        "challenge",
+                        "possession_loss",
+                      ],
+                    },
+                    decision: {
+                      type: "string",
+                      enum: ["supported", "rejected", "abstained"],
+                    },
+                    team: {
+                      type: "string",
+                      enum: ["red", "black", "unknown"],
+                    },
+                    player: { type: "string", minLength: 1 },
+                    evidence: { type: "string", minLength: 1 },
+                  },
+                  required: [
+                    "id",
+                    "seconds",
+                    "frame",
+                    "candidateType",
+                    "decision",
+                    "team",
+                    "player",
+                    "evidence",
+                  ],
+                  additionalProperties: false,
+                },
+              },
+              possessionLedger: {
+                type: "array",
+                minItems: 1,
+                maxItems: 200,
+                items: {
+                  type: "object",
+                  properties: {
+                    releaseSeconds: {
+                      type: "number",
+                      minimum: 0,
+                      maximum: 60,
+                    },
+                    completionSeconds: {
+                      type: "number",
+                      minimum: 0,
+                      maximum: 60,
+                    },
+                    previousTeam: {
+                      type: "string",
+                      enum: ["red", "black", "unknown"],
+                    },
+                    previousPlayer: { type: "string", minLength: 1 },
+                    nextTeam: {
+                      type: "string",
+                      enum: ["red", "black", "unknown"],
+                    },
+                    nextPlayer: { type: "string", minLength: 1 },
+                    releaseTouchId: { type: "string", minLength: 1 },
+                    completionTouchId: { type: "string", minLength: 1 },
+                    outcome: {
+                      type: "string",
+                      enum: [
+                        "completed_pass",
+                        "turnover",
+                        "continued_control",
+                        "contested",
+                        "abstention",
+                      ],
+                    },
+                    evidence: { type: "string", minLength: 1 },
+                  },
+                  required: [
+                    "releaseSeconds",
+                    "completionSeconds",
+                    "previousTeam",
+                    "previousPlayer",
+                    "nextTeam",
+                    "nextPlayer",
+                    "releaseTouchId",
+                    "completionTouchId",
+                    "outcome",
+                    "evidence",
+                  ],
+                  additionalProperties: false,
+                },
+              },
+              longFlightChecks: {
+                type: "array",
+                maxItems: 100,
+                items: {
+                  type: "object",
+                  properties: {
+                    ledgerIndex: { type: "integer", minimum: 0 },
+                    possibleContactIds: {
+                      type: "array",
+                      items: { type: "string", minLength: 1 },
+                    },
+                    checkpoints: {
+                      type: "array",
+                      minItems: 3,
+                      items: {
+                        type: "object",
+                        properties: {
+                          seconds: {
+                            type: "number",
+                            minimum: 0,
+                            maximum: 60,
+                          },
+                          evidence: { type: "string", minLength: 1 },
+                        },
+                        required: ["seconds", "evidence"],
+                        additionalProperties: false,
+                      },
+                    },
+                    conclusion: { type: "string", minLength: 1 },
+                  },
+                  required: [
+                    "ledgerIndex",
+                    "possibleContactIds",
+                    "checkpoints",
+                    "conclusion",
+                  ],
+                  additionalProperties: false,
+                },
+              },
+              coverageWindows: {
+                type: "array",
+                minItems: 1,
+                maxItems: 40,
+                items: {
+                  type: "object",
+                  properties: {
+                    startSeconds: {
+                      type: "number",
+                      minimum: 0,
+                      maximum: 60,
+                    },
+                    endSeconds: {
+                      type: "number",
+                      minimum: 0,
+                      maximum: 60,
+                    },
+                    summary: { type: "string", minLength: 1 },
+                    eventCompletionSeconds: {
+                      type: "array",
+                      items: {
+                        type: "number",
+                        minimum: 0,
+                        maximum: 60,
+                      },
+                      touchCandidateIds: {
+                        type: "array",
+                        items: { type: "string", minLength: 1 },
+                      },
+                    },
+                  },
+                  required: [
+                    "startSeconds",
+                    "endSeconds",
+                    "summary",
+                    "touchCandidateIds",
+                    "eventCompletionSeconds",
+                  ],
+                  additionalProperties: false,
+                },
+              },
               proposals: {
                 type: "array",
                 minItems: 0,
@@ -7828,7 +9444,17 @@ session = await joinSession({
                 items: {
                   type: "object",
                   properties: {
+                    releaseSeconds: {
+                      type: "number",
+                      minimum: 0,
+                      maximum: 60,
+                    },
                     seconds: { type: "number", minimum: 0, maximum: 60 },
+                    completionFrame: {
+                      type: "integer",
+                      minimum: 0,
+                      maximum: 1500,
+                    },
                     team: {
                       type: "string",
                       enum: ["red", "black", "match_state"],
@@ -7845,15 +9471,23 @@ session = await joinSession({
                     },
                     title: { type: "string", minLength: 1 },
                     evidence: { type: "string", minLength: 1 },
+                    senderEvidence: { type: "string", minLength: 1 },
+                    receiverEvidence: { type: "string", minLength: 1 },
+                    matchStateEvidence: { type: "string", minLength: 1 },
                     rule: { type: "string", minLength: 1 },
                     reason: { type: "string", minLength: 1 },
                   },
                   required: [
+                    "releaseSeconds",
                     "seconds",
+                    "completionFrame",
                     "team",
                     "eventType",
                     "title",
                     "evidence",
+                    "senderEvidence",
+                    "receiverEvidence",
+                    "matchStateEvidence",
                     "rule",
                     "reason",
                   ],
@@ -7861,7 +9495,16 @@ session = await joinSession({
                 },
               },
             },
-            required: ["segment", "proposals"],
+            required: [
+              "segment",
+              "reviewProtocolVersion",
+              "coverage",
+              "touchCandidateLedger",
+              "possessionLedger",
+              "longFlightChecks",
+              "coverageWindows",
+              "proposals",
+            ],
             additionalProperties: false,
           },
           handler: async (context) => {
@@ -7883,25 +9526,307 @@ session = await joinSession({
               );
             }
             const proposals = context.input.proposals.map((input) => ({
+              releaseSeconds: Number(input.releaseSeconds),
               seconds: Number(input.seconds),
+              releaseFrame: Math.round(Number(input.releaseSeconds) * 25),
+              completionFrame: Number(input.completionFrame),
               team: String(input.team),
               type: String(input.eventType),
               title: String(input.title),
               evidence: String(input.evidence),
+              senderEvidence: String(input.senderEvidence),
+              receiverEvidence: String(input.receiverEvidence),
+              matchStateEvidence: String(input.matchStateEvidence),
               rule: String(input.rule),
               reviewReason: String(input.reason),
               reviewedAt: new Date().toISOString(),
               source: "copilot_review",
             }));
+            const touchCandidateLedger = context.input.touchCandidateLedger.map(
+              (entry) => ({
+                id: String(entry.id),
+                seconds: Number(entry.seconds),
+                frame: Number(entry.frame),
+                candidateType: String(entry.candidateType),
+                decision: String(entry.decision),
+                team: String(entry.team),
+                player: String(entry.player),
+                evidence: String(entry.evidence),
+              }),
+            );
+            const possessionLedger = context.input.possessionLedger.map(
+              (entry) => ({
+                releaseSeconds: Number(entry.releaseSeconds),
+                completionSeconds: Number(entry.completionSeconds),
+                previousTeam: String(entry.previousTeam),
+                previousPlayer: String(entry.previousPlayer),
+                nextTeam: String(entry.nextTeam),
+                nextPlayer: String(entry.nextPlayer),
+                releaseTouchId: String(entry.releaseTouchId),
+                completionTouchId: String(entry.completionTouchId),
+                outcome: String(entry.outcome),
+                evidence: String(entry.evidence),
+              }),
+            );
+            const longFlightChecks = context.input.longFlightChecks.map(
+              (check) => ({
+                ledgerIndex: Number(check.ledgerIndex),
+                possibleContactIds: check.possibleContactIds.map(String),
+                checkpoints: check.checkpoints.map((checkpoint) => ({
+                  seconds: Number(checkpoint.seconds),
+                  evidence: String(checkpoint.evidence),
+                })),
+                conclusion: String(check.conclusion),
+              }),
+            );
+            const coverageWindows = context.input.coverageWindows.map(
+              (window) => ({
+                startSeconds: Number(window.startSeconds),
+                endSeconds: Number(window.endSeconds),
+                summary: String(window.summary),
+                touchCandidateIds: window.touchCandidateIds.map(String),
+                eventCompletionSeconds: window.eventCompletionSeconds.map(
+                  Number,
+                ),
+              }),
+            );
             if (
               proposals.some(
                 (proposal) =>
-                  proposal.seconds > review.selected.durationSeconds,
+                  proposal.seconds > review.selected.durationSeconds
+                  || proposal.releaseSeconds > proposal.seconds
+                  || proposal.completionFrame
+                    !== Math.round(proposal.seconds * 25),
               )
             ) {
               throw new CanvasError(
                 "review_time_out_of_range",
-                "A proposed event time is outside the selected segment.",
+                "A proposal must have an in-range release before completion and a completion frame matching its 25-fps timestamp.",
+              );
+            }
+            const duration = Number(review.selected.durationSeconds);
+            const expectedWindowCount = Math.ceil(duration / 3);
+            if (
+              coverageWindows.length !== expectedWindowCount
+              || coverageWindows.some((window, index) =>
+                Math.abs(window.startSeconds - index * 3) > 0.001
+                || Math.abs(
+                  window.endSeconds - Math.min(duration, (index + 1) * 3)
+                ) > 0.001
+                || window.endSeconds <= window.startSeconds
+              )
+            ) {
+              throw new CanvasError(
+                "incomplete_review_coverage",
+                "Coverage windows must span the full clip contiguously in intervals of no more than three seconds.",
+              );
+            }
+            const eventOutcomes = new Set(["completed_pass", "turnover"]);
+            const touchCandidateIds = new Set(
+              touchCandidateLedger.map((entry) => entry.id),
+            );
+            if (
+              touchCandidateIds.size !== touchCandidateLedger.length
+              || touchCandidateLedger.some((entry, index) =>
+                entry.frame !== Math.round(entry.seconds * 25)
+                || (
+                  index > 0
+                  && entry.seconds < touchCandidateLedger[index - 1].seconds
+                )
+              )
+            ) {
+              throw new CanvasError(
+                "invalid_touch_candidate_ledger",
+                "Touch candidates must have unique IDs, matching 25-fps frames, and chronological timestamps.",
+              );
+            }
+            const eventLedger = possessionLedger.filter(
+              (entry) => eventOutcomes.has(entry.outcome),
+            );
+            if (
+              possessionLedger.some((entry, index) =>
+                entry.releaseSeconds > entry.completionSeconds
+                || entry.completionSeconds > duration
+                || (
+                  index > 0
+                  && entry.completionSeconds
+                    < possessionLedger[index - 1].completionSeconds
+                )
+                || (
+                  entry.outcome === "completed_pass"
+                  && (
+                    entry.previousTeam === "unknown"
+                    || entry.previousTeam !== entry.nextTeam
+                    || entry.previousPlayer === entry.nextPlayer
+                  )
+                )
+                || (
+                  entry.outcome === "turnover"
+                  && (
+                    entry.previousTeam === "unknown"
+                    || entry.nextTeam === "unknown"
+                    || entry.previousTeam === entry.nextTeam
+                  )
+                )
+              )
+            ) {
+              throw new CanvasError(
+                "invalid_possession_ledger",
+                "Possession-ledger transitions must be chronological and consistent with pass and turnover definitions.",
+              );
+            }
+            const touchCandidateById = new Map(
+              touchCandidateLedger.map((entry) => [entry.id, entry]),
+            );
+            if (
+              eventLedger.some((entry) => {
+                const release = touchCandidateById.get(entry.releaseTouchId);
+                const completion = touchCandidateById.get(
+                  entry.completionTouchId,
+                );
+                const expectedReleaseType = entry.outcome === "completed_pass"
+                  ? "deliberate_release"
+                  : "possession_loss";
+                return (
+                  !release
+                  || !completion
+                  || release.decision !== "supported"
+                  || completion.decision !== "supported"
+                  || release.candidateType !== expectedReleaseType
+                  || completion.candidateType !== "controlled_touch"
+                  || release.seconds !== entry.releaseSeconds
+                  || completion.seconds !== entry.completionSeconds
+                  || release.team !== entry.previousTeam
+                  || release.player !== entry.previousPlayer
+                  || completion.team !== entry.nextTeam
+                  || completion.player !== entry.nextPlayer
+                );
+              })
+            ) {
+              throw new CanvasError(
+                "touch_ledger_transition_mismatch",
+                "Every event transition must reference supported release/loss and controlled-touch candidates with matching times, teams, and players.",
+              );
+            }
+            const longLedgerIndexes = possessionLedger.flatMap(
+              (entry, index) => (
+                entry.completionSeconds - entry.releaseSeconds > 3
+                  ? [index]
+                  : []
+              ),
+            );
+            const checkedLongIndexes = longFlightChecks.map(
+              (check) => check.ledgerIndex,
+            ).sort((left, right) => left - right);
+            if (
+              JSON.stringify(longLedgerIndexes)
+                !== JSON.stringify(checkedLongIndexes)
+              || longFlightChecks.some((check) => {
+                const entry = possessionLedger[check.ledgerIndex];
+                const times = check.checkpoints.map(
+                  (checkpoint) => checkpoint.seconds,
+                );
+                return (
+                  !entry
+                  || check.possibleContactIds.some(
+                    (id) => !touchCandidateIds.has(id),
+                  )
+                  || Math.abs(times[0] - entry.releaseSeconds) > 0.001
+                  || Math.abs(
+                    times[times.length - 1] - entry.completionSeconds,
+                  ) > 0.001
+                  || times.some((seconds, index) =>
+                    seconds < entry.releaseSeconds
+                    || seconds > entry.completionSeconds
+                    || (
+                      index > 0
+                      && (
+                        seconds <= times[index - 1]
+                        || seconds - times[index - 1] > 1.5
+                      )
+                    )
+                  )
+                );
+              })
+            ) {
+              throw new CanvasError(
+                "incomplete_long_flight_review",
+                "Every ledger interval longer than three seconds requires full-resolution checkpoints no more than 1.5 seconds apart and references to considered touch candidates.",
+              );
+            }
+            const eventKey = (
+              releaseSeconds,
+              completionSeconds,
+              team,
+              eventType,
+            ) => [
+              Number(releaseSeconds).toFixed(3),
+              Number(completionSeconds).toFixed(3),
+              String(team),
+              String(eventType),
+            ].join("|");
+            const proposalKeys = proposals.map((proposal) => eventKey(
+              proposal.releaseSeconds,
+              proposal.seconds,
+              proposal.team,
+              proposal.type,
+            )).sort();
+            const ledgerKeys = eventLedger.map((entry) => eventKey(
+              entry.releaseSeconds,
+              entry.completionSeconds,
+              entry.previousTeam,
+              entry.outcome,
+            )).sort();
+            if (JSON.stringify(proposalKeys) !== JSON.stringify(ledgerKeys)) {
+              throw new CanvasError(
+                "ledger_proposal_mismatch",
+                "Every event-bearing possession transition must have one matching C# proposal and vice versa.",
+              );
+            }
+            const coveredEventTimes = coverageWindows.flatMap(
+              (window) => window.eventCompletionSeconds,
+            );
+            const coveredTouchCandidateIds = coverageWindows.flatMap(
+              (window) => window.touchCandidateIds,
+            ).sort();
+            const proposalCompletionKeys = proposals.map(
+              (proposal) => proposal.seconds.toFixed(3),
+            ).sort();
+            const coveredCompletionKeys = coveredEventTimes.map(
+              (seconds) => seconds.toFixed(3),
+            ).sort();
+            if (
+              JSON.stringify(proposalCompletionKeys)
+                !== JSON.stringify(coveredCompletionKeys)
+              || JSON.stringify([...touchCandidateIds].sort())
+                !== JSON.stringify(coveredTouchCandidateIds)
+              || coverageWindows.some((window) =>
+                window.touchCandidateIds.some((id) => {
+                  const candidate = touchCandidateById.get(id);
+                  return (
+                    !candidate
+                    || candidate.seconds < window.startSeconds
+                    || candidate.seconds > window.endSeconds
+                    || (
+                      candidate.seconds === window.endSeconds
+                      && window.endSeconds < duration
+                    )
+                  );
+                })
+                || window.eventCompletionSeconds.some(
+                  (seconds) =>
+                    seconds < window.startSeconds
+                    || seconds > window.endSeconds
+                    || (
+                      seconds === window.endSeconds
+                      && window.endSeconds < duration
+                    )
+                )
+              )
+            ) {
+              throw new CanvasError(
+                "coverage_event_mismatch",
+                "Every touch candidate and C# completion must appear in exactly one matching three-second coverage window.",
               );
             }
             review.state.additionalProposals = [
@@ -7912,8 +9837,16 @@ session = await joinSession({
             if (proposals.length) {
               await writeJsonAtomically(copilotReviewPath(segment), {
                 schemaVersion: 1,
+                reviewProtocolVersion: Number(
+                  context.input.reviewProtocolVersion,
+                ),
                 segment,
                 evidenceScope: "raw_video",
+                coverage: context.input.coverage,
+                touchCandidateLedger,
+                possessionLedger,
+                longFlightChecks,
+                coverageWindows,
                 reviewedAt: new Date().toISOString(),
                 proposals,
               });
@@ -7928,6 +9861,9 @@ session = await joinSession({
                 status: "complete",
                 completedAt: new Date().toISOString(),
                 proposalCount: proposals.length,
+                reviewProtocolVersion: Number(
+                  context.input.reviewProtocolVersion,
+                ),
                 error: null,
               };
             }
@@ -7944,6 +9880,9 @@ session = await joinSession({
               segment,
               replaced: true,
               proposalCount: proposals.length,
+              reviewProtocolVersion: Number(
+                context.input.reviewProtocolVersion,
+              ),
             };
           },
         },
@@ -8619,6 +10558,44 @@ session = await joinSession({
               eventCount: reference.events.length,
               engineEventCount: plan.engineEventCount,
               referencePath: relative(projectRoot, path),
+            };
+          },
+        },
+        {
+          name: "validate_engine_reference",
+          description: "Refresh the current Innovation E# comparison against the frozen golden M# reference.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              segment: { type: "string" },
+            },
+            additionalProperties: false,
+          },
+          handler: async (context) => {
+            if (workflow.key !== "innovation") {
+              throw new CanvasError(
+                "innovation_only",
+                "Golden-reference validation is available only in Innovation.",
+              );
+            }
+            const segment = String(context.input?.segment || defaultSegment);
+            const review = await reviewContext(segment);
+            if (!review.state.manualReference?.approved) {
+              throw new CanvasError(
+                "golden_reference_missing",
+                "Freeze the manual M# reference as golden first.",
+              );
+            }
+            const current = await captureEngineSnapshot(segment);
+            const validation = refreshEngineReferenceValidation(
+              review.state,
+              current,
+              "validate_engine_against_golden",
+            );
+            await saveState(segment, review.state);
+            return {
+              ok: true,
+              ...validation,
             };
           },
         },

@@ -333,15 +333,23 @@ The Innovation **Football Event Review** canvas is manual-first:
    publication, or inference.
 7. Investigate only selected missing, extra, mistyped, mis-teamed, mistimed, or
    misordered E# discrepancies. An unmatched M# exposes a review guide where
-   the reviewer can confirm that the engine missed it, reopen the M# editor,
-   reject an unsupported M# while retaining its visible audit record, remove an
-   M# entered in error, or request independent adjudication when the camera is
-   inconclusive. A rejected M# remains visible but is excluded from matching,
-   golden counts, approval, and publication. Removal is reserved for erroneous
-   data entry. Cancelling or closing the guide changes nothing. Only the
-   confirmed-missing and inconclusive choices hand the targeted event to
-   Copilot; they do not rewrite M#. If the engine agrees, no Copilot call,
-   inference change, or regression is required.
+   the reviewer can distinguish an entirely missing E# from a nearby E# that
+   represents the same play with incorrect timing, team, or canonical type;
+   reopen the M# editor; reject an unsupported M# while retaining its visible
+   audit record; remove an M# entered in error; or request independent
+   adjudication when the camera is inconclusive. A rejected M# remains visible
+   but is excluded from matching, golden counts, approval, and publication.
+   Removal is reserved for erroneous data entry. Cancelling or closing the
+   guide changes nothing. Choosing confirmed-missing or incorrect-E#-details
+   explicitly accepts that frozen M# as the required evaluation result.
+   Copilot must not reject, edit, or reinterpret it; raw video and cached
+   runtime evidence are then used to diagnose and correct only the general
+   pipeline cause. Those choices do not rewrite M# or force a manual link.
+   Diagnosis, implementation, cached rebuilding, protected tests, comparison
+   refresh, and the final response must complete in the same single Autopilot
+   request; do not launch a separate Plan, adjudication, or follow-up request.
+   The inconclusive choice remains an independent adjudication request. If the
+   engine agrees, no Copilot call, inference change, or regression is required.
 8. If a discrepancy requires an engine correction, implement a general
    evidence-based rule. Never use an M# timestamp, segment, track ID, or manual
    label as an inference input.
@@ -371,10 +379,27 @@ Opening `E#` verification must first show a decision guide; it must not
 immediately launch Copilot, spend AI credits, grant temporary authorization,
 or alter review state. The guide explains these evidence outcomes:
 
-The reviewer may enter another completion time in the E# guide to seek and
-inspect that video moment. This inspection time may focus the evidence review
-and Copilot diagnosis, but it does not alter M#, rewrite E#, or become an
-inference input. Only a general engine correction and rerun may replace E#.
+Both the E# and unmatched-M# decision modals show the same visibly pulsating
+`Copilot is working…` status while, and only while, the selected review's
+activity state is `working`. Retaining the selected E#/M# conversation after a
+response must not keep either modal active. Publishing the final response
+changes activity out of `working`, automatically closes the corresponding
+modal, refreshes the M#/E# rows, and retains the conversation separately.
+
+When the reviewer chooses that an E# represents the same play but has incorrect
+details, they may enter an alternative completion time to seek and inspect that
+video moment. The field is hidden for other decisions. This inspection time may
+focus the evidence review and Copilot diagnosis, but it does not alter M#,
+rewrite E#, create a manual link, or become an inference input. Only a general
+engine correction and rerun may replace E#.
+
+Every E# verification resolves the current event by canonical type, team,
+release time, and completion time; E# numbers are display ordinals and may
+change after any rebuild. Once the M# reference is frozen, verification checks
+whether that exact current E# has a unique same-team, same-type M# within the
+one-second review tolerance, then inspects the relevant cached runtime evidence.
+This comparison is evaluation-only: M#, its timestamp, and the reviewer verdict
+must never affect event inference, thresholds, or engine rule execution.
 
 - **Correct — exact event is supported:** the professional reviewer can see
   that the team, canonical event type, and completion time are all correct.
@@ -423,10 +448,49 @@ clarify an uncertain moment. Do not replace continuous viewing with
 frame-by-frame export, exhaustive coordinate analysis, an automatic Copilot
 pre-review, or a new inference run.
 
+An explicitly requested independent Copilot `C#` review may instead use a
+complete local visual sequence exported directly from the same prepared video.
+That sequence must contain every source frame exactly once in chronological
+order with frame indices and timestamps, retain the full-pitch frame, and may
+add a synchronized frozen-BAC ball-centred zoom. The export manifest establishes
+source identity and complete coverage only; it is never football-event evidence.
+Copilot must still inspect release, travel, nearby players, reception, visible
+kit identity, and match state from the images themselves, complete the
+possession ledger and continuity pass, and abstain where visual control is not
+supported. Sampled sheets, missing frames, inferred cache events, M#, and E#
+cannot substitute for this complete sequence.
+
+Independent C# protocol version 5 must use two distinct passes. The first pass
+persists a chronological visual touch-candidate ledger containing supported,
+rejected, and unresolved contacts before any final event adjudication. The
+second pass derives the possession ledger and proposals from those frozen touch
+candidates. Every event-bearing possession transition must reference its
+supported release or possession-loss candidate and controlled-touch candidate,
+then map one-to-one to a C# proposal.
+
+The protocol must also persist contiguous review windows no longer than three
+seconds covering the complete clip. Every touch candidate and proposal
+completion must appear in exactly one coverage window. Every possession-ledger
+interval longer than three seconds must include full-resolution checkpoints no
+more than 1.5 seconds apart and identify the touch candidates considered within
+that interval. Boolean claims that a ledger or continuity pass was completed
+are not sufficient evidence. Full-resolution continuous playback is mandatory
+as the primary visual channel. Individual full-resolution source frames may
+supplement playback, but tiled contact sheets cannot establish uninterrupted
+travel or the absence of an intermediate controlled touch.
+
 Freeze the complete ordered `M#` set and explicit mappings atomically,
 including an approved zero-event set when no event is supported. This fast path
 never permits E#, C#, provider labels, or earlier decisions to create or alter
 the manual reference.
+
+The Innovation Canvas enforces that separation as a visible three-stage gate:
+**Freeze manual M# reference as golden**, then **Validate engine against golden
+reference**, and finally **Publish Passed segment**. E# output and automatic
+M↔E suggestions remain hidden until validation fingerprints the frozen M# set
+and current engine output. Publication remains disabled until every golden M#
+has one current E# match, every extra E# has a current independent resolution,
+and the protected regression and publication gates pass.
 
 Engine snapshots contain:
 
@@ -466,6 +530,16 @@ manual references, or publication locks.
   Innovation-only `football_poc.innovation_day_detector` module, preserving
   the showcase pipeline's sequential frame inference. It does not import or
   execute the mutable live `benchmark_cli` detector path.
+  After evidence preparation, the Canvas stores a complete segment-scoped copy
+  of the frozen BAC coordinates in shared review state. Reviewer changes are
+  versioned against that immutable base and do not modify the BAC artifact.
+  Once a correction batch is approved, its materialized coordinate layer
+  becomes the current Innovation input for that segment. Existing YOLO player
+  detections are always reused. Player tracking is rebuilt when it has already
+  run because it consumes ball coordinates; if the Innovation event engine has
+  also already run, possession and event outputs are rebuilt afterward. An
+  engine that has not yet run remains an explicit separate action after player
+  tracking is refreshed.
   Exact-prefix comparisons may declare namespace-specific `innovation_video`
   and `live_video` sources while retaining a separate `playable_video`. Both
   inference sources must cover the declared frame range; this avoids

@@ -28,9 +28,9 @@ export const innovationWorkflow = Object.freeze({
   preparationMessage:
     "AI and Copilot conversations are disabled. Next: run the BAC-assisted Innovation analysis.",
   processingMessage:
-    "Starting BAC-assisted Innovation analysis. YOLO will derive player context from the prepared video, while Alfheim BAC supplies the ball coordinates. The Live ball tracker is not used.",
+    "Starting BAC-assisted Innovation analysis, followed by an independent C# protocol-v6 review. YOLO will derive player context from the prepared video, while Alfheim BAC supplies the ball coordinates. The Live ball tracker is not used.",
   recoveryMessage:
-    "Starting BAC-assisted Innovation analysis. YOLO will derive player context from the prepared video, while Alfheim BAC supplies the ball coordinates. The Live ball tracker is not used.",
+    "Starting BAC-assisted Innovation analysis, followed by an independent C# protocol-v6 review. YOLO will derive player context from the prepared video, while Alfheim BAC supplies the ball coordinates. The Live ball tracker is not used.",
   detectionMessage:
     "Player detections come from the prepared raw video. Frozen BAC coordinates supply the ball path; the Live ball tracker is not used.",
   hiddenSegments: ["segment-0540-020"],
@@ -44,6 +44,8 @@ export const innovationWorkflow = Object.freeze({
   coordinateMode: "frozen_bac",
   evidencePreparationEnabled: true,
   coordinateReviewEnabled: false,
+  coordinateCorrectionEnabled: true,
+  reviewerCorrectedDemoLayer: true,
   inspectionDetectionCaches: [
     "developer-runs/reviewed-23-ball-models/yolo26n/detections.jsonl",
   ],
@@ -139,6 +141,8 @@ export const liveWorkflow = Object.freeze({
   coordinateMode: "raw_video",
   evidencePreparationEnabled: false,
   coordinateReviewEnabled: true,
+  coordinateCorrectionEnabled: true,
+  reviewerCorrectedDemoLayer: false,
   promptLabel: "Live Football Event Review Canvas",
   promptBoundary:
     "This is the raw-video iteration-25 live workflow. Never invoke Innovation Canvas actions, read Innovation review state, or use Innovation/BAC engine outputs.",

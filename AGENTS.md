@@ -44,6 +44,20 @@ set independently, compare it with E#, and keep C# optional and
 diagnostic-only. Follow the guarded approval and publication workflow in the
 architecture document.
 
+A decisive M# modal outcome (`engine missed M#` or `existing E# represents M#
+but is wrong`) is final professional acceptance of that golden event. Do not
+re-adjudicate, reject, edit, reinterpret, or remap M#. Inspect evidence only to
+diagnose and fix the general pipeline cause, then rebuild E# and run the
+required regressions in the same single Autopilot request. Do not start a
+separate Plan, adjudication, or follow-up Copilot request. Only `Cannot verify`
+requests independent adjudication.
+
+The E# and unmatched-M# modals must both show a pulsating Copilot-working
+status only while their selected review activity is actually `working`.
+Retained conversation identity is not active work. A completed final response
+must close the modal automatically and refresh M#/E# while keeping the
+conversation available.
+
 ## Working rules
 
 - Treat the architecture document and implementation/tests as authoritative;

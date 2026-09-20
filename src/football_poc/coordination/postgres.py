@@ -239,6 +239,13 @@ class PostgresCoordinationRepository:
     ) -> EditingLease:
         if not stage.strip():
             raise ValueError("stage must not be empty")
+        current = self.get_lease(workflow_id, segment_id)
+        if (
+            current
+            and current.owner_id == owner_id
+            and current.machine_id == machine_id
+        ):
+            return self.heartbeat_lease(current.token)
         token = str(uuid.uuid4())
         row = self._connection.execute(
             "INSERT INTO editing_leases "

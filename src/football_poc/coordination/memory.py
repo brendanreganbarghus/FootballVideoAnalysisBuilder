@@ -154,6 +154,23 @@ class InMemoryCoordinationRepository:
         with self._lock:
             current = self._leases.get(key)
             if current and current.expires_at > now:
+                if (
+                    current.owner_id == owner_id
+                    and current.machine_id == machine_id
+                ):
+                    renewed = EditingLease(
+                        workflow_id,
+                        segment_id,
+                        owner_id,
+                        machine_id,
+                        stage,
+                        current.token,
+                        current.acquired_at,
+                        now,
+                        now + timedelta(seconds=LEASE_EXPIRY_SECONDS),
+                    )
+                    self._leases[key] = renewed
+                    return renewed
                 raise LeaseConflictError(
                     f"{workflow_id}/{segment_id} is leased by {current.owner_id}"
                 )

@@ -99,6 +99,86 @@ limited to the selected segment and use a small frame window when possible.
 A `copilot_review` or `adjusted_proposal` source means Copilot reviewed the
 proposal; it does not mean the proposal is accepted or implemented.
 
+Use a fast cached-first path for targeted M#/E# reviews:
+
+- Start with the prepared Canvas video, current cached possession/match-state
+  evidence, and current E# output. Never rerun detection or ball tracking.
+- A decisive M# modal outcome (`engine missed M#` or `existing E# represents
+  M# but is wrong`) is final professional acceptance. Do not independently
+  re-adjudicate, reject, edit, reinterpret, or remap that M#. Inspect evidence
+  only to diagnose the general pipeline cause, then fix it, rebuild E#, and run
+  the required regressions in the same single Autopilot request. Do not start a
+  separate Plan, adjudication, or follow-up Copilot request. Only `Cannot
+  verify` requests adjudication.
+- If that accepted requirement exposes a general player-tracking defect, fix
+  it and rebuild player tracks only from the existing cached detector output;
+  do not rerun the detector or ball tracker.
+- The E# and unmatched-M# modals must both show a pulsating
+  `Copilot is working…` status only while their selected review activity is
+  actually `working`. Retained conversation identity is not active work. A
+  completed final response must close the modal automatically and refresh
+  M#/E# while preserving the conversation.
+- Do not generate new OpenCV/FFmpeg crops, contact sheets, or broad evidence
+  dumps when the prepared video and cached evidence already cover the selected
+  window. Inspect one minimal visual window and only the directly relevant
+  cached rows.
+- First check whether a same-team, same-type E# already represents the play
+  within the one-second review tolerance. If it does, report that the engine
+  already agrees and stop; matching ambiguity is not an inference miss. Treat
+  M#/E# numbers only as display ordinals: never match number-to-number. Match
+  by canonical event type, team, completion time/frame evidence, and the
+  one-to-one uniqueness rule; inserting an event renumbers later E# rows.
+- Expand the investigation only when the targeted video conflicts with the
+  cache or no supported E# exists. Run cached event rebuilding and regressions
+  only after a general engine change is actually required.
+
+For a full-clip independent C# review, do not infer completeness from E# output
+or prior conversation memory. Review only the current prepared segment through
+either continuous playback or a complete, timestamped local frame sequence
+whose coverage is independently validated, and build a chronological possession
+ledger before writing any C#. A coverage manifest proves sequence integrity
+only; it is not football evidence. Resolve every
+supported controlled-player change as a same-team pass, opponent turnover, or
+explicit abstention. Then make a second continuity pass: recheck every outgoing
+passer not linked to the prior controlled player and every event-free gap longer
+than three seconds while play is visibly live. Require current-segment evidence
+for stoppages and restarts; never reuse another segment's event pattern. Submit
+C# only through the current versioned review protocol and its coverage checks.
+Each C# must include a concrete release time/frame, completion time/frame,
+sender or prior-owner evidence, receiver controlled-touch evidence, and
+current-segment match-state evidence. Freeze that independent C# list before
+suggesting C↔E links by team, canonical event type, and completion time.
+Protocol version 5 must use two separate passes. First persist a chronological
+visual touch-candidate ledger containing supported, rejected, and unresolved
+contacts before deciding final events. Then derive the possession ledger and
+C# proposals from those frozen candidates. Each event transition must reference
+its supported release or possession-loss candidate and controlled-touch
+candidate. Persist contiguous coverage windows of no more than three seconds
+for the full clip, with every touch candidate and C# completion represented
+exactly once. Any possession-ledger interval longer than three seconds requires
+full-resolution checkpoints no more than 1.5 seconds apart and the IDs of the
+touch candidates considered. Boolean completion claims without these concrete
+records are invalid. Full-resolution continuous playback is the required
+primary visual channel; individual full-resolution frames may supplement it,
+but tiled contact sheets cannot prove uninterrupted travel or the absence of an
+intermediate controlled touch.
+
+For C# adjudication, the turnover event belongs to the team that **loses**
+controlled possession, not the opponent that gains it. BAC position,
+nearest-player distance, tracker identity, and cached team classification are
+diagnostic context only: none independently proves a controlled touch, player
+change, or team. Prefer visible kit identity and physical-player continuity;
+never create an event from a team-label flicker, track handoff, brief challenge,
+deflection, or alternating proximity without a supported deliberate touch and
+subsequent control. A complete local sequence may combine each full-pitch frame
+with a synchronized frozen-BAC ball-centred zoom to inspect release, travel,
+nearby players, and reception; BAC remains diagnostic context and cannot create
+an event. Do not substitute sampled contact sheets, omitted frames, or
+cache-derived event evidence for either approved visual channel. During later
+comparison, preserve chronological one-to-one order and consider the C#
+release-to-completion interval rather than requiring exact timestamp equality
+or matching display ordinals.
+
 Keep manual references, Copilot diagnostics, and rules-engine events
 independent:
 

@@ -253,6 +253,11 @@ def test_editing_lease_is_exclusive_and_can_be_reclaimed_after_expiry() -> None:
     )
     assert first.machine_id == MACHINE_A
     assert first.stage == "review"
+    reattached = repository.acquire_lease(
+        "workflow-a", "segment-1", "alice", MACHINE_A, "adjudication"
+    )
+    assert reattached.token == first.token
+    assert reattached.stage == "adjudication"
     with pytest.raises(LeaseConflictError):
         repository.acquire_lease(
             "workflow-a", "segment-1", "bob", MACHINE_B, "review"

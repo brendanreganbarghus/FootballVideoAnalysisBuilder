@@ -21,6 +21,20 @@ In Innovation review, treat the independently recorded M# set as golden,
 compare it with E#, and keep C# optional and diagnostic-only. Follow the
 guarded approval, fingerprinting, regression, and publication workflow.
 
+A decisive M# modal outcome (`engine missed M#` or `existing E# represents M#
+but is wrong`) is final professional acceptance. Do not independently
+re-adjudicate, reject, edit, reinterpret, or remap that M#. Use evidence only
+to diagnose and fix the general pipeline cause, rebuild E#, and run the
+required regressions in the same single Autopilot request. Do not start a
+separate Plan, adjudication, or follow-up Copilot request. Only `Cannot verify`
+remains an adjudication path.
+
+The E# and unmatched-M# modals must both show a pulsating Copilot-working
+status only while their selected review activity is actually `working`.
+Retained conversation identity is not active work. A completed final response
+must close the modal automatically and refresh M#/E# while preserving the
+conversation.
+
 After an accepted rule-engine change, rebuild cached output for every published
 segment in that workflow and compare it exactly with its publication hash
 before completing engine synchronization. Any mismatch keeps the accepted

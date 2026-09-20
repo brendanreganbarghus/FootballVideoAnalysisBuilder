@@ -239,6 +239,7 @@ def test_manual_reference_endpoint_requires_lease_and_one_to_one_mapping() -> No
 
 def test_coordination_handlers_map_conflicts_and_validation() -> None:
     service, _ = coordination_service()
+    original_identity = service.identity
     _, first = invoke_coordination(
         service,
         "POST",
@@ -247,6 +248,24 @@ def test_coordination_handlers_map_conflicts_and_validation() -> None:
             "workflow": "innovation_day_bac",
             "segment": "segment-0300-020",
         },
+    )
+    status, reattached = invoke_coordination(
+        service,
+        "POST",
+        "/api/coordination/acquire",
+        {
+            "workflow": "innovation_day_bac",
+            "segment": "segment-0300-020",
+        },
+    )
+    assert status == 200
+    assert reattached["lease"]["leaseToken"] == first["lease"]["leaseToken"]
+
+    service.identity = SimpleNamespace(
+        **{
+            **vars(service.identity),
+            "developer_id": "example\\other-reviewer",
+        }
     )
     status, conflict = invoke_coordination(
         service,
@@ -258,6 +277,7 @@ def test_coordination_handlers_map_conflicts_and_validation() -> None:
         },
     )
     assert (status, conflict["code"]) == (423, "lease_conflict")
+    service.identity = original_identity
 
     token = first["lease"]["leaseToken"]
     invoke_coordination(

@@ -68,3 +68,33 @@ def test_restart_pass_counts_as_completed_pass() -> None:
     )
 
     assert report["matched_event_count"] == 1
+
+
+def test_comparison_maximizes_chronological_matches_before_time_proximity() -> None:
+    manual = [
+        {"clip_seconds": 21.76, "team": "black", "event_type": "completed_pass"},
+        {"clip_seconds": 22.66, "team": "black", "event_type": "completed_pass"},
+    ]
+    predicted = [
+        {
+            "clip_seconds": 20.6,
+            "completion_seconds": 20.8,
+            "team": "black",
+            "event_type": "pass_candidate",
+        },
+        {
+            "clip_seconds": 22.2,
+            "completion_seconds": 22.6,
+            "team": "black",
+            "event_type": "pass_candidate",
+        },
+    ]
+
+    report = compare_manual_events(manual, predicted, tolerance_seconds=1.0)
+
+    assert report["matched_event_count"] == 2
+    assert report["unmatched_manual"] == []
+    assert report["unmatched_predicted"] == []
+    assert [
+        match["prediction"]["comparison_seconds"] for match in report["matches"]
+    ] == [20.8, 22.6]

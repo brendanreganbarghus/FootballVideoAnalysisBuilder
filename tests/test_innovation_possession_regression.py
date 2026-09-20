@@ -6,6 +6,7 @@ from football_poc.innovation_day_snapshot.possession import (
     collapse_transient_opponent_segments,
     evaluate_events,
     infer_flight_transfer_events,
+    include_supported_single_touch_senders,
     infer_direction_change_transfer_events,
     reconcile_one_touch_team_transfers,
     reconcile_intervening_opponent_aerial_contacts,
@@ -15,14 +16,18 @@ from football_poc.innovation_day_snapshot.possession import (
     reconcile_delayed_turnover_chains,
     reconcile_deflected_turnover_sequences,
     reconcile_unconfirmed_turnovers,
+    refine_delayed_turnovers_to_contested_decelerations,
     refine_weak_reception_completion_times,
     refine_one_touch_acceleration_receptions,
     refine_receptions_to_sharp_contacts,
     retain_stable_possession_segments,
     infer_short_exchange_receptions,
+    infer_pre_release_flight_receptions,
+    infer_post_turnover_first_pass,
     infer_ball_reentry_receptions,
     infer_unobserved_chain_contacts,
     suppress_redundant_retained_possession_links,
+    suppress_passes_crossing_opponent_control,
     suppress_transient_proximity_receptions,
     suppress_overlapping_opponent_handoffs,
     suppress_uncontrolled_opponent_turnovers,
@@ -32,6 +37,7 @@ from football_poc.innovation_day_snapshot.possession import (
     infer_deceleration_transfer_events,
     infer_shot_events,
     infer_transfer_events,
+    infer_event_established_turnovers,
     infer_boundary_turnovers,
     filter_aerial_boundary_intervals,
     annotate_restart_releases,
@@ -100,6 +106,64 @@ def test_deflection_delays_turnover_until_opponent_control() -> None:
     assert reconciled[1].to_player_track_id == 124
 
 
+def test_delayed_turnover_does_not_rewrite_conflicting_intermediary_pass(
+    monkeypatch,
+) -> None:
+    intermediary = PredictedEvent(
+        "pass_candidate", 2.0, "red", 10, 91, 0.7, "pass", 2.2
+    )
+    turnover = PredictedEvent(
+        "turnover_candidate", 3.4, "red", 91, 115, 0.7, "turnover", 4.0
+    )
+    players = {
+        50: [
+            {
+                "track_id": 10,
+                "clip_seconds": 2.0,
+                "team": "black",
+                "color_scores": {"dark": 0.8},
+            }
+        ],
+        55: [
+            {
+                "track_id": 91,
+                "clip_seconds": 2.2,
+                "team": "red",
+                "color_scores": {"white": 0.4, "warm": 0.4},
+            }
+        ],
+    }
+    balls = {
+        50: [
+            {
+                "track_id": 1,
+                "source_frame": 50,
+                "clip_seconds": 2.0,
+                "x": 100,
+                "y": 100,
+            }
+        ]
+    }
+    monkeypatch.setattr(
+        "football_poc.innovation_day_snapshot.possession."
+        "_ball_motion_evidence",
+        lambda _: {(1, 50): (100.0, -1.0)},
+    )
+    monkeypatch.setattr(
+        "football_poc.innovation_day_snapshot.possession._nearby_ball_teams",
+        lambda *args, **kwargs: {"black"},
+    )
+
+    reconciled = reconcile_delayed_turnover_chains(
+        [intermediary, turnover],
+        players,
+        balls,
+        minimum_speed_pixels_per_second=45,
+    )
+
+    assert reconciled == [intermediary, turnover]
+
+
 def test_turnover_is_suppressed_when_only_current_team_contacts_ball() -> None:
     event = PredictedEvent(
         "turnover_candidate", 1.0, "black", 75, 212, 0.67, "flight", 2.0
@@ -151,6 +215,37 @@ def test_turnover_is_suppressed_when_only_current_team_contacts_ball() -> None:
     assert corrected[0].team == "black"
 
 
+def test_jersey_corrected_turnover_survives_stale_possession_team() -> None:
+    event = PredictedEvent(
+        "turnover_candidate",
+        1.0,
+        "black",
+        10,
+        20,
+        0.8,
+        "Frame-level jersey evidence corrected a cross-team player-track "
+        "identity switch.",
+        1.4,
+    )
+    segments = build_possession_segments(
+        [
+            observation(1.4, "black", 20, 100, 100),
+            observation(1.6, "black", 20, 102, 102),
+        ],
+        segment_gap_seconds=0.5,
+        identity_switch_radius_heights=0.75,
+    )
+
+    corrected = suppress_uncontrolled_opponent_turnovers(
+        [event],
+        {},
+        {},
+        segments,
+    )
+
+    assert corrected == [event]
+
+
 def observation(
     seconds: float,
     team: str,
@@ -196,6 +291,73 @@ def test_same_team_control_transfer_creates_pass_candidate() -> None:
     )
 
     assert [event.event_type for event in events] == ["pass_candidate"]
+
+
+def test_same_team_transfer_requires_control_at_release_and_reception() -> None:
+    observations = [
+        observation(0.0, "red", 1, 100, 100, control_ratio=0.3),
+        observation(0.2, "red", 1, 102, 102, control_ratio=1.0),
+        observation(1.2, "red", 2, 300, 300, control_ratio=0.3),
+        observation(1.4, "red", 2, 302, 302, control_ratio=0.3),
+    ]
+    segments = build_possession_segments(
+        observations,
+        segment_gap_seconds=0.5,
+        identity_switch_radius_heights=0.75,
+    )
+
+    events = infer_transfer_events(
+        segments,
+        maximum_transfer_seconds=3,
+        minimum_transfer_heights=1.5,
+    )
+
+    assert events == []
+
+
+def test_sustained_same_team_transfer_uses_controlled_touch_boundaries() -> None:
+    observations = [
+        observation(1.0, "black", 1, 100, 100, control_ratio=0.2),
+        observation(1.2, "black", 1, 102, 102, control_ratio=0.3),
+        observation(1.4, "black", 1, 108, 108, control_ratio=0.9),
+        observation(1.6, "black", 1, 116, 116, control_ratio=1.2),
+        observation(2.0, "black", 2, 250, 250, control_ratio=0.7),
+        observation(2.2, "black", 2, 252, 252, control_ratio=0.2),
+        observation(2.4, "black", 2, 254, 254, control_ratio=0.3),
+    ]
+    segments = build_possession_segments(
+        observations,
+        segment_gap_seconds=0.3,
+        identity_switch_radius_heights=0.75,
+    )
+
+    events = infer_transfer_events(
+        segments,
+        maximum_transfer_seconds=3,
+        minimum_transfer_heights=1.5,
+    )
+
+    assert len(events) == 1
+    assert events[0].event_type == "pass_candidate"
+    assert events[0].team == "black"
+    assert events[0].clip_seconds == 1.2
+    assert events[0].completion_seconds == 2.2
+
+
+def test_co_visible_players_are_not_merged_as_continuous_dribble() -> None:
+    segments = build_possession_segments(
+        [
+            observation(0.0, "black", 115, 100, 100, control_ratio=0.2),
+            observation(0.2, "black", 115, 110, 110, control_ratio=0.2),
+            observation(0.4, "black", 49, 125, 120, control_ratio=0.2),
+            observation(0.6, "black", 49, 140, 130, control_ratio=0.2),
+        ],
+        segment_gap_seconds=0.64,
+        identity_switch_radius_heights=0.75,
+        co_visible_track_pairs={frozenset((49, 115))},
+    )
+
+    assert [segment.player_track_id for segment in segments] == [115, 49]
 
 
 def test_smooth_same_team_owner_switch_remains_one_dribble() -> None:
@@ -274,6 +436,33 @@ def test_coherent_opponent_control_survives_brief_owner_classification_blip() ->
     assert [segment.team for segment in collapsed] == ["black", "red", "red"]
     assert collapsed[1].start_seconds == 16.6
     assert collapsed[1].end_seconds == 17.6
+
+
+def test_three_observation_opponent_control_is_not_collapsed() -> None:
+    segments = build_possession_segments(
+        [
+            observation(1.0, "black", 1, 100, 100, control_ratio=0.4),
+            observation(1.2, "black", 1, 101, 100, control_ratio=0.4),
+            observation(1.4, "red", 2, 102, 100, control_ratio=0.45),
+            observation(1.6, "red", 2, 103, 100, control_ratio=0.7),
+            observation(1.8, "red", 2, 104, 100, control_ratio=0.7),
+            observation(2.0, "black", 3, 105, 100, control_ratio=0.2),
+            observation(2.2, "black", 3, 106, 100, control_ratio=0.2),
+        ],
+        segment_gap_seconds=0.3,
+        identity_switch_radius_heights=0,
+    )
+
+    collapsed = collapse_transient_opponent_segments(
+        segments,
+        maximum_transient_seconds=1.2,
+    )
+
+    assert [segment.team for segment in collapsed] == [
+        "black",
+        "red",
+        "black",
+    ]
 
 
 def test_transient_opponent_does_not_split_same_owner_dribble() -> None:
@@ -473,6 +662,162 @@ def test_opponent_control_transfer_creates_turnover() -> None:
     assert [event.event_type for event in events] == ["turnover_candidate"]
 
 
+def test_opponent_transfer_requires_control_on_both_sides() -> None:
+    observations = [
+        observation(0.0, "red", 1, 100, 100, control_ratio=0.3),
+        observation(0.2, "red", 1, 102, 102, control_ratio=1.1),
+        observation(1.2, "black", 2, 300, 300, control_ratio=1.2),
+        observation(1.4, "black", 2, 302, 302, control_ratio=0.3),
+    ]
+    segments = build_possession_segments(
+        observations,
+        segment_gap_seconds=0.5,
+        identity_switch_radius_heights=0.75,
+    )
+
+    events = infer_transfer_events(
+        segments,
+        maximum_transfer_seconds=3,
+        minimum_transfer_heights=1.5,
+    )
+
+    assert events == []
+
+
+def test_sustained_sender_uses_its_single_controlled_touch_for_turnover() -> None:
+    segments = build_possession_segments(
+        [
+            observation(1.0, "red", 1, 100, 100, control_ratio=0.45),
+            observation(1.2, "red", 1, 105, 100, control_ratio=0.7),
+            observation(1.4, "red", 1, 110, 100, control_ratio=0.7),
+            observation(1.6, "black", 2, 200, 200, control_ratio=0.2),
+            observation(1.8, "black", 2, 205, 205, control_ratio=0.2),
+        ],
+        segment_gap_seconds=0.3,
+        identity_switch_radius_heights=0,
+    )
+
+    events = infer_transfer_events(
+        segments,
+        maximum_transfer_seconds=3,
+        minimum_transfer_heights=0.5,
+    )
+
+    assert [
+        (event.event_type, event.team, event.clip_seconds, event.completion_seconds)
+        for event in events
+    ] == [("turnover_candidate", "red", 1.0, 1.6)]
+
+
+def test_sustained_opponent_transfer_uses_last_and_first_controlled_touches() -> None:
+    observations = [
+        observation(1.0, "black", 1, 100, 100, control_ratio=0.2),
+        observation(1.2, "black", 1, 102, 102, control_ratio=0.3),
+        observation(1.4, "black", 1, 108, 108, control_ratio=0.9),
+        observation(1.6, "black", 1, 116, 116, control_ratio=1.2),
+        observation(2.8, "red", 2, 250, 250, control_ratio=0.7),
+        observation(3.0, "red", 2, 252, 252, control_ratio=0.2),
+        observation(3.2, "red", 2, 254, 254, control_ratio=0.3),
+    ]
+    segments = build_possession_segments(
+        observations,
+        segment_gap_seconds=0.5,
+        identity_switch_radius_heights=0.75,
+    )
+
+    events = infer_transfer_events(
+        segments,
+        maximum_transfer_seconds=3,
+        minimum_transfer_heights=1.5,
+    )
+
+    assert len(events) == 1
+    assert events[0].event_type == "turnover_candidate"
+    assert events[0].team == "black"
+    assert events[0].clip_seconds == 1.2
+    assert events[0].completion_seconds == 3.0
+
+
+def test_completed_pass_receiver_remains_owner_until_opponent_control() -> None:
+    completed_pass = PredictedEvent(
+        "pass_candidate",
+        1.0,
+        "black",
+        10,
+        20,
+        0.8,
+        "Supported high-speed reception.",
+        1.4,
+    )
+    segments = build_possession_segments(
+        [
+            observation(1.4, "black", 20, 100, 100, control_ratio=1.1),
+            observation(1.6, "black", 20, 105, 100, control_ratio=1.4),
+            observation(2.6, "red", 30, 180, 100, control_ratio=1.2),
+            observation(2.8, "red", 30, 185, 100, control_ratio=0.3),
+            observation(3.0, "red", 30, 190, 100, control_ratio=0.7),
+        ],
+        segment_gap_seconds=0.3,
+        identity_switch_radius_heights=0,
+    )
+
+    events = infer_event_established_turnovers(
+        [completed_pass],
+        segments,
+        maximum_transfer_seconds=3.0,
+    )
+
+    assert [
+        (
+            event.event_type,
+            event.team,
+            event.from_player_track_id,
+            event.to_player_track_id,
+            event.clip_seconds,
+            event.completion_seconds,
+        )
+        for event in events
+    ] == [
+        ("pass_candidate", "black", 10, 20, 1.0, 1.4),
+        ("turnover_candidate", "black", 20, 30, 1.6, 2.8),
+    ]
+
+
+def test_uncontrolled_same_team_bridge_does_not_replace_established_owner() -> None:
+    segments = build_possession_segments(
+        [
+            observation(1.0, "black", 1, 100, 100, control_ratio=0.2),
+            observation(1.2, "black", 1, 105, 105, control_ratio=0.2),
+            observation(1.4, "black", 1, 110, 110, control_ratio=0.3),
+            observation(2.0, "black", 2, 180, 180, control_ratio=1.2),
+            observation(2.2, "black", 2, 190, 190, control_ratio=1.3),
+            observation(2.4, "black", 2, 200, 200, control_ratio=1.4),
+            observation(3.0, "red", 3, 300, 300, control_ratio=0.2),
+            observation(3.2, "red", 3, 305, 305, control_ratio=0.3),
+        ],
+        segment_gap_seconds=0.3,
+        identity_switch_radius_heights=0,
+    )
+
+    events = infer_transfer_events(
+        segments,
+        maximum_transfer_seconds=3,
+        minimum_transfer_heights=0.5,
+    )
+
+    assert [
+        (
+            event.event_type,
+            event.team,
+            event.from_player_track_id,
+            event.to_player_track_id,
+            event.clip_seconds,
+            event.completion_seconds,
+        )
+        for event in events
+    ] == [("turnover_candidate", "black", 1, 3, 1.4, 3.0)]
+
+
 def test_sustained_opponent_control_creates_turnover_without_ball_travel() -> None:
     segments = build_possession_segments(
         [
@@ -526,6 +871,87 @@ def test_single_observation_owner_return_does_not_erase_opponent_control() -> No
     ]
 
 
+def test_returning_opponent_track_preserves_control_through_owner_blip() -> None:
+    segments = build_possession_segments(
+        [
+            observation(54.8, "red", 210, 1196, 800, control_ratio=0.2),
+            observation(55.0, "black", 219, 1214, 780, control_ratio=0.7),
+            observation(55.2, "black", 219, 1218, 804, control_ratio=0.1),
+            observation(55.4, "red", 210, 1202, 818, control_ratio=0.2),
+            observation(55.8, "black", 306, 1206, 814, control_ratio=0.4),
+            observation(56.0, "black", 306, 1200, 812, control_ratio=0.3),
+            observation(56.2, "black", 219, 1238, 808, control_ratio=0.9),
+            observation(56.4, "black", 219, 1250, 805, control_ratio=1.1),
+        ],
+        segment_gap_seconds=0.3,
+        identity_switch_radius_heights=0,
+        co_visible_track_pairs={frozenset((219, 306))},
+    )
+
+    collapsed = collapse_transient_opponent_segments(
+        segments,
+        maximum_transient_seconds=1.2,
+    )
+
+    assert [
+        (segment.team, segment.player_track_id)
+        for segment in collapsed
+    ] == [
+        ("red", 210),
+        ("black", 219),
+        ("black", 306),
+        ("black", 219),
+    ]
+
+
+def test_returning_receiver_confirms_short_control_turnover() -> None:
+    segments = [
+        PossessionSegment(
+            "red",
+            210,
+            [observation(54.8, "red", 210, 1196, 800, control_ratio=0.2)],
+        ),
+        PossessionSegment(
+            "black",
+            219,
+            [
+                observation(55.0, "black", 219, 1214, 780, control_ratio=0.7),
+                observation(55.2, "black", 219, 1218, 804, control_ratio=0.1),
+            ],
+        ),
+        PossessionSegment(
+            "black",
+            306,
+            [
+                observation(55.8, "black", 306, 1206, 814, control_ratio=0.4),
+                observation(56.0, "black", 306, 1200, 812, control_ratio=0.3),
+            ],
+        ),
+        PossessionSegment(
+            "black",
+            219,
+            [
+                observation(56.2, "black", 219, 1238, 808, control_ratio=0.9),
+                observation(56.4, "black", 219, 1250, 805, control_ratio=1.1),
+            ],
+        ),
+    ]
+
+    events = infer_transfer_events(
+        segments,
+        maximum_transfer_seconds=3,
+        minimum_transfer_heights=1.5,
+        control_observations=[
+            observation(54.8, "red", 210, 1196, 800, control_ratio=0.2),
+        ],
+    )
+
+    assert [
+        (event.event_type, event.team, event.completion_seconds)
+        for event in events
+    ] == [("turnover_candidate", "red", 55.2)]
+
+
 def test_sharp_ball_direction_change_confirms_same_team_reception() -> None:
     segments = build_possession_segments(
         [
@@ -552,6 +978,110 @@ def test_sharp_ball_direction_change_confirms_same_team_reception() -> None:
 
     assert len(events) == 1
     assert events[0].completion_seconds == 1.4
+
+
+def test_direction_change_transfer_requires_controlled_sender_release() -> None:
+    segments = build_possession_segments(
+        [
+            observation(
+                1.0, "red", 1, 100, 100, control_ratio=0.3
+            ),
+            observation(
+                1.2, "red", 1, 90, 90, control_ratio=1.0
+            ),
+            observation(
+                1.4, "red", 2, 100, 100, control_ratio=0.3
+            ),
+            observation(
+                1.6, "red", 2, 110, 110, control_ratio=0.3
+            ),
+        ],
+        segment_gap_seconds=0.5,
+        identity_switch_radius_heights=0,
+    )
+    balls = {
+        25: [{"track_id": 1, "clip_seconds": 1.0, "x": 100, "y": 100}],
+        30: [{"track_id": 1, "clip_seconds": 1.2, "x": 90, "y": 100}],
+        35: [{"track_id": 1, "clip_seconds": 1.4, "x": 100, "y": 100}],
+    }
+
+    events = infer_direction_change_transfer_events(
+        balls,
+        segments,
+        maximum_transfer_seconds=1,
+        minimum_speed_pixels_per_second=40,
+    )
+
+    assert events == []
+
+
+def test_direction_change_pass_does_not_cross_intervening_opponent_control() -> None:
+    segments = build_possession_segments(
+        [
+            observation(1.0, "red", 1, 100, 100, control_ratio=0.3),
+            observation(1.2, "red", 1, 90, 90, control_ratio=0.3),
+            observation(1.8, "red", 2, 100, 100, control_ratio=0.3),
+            observation(2.0, "red", 2, 110, 110, control_ratio=0.3),
+        ],
+        segment_gap_seconds=0.5,
+        identity_switch_radius_heights=0,
+    )
+    balls = {
+        25: [{"track_id": 1, "clip_seconds": 1.0, "x": 100, "y": 100}],
+        30: [{"track_id": 1, "clip_seconds": 1.2, "x": 90, "y": 100}],
+        35: [{"track_id": 1, "clip_seconds": 1.4, "x": 100, "y": 100}],
+    }
+
+    events = infer_direction_change_transfer_events(
+        balls,
+        segments,
+        control_observations=[
+            observation(1.4, "black", 3, 100, 100, control_ratio=0.3)
+        ],
+        maximum_transfer_seconds=1,
+        minimum_speed_pixels_per_second=40,
+    )
+
+    assert events == []
+
+
+def test_all_pass_inference_rejects_corroborated_intervening_opponent_control() -> None:
+    event = PredictedEvent(
+        "pass_candidate",
+        1.2,
+        "red",
+        1,
+        2,
+        0.8,
+        "same-team transfer",
+        2.0,
+    )
+    controls = [
+        observation(1.6, "black", 3, 200, 200, control_ratio=0.7),
+        observation(1.8, "black", 3, 205, 205, control_ratio=0.3),
+    ]
+
+    assert suppress_passes_crossing_opponent_control([event], controls) == []
+
+
+def test_isolated_opponent_proximity_does_not_erase_completed_pass() -> None:
+    event = PredictedEvent(
+        "pass_candidate",
+        1.2,
+        "red",
+        1,
+        2,
+        0.8,
+        "same-team transfer",
+        2.0,
+    )
+    controls = [
+        observation(1.8, "black", 3, 205, 205, control_ratio=0.3),
+    ]
+
+    assert suppress_passes_crossing_opponent_control([event], controls) == [
+        event
+    ]
 
 
 def test_ball_reentry_recovers_one_touch_reception_after_tracking_gap() -> None:
@@ -773,6 +1303,61 @@ def test_sustained_opponent_control_is_not_treated_as_aerial_interception() -> N
     assert events == [apparent_pass]
 
 
+def test_single_weak_contact_and_immediate_return_does_not_create_turnovers() -> None:
+    apparent_pass = PredictedEvent(
+        "pass_candidate",
+        3.2,
+        "black",
+        100,
+        187,
+        0.68,
+        "Apparent same-team aerial transfer.",
+        3.6,
+    )
+    balls = {
+        80: [
+            {
+                "track_id": 1,
+                "source_frame": 80,
+                "clip_seconds": 3.2,
+                "x": 100,
+                "y": 100,
+            }
+        ],
+        85: [
+            {
+                "track_id": 1,
+                "source_frame": 85,
+                "clip_seconds": 3.4,
+                "x": 150,
+                "y": 130,
+            }
+        ],
+        90: [
+            {
+                "track_id": 1,
+                "source_frame": 90,
+                "clip_seconds": 3.6,
+                "x": 120,
+                "y": 110,
+            }
+        ],
+    }
+
+    events = reconcile_intervening_opponent_aerial_contacts(
+        [apparent_pass],
+        [
+            observation(0.0, "black", 100, 0, 0),
+            observation(3.4, "red", 182, 150, 150, control_ratio=0.9),
+            observation(3.6, "black", 187, 120, 120),
+        ],
+        balls,
+        minimum_speed_pixels_per_second=60,
+    )
+
+    assert events == [apparent_pass]
+
+
 def test_frame_jersey_evidence_preserves_possession_through_track_switches() -> None:
     events = [
         PredictedEvent(
@@ -817,6 +1402,108 @@ def test_frame_jersey_evidence_preserves_possession_through_track_switches() -> 
         ("black", "pass_candidate"),
         ("black", "turnover_candidate"),
     ]
+
+
+def test_track_switch_chain_requires_sender_control_at_release() -> None:
+    events = [
+        PredictedEvent(
+            "turnover_candidate",
+            1.0,
+            "black",
+            10,
+            20,
+            0.8,
+            "Frame-level jersey evidence corrected a cross-team player-track "
+            "identity switch.",
+            1.4,
+        ),
+        PredictedEvent(
+            "turnover_candidate", 3.0, "red", 20, 30, 0.8, "flight", 3.2
+        ),
+    ]
+    players = {
+        frame: [
+            {
+                "track_id": 30,
+                "clip_seconds": seconds,
+                "team": "black",
+                "color_scores": {"dark": 0.5},
+            }
+        ]
+        for frame, seconds in [(75, 3.0), (80, 3.2), (85, 3.4)]
+    }
+
+    corrected = reconcile_track_identity_team_switches(
+        events,
+        players,
+        maximum_chain_seconds=2,
+        control_observations=[
+            observation(1.4, "red", 20, 100, 100),
+            observation(2.0, "red", 20, 120, 100, control_ratio=0.8),
+        ],
+    )
+
+    assert corrected == [events[0]]
+
+
+def test_corrected_turnover_suppresses_impossible_intermediate_owner() -> None:
+    corrected_turnover = PredictedEvent(
+        "turnover_candidate",
+        1.0,
+        "black",
+        10,
+        20,
+        0.8,
+        "Frame-level jersey evidence corrected a cross-team player-track "
+        "identity switch.",
+        1.4,
+    )
+    impossible_black_loss = PredictedEvent(
+        "turnover_candidate", 2.0, "black", 30, 40, 0.8, "control", 2.4
+    )
+    consistent_red_loss = PredictedEvent(
+        "turnover_candidate", 3.0, "red", 50, 60, 0.8, "control", 3.2
+    )
+
+    corrected = reconcile_track_identity_team_switches(
+        [corrected_turnover, impossible_black_loss, consistent_red_loss],
+        {
+            1: [
+                {"track_id": 99, "clip_seconds": 0.0, "team": "red"},
+                {"track_id": 100, "clip_seconds": 0.0, "team": "black"},
+            ]
+        },
+        maximum_chain_seconds=2,
+    )
+
+    assert corrected == [corrected_turnover, consistent_red_loss]
+
+
+def test_frame_jersey_evidence_reclassifies_false_same_team_pass() -> None:
+    apparent_pass = PredictedEvent(
+        "pass_candidate", 1.0, "black", 10, 20, 0.8, "flight", 1.4
+    )
+    players = {
+        frame: [
+            {
+                "track_id": 20,
+                "clip_seconds": seconds,
+                "team": "red",
+                "color_scores": {"white": 0.4, "warm": 0.2},
+            }
+        ]
+        for frame, seconds in [(35, 1.4), (40, 1.6), (45, 1.8)]
+    }
+
+    corrected = reconcile_track_identity_team_switches(
+        [apparent_pass],
+        players,
+        maximum_chain_seconds=2,
+    )
+
+    assert len(corrected) == 1
+    assert corrected[0].team == "black"
+    assert corrected[0].event_type == "turnover_candidate"
 
 
 def test_later_control_resolves_earlier_contested_turnover() -> None:
@@ -915,6 +1602,12 @@ def test_later_control_resolves_earlier_contested_turnover() -> None:
         [spanning, confirmed],
         players,
         balls,
+        [
+            observation(0.8, "black", 1, 100, 100, control_ratio=0.3),
+            observation(1.0, "black", 1, 120, 120, control_ratio=0.3),
+            observation(1.8, "red", 3, 200, 200, control_ratio=0.3),
+            observation(2.0, "red", 3, 205, 205, control_ratio=0.3),
+        ],
         minimum_speed_pixels_per_second=45,
     )
 
@@ -946,6 +1639,11 @@ def test_terminal_turnover_resolves_earlier_contested_contact(
         [terminal_turnover],
         {},
         {},
+        [
+            observation(0.8, "black", 2, 100, 100, control_ratio=0.3),
+            observation(1.0, "black", 2, 100, 100, control_ratio=0.3),
+            observation(3.4, "red", 3, 200, 200, control_ratio=0.3),
+        ],
         minimum_speed_pixels_per_second=45,
     )
 
@@ -953,6 +1651,37 @@ def test_terminal_turnover_resolves_earlier_contested_contact(
     assert events[0].event_type == "turnover_candidate"
     assert events[0].team == "black"
     assert events[0].completion_seconds == 1.0
+
+
+def test_deferred_turnover_requires_control_near_contested_contact(
+    monkeypatch,
+) -> None:
+    terminal_turnover = PredictedEvent(
+        "turnover_candidate", 3.0, "red", 2, 3, 0.8, "control", 3.4
+    )
+    monkeypatch.setattr(
+        "football_poc.innovation_day_snapshot.possession."
+        "_receiver_team_evidence",
+        lambda *args, **kwargs: ("black", 0.9, 4.0),
+    )
+    monkeypatch.setattr(
+        "football_poc.innovation_day_snapshot.possession."
+        "_contested_contact_seconds",
+        lambda *args, **kwargs: 1.0,
+    )
+
+    events = infer_deferred_contested_turnovers(
+        [terminal_turnover],
+        {},
+        {},
+        [
+            observation(0.0, "red", 2, 100, 100, control_ratio=0.3),
+            observation(3.4, "black", 3, 200, 200, control_ratio=0.3),
+        ],
+        minimum_speed_pixels_per_second=45,
+    )
+
+    assert events == [terminal_turnover]
 
 
 def test_terminal_turnover_does_not_cross_intervening_team_pass(
@@ -1020,6 +1749,368 @@ def test_terminal_control_confirms_direction_change_reception(
     ]
 
 
+def test_opponent_jersey_evidence_blocks_false_direction_change_pass(
+    monkeypatch,
+) -> None:
+    prior = PredictedEvent(
+        "pass_candidate", 0.8, "black", 7, 8, 0.8, "pass", 0.8
+    )
+    controls = [
+        observation(2.0, "black", 9, 100, 100, control_ratio=0.4),
+        observation(2.4, "black", 9, 100, 100, control_ratio=0.3),
+    ]
+    monkeypatch.setattr(
+        "football_poc.innovation_day_snapshot.possession."
+        "_ball_motion_evidence",
+        lambda balls: {(1, 50): (100.0, -0.5)},
+    )
+    monkeypatch.setattr(
+        "football_poc.innovation_day_snapshot.possession."
+        "_receiver_team_evidence",
+        lambda *args, **kwargs: ("red", 0.8, 3.0),
+    )
+
+    events = infer_unresolved_direction_change_receptions(
+        [prior],
+        controls,
+        {},
+        players={50: []},
+        minimum_speed_pixels_per_second=45,
+    )
+
+    assert events == [prior]
+
+
+def test_outgoing_pass_alone_does_not_manufacture_incoming_pass(
+    monkeypatch,
+) -> None:
+    outgoing = PredictedEvent(
+        "pass_candidate", 2.6, "red", 39, 45, 0.8, "pass", 3.6
+    )
+    observations = [
+        observation(2.4, "red", 39, 100, 100, control_ratio=0.3),
+        observation(2.8, "red", 45, 200, 100, control_ratio=0.4),
+    ]
+    monkeypatch.setattr(
+        "football_poc.innovation_day_snapshot.possession."
+        "_ball_motion_evidence",
+        lambda balls: {(1, 60): (100.0, -0.5)},
+    )
+
+    events = infer_unresolved_direction_change_receptions(
+        [outgoing],
+        observations,
+        {},
+        minimum_speed_pixels_per_second=45,
+    )
+
+    assert events == [outgoing]
+
+
+def test_retained_owner_direction_change_does_not_manufacture_pass(
+    monkeypatch,
+) -> None:
+    prior = PredictedEvent(
+        "pass_candidate", 1.0, "black", 1, 2, 0.8, "incoming", 1.4
+    )
+    outgoing = PredictedEvent(
+        "pass_candidate", 3.0, "black", 2, 3, 0.8, "outgoing", 4.0
+    )
+    controls = [
+        observation(2.6, "black", 2, 200, 100, control_ratio=0.4),
+    ]
+    monkeypatch.setattr(
+        "football_poc.innovation_day_snapshot.possession."
+        "_ball_motion_evidence",
+        lambda balls: {(1, controls[0].source_frame): (100.0, -0.5)},
+    )
+
+    events = infer_unresolved_direction_change_receptions(
+        [prior, outgoing],
+        controls,
+        {},
+        minimum_speed_pixels_per_second=45,
+    )
+
+    assert events == [prior, outgoing]
+
+
+def test_controlled_release_recovers_incoming_same_team_flight() -> None:
+    outgoing = PredictedEvent(
+        "pass_candidate", 1.0, "black", 2, 3, 0.8, "outgoing", 2.0
+    )
+    events = infer_pre_release_flight_receptions(
+        [outgoing],
+        [
+            observation(0.0, "black", 1, 0, 0, control_ratio=0.8),
+            observation(0.4, "red", 9, 80, 80, control_ratio=1.2),
+            observation(1.0, "black", 2, 200, 200, control_ratio=0.2),
+        ],
+        {
+            0: [
+                {
+                    "track_id": 1,
+                    "source_frame": 0,
+                    "clip_seconds": 0.0,
+                    "x": 0,
+                    "y": 0,
+                }
+            ],
+            5: [
+                {
+                    "track_id": 1,
+                    "source_frame": 5,
+                    "clip_seconds": 0.2,
+                    "x": 20,
+                    "y": 0,
+                }
+            ],
+            25: [
+                {
+                    "track_id": 1,
+                    "source_frame": 25,
+                    "clip_seconds": 1.0,
+                    "x": 200,
+                    "y": 0,
+                }
+            ],
+        },
+        co_visible_track_pairs=set(),
+        minimum_speed_pixels_per_second=45,
+        maximum_sender_lookback_seconds=3,
+    )
+
+    assert [
+        (
+            event.team,
+            event.from_player_track_id,
+            event.to_player_track_id,
+            event.completion_seconds,
+        )
+        for event in events
+    ] == [
+        ("black", 1, 2, 1.0),
+        ("black", 2, 3, 2.0),
+    ]
+
+
+def test_sharp_contact_and_release_recovers_weak_proximity_reception() -> None:
+    outgoing = PredictedEvent(
+        "pass_candidate", 1.4, "black", 2, 3, 0.8, "outgoing", 2.0
+    )
+    events = infer_pre_release_flight_receptions(
+        [outgoing],
+        [
+            observation(0.4, "black", 1, 0, 0, control_ratio=0.8),
+            observation(1.0, "black", 2, 100, 100, control_ratio=1.1),
+        ],
+        {
+            10: [
+                {
+                    "track_id": 4,
+                    "source_frame": 10,
+                    "clip_seconds": 0.4,
+                    "x": 0,
+                    "y": 20,
+                }
+            ],
+            15: [
+                {
+                    "track_id": 4,
+                    "source_frame": 15,
+                    "clip_seconds": 0.6,
+                    "x": 40,
+                    "y": 20,
+                }
+            ],
+            20: [
+                {
+                    "track_id": 4,
+                    "source_frame": 20,
+                    "clip_seconds": 0.8,
+                    "x": 80,
+                    "y": 20,
+                }
+            ],
+            25: [
+                {
+                    "track_id": 4,
+                    "source_frame": 25,
+                    "clip_seconds": 1.0,
+                    "x": 60,
+                    "y": 20,
+                }
+            ],
+            30: [
+                {
+                    "track_id": 4,
+                    "source_frame": 30,
+                    "clip_seconds": 1.2,
+                    "x": 100,
+                    "y": 20,
+                }
+            ],
+        },
+        co_visible_track_pairs={frozenset((1, 2))},
+        minimum_speed_pixels_per_second=45,
+        maximum_sender_lookback_seconds=2,
+    )
+
+    assert [
+        (
+            event.from_player_track_id,
+            event.to_player_track_id,
+            event.completion_seconds,
+        )
+        for event in events
+    ] == [(1, 2, 1.0), (2, 3, 2.0)]
+
+
+def test_opponent_control_blocks_pre_release_flight_recovery() -> None:
+    outgoing = PredictedEvent(
+        "pass_candidate", 1.0, "black", 2, 3, 0.8, "outgoing", 2.0
+    )
+    events = infer_pre_release_flight_receptions(
+        [outgoing],
+        [
+            observation(0.0, "black", 1, 0, 0, control_ratio=0.8),
+            observation(0.4, "red", 9, 40, 40, control_ratio=0.3),
+            observation(1.0, "black", 2, 100, 100, control_ratio=0.2),
+        ],
+        {
+            0: [
+                {
+                    "track_id": 1,
+                    "source_frame": 0,
+                    "clip_seconds": 0.0,
+                    "x": 0,
+                    "y": 0,
+                }
+            ],
+            5: [
+                {
+                    "track_id": 1,
+                    "source_frame": 5,
+                    "clip_seconds": 0.2,
+                    "x": 20,
+                    "y": 0,
+                }
+            ],
+            25: [
+                {
+                    "track_id": 1,
+                    "source_frame": 25,
+                    "clip_seconds": 1.0,
+                    "x": 100,
+                    "y": 0,
+                }
+            ],
+        },
+        co_visible_track_pairs={frozenset((1, 2))},
+        minimum_speed_pixels_per_second=45,
+        maximum_sender_lookback_seconds=3,
+    )
+
+    assert events == [outgoing]
+
+
+def test_track_handoff_does_not_create_pre_release_flight_pass() -> None:
+    outgoing = PredictedEvent(
+        "pass_candidate", 1.0, "black", 2, 3, 0.8, "outgoing", 2.0
+    )
+    events = infer_pre_release_flight_receptions(
+        [outgoing],
+        [
+            observation(0.0, "black", 1, 0, 0, control_ratio=0.8),
+            observation(1.0, "black", 2, 100, 100, control_ratio=0.2),
+        ],
+        {
+            0: [
+                {
+                    "track_id": 1,
+                    "source_frame": 0,
+                    "clip_seconds": 0.0,
+                    "x": 0,
+                    "y": 0,
+                }
+            ],
+            5: [
+                {
+                    "track_id": 1,
+                    "source_frame": 5,
+                    "clip_seconds": 0.2,
+                    "x": 20,
+                    "y": 0,
+                }
+            ],
+            25: [
+                {
+                    "track_id": 1,
+                    "source_frame": 25,
+                    "clip_seconds": 1.0,
+                    "x": 100,
+                    "y": 0,
+                }
+            ],
+        },
+        co_visible_track_pairs=set(),
+        minimum_speed_pixels_per_second=45,
+        maximum_sender_lookback_seconds=3,
+    )
+
+    assert events == [outgoing]
+
+
+def test_existing_reception_blocks_duplicate_pre_release_flight_pass() -> None:
+    prior = PredictedEvent(
+        "pass_candidate", 0.2, "black", 4, 2, 0.8, "prior", 0.6
+    )
+    outgoing = PredictedEvent(
+        "pass_candidate", 1.0, "black", 2, 3, 0.8, "outgoing", 2.0
+    )
+    events = infer_pre_release_flight_receptions(
+        [prior, outgoing],
+        [
+            observation(0.0, "black", 1, 0, 0, control_ratio=0.8),
+            observation(1.0, "black", 2, 200, 200, control_ratio=0.2),
+        ],
+        {
+            0: [
+                {
+                    "track_id": 1,
+                    "source_frame": 0,
+                    "clip_seconds": 0.0,
+                    "x": 0,
+                    "y": 0,
+                }
+            ],
+            5: [
+                {
+                    "track_id": 1,
+                    "source_frame": 5,
+                    "clip_seconds": 0.2,
+                    "x": 20,
+                    "y": 0,
+                }
+            ],
+            25: [
+                {
+                    "track_id": 1,
+                    "source_frame": 25,
+                    "clip_seconds": 1.0,
+                    "x": 200,
+                    "y": 0,
+                }
+            ],
+        },
+        co_visible_track_pairs=set(),
+        minimum_speed_pixels_per_second=45,
+        maximum_sender_lookback_seconds=3,
+    )
+
+    assert events == [prior, outgoing]
+
+
 def test_single_goalkeeper_observation_can_confirm_reception() -> None:
     segments = build_possession_segments(
         [observation(1.0, "red", 7, 100, 100)],
@@ -1060,6 +2151,49 @@ def test_transient_proximity_does_not_establish_reception() -> None:
     )
 
     assert suppress_transient_proximity_receptions([event], segments, {}) == []
+
+    high_speed_event = PredictedEvent(
+        "pass_candidate", 1.6, "black", 1, 7, 0.8, "flight", 1.8
+    )
+    assert suppress_transient_proximity_receptions(
+        [high_speed_event], segments, {}
+    ) == [high_speed_event]
+
+
+def test_single_touch_sender_is_retained_for_distinct_sustained_receiver() -> None:
+    segments = build_possession_segments(
+        [
+            observation(1.0, "black", 1, 100, 100, control_ratio=0.2),
+            observation(2.0, "black", 2, 300, 300, control_ratio=0.3),
+            observation(2.2, "black", 2, 305, 305, control_ratio=0.2),
+        ],
+        segment_gap_seconds=0.3,
+        identity_switch_radius_heights=0,
+    )
+    stable = retain_stable_possession_segments(
+        segments,
+        minimum_observations=2,
+        trusted_single_observation_track_ids=set(),
+    )
+
+    retained = include_supported_single_touch_senders(
+        segments,
+        stable,
+        co_visible_track_pairs={frozenset((1, 2))},
+        maximum_transfer_seconds=2,
+        minimum_transfer_heights=1.5,
+    )
+
+    assert [segment.player_track_id for segment in retained] == [1, 2]
+    events = infer_transfer_events(
+        retained,
+        maximum_transfer_seconds=2,
+        minimum_transfer_heights=1.5,
+    )
+    assert len(events) == 1
+    assert events[0].from_player_track_id == 1
+    assert events[0].to_player_track_id == 2
+    assert events[0].completion_seconds == 2.0
 
 
 def test_ball_flight_confirms_sender_and_receiver() -> None:
@@ -1105,6 +2239,310 @@ def test_ball_flight_confirms_sender_and_receiver() -> None:
     assert [event.event_type for event in events] == ["pass_candidate"]
     assert events[0].from_player_track_id == 1
     assert events[0].to_player_track_id == 2
+
+
+def test_ball_flight_requires_controlled_sender_at_release() -> None:
+    segments = build_possession_segments(
+        [
+            observation(0.8, "red", 1, 100, 100, control_ratio=0.3),
+            observation(1.0, "red", 1, 102, 102, control_ratio=1.1),
+            observation(1.8, "black", 2, 300, 300, control_ratio=0.2),
+            observation(2.0, "black", 2, 302, 302, control_ratio=0.2),
+        ],
+        segment_gap_seconds=0.3,
+        identity_switch_radius_heights=0,
+    )
+    balls = {
+        1: [{"track_id": 1, "clip_seconds": 1.0, "x": 100, "y": 100}],
+        2: [{"track_id": 1, "clip_seconds": 1.2, "x": 180, "y": 100}],
+    }
+
+    events = infer_flight_transfer_events(
+        balls,
+        segments,
+        minimum_speed_pixels_per_second=60,
+        maximum_step_seconds=0.24,
+        debounce_seconds=1.2,
+        sender_lookback_seconds=1,
+        receiver_window_seconds=2,
+    )
+
+    assert events == []
+
+
+def test_ball_flight_rejects_release_while_sender_retains_control() -> None:
+    segments = build_possession_segments(
+        [
+            observation(1.0, "black", 1, 100, 100, control_ratio=0.3),
+            observation(1.2, "black", 1, 120, 100, control_ratio=0.7),
+            observation(1.4, "black", 1, 140, 100, control_ratio=0.7),
+            observation(2.0, "black", 2, 300, 100, control_ratio=0.2),
+            observation(2.2, "black", 2, 302, 100, control_ratio=0.2),
+        ],
+        segment_gap_seconds=0.3,
+        identity_switch_radius_heights=0,
+    )
+    balls = {
+        1: [{"track_id": 1, "clip_seconds": 1.0, "x": 100, "y": 100}],
+        2: [{"track_id": 1, "clip_seconds": 1.2, "x": 180, "y": 100}],
+    }
+
+    events = infer_flight_transfer_events(
+        balls,
+        segments,
+        minimum_speed_pixels_per_second=60,
+        maximum_step_seconds=0.24,
+        debounce_seconds=1.2,
+        sender_lookback_seconds=1,
+        receiver_window_seconds=2,
+    )
+
+    assert events == []
+
+
+def test_ball_flight_rejects_release_after_sender_control_is_stale() -> None:
+    segments = build_possession_segments(
+        [
+            observation(1.0, "black", 1, 100, 100, control_ratio=0.3),
+            observation(2.0, "black", 2, 300, 100, control_ratio=0.2),
+            observation(2.2, "black", 2, 302, 100, control_ratio=0.2),
+        ],
+        segment_gap_seconds=0.3,
+        identity_switch_radius_heights=0,
+    )
+    balls = {
+        1: [{"track_id": 1, "clip_seconds": 1.8, "x": 100, "y": 100}],
+        2: [{"track_id": 1, "clip_seconds": 2.0, "x": 180, "y": 100}],
+    }
+
+    events = infer_flight_transfer_events(
+        balls,
+        segments,
+        minimum_speed_pixels_per_second=60,
+        maximum_step_seconds=0.24,
+        debounce_seconds=1.2,
+        sender_lookback_seconds=1,
+        receiver_window_seconds=2,
+    )
+
+    assert events == []
+
+
+def test_ball_flight_sender_lookback_does_not_cross_opponent_release_control() -> None:
+    segments = build_possession_segments(
+        [
+            observation(0.8, "red", 1, 100, 100, control_ratio=0.3),
+            observation(1.0, "red", 1, 102, 102, control_ratio=0.3),
+            observation(1.4, "black", 3, 100, 100, control_ratio=0.3),
+            observation(1.6, "black", 3, 180, 100, control_ratio=0.3),
+            observation(2.0, "red", 2, 300, 300, control_ratio=0.2),
+            observation(2.2, "red", 2, 302, 302, control_ratio=0.2),
+        ],
+        segment_gap_seconds=0.3,
+        identity_switch_radius_heights=0,
+    )
+    balls = {
+        35: [
+            {
+                "track_id": 1,
+                "source_frame": 35,
+                "clip_seconds": 1.4,
+                "x": 100,
+                "y": 100,
+            }
+        ],
+        40: [
+            {
+                "track_id": 1,
+                "source_frame": 40,
+                "clip_seconds": 1.6,
+                "x": 180,
+                "y": 100,
+            }
+        ],
+    }
+
+    events = infer_flight_transfer_events(
+        balls,
+        segments,
+        control_observations=[
+            observation(1.4, "black", 3, 100, 100, control_ratio=0.3)
+        ],
+        minimum_speed_pixels_per_second=60,
+        maximum_step_seconds=0.24,
+        debounce_seconds=1.2,
+        sender_lookback_seconds=1,
+        receiver_window_seconds=2,
+    )
+
+    assert not any(
+        event.event_type == "pass_candidate"
+        and event.team == "red"
+        and event.to_player_track_id == 2
+        for event in events
+    )
+
+
+def test_ball_flight_pass_does_not_cross_intervening_opponent_control() -> None:
+    segments = build_possession_segments(
+        [
+            observation(1.0, "red", 1, 100, 100, control_ratio=0.3),
+            observation(1.2, "red", 1, 102, 102, control_ratio=0.3),
+            observation(1.8, "black", 3, 220, 220, control_ratio=0.3),
+            observation(2.0, "red", 2, 300, 300, control_ratio=0.2),
+            observation(2.2, "red", 2, 302, 302, control_ratio=0.2),
+        ],
+        segment_gap_seconds=0.3,
+        identity_switch_radius_heights=0,
+    )
+    balls = {
+        30: [
+            {
+                "track_id": 1,
+                "source_frame": 30,
+                "clip_seconds": 1.2,
+                "x": 100,
+                "y": 100,
+            }
+        ],
+        35: [
+            {
+                "track_id": 1,
+                "source_frame": 35,
+                "clip_seconds": 1.4,
+                "x": 180,
+                "y": 100,
+            }
+        ],
+    }
+
+    events = infer_flight_transfer_events(
+        balls,
+        segments,
+        control_observations=[
+            observation(1.8, "black", 3, 220, 220, control_ratio=0.3)
+        ],
+        minimum_speed_pixels_per_second=60,
+        maximum_step_seconds=0.24,
+        debounce_seconds=1.2,
+        sender_lookback_seconds=1,
+        receiver_window_seconds=2,
+    )
+
+    assert not any(
+        event.event_type == "pass_candidate"
+        and event.team == "red"
+        and event.to_player_track_id == 2
+        for event in events
+    )
+
+
+def test_delayed_turnover_is_not_retimed_to_uncontrolled_contested_contact() -> None:
+    event = PredictedEvent(
+        "turnover_candidate",
+        8.8,
+        "red",
+        45,
+        73,
+        0.8,
+        "Delayed black control.",
+        10.4,
+    )
+    balls = {
+        1: [{"track_id": 1, "clip_seconds": 7.2, "x": 0, "y": 100}],
+        2: [{"track_id": 1, "clip_seconds": 7.4, "x": 100, "y": 100}],
+        3: [{"track_id": 1, "clip_seconds": 7.6, "x": 105, "y": 100}],
+    }
+    players = {
+        2: [
+            {
+                "track_id": 45,
+                "team": "red",
+                "x1": 90,
+                "x2": 110,
+                "y1": 50,
+                "y2": 100,
+            },
+            {
+                "track_id": 73,
+                "team": "black",
+                "x1": 90,
+                "x2": 110,
+                "y1": 50,
+                "y2": 100,
+            },
+        ]
+    }
+    observations = [
+        observation(6.0, "red", 45, 100, 100, control_ratio=0.2),
+        observation(7.4, "black", 73, 100, 100, control_ratio=1.2),
+        observation(10.4, "black", 73, 100, 100, control_ratio=0.2),
+    ]
+
+    events = refine_delayed_turnovers_to_contested_decelerations(
+        [event],
+        players,
+        balls,
+        observations,
+        minimum_speed_pixels_per_second=60,
+    )
+
+    assert events == [event]
+
+
+def test_delayed_turnover_retimes_to_controlled_opponent_touch() -> None:
+    event = PredictedEvent(
+        "turnover_candidate",
+        8.8,
+        "red",
+        45,
+        73,
+        0.8,
+        "Delayed black control.",
+        10.4,
+    )
+    balls = {
+        1: [{"track_id": 1, "clip_seconds": 7.2, "x": 0, "y": 100}],
+        2: [{"track_id": 1, "clip_seconds": 7.4, "x": 100, "y": 100}],
+        3: [{"track_id": 1, "clip_seconds": 7.6, "x": 105, "y": 100}],
+    }
+    players = {
+        2: [
+            {
+                "track_id": 45,
+                "team": "red",
+                "x1": 90,
+                "x2": 110,
+                "y1": 50,
+                "y2": 100,
+            },
+            {
+                "track_id": 73,
+                "team": "black",
+                "x1": 90,
+                "x2": 110,
+                "y1": 50,
+                "y2": 100,
+            },
+        ]
+    }
+    observations = [
+        observation(7.2, "red", 45, 100, 100, control_ratio=0.2),
+        observation(7.4, "black", 73, 100, 100, control_ratio=0.2),
+    ]
+
+    events = refine_delayed_turnovers_to_contested_decelerations(
+        [event],
+        players,
+        balls,
+        observations,
+        minimum_speed_pixels_per_second=60,
+    )
+
+    assert len(events) == 1
+    assert events[0].clip_seconds == 7.4
+    assert events[0].completion_seconds == 7.4
+    assert events[0].to_player_track_id == 73
 
 
 def test_flight_reception_uses_contact_not_earlier_transient_proximity() -> None:
@@ -1184,6 +2622,158 @@ def test_reception_timing_waits_for_strong_control_after_weak_proximity() -> Non
     )
 
     assert events[0].completion_seconds == 1.8
+
+
+def test_pass_reception_waits_through_extended_weak_proximity_for_control() -> None:
+    segments = build_possession_segments(
+        [
+            observation(1.4, "black", 2, 300, 300, control_ratio=1.2),
+            observation(1.8, "black", 2, 302, 302, control_ratio=0.8),
+            observation(3.2, "black", 2, 304, 304, control_ratio=0.09),
+            observation(3.4, "black", 2, 306, 306, control_ratio=0.08),
+        ],
+        segment_gap_seconds=1.5,
+        identity_switch_radius_heights=0,
+    )
+
+    events = refine_weak_reception_completion_times(
+        [
+            PredictedEvent(
+                "pass_candidate", 1.2, "black", 1, 2, 0.8, "flight", 1.4
+            )
+        ],
+        segments,
+    )
+
+    assert events[0].completion_seconds == 3.2
+
+
+def test_pass_reception_uses_first_sustained_clear_control_after_weak_proximity() -> None:
+    segments = build_possession_segments(
+        [
+            observation(1.4, "black", 2, 300, 300, control_ratio=1.2),
+            observation(1.8, "black", 2, 302, 302, control_ratio=0.8),
+            observation(2.2, "black", 2, 304, 304, control_ratio=0.45),
+            observation(2.4, "black", 2, 306, 306, control_ratio=0.42),
+        ],
+        segment_gap_seconds=1.0,
+        identity_switch_radius_heights=0,
+    )
+
+    events = refine_weak_reception_completion_times(
+        [
+            PredictedEvent(
+                "pass_candidate", 1.2, "black", 1, 2, 0.8, "flight", 1.4
+            )
+        ],
+        segments,
+    )
+
+    assert events[0].completion_seconds == 2.4
+    assert "first clear controlled touch" in events[0].details
+
+
+def test_pass_reception_prefers_sharp_contact_over_later_proximity_confirmation() -> None:
+    segments = build_possession_segments(
+        [
+            observation(1.4, "black", 2, 300, 300, control_ratio=1.2),
+            observation(2.0, "black", 2, 302, 302, control_ratio=0.7),
+            observation(2.2, "black", 2, 304, 304, control_ratio=0.4),
+            observation(2.4, "black", 2, 306, 306, control_ratio=0.45),
+            observation(2.6, "black", 2, 308, 308, control_ratio=0.42),
+        ],
+        segment_gap_seconds=1.0,
+        identity_switch_radius_heights=0,
+    )
+    balls = {
+        50: [
+            {
+                "track_id": 4,
+                "source_frame": 50,
+                "clip_seconds": 2.0,
+                "x": 100,
+                "y": 100,
+            }
+        ],
+        55: [
+            {
+                "track_id": 4,
+                "source_frame": 55,
+                "clip_seconds": 2.2,
+                "x": 120,
+                "y": 100,
+            }
+        ],
+        60: [
+            {
+                "track_id": 4,
+                "source_frame": 60,
+                "clip_seconds": 2.4,
+                "x": 100,
+                "y": 100,
+            }
+        ],
+    }
+
+    events = refine_weak_reception_completion_times(
+        [
+            PredictedEvent(
+                "pass_candidate", 1.2, "black", 1, 2, 0.8, "flight", 1.4
+            )
+        ],
+        segments,
+        balls,
+        minimum_speed_pixels_per_second=40,
+    )
+
+    assert events[0].completion_seconds == 2.2
+
+
+def test_pass_reception_ignores_isolated_late_proximity() -> None:
+    segments = build_possession_segments(
+        [
+            observation(1.4, "black", 2, 300, 300, control_ratio=1.2),
+            observation(1.8, "black", 2, 302, 302, control_ratio=0.8),
+            observation(2.2, "black", 2, 304, 304, control_ratio=0.45),
+            observation(2.4, "black", 2, 306, 306, control_ratio=0.72),
+        ],
+        segment_gap_seconds=1.0,
+        identity_switch_radius_heights=0,
+    )
+
+    events = refine_weak_reception_completion_times(
+        [
+            PredictedEvent(
+                "pass_candidate", 1.2, "black", 1, 2, 0.8, "flight", 1.4
+            )
+        ],
+        segments,
+    )
+
+    assert events[0].completion_seconds == 1.4
+
+
+def test_pass_reception_does_not_backdate_from_one_immediate_proximity() -> None:
+    segments = build_possession_segments(
+        [
+            observation(1.4, "black", 2, 300, 300, control_ratio=1.2),
+            observation(1.8, "black", 2, 302, 302, control_ratio=0.4),
+            observation(3.2, "black", 2, 304, 304, control_ratio=0.09),
+        ],
+        segment_gap_seconds=1.5,
+        identity_switch_radius_heights=0,
+    )
+
+    events = refine_weak_reception_completion_times(
+        [
+            PredictedEvent(
+                "pass_candidate", 1.2, "black", 1, 2, 0.8, "flight", 1.4
+            )
+        ],
+        segments,
+    )
+
+    assert events[0].completion_seconds == 3.2
 
 
 def test_turnover_timing_waits_longer_for_confirmed_opponent_control() -> None:
@@ -1539,6 +3129,57 @@ def test_short_exchange_is_recovered_before_existing_outgoing_pass() -> None:
     assert [event.completion_seconds for event in events] == [1.0, 2.4, 4.0]
 
 
+def test_first_pass_after_turnover_is_recovered_between_co_visible_players() -> None:
+    turnover = PredictedEvent(
+        "turnover_candidate", 0.4, "red", 10, 115, 0.8, "turnover", 1.0
+    )
+    outgoing = PredictedEvent(
+        "pass_candidate", 3.2, "black", 49, 10, 0.8, "flight", 3.6
+    )
+
+    events = infer_post_turnover_first_pass(
+        [turnover, outgoing],
+        [
+            observation(1.0, "black", 115, 100, 100, control_ratio=0.2),
+            observation(1.6, "black", 115, 110, 110, control_ratio=0.4),
+            observation(1.8, "black", 49, 130, 120, control_ratio=0.7),
+            observation(2.0, "black", 49, 135, 125, control_ratio=0.3),
+        ],
+        co_visible_track_pairs={frozenset((49, 115))},
+    )
+
+    assert [
+        (event.event_type, event.clip_seconds, event.completion_seconds)
+        for event in events
+    ] == [
+        ("turnover_candidate", 0.4, 1.0),
+        ("pass_candidate", 1.6, 1.8),
+        ("pass_candidate", 3.2, 3.6),
+    ]
+
+
+def test_post_turnover_pass_is_not_inferred_when_first_owner_returns() -> None:
+    turnover = PredictedEvent(
+        "turnover_candidate", 0.4, "red", 10, 115, 0.8, "turnover", 1.0
+    )
+    outgoing = PredictedEvent(
+        "pass_candidate", 3.2, "black", 49, 10, 0.8, "flight", 3.6
+    )
+
+    events = infer_post_turnover_first_pass(
+        [turnover, outgoing],
+        [
+            observation(1.0, "black", 115, 100, 100, control_ratio=0.2),
+            observation(1.6, "black", 115, 110, 110, control_ratio=0.4),
+            observation(1.8, "black", 49, 130, 120, control_ratio=0.7),
+            observation(2.2, "black", 115, 140, 130, control_ratio=0.8),
+        ],
+        co_visible_track_pairs={frozenset((49, 115))},
+    )
+
+    assert events == [turnover, outgoing]
+
+
 def test_unobserved_chain_contact_anchors_team_when_local_jersey_is_wrong() -> None:
     prior = PredictedEvent(
         "pass_candidate", 0.4, "black", 1, 2, 0.8, "prior", 1.0
@@ -1611,6 +3252,52 @@ def test_unobserved_chain_contacts_use_confirmed_segment_end_control() -> None:
     assert [event.completion_seconds for event in events] == [1.0, 2.6]
 
 
+def test_unobserved_chain_contact_rejects_opponent_track() -> None:
+    prior = PredictedEvent(
+        "pass_candidate", 0.4, "black", 1, 2, 0.8, "prior", 1.0
+    )
+    following = PredictedEvent(
+        "pass_candidate", 6.8, "black", 3, 4, 0.8, "following", 7.0
+    )
+    balls = {
+        60: [
+            {"track_id": 1, "source_frame": 60, "clip_seconds": 2.4, "x": 0, "y": 0}
+        ],
+        65: [
+            {
+                "track_id": 1,
+                "source_frame": 65,
+                "clip_seconds": 2.6,
+                "x": 100,
+                "y": 0,
+            }
+        ],
+        70: [
+            {"track_id": 1, "source_frame": 70, "clip_seconds": 2.8, "x": 0, "y": 0}
+        ],
+    }
+    players = {
+        frame: [
+            {
+                "track_id": 5,
+                "clip_seconds": seconds,
+                "color_scores": {"white": 0.4, "warm": 0.2},
+            }
+        ]
+        for frame, seconds in [(65, 2.6), (70, 2.8), (75, 3.0)]
+    }
+
+    events = infer_unobserved_chain_contacts(
+        [prior, following],
+        [observation(2.6, "black", 5, 100, 100, control_ratio=0.2)],
+        balls,
+        players=players,
+        minimum_speed_pixels_per_second=45,
+    )
+
+    assert events == [prior, following]
+
+
 def test_ball_flight_ignores_single_frame_receiver() -> None:
     segments = build_possession_segments(
         [
@@ -1653,6 +3340,56 @@ def test_ball_flight_ignores_single_frame_receiver() -> None:
     )
 
     assert events == []
+
+
+def test_ball_flight_does_not_treat_single_frame_teammate_proximity_as_control() -> None:
+    segments = build_possession_segments(
+        [
+            observation(1.0, "black", 1, 100, 100),
+            observation(1.2, "black", 1, 105, 105),
+            observation(2.0, "black", 2, 200, 200, control_ratio=0.1),
+            observation(2.8, "red", 3, 300, 300, control_ratio=0.3),
+            observation(3.0, "red", 3, 305, 305, control_ratio=0.3),
+        ],
+        segment_gap_seconds=0.5,
+        identity_switch_radius_heights=0,
+    )
+    balls = {
+        25: [
+            {
+                "track_id": 1,
+                "source_frame": 25,
+                "clip_seconds": 1.0,
+                "x": 100,
+                "y": 100,
+            }
+        ],
+        30: [
+            {
+                "track_id": 1,
+                "source_frame": 30,
+                "clip_seconds": 1.2,
+                "x": 200,
+                "y": 100,
+            }
+        ],
+    }
+
+    events = infer_flight_transfer_events(
+        balls,
+        segments,
+        minimum_speed_pixels_per_second=100,
+        maximum_step_seconds=0.24,
+        debounce_seconds=1.2,
+        sender_lookback_seconds=1,
+        receiver_window_seconds=2,
+        minimum_sender_observations=1,
+        minimum_receiver_observations=2,
+    )
+
+    assert [(event.event_type, event.to_player_track_id) for event in events] == [
+        ("turnover_candidate", 3)
+    ]
 
 
 def test_sharp_deceleration_with_same_team_retention_completes_pass() -> None:
@@ -1885,6 +3622,28 @@ def test_team_smoothing_never_reassigns_contact_to_another_timestamp() -> None:
 
     assert [(item.team, item.player_track_id) for item in smoothed] == [
         ("black", 2)
+    ]
+
+
+def test_team_smoothing_preserves_repeated_causal_team_control() -> None:
+    observations = [
+        observation(1.0, "black", 1, 100, 100, control_ratio=0.6),
+        observation(1.2, "red", 2, 105, 105, control_ratio=0.45),
+        observation(1.4, "red", 2, 106, 106, control_ratio=0.45),
+        observation(1.6, "red", 2, 107, 107, control_ratio=0.7),
+        observation(1.8, "black", 3, 108, 108, control_ratio=0.1),
+    ]
+
+    smoothed = _smooth_teams(observations, 1.0)
+
+    assert [
+        (item.clip_seconds, item.team, item.player_track_id)
+        for item in smoothed
+    ] == [
+        (1.0, "black", 1),
+        (1.4, "red", 2),
+        (1.6, "red", 2),
+        (1.8, "black", 3),
     ]
 
 
@@ -2613,6 +4372,23 @@ def test_startup_guard_rejects_weak_receiver_proximity() -> None:
     assert filtered == [strong]
 
 
+def test_startup_guard_requires_controlled_sender_at_release() -> None:
+    unsupported = PredictedEvent(
+        "pass_candidate", 0.6, "black", 17, 49, 0.6, "startup", 3.4
+    )
+    observations = [
+        observation(0.6, "black", 17, 100, 100, control_ratio=0.8),
+        observation(3.4, "black", 49, 200, 200, control_ratio=0.2),
+    ]
+
+    assert filter_ambiguous_startup_transfers(
+        [unsupported],
+        observations,
+        startup_guard_seconds=4.0,
+        maximum_receiver_control_ratio=1.2,
+    ) == []
+
+
 def test_primary_transfer_suppresses_nearby_fallback() -> None:
     primary = PredictedEvent(
         "pass_candidate", 1.0, "blue", 1, 2, 0.8, "flight"
@@ -2631,6 +4407,23 @@ def test_primary_transfer_suppresses_nearby_fallback() -> None:
     )
 
     assert [event.clip_seconds for event in merged] == [1.0, 3.0]
+
+
+def test_transfer_merge_keeps_adjacent_chain_passes_with_nearby_releases() -> None:
+    incoming = PredictedEvent(
+        "pass_candidate", 41.0, "black", 10, 232, 0.85, "flight", 41.2
+    )
+    outgoing = PredictedEvent(
+        "pass_candidate", 41.6, "black", 232, 10, 0.65, "segment", 42.4
+    )
+
+    merged = merge_transfer_events(
+        [incoming],
+        [outgoing],
+        deduplication_seconds=0.8,
+    )
+
+    assert merged == [incoming, outgoing]
 
 
 def test_evaluation_matches_each_ground_truth_once() -> None:

@@ -8,6 +8,11 @@ from football_poc.player_tracking import (
     classify_color_scores,
     _jersey_crop,
 )
+from football_poc.innovation_day_snapshot.player_tracking import (
+    PlayerPoint as InnovationPlayerPoint,
+    _inside_pitch as innovation_inside_pitch,
+    _near_ball as innovation_near_ball,
+)
 import numpy as np
 
 
@@ -34,6 +39,36 @@ def test_player_tracker_rejects_distant_detection() -> None:
     )
 
     assert len(tracks) == 2
+
+
+def test_near_ball_support_preserves_player_beyond_coarse_pitch_mask() -> None:
+    receiver = InnovationPlayerPoint(
+        source_frame=595,
+        clip_seconds=23.8,
+        confidence=0.7,
+        x1=1084,
+        y1=1230,
+        x2=1175,
+        y2=1344,
+    )
+
+    assert not innovation_inside_pitch(*receiver.foot, width=3840, height=1726)
+    assert innovation_near_ball(receiver, [(1182, 1326)])
+
+
+def test_near_ball_support_rejects_unrelated_off_pitch_person() -> None:
+    person = InnovationPlayerPoint(
+        source_frame=595,
+        clip_seconds=23.8,
+        confidence=0.7,
+        x1=3000,
+        y1=1400,
+        x2=3100,
+        y2=1550,
+    )
+
+    assert not innovation_inside_pitch(*person.foot, width=3840, height=1726)
+    assert not innovation_near_ball(person, [(1182, 1326)])
 
 
 def test_color_scores_classify_main_kits_and_roles() -> None:
