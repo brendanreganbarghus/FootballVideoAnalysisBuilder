@@ -4,6 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Innovation Day concept for affordable, local-first football analytics for grassroots clubs.">
+  <meta name="theme-color" content="#6c1d5f">
+  <link rel="icon" type="image/svg+xml" href="assets/grassroots-football-mark.svg">
   <title>Grassroots Football Intelligence | Innovation Day</title>
   <style>
     :root {
@@ -79,24 +81,52 @@
 
     .brand {
       display: flex;
+      flex: 0 0 auto;
       align-items: center;
-      gap: 18px;
+      gap: 14px;
       text-decoration: none;
     }
 
-    .brand img {
-      width: 112px;
+    .brand-logos {
+      display: flex;
+      flex: 0 0 auto;
+      align-items: center;
+      gap: 10px;
+      padding-right: 14px;
+      border-right: 1px solid rgb(255 255 255 / 16%);
+    }
+
+    .brand .grassroots-mark {
+      flex: none;
+      width: 44px;
+      height: 44px;
+    }
+
+    .brand .xebia-logo {
+      flex: none;
+      width: 90px;
       height: auto;
-      padding: 7px 10px;
-      border-radius: 7px;
+      padding: 8px 10px;
+      border-radius: 8px;
       background: #fff;
     }
 
-    .brand span {
+    .brand-copy {
+      display: grid;
+      gap: 1px;
+      white-space: nowrap;
+    }
+
+    .brand-copy strong {
+      font-size: .92rem;
+      letter-spacing: -.01em;
+    }
+
+    .brand-copy span {
       color: var(--muted);
-      font-size: .76rem;
+      font-size: .67rem;
       font-weight: 800;
-      letter-spacing: .14em;
+      letter-spacing: .11em;
       text-transform: uppercase;
     }
 
@@ -716,8 +746,13 @@
       gap: 24px;
     }
 
-    @media (max-width: 980px) {
+    @media (max-width: 1100px) {
       .nav-links a:not(.button) { display: none; }
+      .brand-copy { display: none; }
+      .brand-logos {
+        padding-right: 0;
+        border-right: 0;
+      }
       .hero {
         grid-template-columns: 1fr;
         gap: 42px;
@@ -737,9 +772,10 @@
     @media (max-width: 640px) {
       .shell { width: min(100% - 24px, var(--max)); }
       .nav { min-height: 64px; }
-      .brand span { display: none; }
-      .brand img { width: 90px; }
-      .nav .button { min-height: 40px; padding: 0 12px; font-size: .8rem; }
+      .brand-logos { gap: 8px; }
+      .brand .grassroots-mark { width: 40px; height: 40px; }
+      .brand .xebia-logo { width: 82px; }
+      .nav-links { display: none; }
       .hero { min-height: auto; padding: 58px 0; }
       h1 { font-size: clamp(2.8rem, 15vw, 4.6rem); }
       section { padding: 64px 0; }
@@ -778,8 +814,14 @@
   <header class="site-header">
     <div class="shell nav">
       <a class="brand" href="#top" aria-label="Innovation Day home">
-        <img src="assets/xebia-logo.svg" alt="Xebia">
-        <span>Innovation Day concept</span>
+        <span class="brand-logos" aria-hidden="true">
+          <img class="grassroots-mark" src="assets/grassroots-football-mark.svg" alt="">
+          <img class="xebia-logo" src="assets/xebia-logo.svg" alt="">
+        </span>
+        <span class="brand-copy">
+          <strong>Grassroots Football</strong>
+          <span>Intelligence · Innovation Day</span>
+        </span>
       </a>
       <nav class="nav-links" aria-label="Presentation sections">
         <a href="#solution">Solution</a>

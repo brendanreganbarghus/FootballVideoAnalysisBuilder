@@ -452,8 +452,14 @@ generated caches.
 
    Opening the Canvas starts its temporary loopback UI and registers that
    address in the repository's Git common directory, so the port-8080 server
-   can find it from `main` or any worktree in the same clone. Then use the
-   stable launcher rather than the temporary Canvas port:
+   can find it from `main` or any worktree in the same clone. Open the stable
+   Innovation landing page:
+
+   ```text
+   http://127.0.0.1:8080/showcase/innovation-day/
+   ```
+
+   Its **Review Canvas** button opens the stable launcher:
 
    ```text
    http://127.0.0.1:8080/review-canvas?theme=innovation
@@ -462,6 +468,23 @@ generated caches.
    Repeat the Canvas-opening prompt after Copilot restarts or reloads its
    extensions. Each developer performs this locally; Canvas addresses are
    deliberately not synchronized between machines.
+
+   The components have separate responsibilities:
+
+   | Component | Purpose |
+   | --- | --- |
+   | Port-8080 local app | Stable developer entry point; serves the landing page, segment catalogue, prepared video, workflow status APIs, and Canvas redirect |
+   | Innovation review Canvas | Copilot side-panel workspace for reviewing prepared video, frozen-BAC diagnostic evidence, E# engine output, independent M# decisions, mappings, conversations, regression results, and publication state |
+   | Temporary Canvas server | Hosts one running Canvas UI on an OS-assigned localhost port; its current address is registered under Git's common directory so all worktrees in the clone can find it |
+   | Shared prepared-segment storage | Supplies prepared media and immutable/checksummed Innovation workflow artifacts |
+   | PostgreSQL coordination store | Preserves mutable decisions, conversations, mappings, leases, fingerprints, regression receipts, and publication history |
+
+   The Canvas exists to diagnose and validate the frozen downstream Innovation
+   football engine against independently reviewed evidence. It is a
+   frozen-BAC-assisted review workflow, not raw-video ball inference and not a
+   valid Live ball-tracking performance benchmark. The temporary Canvas URL is
+   only a local transport address; it does not contain the authoritative media
+   or review history.
 
    In another terminal, confirm the backend reports the intended authority:
 

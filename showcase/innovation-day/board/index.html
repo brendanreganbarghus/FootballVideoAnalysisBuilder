@@ -4,6 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Landscape Innovation Day board for Grassroots Football Intelligence.">
+  <meta name="theme-color" content="#6c1d5f">
+  <link rel="icon" type="image/svg+xml" href="../assets/grassroots-football-mark.svg">
   <title>Grassroots Football Intelligence | Innovation Board</title>
   <style>
     :root {
@@ -77,7 +79,18 @@
       gap: 1.2cqw;
     }
 
-    .brand img {
+    .brand-logos {
+      display: flex;
+      align-items: center;
+      gap: .55cqw;
+    }
+
+    .brand .grassroots-mark {
+      width: 3.6cqw;
+      height: 3.6cqw;
+    }
+
+    .brand .xebia-logo {
       width: 7.8cqw;
       padding: .48cqw .68cqw;
       border-radius: .45cqw;
@@ -518,7 +531,10 @@
   <main class="board">
     <header class="topbar">
       <div class="brand">
-        <img src="../assets/xebia-logo.svg" alt="Xebia">
+        <div class="brand-logos" aria-label="Grassroots Football Intelligence and Xebia">
+          <img class="grassroots-mark" src="../assets/grassroots-football-mark.svg" alt="">
+          <img class="xebia-logo" src="../assets/xebia-logo.svg" alt="">
+        </div>
         <div class="brand-copy">
           <strong>Grassroots Football Intelligence</strong>
           <span>Innovation Day concept · Brendan Barghus</span>

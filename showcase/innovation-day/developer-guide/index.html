@@ -4,6 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Local developer setup for the FootballVideoAnalysisBuilder Innovation Day project.">
+  <meta name="theme-color" content="#6c1d5f">
+  <link rel="icon" type="image/svg+xml" href="../assets/grassroots-football-mark.svg">
   <title>Developer Setup | Grassroots Football Intelligence</title>
   <style>
     :root {
@@ -51,7 +53,16 @@
       justify-content: space-between;
       gap: 20px;
     }
-    nav img {
+    .brand-logos {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .brand-logos .grassroots-mark {
+      width: 44px;
+      height: 44px;
+    }
+    .brand-logos .xebia-logo {
       width: 106px;
       padding: 7px 10px;
       border-radius: 7px;
@@ -179,7 +190,10 @@
   <header>
     <div class="shell">
       <nav aria-label="Developer guide navigation">
-        <a href="../"><img src="../assets/xebia-logo.svg" alt="Xebia"></a>
+        <a class="brand-logos" href="../" aria-label="Grassroots Football Intelligence and Xebia">
+          <img class="grassroots-mark" src="../assets/grassroots-football-mark.svg" alt="">
+          <img class="xebia-logo" src="../assets/xebia-logo.svg" alt="">
+        </a>
         <div class="nav-links">
           <a href="../">Innovation Day overview</a>
           <a href="../board/">Innovation board</a>
@@ -302,6 +316,9 @@ Test-Path $liveState
             <li>
               After the Canvas opens, use the stable landing-page button or
               open:
+              <pre>http://127.0.0.1:8080/showcase/innovation-day/</pre>
+              The landing page's <strong>Review Canvas</strong> button uses
+              this stable launcher:
               <pre>http://127.0.0.1:8080/review-canvas?theme=innovation</pre>
             </li>
           </ol>
@@ -313,6 +330,44 @@ Test-Path $liveState
             <div class="mini">
               <b>Innovation Day</b>
               <code>http://127.0.0.1:8080/showcase/innovation-day/</code>
+            </div>
+          </div>
+          <h3>How the landing page and Canvas work together</h3>
+          <div class="grid">
+            <div class="mini">
+              <b>Landing page and local backend</b>
+              <p>
+                Port 8080 is the stable developer entry point. It serves the
+                Innovation showcase, segment catalogue, prepared videos,
+                status APIs, and the stable Canvas launcher.
+              </p>
+            </div>
+            <div class="mini">
+              <b>Innovation review Canvas</b>
+              <p>
+                The Copilot side panel is the interactive review workspace. It
+                combines prepared video, frozen-BAC diagnostic evidence,
+                current E# engine output, independent M# review decisions,
+                mappings, conversations, regressions, and publication gates.
+              </p>
+            </div>
+            <div class="mini">
+              <b>Temporary Canvas address</b>
+              <p>
+                Copilot assigns the Canvas a temporary localhost port. The
+                extension registers that address in Git's common directory,
+                allowing the port-8080 launcher to find the current Canvas
+                across all worktrees in the same clone.
+              </p>
+            </div>
+            <div class="mini">
+              <b>Shared and durable state</b>
+              <p>
+                Shared storage supplies prepared media and workflow artifacts.
+                PostgreSQL preserves mutable review history and coordination.
+                The temporary Canvas URL contains neither source data nor the
+                authoritative review record.
+              </p>
             </div>
           </div>
           <p>
@@ -332,7 +387,9 @@ Test-Path $liveState
             After that first opening, the landing-page button is the normal
             entry point. Innovation uses only its frozen engine, generated
             artifacts, review state, fingerprints, regression receipts, and
-            publication locks.
+            publication locks. Its purpose is to diagnose and validate the
+            downstream football event engine; it is not raw-video ball
+            inference or a Live ball-tracking performance benchmark.
           </p>
           <div class="mini">
             <b>Innovation review prompt</b>
