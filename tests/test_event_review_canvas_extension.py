@@ -1052,6 +1052,8 @@ def test_innovation_runner_rejects_media_manifest_duration_mismatch() -> None:
     assert "declared_end_frame > frame_count" in runner
     assert "declared_frame_count != duration_frame_count" in runner
     assert 'prepared.get("innovation_video", prepared["video"])' in runner
+    assert "if not video.is_absolute():" in runner
+    assert "video = segment / video" in runner
     assert '"start_frame": declared_start_frame' in runner
     assert '"end_frame": declared_end_frame' in runner
     assert "Prepared Innovation media does not match its raw-only manifest" in runner

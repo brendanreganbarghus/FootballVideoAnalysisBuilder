@@ -121,9 +121,10 @@ def main() -> None:
             "Shared prepared manifest contains evaluation inputs: "
             + ", ".join(leaked)
         )
-    video = Path(
-        str(prepared.get("innovation_video", prepared["video"]))
-    ).resolve()
+    video = Path(str(prepared.get("innovation_video", prepared["video"])))
+    if not video.is_absolute():
+        video = segment / video
+    video = video.resolve()
     capture = cv2.VideoCapture(str(video))
     try:
         if not capture.isOpened():
