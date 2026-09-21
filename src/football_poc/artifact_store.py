@@ -155,16 +155,26 @@ def publish_prepared_segment(
     if root is None:
         raise FileNotFoundError("Set FOOTBALL_ARTIFACT_ROOT before publication")
     manifest_path = source / "manifest.json"
-    video_path = source / "alfheim-window-playable.mp4"
     namespace = WORKFLOW_NAMESPACES[workflow_id]
     workflow_root = source / namespace
-    if not manifest_path.is_file() or not video_path.is_file():
+    if not manifest_path.is_file():
+        raise FileNotFoundError(f"Prepared segment is incomplete: {source}")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    video_path = source / "alfheim-window-playable.mp4"
+    if not video_path.is_file():
+        video_path = (
+            source
+            / _safe_relative_path(
+                manifest.get("playable_video", manifest.get("video")),
+                field="video",
+            )
+        ).resolve()
+    if not video_path.is_relative_to(source) or not video_path.is_file():
         raise FileNotFoundError(f"Prepared segment is incomplete: {source}")
     if not workflow_root.is_dir():
         raise FileNotFoundError(
             f"{workflow_id} artifacts are missing: {workflow_root}"
         )
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     source_workflows = {
         str(value) for value in manifest.get("review_workflows", [])
     }

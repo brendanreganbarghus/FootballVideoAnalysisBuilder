@@ -98,6 +98,18 @@ def test_published_prepared_segment_is_discoverable_and_checksummed(
         artifact_root,
     ) == published
 
+    republished = publish_prepared_segment(
+        published.root,
+        workflow_id="innovation_day_bac",
+        artifact_root=artifact_root,
+        source_metadata={
+            "camera_id": "camera-1",
+            "recording_id": "recording-1",
+        },
+    )
+    verify_prepared_segment(republished)
+    assert republished.video.read_bytes() == b"video"
+
 
 def test_publishing_second_workflow_preserves_first_workflow(
     tmp_path: Path,
