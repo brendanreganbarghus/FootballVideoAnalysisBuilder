@@ -5,10 +5,11 @@ import json
 import os
 import re
 import shutil
+import stat
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Mapping
+from typing import Callable, Mapping
 
 
 PREPARED_SEGMENT_SCHEMA_VERSION = 1
@@ -64,6 +65,18 @@ def _sha256(path: Path) -> str:
         for chunk in iter(lambda: source.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _remove_tree(path: Path) -> None:
+    def remove_readonly(
+        operation: Callable[[str], object],
+        item: str,
+        _error: object,
+    ) -> None:
+        os.chmod(item, stat.S_IWRITE)
+        operation(item)
+
+    shutil.rmtree(path, onexc=remove_readonly)
 
 
 def _load_shared_segment(path: Path) -> SharedPreparedSegment:
@@ -204,7 +217,16 @@ def publish_prepared_segment(
     try:
         existing_workflows: set[str] = set()
         if destination.is_dir():
-            shutil.copytree(destination, staging, dirs_exist_ok=True)
+            shutil.copytree(
+                destination,
+                staging,
+                dirs_exist_ok=True,
+                ignore=lambda directory, names: (
+                    {namespace, "checksums.sha256"} & set(names)
+                    if Path(directory).resolve() == destination.resolve()
+                    else set()
+                ),
+            )
             existing_metadata_path = destination / "segment.json"
             if existing_metadata_path.is_file():
                 existing = json.loads(
@@ -229,8 +251,6 @@ def publish_prepared_segment(
         if common_review.is_file():
             shutil.copy2(common_review, staging / common_review.name)
         target_workflow = staging / namespace
-        if target_workflow.exists():
-            shutil.rmtree(target_workflow)
         shutil.copytree(workflow_root, target_workflow)
         existing_workflows.add(workflow_id)
         metadata = {
@@ -270,15 +290,15 @@ def publish_prepared_segment(
             encoding="utf-8",
         )
         if backup.exists():
-            shutil.rmtree(backup)
+            _remove_tree(backup)
         if destination.exists():
             destination.rename(backup)
         staging.rename(destination)
         if backup.exists():
-            shutil.rmtree(backup)
+            _remove_tree(backup)
     except Exception:
         if staging.exists():
-            shutil.rmtree(staging)
+            _remove_tree(staging)
         if backup.exists() and not destination.exists():
             backup.rename(destination)
         raise
