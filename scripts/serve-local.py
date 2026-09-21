@@ -786,9 +786,41 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
                     "/api/alfheim/innovation/status": "innovation",
                     "/api/alfheim/live/status": "live",
                 }.get(request.path)
+                local_root = (
+                    Path.cwd()
+                    / "benchmarks"
+                    / "alfheim"
+                    / "generated"
+                    / cache_key
+                )
+                prepared_root = None
+                url_root = None
+                if not local_root.is_dir():
+                    shared = find_prepared_segment(
+                        cache_key,
+                        SHARED_ARTIFACT_ROOT,
+                    )
+                    workflow_id = {
+                        "innovation": "innovation_day_bac",
+                        "live": "live_iteration_25",
+                    }.get(namespace)
+                    if (
+                        shared is not None
+                        and (
+                            workflow_id is None
+                            or workflow_id in shared.workflows
+                        )
+                    ):
+                        prepared_root = shared.root
+                        url_root = f"/shared-prepared/{cache_key}"
                 self._send_json(
                     200,
-                    self._segment_status(cache_key, namespace=namespace),
+                    self._segment_status(
+                        cache_key,
+                        namespace=namespace,
+                        prepared_root=prepared_root,
+                        url_root=url_root,
+                    ),
                 )
             except (FileNotFoundError, ValueError) as error:
                 self._send_json(400, {"error": str(error)})
