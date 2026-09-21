@@ -443,6 +443,26 @@ generated caches.
      --port 8080
    ```
 
+   Keep that terminal running. In a GitHub Copilot project session for this
+   repository, start the Innovation Canvas once with:
+
+   ```text
+   Open the Innovation Day Football Event Review Canvas for segment-0120-020.
+   ```
+
+   Opening the Canvas starts its temporary loopback UI and registers that
+   address in the repository's Git common directory, so the port-8080 server
+   can find it from `main` or any worktree in the same clone. Then use the
+   stable launcher rather than the temporary Canvas port:
+
+   ```text
+   http://127.0.0.1:8080/review-canvas?theme=innovation
+   ```
+
+   Repeat the Canvas-opening prompt after Copilot restarts or reloads its
+   extensions. Each developer performs this locally; Canvas addresses are
+   deliberately not synchronized between machines.
+
    In another terminal, confirm the backend reports the intended authority:
 
    ```powershell

@@ -286,7 +286,25 @@ Test-Path $liveState
         <div>
           <span class="tag">Local execution</span>
           <h2>Start the app and open the Innovation review Canvas</h2>
-          <pre>python .\scripts\serve-local.py --bind 127.0.0.1 --port 8080</pre>
+          <ol>
+            <li>
+              From the repository root, start the local app and keep its
+              terminal open:
+              <pre>python .\scripts\serve-local.py --bind 127.0.0.1 --port 8080</pre>
+            </li>
+            <li>
+              Open this repository as a project session in GitHub Copilot and
+              ask:
+              <pre>Open the Innovation Day Football Event Review Canvas for segment-0120-020.</pre>
+              This starts the Canvas extension and registers its temporary
+              local address for every worktree in this clone.
+            </li>
+            <li>
+              After the Canvas opens, use the stable landing-page button or
+              open:
+              <pre>http://127.0.0.1:8080/review-canvas?theme=innovation</pre>
+            </li>
+          </ol>
           <div class="grid">
             <div class="mini">
               <b>Product landing</b>
@@ -305,11 +323,11 @@ Test-Path $liveState
             You do not need to ask Copilot each time or know its temporary port.
           </p>
           <p>
-            On a fresh checkout, Copilot must start the extension once before a
-            browser can redirect to it. If the launcher reports that no Canvas
-            is registered, use this one-time recovery prompt:
+            On a fresh checkout, or after Copilot restarts or reloads its
+            extensions, Copilot must open the Canvas once before a browser can
+            redirect to it. If the launcher reports that no Canvas is
+            registered, repeat the prompt above.
           </p>
-          <pre>Open the Football Event Review Canvas for segment-0180-020.</pre>
           <p>
             After that first opening, the landing-page button is the normal
             entry point. Innovation uses only its frozen engine, generated
@@ -318,7 +336,7 @@ Test-Path $liveState
           </p>
           <div class="mini">
             <b>Innovation review prompt</b>
-            <code>Open Football Event Review for segment-0180-020.</code>
+            <code>Open the Innovation Day Football Event Review Canvas for segment-0120-020.</code>
           </div>
           <p>
             Open <strong>Camera Calibration &amp; Overlays</strong> to show,
