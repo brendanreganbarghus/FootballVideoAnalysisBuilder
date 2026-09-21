@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass, replace
 from math import hypot
@@ -8200,7 +8201,10 @@ def _load_player_points(
     path: Path, expected_manifest: Path
 ) -> dict[int, list[dict[str, Any]]]:
     payload = json.loads(path.read_text(encoding="utf-8"))
-    if Path(payload.get("manifest", "")).resolve() != expected_manifest:
+    if not _matches_manifest_reference(
+        payload.get("manifest", ""),
+        expected_manifest,
+    ):
         raise ValueError("Player tracks were created for a different manifest")
     points: dict[int, list[dict[str, Any]]] = defaultdict(list)
     for track in payload.get("tracks", []):
@@ -8220,7 +8224,10 @@ def _load_ball_points(
     path: Path, expected_manifest: Path
 ) -> dict[int, list[dict[str, Any]]]:
     payload = json.loads(path.read_text(encoding="utf-8"))
-    if Path(payload.get("manifest", "")).resolve() != expected_manifest:
+    if not _matches_manifest_reference(
+        payload.get("manifest", ""),
+        expected_manifest,
+    ):
         raise ValueError("Ball tracks were created for a different manifest")
     points: dict[int, list[dict[str, Any]]] = defaultdict(list)
     for track in payload.get("tracks", []):
@@ -8229,6 +8236,29 @@ def _load_ball_points(
             value["track_id"] = int(track["track_id"])
             points[int(point["source_frame"])].append(value)
     return points
+
+
+def _matches_manifest_reference(
+    recorded_manifest: object,
+    expected_manifest: Path,
+) -> bool:
+    recorded = Path(str(recorded_manifest or "")).resolve()
+    expected = expected_manifest.resolve()
+    if recorded == expected:
+        return True
+
+    def segment_identity(path: Path) -> tuple[str, ...] | None:
+        parts = path.parts
+        for index, part in enumerate(parts):
+            if re.fullmatch(r"segment-\d{4}-\d{3}", part):
+                return tuple(value.casefold() for value in parts[index:])
+        return None
+
+    recorded_identity = segment_identity(recorded)
+    return (
+        recorded_identity is not None
+        and recorded_identity == segment_identity(expected)
+    )
 
 
 def _video_dimensions(video: Path) -> tuple[int, int]:

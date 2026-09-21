@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from football_poc.innovation_day_snapshot.possession import (
     PredictedEvent,
     PossessionObservation,
@@ -43,6 +45,7 @@ from football_poc.innovation_day_snapshot.possession import (
     suppress_transient_proximity_receptions,
     suppress_overlapping_opponent_handoffs,
     suppress_uncontrolled_opponent_turnovers,
+    _matches_manifest_reference,
     filter_disconnected_low_confidence_startup,
     infer_unresolved_direction_change_receptions,
     infer_occluded_exchange_receptions,
@@ -67,6 +70,33 @@ from football_poc.innovation_day_snapshot.possession import (
 from football_poc.innovation_day_snapshot.match_state import (
     build_match_state_timeline,
 )
+
+
+def test_manifest_reference_allows_same_segment_bundle_after_relocation(
+    tmp_path: Path,
+) -> None:
+    expected = (
+        tmp_path
+        / "shared"
+        / "segment-0120-020"
+        / "innovation"
+        / "runtime-manifest.json"
+    )
+    recorded = (
+        Path("D:/original/generated")
+        / "segment-0120-020"
+        / "innovation"
+        / "runtime-manifest.json"
+    )
+
+    assert _matches_manifest_reference(recorded, expected)
+    assert not _matches_manifest_reference(
+        recorded,
+        expected.parent.parent.parent
+        / "segment-0240-020"
+        / "innovation"
+        / "runtime-manifest.json",
+    )
 
 
 def test_deflection_delays_turnover_until_opponent_control() -> None:
