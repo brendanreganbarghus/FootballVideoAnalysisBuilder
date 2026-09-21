@@ -99,13 +99,31 @@ const rulesEngineVersionFiles = workflow.rulesEngineVersionFiles;
 const servers = new Map();
 let launcherRegistryUpdate = Promise.resolve();
 let adapterRegistryUpdate = Promise.resolve();
-const launcherRegistryPath = join(
-  projectRoot,
-  "benchmarks",
-  "alfheim",
-  "generated",
-  workflow.launcherRegistry,
-);
+const launcherRegistryPath = (() => {
+  try {
+    const commonDirectory = execFileSync(
+      "git",
+      ["rev-parse", "--git-common-dir"],
+      {
+        cwd: projectRoot,
+        encoding: "utf8",
+        windowsHide: true,
+      },
+    ).trim();
+    return join(
+      resolve(projectRoot, commonDirectory),
+      workflow.launcherRegistry,
+    );
+  } catch {
+    return join(
+      projectRoot,
+      "benchmarks",
+      "alfheim",
+      "generated",
+      workflow.launcherRegistry,
+    );
+  }
+})();
 const activeAdapterRegistryPath = join(
   generatedRoot,
   ".football-event-review-active-adapters.json",

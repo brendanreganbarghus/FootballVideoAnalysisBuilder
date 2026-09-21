@@ -836,3 +836,46 @@ def test_review_canvas_launcher_redirects_to_registered_local_url(
         "http://127.0.0.1:54321/"
         "?segment=segment-0300-020&theme=default",
     ) in response["headers"]
+
+
+def test_review_canvas_launcher_uses_git_common_registry(
+    tmp_path: Path, monkeypatch
+) -> None:
+    registry = tmp_path / "git-common" / ".football-event-review-urls.json"
+    registry.parent.mkdir()
+    registry.write_text(
+        json.dumps(
+            {
+                "innovation": (
+                    "http://127.0.0.1:54322/"
+                    "?segment=segment-0120-020&theme=innovation"
+                )
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        SERVE_LOCAL,
+        "review_launcher_registry_paths",
+        lambda: (registry,),
+    )
+
+    handler = object.__new__(SERVE_LOCAL.RangeRequestHandler)
+    handler.path = "/review-canvas?theme=innovation"
+    response: dict[str, object] = {}
+    handler.send_response = lambda status: response.update(status=status)
+    handler.send_header = (
+        lambda name, value: response.setdefault("headers", []).append(
+            (name, value)
+        )
+    )
+    handler.end_headers = lambda: None
+
+    handler.do_GET()
+
+    assert response["status"] == 302
+    assert (
+        "Location",
+        "http://127.0.0.1:54322/"
+        "?segment=segment-0120-020&theme=innovation",
+    ) in response["headers"]

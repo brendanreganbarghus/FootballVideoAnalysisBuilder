@@ -22,6 +22,32 @@ LOCAL_SOURCE = PROJECT_ROOT / "src"
 if str(LOCAL_SOURCE) not in sys.path:
     sys.path.insert(0, str(LOCAL_SOURCE))
 
+
+def review_launcher_registry_paths() -> tuple[Path, ...]:
+    legacy = (
+        PROJECT_ROOT
+        / "benchmarks"
+        / "alfheim"
+        / "generated"
+        / ".football-event-review-urls.json"
+    )
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--git-common-dir"],
+            cwd=PROJECT_ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        common = Path(result.stdout.strip())
+        if not common.is_absolute():
+            common = PROJECT_ROOT / common
+        shared = common.resolve() / ".football-event-review-urls.json"
+        return (shared, legacy)
+    except (OSError, subprocess.SubprocessError):
+        return (legacy,)
+
 from football_poc.alfheim_segments import (
     alfheim_source_info,
     plan_alfheim_segment,
@@ -714,16 +740,14 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
             if theme not in {"default", "innovation"}:
                 self.send_error(400, "Invalid review theme")
                 return
-            registry_path = (
-                PROJECT_ROOT
-                / "benchmarks"
-                / "alfheim"
-                / "generated"
-                / ".football-event-review-urls.json"
-            )
             try:
-                registry = json.loads(registry_path.read_text(encoding="utf-8"))
-                target = str(registry[theme])
+                target = next(
+                    str(
+                        json.loads(path.read_text(encoding="utf-8"))[theme]
+                    )
+                    for path in review_launcher_registry_paths()
+                    if path.is_file()
+                )
                 parsed_target = urlparse(target)
                 if (
                     parsed_target.scheme != "http"
@@ -731,7 +755,13 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
                     or not parsed_target.port
                 ):
                     raise ValueError("Invalid registered Canvas URL")
-            except (FileNotFoundError, KeyError, TypeError, ValueError):
+            except (
+                FileNotFoundError,
+                KeyError,
+                StopIteration,
+                TypeError,
+                ValueError,
+            ):
                 self.send_error(
                     503,
                     "Open Football Event Review in Copilot once, then retry.",
