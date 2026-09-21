@@ -7,10 +7,10 @@ publication behavior.
 
 ## Current workstream boundary
 
-- Live ball tracking and `football-event-review-live` are frozen and separate
-  from Innovation Day. Do not inspect, run, edit, or reuse Live tracker code,
-  Live review state, or `live\` artifacts unless Brendan explicitly resumes
-  that work.
+- Live ball tracking is an active R&D workstream, fully separate from
+  Innovation Day. Inspect, run, or edit `football-event-review-live`, Live
+  tracker code, Live review state, or `live\` artifacts only when the current
+  task explicitly targets Live work.
 - Innovation Day uses frozen BAC coordinates, the frozen Innovation engine,
   `innovation\` artifacts, `event-review-state-innovation`, and Canvas type
   `football-event-review`. It is a BAC-assisted diagnostic/demo of the
@@ -18,6 +18,11 @@ publication behavior.
   ball-tracking performance benchmark.
 - Never move artifacts, state, decisions, thresholds, or fixes between the
   Innovation and Live workflows.
+- Live development currently has a fixed minimum 90% direct-coordinate
+  provenance gate. That measures evidence coverage, not 90% coordinate
+  correctness or calibrated confidence. Increasing evidence-backed confidence
+  is the objective; adaptive thresholding remains future work until it is
+  implemented and independently validated.
 
 ## Football-review role
 

@@ -812,7 +812,9 @@
         </div>
         <p class="hero-note">
           Personal Innovation Day prototype by Brendan Barghus. This is not an
-          official Xebia or partner product endorsement.
+          official Xebia or partner product endorsement. The working showcase
+          currently runs locally; an internal live-site deployment is an
+          infrastructure decision for the Xebia discussion.
         </p>
       </div>
 
@@ -957,24 +959,22 @@
         <div class="status-grid">
           <article class="status-card working">
             <span class="status-label">Working now</span>
-            <h3>Football Event Review</h3>
+            <h3>Innovation review and Live detector R&amp;D</h3>
             <p>
-              Prepare 30–60 second segments, run AI, inspect video and tracking,
-              review independent Copilot proposals, compare engine events, and
-              publish only after the validation gate passes.
+              Innovation validates the downstream event engine with frozen BAC
+              coordinates. A separate Live workstream is improving raw-video
+              ball detection and tracking without reusing Innovation evidence.
             </p>
           </article>
           <article class="status-card evidence">
             <span class="status-label">Benchmark evidence</span>
-            <h3>Published pass and turnover reference</h3>
+            <h3>Published 06:00–07:00 reference</h3>
             <p>
-              The reviewed 15:00–16:00 segment contains 14 published analytics
-              events with exact one-to-one engine agreement. A rejected Copilot
-              proposal remains separate from an independently confirmed engine
-              event.
+              The reviewed segment contains 12 published pass and turnover
+              events with exact one-to-one manual/engine agreement.
             </p>
             <div class="evidence-band">
-              105 protected regressions passed for the source and cached-output
+              174 protected regressions passed for the source and cached-output
               hashes used at publication.
             </div>
           </article>
@@ -1288,8 +1288,8 @@
             <p>Validate shots, shots on target, touchline exits, goal-line exits and corners.</p>
           </article>
           <article class="roadmap-card">
-            <h3>Prove Query By Probability</h3>
-            <p>Use one continuous primary camera, query only relevant secondary frames when confidence drops, and fuse the evidence.</p>
+            <h3>Strengthen Live ball evidence</h3>
+            <p>Move beyond the current fixed 90% direct-coordinate provenance gate toward independently measured, calibrated confidence. Adaptive thresholds remain planned, not implemented.</p>
           </article>
           <article class="roadmap-card">
             <h3>Run a governed club pilot</h3>
@@ -1326,7 +1326,7 @@
           </a>
           <a class="demo-link" href="../../review-canvas?theme=innovation">
             <span>Open the current Football Event Review through Copilot with the Xebia Innovation theme.</span>
-            <b>Open the live Review Canvas</b>
+            <b>Open the working Review Canvas</b>
             <i>Launch &rarr;</i>
           </a>
           <a class="demo-link" href="developer-guide/#review-canvas">

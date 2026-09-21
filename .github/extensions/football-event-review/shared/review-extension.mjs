@@ -323,6 +323,215 @@ function visibleManualEvents(reference) {
     );
 }
 
+function resetManualLedgerAudit(reference) {
+  reference.ledgerAudit = {
+    revision: reference.revision,
+    acknowledgements: {},
+  };
+}
+
+function ensureManualLedgerAudit(reference) {
+  if (
+    reference.ledgerAudit
+    && Number(reference.ledgerAudit.revision) === Number(reference.revision)
+    && reference.ledgerAudit.acknowledgements
+    && typeof reference.ledgerAudit.acknowledgements === "object"
+  ) {
+    return false;
+  }
+  resetManualLedgerAudit(reference);
+  return true;
+}
+
+function manualLedgerFinding(
+  id,
+  category,
+  title,
+  detail,
+  events,
+  seconds,
+) {
+  return {
+    id,
+    category,
+    title,
+    detail,
+    manualKeys: events.map((event) => event.key),
+    seconds: Math.max(0, Number(seconds || 0)),
+  };
+}
+
+export function auditInnovationManualLedger(
+  reference,
+  durationSeconds = 60,
+) {
+  const events = activeManualEvents(reference);
+  const findings = [];
+  const maximumMs = Math.max(0, Math.round(Number(durationSeconds) * 1000));
+  const add = (...args) => findings.push(manualLedgerFinding(...args));
+  const exactGroups = new Map();
+  const frameGroups = new Map();
+  events.forEach((event) => {
+    const exactKey = `${event.timestampMs}:${event.team}:${event.type}`;
+    exactGroups.set(exactKey, [...(exactGroups.get(exactKey) || []), event]);
+    const frame = Number(event.sourceFrame);
+    frameGroups.set(frame, [...(frameGroups.get(frame) || []), event]);
+  });
+  exactGroups.forEach((group) => {
+    if (group.length < 2) return;
+    add(
+      `duplicate:${group.map((event) => event.key).join(":")}`,
+      "duplicate",
+      "Possible duplicate manual events",
+      "These M# entries have the same team, event type, and completion time. "
+        + "Keep both only when the video supports two distinct events.",
+      group,
+      group[0].seconds,
+    );
+  });
+  frameGroups.forEach((group, frame) => {
+    if (group.length < 2) return;
+    const exactCount = new Set(group.map(
+      (event) => `${event.timestampMs}:${event.team}:${event.type}`,
+    )).size;
+    if (exactCount === 1) return;
+    add(
+      `frame:${frame}:${group.map((event) => event.key).join(":")}`,
+      "timing",
+      "Multiple manual events share one source frame",
+      `These M# entries all resolve to frame ${frame}. This can be correct, `
+        + "but the completion order may deserve a quick check.",
+      group,
+      group[0].seconds,
+    );
+  });
+  for (let index = 1; index < events.length; index += 1) {
+    const previous = events[index - 1];
+    const current = events[index];
+    if (
+      previous.type === "completed_pass"
+      && current.type === "completed_pass"
+      && previous.team !== current.team
+    ) {
+      add(
+        `team-switch:${previous.key}:${current.key}`,
+        "possession",
+        "Team changes between completed passes",
+        "The ledger changes passing team without a recorded turnover between "
+          + "these events. This may be correct if no reportable turnover was "
+          + "visible, but it is worth checking the possession transition.",
+        [previous, current],
+        current.seconds,
+      );
+    }
+    if (
+      previous.type === "completed_pass"
+      && current.type === "turnover"
+      && previous.team !== current.team
+    ) {
+      add(
+        `turnover-owner:${previous.key}:${current.key}`,
+        "turnover",
+        "Turnover may be attributed to the gaining team",
+        "A turnover belongs to the team that loses controlled possession. "
+          + "The preceding completed pass is assigned to the other team.",
+        [previous, current],
+        current.seconds,
+      );
+    }
+    if (
+      previous.type === "turnover"
+      && current.type === "completed_pass"
+      && previous.team === current.team
+    ) {
+      add(
+        `turnover-followup:${previous.key}:${current.key}`,
+        "turnover",
+        "Pass follows a same-team turnover",
+        "The turnover says this team lost possession, while the next completed "
+          + "pass is assigned to the same team. A regain may explain the "
+          + "sequence, so treat this only as a checkpoint.",
+        [previous, current],
+        current.seconds,
+      );
+    }
+  }
+  const longGapMs = 8_000;
+  if (events.length === 0) {
+    add(
+      "gap:whole-segment",
+      "coverage",
+      "No manual events are recorded",
+      "A zero-event minute can be correct. Confirm that the complete segment "
+        + "was reviewed before freezing the reference.",
+      [],
+      0,
+    );
+  } else {
+    if (events[0].timestampMs > longGapMs) {
+      add(
+        `gap:start:${events[0].key}`,
+        "coverage",
+        "Long event-free interval at the start",
+        `No M# event is recorded from 0.000s to `
+          + `${events[0].seconds.toFixed(3)}s. Continuous possession without a `
+          + "reportable event may be valid.",
+        [events[0]],
+        0,
+      );
+    }
+    for (let index = 1; index < events.length; index += 1) {
+      const previous = events[index - 1];
+      const current = events[index];
+      if (current.timestampMs - previous.timestampMs <= longGapMs) continue;
+      add(
+        `gap:${previous.key}:${current.key}`,
+        "coverage",
+        "Long event-free interval",
+        `No M# event is recorded between ${previous.seconds.toFixed(3)}s and `
+          + `${current.seconds.toFixed(3)}s. This is an advisory checkpoint, `
+          + "not a claim that an event is missing.",
+        [previous, current],
+        previous.seconds,
+      );
+    }
+    if (maximumMs - events.at(-1).timestampMs > longGapMs) {
+      const last = events.at(-1);
+      add(
+        `gap:end:${last.key}`,
+        "coverage",
+        "Long event-free interval at the end",
+        `No M# event is recorded between ${last.seconds.toFixed(3)}s and `
+          + `${(maximumMs / 1000).toFixed(3)}s. Continuous possession without `
+          + "a reportable event may be valid.",
+        [last],
+        last.seconds,
+      );
+    }
+  }
+  return findings;
+}
+
+export function updateInnovationManualLedgerAcknowledgement(
+  reference,
+  findingId,
+  acknowledged,
+  durationSeconds = 60,
+) {
+  ensureManualLedgerAudit(reference);
+  const finding = auditInnovationManualLedger(reference, durationSeconds)
+    .find((candidate) => candidate.id === findingId);
+  if (!finding) throw new Error("This ledger finding is no longer current");
+  if (acknowledged) {
+    reference.ledgerAudit.acknowledgements[findingId] = {
+      confirmedAt: new Date().toISOString(),
+    };
+  } else {
+    delete reference.ledgerAudit.acknowledgements[findingId];
+  }
+  return finding;
+}
+
 export function ensureInnovationManualReference(state, segment) {
   if (!state.manualReference) {
     const legacy = (state.additionalProposals || [])
@@ -347,6 +556,10 @@ export function ensureInnovationManualReference(state, segment) {
       comparisonValidation: null,
       approvalHistory: [],
       undoStack: [],
+      ledgerAudit: {
+        revision: seed.length ? 1 : 0,
+        acknowledgements: {},
+      },
     };
     const legacyIndexState = {
       decisions: {...(state.decisions || {})},
@@ -388,6 +601,7 @@ export function ensureInnovationManualReference(state, segment) {
   state.manualReference.revision ||= 0;
   state.manualReference.comparisonValidation ||= null;
   let changed = false;
+  changed = ensureManualLedgerAudit(state.manualReference) || changed;
   if (!state.manualFirstMigratedAt) {
     const legacyIndexState = {
       decisions: {...(state.decisions || {})},
@@ -425,6 +639,7 @@ export function ensureInnovationManualReference(state, segment) {
       (event, index) => manualEvent(event, `M${index + 1}`)
     );
     state.manualReference.revision = 1;
+    resetManualLedgerAudit(state.manualReference);
     state.manualReference.audit.push({
       revision: 1,
       action: "seed",
@@ -444,6 +659,7 @@ function snapshotManualReference(reference) {
 
 function appendManualRevision(reference, action, detail, before) {
   reference.revision += 1;
+  resetManualLedgerAudit(reference);
   reference.undoStack ||= [];
   reference.undoStack.push(before);
   reference.audit.push({
@@ -552,6 +768,7 @@ export function publicManualReferenceState(
   state,
   copilotEvents,
   engineEvents,
+  durationSeconds = 60,
 ) {
   if (workflowKey !== "innovation") {
     return {
@@ -566,6 +783,16 @@ export function publicManualReferenceState(
   );
   const rejectedManualEvents = visibleManualEvents(state.manualReference)
     .filter((event) => event.reviewStatus === "rejected");
+  ensureManualLedgerAudit(state.manualReference);
+  const acknowledgements =
+    state.manualReference.ledgerAudit.acknowledgements;
+  const ledgerFindings = auditInnovationManualLedger(
+    state.manualReference,
+    durationSeconds,
+  ).map((finding) => ({
+    ...finding,
+    acknowledgement: acknowledgements[finding.id] || null,
+  }));
   return {
     manualEvents,
     rejectedManualEvents,
@@ -583,6 +810,13 @@ export function publicManualReferenceState(
       approved: state.manualReference.approved,
       comparisonValidation: state.manualReference.comparisonValidation,
       approvalHistory: state.manualReference.approvalHistory,
+      ledgerAudit: {
+        revision: state.manualReference.revision,
+        findings: ledgerFindings,
+        acknowledgedCount: ledgerFindings.filter(
+          (finding) => finding.acknowledgement,
+        ).length,
+      },
     },
   };
 }
@@ -690,6 +924,7 @@ export function mutateInnovationManualReference(reference, mutation) {
     reference.events = previous.events.map((event) => ({...event}));
     reference.mappings = {...previous.mappings};
     reference.revision += 1;
+    resetManualLedgerAudit(reference);
     reference.audit.push({
       revision: reference.revision,
       action: "undo",
@@ -708,6 +943,7 @@ export function mutateInnovationManualReference(reference, mutation) {
       reference.approvalHistory.push({...reference.approved});
     }
     reference.revision += 1;
+    resetManualLedgerAudit(reference);
     reference.approved = {
       revision: reference.revision,
       fingerprint,
@@ -730,6 +966,7 @@ export function mutateInnovationManualReference(reference, mutation) {
     reference.approved = null;
     reference.comparisonValidation = null;
     reference.revision += 1;
+    resetManualLedgerAudit(reference);
     reference.undoStack = [];
     reference.audit.push({
       revision: reference.revision,
@@ -1556,11 +1793,18 @@ async function readReviewState(path, fallback, verifyChecksum = false) {
 }
 
 async function readJson(path, fallback) {
-  try {
-    return JSON.parse(await readFile(path, "utf8"));
-  } catch (error) {
-    if (error?.code === "ENOENT") return fallback;
-    throw error;
+  for (let attempt = 1; attempt <= 4; attempt += 1) {
+    try {
+      return JSON.parse(await readFile(path, "utf8"));
+    } catch (error) {
+      if (error?.code === "ENOENT") return fallback;
+      const transientWrite = error instanceof SyntaxError
+        || ["EACCES", "EBUSY", "EPERM"].includes(error?.code);
+      if (!transientWrite || attempt === 4) throw error;
+      await new Promise(
+        (resolveDelay) => setTimeout(resolveDelay, attempt * 25),
+      );
+    }
   }
 }
 
@@ -2391,14 +2635,18 @@ async function loadState(segment, segmentInfo, drafts) {
     automaticCopilotReview: null,
     manualReference: workflow.key === "innovation"
       ? {
-      revision: 0,
-      events: [],
-      mappings: {},
-      audit: [],
+          revision: 0,
+          events: [],
+          mappings: {},
+          audit: [],
           approved: null,
           comparisonValidation: null,
           approvalHistory: [],
           undoStack: [],
+          ledgerAudit: {
+            revision: 0,
+            acknowledgements: {},
+          },
         }
       : null,
     coordinateReview: workflow.coordinateReviewEnabled
@@ -2579,6 +2827,9 @@ function applyNormalizedManualReference(state, payload) {
   const normalized = payload?.draft || payload?.approved;
   if (!normalized) return false;
   state.manualReference ||= {};
+  const normalizedRevisionChanged =
+    Number(state.manualReference.normalizedRevision ?? -1)
+      !== Number(normalized.revision);
   const rejectedEvents = (state.manualReference.events || [])
     .filter((event) =>
       !event.deleted
@@ -2620,6 +2871,9 @@ function applyNormalizedManualReference(state, payload) {
     };
   } else {
     state.manualReference.approved = null;
+  }
+  if (normalizedRevisionChanged) {
+    resetManualLedgerAudit(state.manualReference);
   }
   return true;
 }
@@ -3505,6 +3759,27 @@ async function reviewContext(requestedSegment = defaultSegment) {
 
 function displayedActivity(selected, state) {
   if (reviewRequestPending) return activity;
+  const discrepancyBatch = state.pendingDiscrepancyBatch;
+  if (
+    discrepancyBatch
+    && [
+      "working",
+      "review_completed",
+      "code_fix_completed",
+      "tests_completed",
+    ].includes(discrepancyBatch.status)
+    && activity.state !== "error"
+  ) {
+    const remaining = discrepancyBatch.targets.filter(
+      (target) => !target.completed,
+    ).length;
+    return {
+      state: "working",
+      label: "Copilot reviewing grouped discrepancies",
+      detail: `${remaining} grouped ${discrepancyBatch.kind === "engine" ? "E#" : "M#"} `
+        + "results remain in the active request.",
+    };
+  }
   if (
     workflow.key === "innovation"
     && selected.state === "prepared"
@@ -4216,6 +4491,7 @@ export async function publicState(
     state,
     copilotEvents,
     publicEngineEvents,
+    selected.durationSeconds,
   );
   if (manualPublicState.manualReference) {
     manualPublicState.manualReference.comparisonRevealed =
@@ -4297,6 +4573,24 @@ export async function publicState(
     const published = Boolean(
       stored.publishedReference || segment.validated,
     );
+    const innovationManualEvents = workflow.key === "innovation"
+      ? activeManualEvents(stored.manualReference)
+      : [];
+    const innovationApprovedEvents = workflow.key === "innovation"
+      ? stored.manualReference?.approved?.events || []
+      : [];
+    const innovationRejectedEvents = workflow.key === "innovation"
+      ? visibleManualEvents(stored.manualReference).filter(
+          (event) => event.reviewStatus === "rejected",
+        )
+      : [];
+    const innovationValidationCurrent = workflow.key === "innovation"
+      && manualComparisonValidationIsCurrent(stored.manualReference, current);
+    const innovationMatchedCount = innovationValidationCurrent
+      ? Object.keys(
+          stored.manualReference?.comparisonValidation?.mappings || {},
+        ).length
+      : 0;
     const unavailableProposalData = Object.keys(stored.decisions || {}).some(
       (index) => !storedDrafts[Number(index)],
     );
@@ -4327,14 +4621,28 @@ export async function publicState(
     );
     return {
       segment: segment.key,
-      accepted: decisions.filter(
-        (decision) => decision?.status === "accepted",
-      ).length,
-      rejected: decisions.filter(
-        (decision) => decision?.status === "rejected",
-      ).length,
-      reviewed: decisions.length,
-      proposalCount: Math.max(storedDrafts.length, decisions.length),
+      accepted: workflow.key === "innovation"
+        ? innovationApprovedEvents.length
+        : decisions.filter(
+            (decision) => decision?.status === "accepted",
+          ).length,
+      rejected: workflow.key === "innovation"
+        ? innovationRejectedEvents.length
+        : decisions.filter(
+            (decision) => decision?.status === "rejected",
+          ).length,
+      reviewed: workflow.key === "innovation"
+        ? innovationApprovedEvents.length
+        : decisions.length,
+      proposalCount: workflow.key === "innovation"
+        ? Math.max(
+            innovationManualEvents.length,
+            innovationApprovedEvents.length,
+          )
+        : Math.max(storedDrafts.length, decisions.length),
+      matched: workflow.key === "innovation"
+        ? innovationMatchedCount
+        : null,
       regression: !stored.regression
         ? "not_run"
         : isRegressionCurrent(stored.regression, current)
@@ -7929,6 +8237,49 @@ async function handleRequest(request, response, serverInstanceId) {
       ok: true,
       ...validation,
     });
+    return;
+  }
+  if (
+    request.method === "POST"
+    && url.pathname === "/api/manual-ledger-audit"
+  ) {
+    const body = await readBody(request);
+    const segment = requestedSegment(url, body);
+    const review = await reviewContext(segment);
+    if (workflow.key !== "innovation") {
+      sendJson(response, 404, {error: "Not found"});
+      return;
+    }
+    if (review.selected.validated || review.state.publishedReference) {
+      sendJson(response, 409, {
+        error: "Published passed references are read-only",
+      });
+      return;
+    }
+    ensureInnovationManualReference(review.state, segment);
+    const findingId = String(body.findingId || "");
+    const action = String(body.action || "");
+    if (!["acknowledge", "reopen"].includes(action)) {
+      sendJson(response, 400, {error: "Choose a ledger-audit action"});
+      return;
+    }
+    try {
+      const finding = updateInnovationManualLedgerAcknowledgement(
+        review.state.manualReference,
+        findingId,
+        action === "acknowledge",
+        review.selected.durationSeconds,
+      );
+      await saveState(segment, review.state);
+      sendJson(response, 200, {
+        ok: true,
+        action,
+        finding,
+        revision: review.state.manualReference.revision,
+      });
+    } catch (error) {
+      sendJson(response, 409, {error: error.message});
+    }
     return;
   }
   if (

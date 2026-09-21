@@ -5,14 +5,18 @@ review workflow, dataset, benchmark, or publication work. This file supplies
 Copilot-specific persistent instructions; the rules architecture and code/tests
 remain authoritative.
 
-Live ball tracking and `football-event-review-live` are currently frozen and
-fully separate from Innovation Day. Do not inspect, run, edit, or reuse Live
-tracker code, Live state, or `live/` artifacts unless Brendan explicitly
-resumes that work. Innovation uses only frozen BAC coordinates, the frozen
-Innovation engine, `innovation/` artifacts, `event-review-state-innovation`,
-and Canvas type `football-event-review`. It is a BAC-assisted diagnostic/demo
-of the downstream football engine, not raw-video ball inference or a valid
-ball-tracking performance benchmark.
+Live ball tracking is an active R&D workstream, fully separate from Innovation
+Day. Inspect, run, or edit `football-event-review-live`, Live tracker code,
+Live state, or `live/` artifacts only when the current task explicitly targets
+Live work. Its current minimum 90% direct-coordinate provenance gate measures
+evidence coverage, not coordinate correctness or calibrated confidence.
+Increasing evidence-backed confidence is the objective; adaptive thresholding
+remains future work until it is implemented and independently validated.
+Innovation uses only frozen BAC coordinates, the frozen Innovation engine,
+`innovation/` artifacts, `event-review-state-innovation`, and Canvas type
+`football-event-review`. It is a BAC-assisted diagnostic/demo of the downstream
+football engine, not raw-video ball inference or a valid ball-tracking
+performance benchmark.
 
 For football-event analysis and rules-engine work, act as a senior football-law
 and analytics adjudicator. Identify relevant events, challenge unsupported

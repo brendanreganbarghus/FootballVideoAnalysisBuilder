@@ -864,7 +864,10 @@ def test_shared_review_status_exposes_approvals_and_validation_gates() -> None:
     renderer = RENDERER.read_text(encoding="utf-8")
 
     assert "const sharedReviewStatus = await Promise.all(" in extension
-    assert "accepted: decisions.filter(" in extension
+    assert ': decisions.filter(\n            (decision) => decision?.status === "accepted",' in extension
+    assert "innovationApprovedEvents.length" in extension
+    assert "innovationMatchedCount" in extension
+    assert 'matched + "/" + proposalCount + " M# matched · "' in renderer
     assert 'regression: !stored.regression' in extension
     assert "blockers: plan.blockers" in extension
     assert "const unavailableProposalData" in extension
@@ -876,6 +879,20 @@ def test_shared_review_status_exposes_approvals_and_validation_gates() -> None:
     assert 'id="shared-review-status"' in renderer
     assert "state.sharedReviewStatus || []" in renderer
     assert '" gate blocker(s)"' in renderer
+
+
+def test_innovation_manual_capture_unlocks_after_evidence_preparation() -> None:
+    renderer = RENDERER.read_text(encoding="utf-8")
+
+    assert (
+        'reviewWorkflow.key === "innovation"\n'
+        '          && state.segment.state === "evidence_ready"'
+    ) in renderer
+    assert "const captureLocked = reviewBusy || approved || lockedReference;" in renderer
+    assert '"This Passed segment is published and locked."' in renderer
+    assert (
+        "!approved || lockedReference"
+    ) in renderer
 
 
 def test_activity_updates_are_module_scoped() -> None:
@@ -934,7 +951,7 @@ def test_canvas_runs_ai_only_after_explicit_action() -> None:
     assert 'id="process-segment"' in renderer
     assert 'fetch("/api/analyze"' in renderer
     assert 'processButton.addEventListener("click"' in renderer
-    assert "Starting BAC-assisted Innovation analysis, followed by an independent C# protocol-v6 review." in renderer
+    assert "This does not launch an independent C# review" in renderer
     assert "The Live ball tracker is not used." in renderer
 
 
@@ -1408,6 +1425,14 @@ def test_shared_segment_rows_offer_cached_engine_video_replay() -> None:
     assert "Sequential engine events" not in renderer
     assert "<span>Powered by</span>" in renderer
     assert 'assets/xebia-logo.svg' in renderer
+    assert 'width="68" height="23" alt="Xebia"' in renderer
+    assert "filter: brightness(0) invert(1)" not in renderer
+    assert "Innovation Day Match Centre" in renderer
+    assert "Replay statistics" in renderer
+    assert "Completed passes" in renderer
+    assert "linear-gradient(125deg" in renderer
+    assert "#6c1d5f" in renderer
+    assert "#e4a5da" in renderer
     assert "cached rules-engine statistics only" in renderer
 
 
@@ -2094,11 +2119,11 @@ def test_innovation_requires_evidence_before_rules_engine_processing() -> None:
     assert 'id="prepare-innovation-evidence"' in renderer
     assert 'fetch("/api/innovation/prepare-evidence"' in renderer
     assert '"Prepare BAC + player context"' in renderer
-    assert '"Process AI + C# v6 review"' in renderer
+    assert '"Process AI"' in renderer
     assert "segment.evidenceReady" in renderer
-    assert 'id="show-copilot-reference" type="checkbox" checked' in renderer
-    assert '<aside class="copilot-reference" id="copilot-reference"' in renderer
-    assert "const hasCopilotReference = Boolean(state?.copilotEvents?.length)" in renderer
+    assert 'id="show-copilot-reference"' not in renderer
+    assert '<aside class="copilot-reference" id="copilot-reference"' not in renderer
+    assert renderer.count('id="open-manual-ledger-audit"') == 1
     assert "preparedUrl.searchParams.set(" in renderer
     assert "innovation_evidence_required" in extension
     assert "evidence_only: true" in extension
@@ -2116,6 +2141,9 @@ def test_innovation_state_polling_retries_and_shows_detection_progress() -> None
 
     assert 'const maximumAttempts = method === "GET" ? 3 : 1;' in extension
     assert "setTimeout(resolve, attempt * 75)" in extension
+    assert "for (let attempt = 1; attempt <= 4; attempt += 1)" in extension
+    assert "const transientWrite = error instanceof SyntaxError" in extension
+    assert "setTimeout(resolveDelay, attempt * 25)" in extension
     assert "const publicStateRequests = new Map();" in extension
     assert "await coalescedPublicState(requestedSegment(url)" in extension
     assert 'segment.stage === "player_detection"' in renderer
@@ -2127,12 +2155,11 @@ def test_innovation_state_polling_retries_and_shows_detection_progress() -> None
     assert '"Innovation rules engine: " + eventsStatus' in renderer
     assert '"BAC + player context complete"' in renderer
     assert '"Innovation AI processing complete"' in renderer
-    assert '"C# protocol v6 review: " + copilotStatus' in renderer
-    assert '"Current C# step: " + state.activity.label' in renderer
-    assert 'state?.automaticCopilotReview?.status === "reviewing"' in renderer
+    assert '"C# protocol v6 review: " + copilotStatus' not in renderer
+    assert '"Current C# step: " + state.activity.label' not in renderer
     assert "function completeSegmentLoading(label, detail)" in renderer
     assert "completeSegmentLoading(\n          \"BAC + player context complete\"" in renderer
-    assert "completeSegmentLoading(\n            \"Innovation AI processing complete\"" in renderer
+    assert "completeSegmentLoading(\n          \"Innovation AI processing complete\"" in renderer
     assert renderer.count('"#segment-loading-close"') == 2
     assert renderer.count('"#segment-loading-cancel"') == 2
     assert '"Detecting player context"' in renderer
@@ -2144,25 +2171,45 @@ def test_innovation_state_polling_retries_and_shows_detection_progress() -> None
     assert '<th scope="col">Frame</th>' in renderer
 
 
-def test_innovation_rules_run_starts_protocol_v6_copilot_review() -> None:
+def test_innovation_rules_run_is_engine_only_and_audit_is_separate() -> None:
     extension = EXTENSION.read_text(encoding="utf-8")
     renderer = RENDERER.read_text(encoding="utf-8")
 
     assert "automaticCopilotReview: null" in extension
-    assert 'code: "manual_first_workflow"' not in extension
     assert "review.state.automaticCopilotReview = null;" in extension
     assert "function independentClipReviewVideoArtifact(segment)" in extension
     assert "independentClipReviewAttachment" not in extension
     assert 'displayName: `${review.selected.key}-full-resolution.mp4`' not in extension
-    assert 'fetch(\n          "/api/innovation/start-independent-review"' in renderer
-    automatic_review = renderer[
-        renderer.index("async function startAutomaticCopilotReview()"):
-        renderer.index("async function cancelCopilotReview()")
-    ]
-    assert 'if (reviewWorkflow.key === "innovation") return;' not in automatic_review
-    assert '"Process AI + C# v6 review"' in renderer
-    assert '"Rerun AI + C# v6 review"' in renderer
-    assert "completeSegmentLoading(\n            \"Innovation AI processing complete\"" in renderer
+    assert '"/api/innovation/start-independent-review"' not in renderer
+    assert "startAutomaticCopilotReview" not in renderer
+    assert '"Process AI + C# v6 review"' not in renderer
+    assert '"Rerun AI + C# v6 review"' not in renderer
+    assert '? "Rerun AI"' in renderer
+    assert ': "Process AI"' in renderer
+    assert "completeSegmentLoading(\n          \"Innovation AI processing complete\"" in renderer
+    assert 'id="manual-ledger-audit-modal"' in renderer
+    assert 'id="open-manual-ledger-audit"' in renderer
+    assert renderer.count('id="open-manual-ledger-audit"') == 1
+    assert 'fetch("/api/manual-ledger-audit"' in renderer
+    assert "None of these findings blocks approval." in renderer
+    assert "It does not call Copilot, inspect E#" in renderer
+    assert '" completed passes, "' in renderer
+    assert '" active M# · "' in renderer
+    assert 'url.pathname === "/api/manual-ledger-audit"' in extension
+    assert "auditInnovationManualLedger" in extension
+    assert '#approve-manual-minute[data-reference-state="unfrozen"]' in renderer
+    assert '#approve-manual-minute[data-reference-state="frozen"]' in renderer
+    assert '#approve-manual-minute[data-reference-state="published"]' in renderer
+    assert 'approveMinute.dataset.referenceState = referenceState;' in renderer
+    assert (
+        'html[data-app-theme="innovation"] button:not(:disabled):hover'
+        in renderer
+    )
+    assert "--innovation-hover-background: rgb(108 29 95 / 44%);" in renderer
+    assert "--innovation-hover-background: rgb(240 136 62 / 32%);" in renderer
+    assert "--innovation-hover-background: rgb(46 160 67 / 30%);" in renderer
+    assert "--innovation-hover-background: rgb(218 54 51 / 28%);" in renderer
+    assert "--innovation-hover-background: rgb(31 111 235 / 34%);" in renderer
 
 
 def test_innovation_manual_reference_helpers_cover_seed_mapping_and_history() -> None:
@@ -2371,6 +2418,106 @@ def test_innovation_manual_reference_helpers_cover_seed_mapping_and_history() ->
       assert.equal(cascadingSuggestions.M9.engineKey, "E9");
       assert.equal(cascadingSuggestions.M10.engineKey, "E10");
 
+      const auditReference = {
+        revision: 4,
+        events: [
+          manualEvent(
+            {seconds: 1, team: "black", type: "completed_pass"},
+            "M1",
+          ),
+          manualEvent(
+            {seconds: 2, team: "red", type: "turnover"},
+            "M2",
+          ),
+          manualEvent(
+            {seconds: 2, team: "red", type: "completed_pass"},
+            "M3",
+          ),
+          manualEvent(
+            {seconds: 12, team: "black", type: "completed_pass"},
+            "M4",
+          ),
+        ],
+        mappings: {},
+        audit: [],
+        approved: null,
+        approvalHistory: [],
+        undoStack: [],
+      };
+      const auditFindings = auditInnovationManualLedger(auditReference, 60);
+      assert.ok(auditFindings.some(
+        finding => finding.category === "timing"
+      ));
+      assert.ok(auditFindings.some(
+        finding => finding.category === "turnover"
+      ));
+      assert.ok(auditFindings.some(
+        finding => finding.category === "possession"
+      ));
+      assert.ok(auditFindings.some(
+        finding => finding.category === "coverage"
+      ));
+      const turnoverFinding = auditFindings.find(
+        finding => finding.id.startsWith("turnover-owner:")
+      );
+      updateInnovationManualLedgerAcknowledgement(
+        auditReference,
+        turnoverFinding.id,
+        true,
+        60,
+      );
+      let auditState = publicManualReferenceState(
+        "innovation",
+        {manualReference: auditReference},
+        [],
+        [],
+        60,
+      );
+      assert.equal(
+        auditState.manualReference.ledgerAudit.acknowledgedCount,
+        1,
+      );
+      auditReference.normalizedRevision = 4;
+      applyNormalizedManualReference(
+        {manualReference: auditReference},
+        {
+          draft: {
+            events: activeManualEvents(auditReference),
+            mappings: {},
+            revision: 4,
+          },
+        },
+      );
+      auditState = publicManualReferenceState(
+        "innovation",
+        {manualReference: auditReference},
+        [],
+        [],
+        60,
+      );
+      assert.equal(
+        auditState.manualReference.ledgerAudit.acknowledgedCount,
+        1,
+      );
+      mutateInnovationManualReference(auditReference, {
+        action: "edit",
+        manualKey: "M2",
+        timestampMs: 2000,
+        team: "black",
+        eventType: "turnover",
+      });
+      auditState = publicManualReferenceState(
+        "innovation",
+        {manualReference: auditReference},
+        [],
+        [],
+        60,
+      );
+      assert.equal(
+        auditState.manualReference.ledgerAudit.acknowledgedCount,
+        0,
+      );
+
       mutateInnovationManualReference(reference, {
         action: "reject", manualKey: "M2",
       });
@@ -2449,8 +2596,7 @@ def test_innovation_manual_first_ui_and_live_gating_contracts() -> None:
         "Freeze manual M# reference as golden",
         "Validate engine against golden reference",
         "Publish Passed segment",
-        "Show Copilot C# reference",
-        "diagnostic only",
+        "Audit M# ledger",
         "No engine match within one second",
         "Automatically matched to ",
         "changes save automatically",
@@ -2551,7 +2697,7 @@ def test_innovation_manual_first_ui_and_live_gating_contracts() -> None:
         in renderer
     )
     assert (
-        'cancel.hidden = false;\n        cancel.disabled = false;'
+        'cancel.hidden = false;\n        cancel.disabled = true;'
         in renderer
     )
     assert (
@@ -2566,6 +2712,15 @@ def test_innovation_manual_first_ui_and_live_gating_contracts() -> None:
     assert 'button.textContent = "Copilot is working…"' in renderer
     assert "function syncManualEngineReviewModal()" in renderer
     assert 'modal.dataset.reviewState === "working"' in renderer
+    assert (
+        'modal.dataset.reviewState === "working"\n'
+        '        && state.activity?.state === "ready"'
+        in renderer
+    )
+    assert (
+        '(completedKey ? completedKey + " review" : "Grouped review")'
+        in renderer
+    )
     assert "!activeManualReview" in renderer
     assert 'state.activity?.state !== "working"' in renderer
     assert (
@@ -2650,7 +2805,7 @@ def test_copilot_review_can_be_cancelled_from_the_panel() -> None:
     assert 'id="segment-loading-cancel"' in renderer
     assert 'id="cancel-copilot-review"' in renderer
     assert 'fetch("/api/cancel-review"' in renderer
-    assert 'reviewStatus === "cancelled"' in renderer
+    assert "cancelButton.hidden = !state?.activeConversation;" in renderer
 
 
 def test_live_main_conversations_start_after_coordinate_minimum() -> None:
@@ -3137,9 +3292,15 @@ def test_innovation_engine_search_opens_guided_preflight_without_copilot() -> No
     assert 'id="ask-copilot-engine-review"' in renderer
     assert 'id="cancel-engine-verification"' in renderer
     assert "async function cancelOrCloseEngineVerification()" in renderer
-    assert 'cancel.textContent = "Cancel review";' in renderer
+    assert 'cancel.textContent = "Copilot is working…";' in renderer
+    assert "cancel.disabled = true;" in renderer
     assert '"Copilot is working… Reviewing E" + (engineIndex + 1)' in renderer
     assert 'syncEngineVerificationModal();' in renderer
+    assert (
+        'modal.dataset.reviewState === "working"\n'
+        '        && state.activity?.state === "ready"'
+        in renderer
+    )
     assert (
         'sameReviewActive && state.activity?.state === "working"'
         in renderer
@@ -3191,7 +3352,12 @@ def test_innovation_engine_search_opens_guided_preflight_without_copilot() -> No
     assert "engineEventRemoved = engineEvent === null;" in extension
     assert "const engineReviewKey = activeEngineReview?.engineReviewKey || null" in extension
     assert "engineIdentity: activeEngineReview?.engineIdentity || null" in extension
-    assert "if (engineVerificationPending) event.preventDefault();" in renderer
+    assert (
+        "engineVerificationPending\n"
+        '          || state.activeDiscrepancyBatch?.kind === "engine"\n'
+        '          || state.activity?.state === "working"'
+        in renderer
+    )
     assert "engine-verification-working-pulse" in renderer
     assert ":is(#engine-verification-guidance, #manual-engine-review-guidance)" in renderer
     assert "border-left-color: #f2cc60;" in renderer
@@ -3221,6 +3387,15 @@ def test_innovation_engine_search_opens_guided_preflight_without_copilot() -> No
     assert "Frozen golden M# check:" in extension
     assert "manualReference?.approved?.events || []" in extension
     assert "function missingEngineReviewButton(row)" in renderer
+    assert (
+        '"Review " + manualDisplayKey(event, reviewIndex)'
+        in renderer
+    )
+    manual_modal = renderer[
+        renderer.index("function openManualEngineReviewModal(reviewIndex)"):
+        renderer.index("function closeManualEngineReviewModal()")
+    ]
+    assert "manualDisplayKey(event, index)" not in manual_modal
     assert "!state.manualReference?.approved" in renderer
     assert "cell.append(missingEngineReviewButton(row));" in renderer
     assert '"Review missing E# for "\n        + manualDisplayKey(' in renderer
@@ -3256,12 +3431,12 @@ def test_innovation_engine_search_opens_guided_preflight_without_copilot() -> No
     assert "Copilot escalation is a separate explicit action" in architecture
     assert "Cancel or close leaves the event" in architecture
     assert "The compact comparison table has permanent Manual `M#` and Engine `E#`" in architecture
-    assert "`C#` proposals are optional, read-only Copilot diagnostic history" in architecture
-    assert "Show Copilot C# reference" in renderer
-    assert renderer.count('id="show-copilot-reference"') == 1
-    assert 'class="copilot-reference-toggle"' in renderer
+    assert "Historical `C#` proposals remain optional" in architecture
+    assert "Show Copilot C# reference" not in renderer
+    assert 'id="show-copilot-reference"' not in renderer
+    assert 'class="copilot-reference-toggle"' not in renderer
     assert ".innovation-manual-controls {\n      display: flex;\n      flex: 0 0 auto;" in renderer
-    assert "Copilot C# reference · diagnostic only" in renderer
+    assert "Copilot C# reference · diagnostic only" not in renderer
     assert 'item.className = "copilot-reference-event"' in renderer
     assert 'closestTag.className = "copilot-closest-manual-tag"' in renderer
     assert 'closestTag.textContent = "Closest "' in renderer
@@ -3298,8 +3473,17 @@ def test_innovation_modals_group_similar_discrepancies_in_one_request() -> None:
     assert renderer.count('"/api/copilot-review-discrepancy-batch"') >= 3
     assert "review \" + batchCount + \" similar E# events once" in renderer
     assert "activeDiscrepancyBatch" in renderer
+    assert 'state.activeDiscrepancyBatch?.kind === "engine"' in renderer
+    assert 'state.activeDiscrepancyBatch?.kind === "manual"' in renderer
+    assert "engineVerificationPending?.batchId !== activeBatch.id" in renderer
+    assert "manualEngineReviewPending?.batchId !== activeBatch.id" in renderer
+    assert 'cancel.textContent = "Copilot is working…";' in renderer
+    assert "cancel.disabled = true;" in renderer
     assert "target.manualKey === row.review?.key" in renderer
     assert "target.engineReviewKey === [" in renderer
+    assert "const discrepancyBatch = state.pendingDiscrepancyBatch;" in extension
+    assert '"Copilot reviewing grouped discrepancies"' in extension
+    assert "results remain in the active request." in extension
 
     assert (
         'url.pathname === "/api/copilot-review-discrepancy-batch"'

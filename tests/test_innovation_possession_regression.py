@@ -24,6 +24,18 @@ from football_poc.innovation_day_snapshot.possession import (
     infer_short_exchange_receptions,
     infer_pre_release_flight_receptions,
     infer_post_turnover_first_pass,
+    infer_opening_live_reception,
+    infer_sparse_control_transfer,
+    split_acceleration_confirmed_one_touch_passes,
+    infer_terminal_brief_reception,
+    infer_delayed_first_flight_reception,
+    infer_short_controlled_teammate_transfers,
+    reconcile_brief_opponent_turnover_pairs,
+    split_sharp_direction_change_passes,
+    collapse_competing_same_sender_receptions,
+    suppress_duplicate_track_handoff_passes,
+    suppress_noncausal_nonreturn_passes,
+    infer_pass_sender_established_turnovers,
     infer_ball_reentry_receptions,
     infer_unobserved_chain_contacts,
     suppress_redundant_retained_possession_links,
@@ -51,6 +63,9 @@ from football_poc.innovation_day_snapshot.possession import (
     _deduplicate_receptions,
     _event_released_outside,
     _smooth_teams,
+)
+from football_poc.innovation_day_snapshot.match_state import (
+    build_match_state_timeline,
 )
 
 
@@ -1504,6 +1519,65 @@ def test_frame_jersey_evidence_reclassifies_false_same_team_pass() -> None:
     assert len(corrected) == 1
     assert corrected[0].team == "black"
     assert corrected[0].event_type == "turnover_candidate"
+
+
+def test_stable_precontact_team_prevents_local_color_reclassification() -> None:
+    apparent_turnover = PredictedEvent(
+        "turnover_candidate", 1.0, "black", 10, 20, 0.8, "flight", 1.8
+    )
+    players = {
+        frame: [{
+            "track_id": 20,
+            "clip_seconds": seconds,
+            "team": "red",
+            "color_scores": {"dark": 0.6},
+        }]
+        for frame, seconds in [
+            (25, 1.0),
+            (30, 1.2),
+            (35, 1.4),
+            (40, 1.6),
+            (45, 1.8),
+        ]
+    }
+
+    corrected = reconcile_track_identity_team_switches(
+        [apparent_turnover],
+        players,
+        maximum_chain_seconds=2,
+    )
+
+    assert corrected == [apparent_turnover]
+
+
+def test_team_flip_at_reception_suppresses_ambiguous_pass() -> None:
+    apparent_pass = PredictedEvent(
+        "pass_candidate", 1.0, "black", 10, 20, 0.8, "flight", 1.8
+    )
+    players = {
+        frame: [{
+            "track_id": 20,
+            "clip_seconds": seconds,
+            "team": "red" if seconds < 1.8 else "black",
+            "color_scores": {"dark": 0.6},
+        }]
+        for frame, seconds in [
+            (25, 1.0),
+            (30, 1.2),
+            (35, 1.4),
+            (45, 1.8),
+            (50, 2.0),
+            (55, 2.2),
+        ]
+    }
+
+    corrected = reconcile_track_identity_team_switches(
+        [apparent_pass],
+        players,
+        maximum_chain_seconds=2,
+    )
+
+    assert corrected == []
 
 
 def test_later_control_resolves_earlier_contested_turnover() -> None:
@@ -4387,6 +4461,541 @@ def test_startup_guard_requires_controlled_sender_at_release() -> None:
         startup_guard_seconds=4.0,
         maximum_receiver_control_ratio=1.2,
     ) == []
+
+
+def test_startup_guard_accepts_recent_control_before_inferred_release() -> None:
+    supported = PredictedEvent(
+        "pass_candidate", 2.4, "black", 15, 6, 0.9, "flight", 3.6
+    )
+    observations = [
+        observation(2.0, "black", 15, 100, 100, control_ratio=0.2),
+        observation(3.6, "black", 6, 300, 300, control_ratio=0.2),
+    ]
+
+    assert filter_ambiguous_startup_transfers(
+        [supported],
+        observations,
+        startup_guard_seconds=4.0,
+        maximum_receiver_control_ratio=1.2,
+    ) == [supported]
+
+
+def test_live_opening_delivery_completes_at_first_controlled_touch() -> None:
+    first = PossessionSegment(
+        "black",
+        15,
+        [
+            observation(0.8, "black", 15, 100, 100, control_ratio=0.4),
+            observation(1.0, "black", 15, 100, 110, control_ratio=0.2),
+            observation(1.2, "black", 15, 100, 100, control_ratio=0.3),
+        ],
+    )
+    following = PossessionSegment(
+        "black",
+        6,
+        [
+            observation(2.0, "black", 6, 300, 300, control_ratio=0.2),
+            observation(2.2, "black", 6, 302, 302, control_ratio=0.2),
+        ],
+    )
+    balls = {
+        20: [{"track_id": 1, "source_frame": 20, "clip_seconds": 0.8,
+              "x": 100, "y": 100}],
+        25: [{"track_id": 1, "source_frame": 25, "clip_seconds": 1.0,
+              "x": 110, "y": 100}],
+        30: [{"track_id": 1, "source_frame": 30, "clip_seconds": 1.2,
+              "x": 100, "y": 100}],
+    }
+
+    events = infer_opening_live_reception(
+        [],
+        [first, following],
+        balls,
+        build_match_state_timeline([], duration_seconds=5.0),
+        minimum_speed_pixels_per_second=45,
+        maximum_transfer_seconds=3.0,
+    )
+
+    assert [(event.team, event.completion_seconds) for event in events] == [
+        ("black", 1.0)
+    ]
+
+
+def test_sparse_direction_change_recovers_supported_pass() -> None:
+    observations = [
+        observation(16.0, "black", 94, 100, 100, control_ratio=0.8),
+        observation(17.4, "black", 94, 110, 110, control_ratio=0.7),
+        observation(18.2, "red", 7, 200, 200, control_ratio=1.2),
+        observation(19.2, "black", 87, 300, 300, control_ratio=0.8),
+    ]
+    balls = {
+        475: [{"track_id": 1, "source_frame": 475, "clip_seconds": 19.0,
+               "x": 290, "y": 300}],
+        480: [{"track_id": 1, "source_frame": 480, "clip_seconds": 19.2,
+               "x": 300, "y": 300}],
+        485: [{"track_id": 1, "source_frame": 485, "clip_seconds": 19.4,
+               "x": 290, "y": 300}],
+    }
+
+    events = infer_sparse_control_transfer(
+        [],
+        observations,
+        balls,
+        co_visible_track_pairs=[frozenset((94, 87))],
+        minimum_speed_pixels_per_second=45,
+    )
+
+    assert [(event.team, event.completion_seconds) for event in events] == [
+        ("black", 19.2)
+    ]
+
+
+def test_missing_turnover_receiver_can_anchor_first_pass() -> None:
+    turnover = PredictedEvent(
+        "turnover_candidate", 39.2, "black", None, None, 0.6, "turnover", 39.2
+    )
+    outgoing = PredictedEvent(
+        "pass_candidate", 41.4, "red", 107, 229, 0.7, "pass", 42.8
+    )
+    observations = [
+        observation(39.6, "red", 173, 100, 100, control_ratio=0.6),
+        observation(40.6, "red", 107, 250, 250, control_ratio=0.4),
+    ]
+
+    events = infer_post_turnover_first_pass(
+        [turnover, outgoing],
+        observations,
+        co_visible_track_pairs=[frozenset((173, 107))],
+    )
+
+    assert any(
+        event.event_type == "pass_candidate"
+        and event.from_player_track_id == 173
+        and event.to_player_track_id == 107
+        and event.completion_seconds == 40.6
+        for event in events
+    )
+
+
+def test_high_speed_teammate_contact_splits_one_touch_relay() -> None:
+    event = PredictedEvent(
+        "pass_candidate", 44.4, "red", 229, 150, 0.9, "flight", 46.0
+    )
+    balls = {
+        1115: [{"track_id": 1, "source_frame": 1115, "clip_seconds": 44.6,
+                "x": 100, "y": 100}],
+        1120: [{"track_id": 1, "source_frame": 1120, "clip_seconds": 44.8,
+                "x": 200, "y": 100}],
+        1125: [{"track_id": 1, "source_frame": 1125, "clip_seconds": 45.0,
+                "x": 360, "y": 100}],
+    }
+    players = {
+        1120: [{
+            "track_id": 5,
+            "team": "red",
+            "x1": 175,
+            "y1": 40,
+            "x2": 225,
+            "y2": 100,
+        }]
+    }
+
+    events = split_acceleration_confirmed_one_touch_passes(
+        [event],
+        players,
+        balls,
+        minimum_speed_pixels_per_second=45,
+    )
+
+    assert [item.completion_seconds for item in events] == [44.8, 46.0]
+    assert events[1].from_player_track_id == 5
+
+
+def test_terminal_brief_reception_precedes_challenged_transition() -> None:
+    previous = PredictedEvent(
+        "pass_candidate", 56.2, "red", None, 194, 0.55, "pass", 56.2
+    )
+    observations = [
+        observation(57.0, "red", 194, 100, 100, control_ratio=0.3),
+        observation(58.6, "black", 254, 200, 200, control_ratio=0.7),
+    ]
+    balls = {
+        1455: [{"track_id": 1, "source_frame": 1455, "clip_seconds": 58.2,
+                "x": 200, "y": 100}]
+    }
+    players = {
+        1455: [{
+            "track_id": 306,
+            "team": "red",
+            "x1": 175,
+            "y1": 40,
+            "x2": 225,
+            "y2": 100,
+        }]
+    }
+
+    events = infer_terminal_brief_reception(
+        [previous],
+        observations,
+        players,
+        balls,
+        segment_end_seconds=60.0,
+    )
+
+    assert [event.completion_seconds for event in events] == [56.2, 58.2]
+
+
+def test_delayed_first_flight_recovers_reception_and_turnover() -> None:
+    receiver = {
+        "track_id": 4,
+        "team": "red",
+        "x1": 95,
+        "y1": 50,
+        "x2": 105,
+        "y2": 100,
+    }
+    balls = {
+        0: [{"track_id": 1, "source_frame": 0, "clip_seconds": 0.0,
+             "x": 0, "y": 100}],
+        5: [{"track_id": 1, "source_frame": 5, "clip_seconds": 0.2,
+             "x": 30, "y": 100}],
+        10: [{"track_id": 1, "source_frame": 10, "clip_seconds": 0.4,
+              "x": 60, "y": 100}],
+        15: [{"track_id": 1, "source_frame": 15, "clip_seconds": 0.6,
+              "x": 90, "y": 100}],
+        20: [{"track_id": 1, "source_frame": 20, "clip_seconds": 0.8,
+              "x": 100, "y": 100}],
+    }
+    opponent = PossessionSegment(
+        "black",
+        8,
+        [
+            observation(1.2, "black", 8, 120, 120, control_ratio=0.3),
+            observation(1.4, "black", 8, 122, 122, control_ratio=0.2),
+        ],
+    )
+
+    events = infer_delayed_first_flight_reception(
+        [],
+        [],
+        [opponent],
+        {15: [receiver]},
+        balls,
+        build_match_state_timeline([], duration_seconds=2.0),
+        minimum_speed_pixels_per_second=45,
+        minimum_flight_seconds=0.4,
+    )
+
+    assert [
+        (event.event_type, event.team, event.completion_seconds)
+        for event in events
+    ] == [
+        ("pass_candidate", "red", 0.6),
+        ("turnover_candidate", "red", 1.2),
+    ]
+
+
+def test_short_co_visible_control_transfer_recovers_pass() -> None:
+    sender = PossessionSegment(
+        "black",
+        8,
+        [
+            observation(1.0, "black", 8, 100, 100, control_ratio=0.8),
+            observation(1.2, "black", 8, 100, 100, control_ratio=0.4),
+        ],
+    )
+    receiver = PossessionSegment(
+        "black",
+        13,
+        [
+            observation(1.8, "black", 13, 110, 110, control_ratio=0.3),
+            observation(2.0, "black", 13, 112, 112, control_ratio=0.4),
+            observation(2.2, "black", 13, 114, 114, control_ratio=0.3),
+        ],
+    )
+    duplicate_receiver = PossessionSegment(
+        "black",
+        13,
+        [observation(1.4, "black", 13, 105, 105, control_ratio=0.3)],
+    )
+    duplicate_sender = PossessionSegment(
+        "black",
+        8,
+        [observation(1.6, "black", 8, 108, 108, control_ratio=0.2)],
+    )
+
+    events = infer_short_controlled_teammate_transfers(
+        [],
+        [sender, duplicate_receiver, duplicate_sender, receiver],
+        co_visible_track_pairs={frozenset((8, 13))},
+        minimum_transfer_heights=0.5,
+    )
+
+    assert [(event.team, event.completion_seconds) for event in events] == [
+        ("black", 1.8)
+    ]
+
+
+def test_brief_locally_same_team_turnover_pair_becomes_pass() -> None:
+    events = [
+        PredictedEvent(
+            "turnover_candidate", 1.0, "black", 8, 13, 0.7, "turnover", 2.0
+        ),
+        PredictedEvent(
+            "turnover_candidate", 2.4, "red", 13, 21, 0.7, "turnover", 3.0
+        ),
+    ]
+    controls = [
+        observation(3.0, "black", 21, 200, 200, control_ratio=0.3)
+    ]
+    players = {
+        frame: [
+            {
+                "track_id": 13,
+                "team": "red",
+                "clip_seconds": seconds,
+                "color_scores": {"dark": 0.8, "white": 0.0, "warm": 0.0},
+            }
+        ]
+        for frame, seconds in [(45, 1.8), (50, 2.0), (55, 2.2)]
+    }
+
+    reconciled = reconcile_brief_opponent_turnover_pairs(
+        events,
+        controls,
+        players,
+    )
+
+    assert [
+        (event.event_type, event.team, event.completion_seconds)
+        for event in reconciled
+    ] == [("pass_candidate", "black", 3.0)]
+
+
+def test_sharp_locally_same_team_contact_splits_long_pass() -> None:
+    event = PredictedEvent(
+        "pass_candidate", 1.0, "black", 8, 21, 0.8, "pass", 4.0
+    )
+    balls = {
+        45: [{"track_id": 1, "source_frame": 45, "clip_seconds": 1.8,
+              "x": 0, "y": 100}],
+        50: [{"track_id": 1, "source_frame": 50, "clip_seconds": 2.0,
+              "x": 100, "y": 100}],
+        55: [{"track_id": 1, "source_frame": 55, "clip_seconds": 2.2,
+              "x": 0, "y": 100}],
+    }
+    players = {
+        frame: [
+            {
+                "track_id": 13,
+                "team": "red",
+                "clip_seconds": seconds,
+                "x1": 90,
+                "y1": 50,
+                "x2": 110,
+                "y2": 100,
+                "color_scores": {"dark": 0.8, "white": 0.0, "warm": 0.0},
+            }
+        ]
+        for frame, seconds in [(45, 1.8), (50, 2.0), (55, 2.2)]
+    }
+
+    events = split_sharp_direction_change_passes(
+        [event],
+        players,
+        balls,
+        minimum_speed_pixels_per_second=45,
+    )
+
+    assert [
+        (item.from_player_track_id, item.to_player_track_id,
+         item.clip_seconds, item.completion_seconds)
+        for item in events
+    ] == [
+        (8, 13, 1.0, 2.0),
+        (13, 21, 2.0, 4.0),
+    ]
+
+
+def test_competing_same_sender_receptions_keep_stronger_interpretation() -> None:
+    weaker = PredictedEvent(
+        "pass_candidate", 30.4, "black", 113, 173, 0.63, "direction", 32.0
+    )
+    stronger = PredictedEvent(
+        "pass_candidate", 31.0, "black", 113, 171, 0.9, "flight", 31.6
+    )
+
+    assert collapse_competing_same_sender_receptions(
+        [weaker, stronger]
+    ) == [stronger]
+
+
+def test_weak_reception_moves_to_terminal_close_control() -> None:
+    receiver = PossessionSegment(
+        "black",
+        20,
+        [
+            observation(1.4, "black", 20, 100, 100, control_ratio=1.7),
+            observation(1.6, "black", 20, 101, 100, control_ratio=1.2),
+            observation(1.8, "black", 20, 102, 100, control_ratio=0.8),
+            observation(2.0, "black", 20, 103, 100, control_ratio=0.4),
+        ],
+    )
+    event = PredictedEvent(
+        "pass_candidate", 1.0, "black", 10, 20, 0.7, "flight", 1.4
+    )
+
+    refined = refine_weak_reception_completion_times([event], [receiver])
+
+    assert refined[0].completion_seconds == 2.0
+    assert "first clear controlled touch" in refined[0].details
+
+
+def test_duplicate_player_track_handoffs_do_not_create_passes() -> None:
+    def point(
+        frame: int,
+        seconds: float,
+        track_id: int,
+        team: str,
+        x1: float,
+        x2: float,
+    ) -> dict[str, object]:
+        return {
+            "source_frame": frame,
+            "clip_seconds": seconds,
+            "track_id": track_id,
+            "team": team,
+            "x1": x1,
+            "y1": 100,
+            "x2": x2,
+            "y2": 200,
+        }
+
+    events = [
+        PredictedEvent(
+            "pass_candidate", 1.0, "black", 10, 11, 0.7, "transfer", 1.2
+        ),
+        PredictedEvent(
+            "pass_candidate", 2.0, "red", 20, 21, 0.7, "transfer", 2.2
+        ),
+        PredictedEvent(
+            "pass_candidate", 3.0, "black", 30, 31, 0.7, "transfer", 3.4
+        ),
+    ]
+    players = {
+        20: [point(20, 0.8, 10, "black", 98, 148)],
+        25: [
+            point(25, 1.0, 10, "black", 100, 150),
+            point(25, 1.0, 11, "red", 101, 149),
+        ],
+        30: [
+            point(30, 1.2, 10, "black", 103, 153),
+            point(30, 1.2, 11, "black", 104, 152),
+        ],
+        50: [point(50, 2.0, 20, "red", 200, 250)],
+        55: [
+            point(55, 2.2, 20, "red", 202, 252),
+            point(55, 2.2, 21, "red", 203, 251),
+        ],
+        60: [point(60, 2.4, 21, "red", 205, 255)],
+        75: [
+            point(75, 3.0, 30, "black", 300, 350),
+            point(75, 3.0, 31, "black", 370, 420),
+        ],
+        85: [
+            point(85, 3.4, 30, "black", 320, 370),
+            point(85, 3.4, 31, "black", 390, 440),
+        ],
+    }
+
+    filtered = suppress_duplicate_track_handoff_passes(events, players)
+
+    assert [event.from_player_track_id for event in filtered] == [30]
+
+
+def test_noncausal_reception_requires_reciprocal_return_evidence() -> None:
+    source = [
+        PredictedEvent(
+            "pass_candidate",
+            1.0,
+            "black",
+            10,
+            20,
+            0.8,
+            "Initial completed pass.",
+            1.4,
+        ),
+        PredictedEvent(
+            "pass_candidate",
+            2.0,
+            "black",
+            20,
+            10,
+            0.7,
+            "Ball release followed by black control after -0.20s.",
+            2.4,
+        ),
+        PredictedEvent(
+            "pass_candidate",
+            4.0,
+            "red",
+            30,
+            40,
+            0.7,
+            "Ball release followed by red control after -0.20s.",
+            4.4,
+        ),
+    ]
+
+    filtered = suppress_noncausal_nonreturn_passes(source)
+
+    assert [
+        (event.from_player_track_id, event.to_player_track_id)
+        for event in filtered
+    ] == [(10, 20), (20, 10)]
+
+
+def test_completed_pass_establishes_prior_losing_team_turnover() -> None:
+    prior_owner = PossessionSegment(
+        "red",
+        14,
+        [
+            observation(14.8, "red", 14, 100, 100, control_ratio=0.4),
+            observation(15.2, "red", 14, 110, 100, control_ratio=0.3),
+        ],
+    )
+    controls = [
+        *prior_owner.observations,
+        observation(16.0, "black", 94, 130, 100, control_ratio=0.8),
+        observation(17.2, "black", 94, 140, 100, control_ratio=1.0),
+        observation(17.4, "black", 94, 145, 100, control_ratio=0.75),
+    ]
+    completed_pass = PredictedEvent(
+        "pass_candidate",
+        17.4,
+        "black",
+        94,
+        87,
+        0.6,
+        "Sparse same-team control confirmed the pass.",
+        19.2,
+    )
+
+    events = infer_pass_sender_established_turnovers(
+        [completed_pass],
+        [prior_owner],
+        controls,
+        maximum_transfer_seconds=3.0,
+    )
+
+    turnover = next(
+        event for event in events if event.event_type == "turnover_candidate"
+    )
+    assert turnover.team == "red"
+    assert turnover.from_player_track_id == 14
+    assert turnover.to_player_track_id == 94
+    assert turnover.clip_seconds == 15.2
+    assert turnover.completion_seconds == 17.4
 
 
 def test_primary_transfer_suppresses_nearby_fallback() -> None:

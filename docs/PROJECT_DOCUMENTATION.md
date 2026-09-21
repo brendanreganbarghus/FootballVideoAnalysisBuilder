@@ -87,7 +87,7 @@ boundary changes, update all three entry points in the same change.
 | Review a pass, turnover, foul, restart, shot, or goal | `AGENTS.md`, rules architecture, relevant implementation/tests |
 | Review or accept C#/E# events | Rules architecture Sections 7–10, applicable Canvas instructions, protected review regressions |
 | Work on Innovation Day | `AGENTS.md`, rules architecture Section 7.1, manual pipeline guide's workflow table and Innovation commands |
-| Resume Live ball tracking | Obtain Brendan's explicit authorization first, then update the three agent entry points and read the Live sections of the architecture/manual guide |
+| Work on Live ball tracking | Confirm the task explicitly targets the separate Live workstream, then read the three agent entry points plus the Live sections of the architecture/manual guide |
 | Run a benchmark | Rules architecture hard input boundary, manual pipeline guide, dataset-specific benchmark README |
 | Change possession or event inference | Rules architecture, developer guide module map/rerun matrix, focused and protected tests |
 | Configure a pilot or camera | Grassroots pilot profile, developer guide, dataset/camera provenance |

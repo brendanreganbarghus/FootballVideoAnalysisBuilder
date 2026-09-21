@@ -328,9 +328,9 @@ The Innovation **Football Event Review** canvas is manual-first:
    regressions.
 5. Approval freezes an immutable, fingerprinted golden revision. A later
    correction creates a new draft revision.
-6. `C#` proposals are optional, read-only Copilot diagnostic history, hidden by
-   default. They never control M# creation, counts, mappings, approval,
-   publication, or inference.
+6. Historical `C#` proposals remain optional, read-only diagnostic state and
+   are not rendered in the active Innovation review UI. They never control M#
+   creation, counts, mappings, approval, publication, or inference.
 7. Investigate only selected missing, extra, mistyped, mis-teamed, mistimed, or
    misordered E# discrepancies. An unmatched M# exposes a review guide where
    the reviewer can distinguish an entirely missing E# from a nearby E# that
@@ -358,6 +358,17 @@ The Innovation **Football Event Review** canvas is manual-first:
     result with its publication hash, and run focused and protected tests.
 10. Mark the segment passed only when current E# output satisfies the approved
     golden reference and every protected publication gate passes.
+
+The Innovation header may open a separate, optional **M# Ledger Audit**. This
+is deterministic local code, not a Copilot or model review. It reads only the
+current M# draft and can flag possible duplicates, same-frame timing conflicts,
+possession-team discontinuities, turnover-attribution inconsistencies, and
+long event-free intervals. Every result is advisory: it cannot change M#,
+block approval, reveal or inspect E#, or overrule the professional reviewer's
+continuous-video decision. A reviewer may correct M# or confirm that an
+advisory is not applicable; confirmations are tied to the current M# revision
+and become stale after any manual edit. Restart and shot/SOT checks are not
+claimed while those event types are absent from the manual-review schema.
 
 The pre-manual-first Innovation segments are retired from active review and
 protected regression coverage. Their artifacts remain historical records but
@@ -447,6 +458,11 @@ segments are prepared. Use frozen BAC and prepared player context only to
 clarify an uncertain moment. Do not replace continuous viewing with
 frame-by-frame export, exhaustive coordinate analysis, an automatic Copilot
 pre-review, or a new inference run.
+
+The **Process AI** action runs only the cached BAC-assisted Innovation rules
+engine. It does not automatically launch the optional independent C# protocol.
+The M# Ledger Audit remains a separate optional local-code check and is not an
+independent visual review.
 
 An explicitly requested independent Copilot `C#` review may instead use a
 complete local visual sequence exported directly from the same prepared video.

@@ -217,9 +217,10 @@
           <p>Start from the current validated integration branch. Use one feature branch per workstream.</p>
           <pre>git clone git@github.com:brendanreganbarghus/FootballVideoAnalysisBuilder.git
 cd FootballVideoAnalysisBuilder
-git switch feature/pass-shot-validation
+git switch main
+git pull --ff-only
 git switch -c feature/&lt;short-workstream-name&gt;</pre>
-          <p>Pull requests should target the active integration branch agreed by the team, never assume that a stale showcase branch is current.</p>
+          <p>Start new work from the current validated <code>main</code> branch and keep one independently reviewable feature per branch.</p>
         </div>
       </article>
 
@@ -272,7 +273,7 @@ Test-Path $innovationState
 Test-Path $liveState
 &amp; "$artifacts\00-governance\Verify-Artifacts.ps1"</pre>
           <p>
-            The Innovation and live review extensions store decisions,
+            The Innovation and Live review extensions store decisions,
             conversations, engine snapshots, source hashes, cached-output
             hashes, and regression receipts in separate directories. Each save updates
             <code>00-governance\checksums.sha256</code>. Generated videos remain
@@ -297,9 +298,10 @@ Test-Path $liveState
             </div>
           </div>
           <p>
-            Use the Innovation review launcher for BAC-assisted testing and the
-            separate live review launcher for raw-video iteration-25 testing.
-            The local launcher redirects to the correct running Canvas.
+            Use the Innovation review launcher for frozen-BAC-assisted testing.
+            Live ball tracking is active in a separate R&amp;D workstream and must
+            not be used for Innovation work. The local launcher redirects to
+            the correct running Innovation Canvas.
             You do not need to ask Copilot each time or know its temporary port.
           </p>
           <p>
@@ -307,33 +309,26 @@ Test-Path $liveState
             browser can redirect to it. If the launcher reports that no Canvas
             is registered, use this one-time recovery prompt:
           </p>
-          <pre>Open the Football Event Review Canvas for segment-0180-020.
-Open the Football Event Review Live Canvas for segment-0180-020.</pre>
+          <pre>Open the Football Event Review Canvas for segment-0180-020.</pre>
           <p>
-            After that first opening, the landing-page buttons are the normal
-            entry points. The canvases deliberately use separate engines,
-            generated artifacts, review state, fingerprints, regression
-            receipts, and publication locks.
+            After that first opening, the landing-page button is the normal
+            entry point. Innovation uses only its frozen engine, generated
+            artifacts, review state, fingerprints, regression receipts, and
+            publication locks.
           </p>
-          <div class="grid">
-            <div class="mini">
-              <b>Live review prompt</b>
-              <code>Open Football Event Review Live for segment-0180-020.</code>
-            </div>
-            <div class="mini">
-              <b>Innovation review prompt</b>
-              <code>Open Football Event Review for segment-0180-020.</code>
-            </div>
+          <div class="mini">
+            <b>Innovation review prompt</b>
+            <code>Open Football Event Review for segment-0180-020.</code>
           </div>
           <p>
             Open <strong>Camera Calibration &amp; Overlays</strong> to show,
             redraw, undo, finish, restore, or download the actual camera-mapped
-            pitch boundary and goal frames. Both workflows read the same
-            Alfheim calibration, while their engines, outputs, decisions, and
-            publication gates remain isolated.
+            pitch boundary and goal frames. Innovation reads the Alfheim
+            calibration while keeping its engine, outputs, decisions, and
+            publication gates isolated from the Live workflow.
           </p>
           <p>
-            These two controlled workflows list Alfheim segments only. The app
+            The controlled Innovation workflow lists Alfheim segments only. The app
             loads the Alfheim calibration and never displays
             another dataset as a visual fallback. Add a custom camera with its
             own raw 30- or 60-second sample; AI controls remain disabled until its
@@ -367,19 +362,18 @@ Open the Football Event Review Live Canvas for segment-0180-020.</pre>
           <h2>Use Copilot as an independent reviewer, not an engine echo</h2>
           <p>The app-native Copilot panel keeps the conversation beside the selected video evidence and current review context.</p>
           <ol>
-            <li><strong>Prepare &amp; run:</strong> select an existing 30–60 second segment or prepare a new one, then run the cold raw-video AI pipeline.</li>
-            <li><strong>Verify provenance:</strong> the run receipt confirms that prior detections, ball/player tracks, events, review labels, and provider annotations were excluded.</li>
-            <li><strong>Check capacity:</strong> after completion, review measured CPU time, stage timings, real-time factor, and provisional GPU guidance.</li>
-            <li><strong>Inspect evidence:</strong> use Normal, raw-video Detected ball, or AI tracking views after the cold run completes; seek by frame; enlarge the review when needed.</li>
-            <li><strong>Review C#:</strong> select a Copilot proposal and use Plan mode to explain or Autopilot only when you intend to authorize a recorded action.</li>
-            <li><strong>Compare afterward:</strong> C# proposals and E# engine events are matched only after Copilot finishes its independent construction.</li>
-            <li><strong>Handle unmatched E#:</strong> verify it independently through the clip conversation; rejecting a nearby C# never confirms it.</li>
-            <li><strong>Publish:</strong> the final gate requires every C# decision, current source/output hashes, exact event matching, and protected regressions.</li>
+            <li><strong>Prepare context:</strong> select an existing 30–60 second Innovation segment and build frozen BAC plus cached player context.</li>
+            <li><strong>Record M# first:</strong> review the video independently, record the ordered manual events, and freeze the golden M# ledger before comparing engine output.</li>
+            <li><strong>Compare M# and E#:</strong> automatic links require the same team and canonical event type within one second; display ordinals never define a match.</li>
+            <li><strong>Use C# only when useful:</strong> Copilot proposals are optional diagnostics and cannot control M#, mappings, approval, or publication.</li>
+            <li><strong>Resolve discrepancies:</strong> verify unmatched E# independently; an accepted missing or incorrect M# result authorizes only a general engine fix and cached events-only rebuild.</li>
+            <li><strong>Protect prior work:</strong> rerun the focused and protected regressions and require every published Innovation output hash to remain exact.</li>
+            <li><strong>Publish:</strong> the final gate requires finalized decisions, current source/output hashes, exact M#/E# counts and matches, and a fresh passing regression receipt.</li>
           </ol>
           <p>
             The general Canvas conversation supports the entire prepared clip or
             the current time ±2 seconds. Event conversations stay attached to the
-            selected proposal so evidence, corrections, and authorization remain
+            selected M# or E# so evidence, corrections, and authorization remain
             traceable.
           </p>
         </div>

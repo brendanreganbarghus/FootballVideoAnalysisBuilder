@@ -52,7 +52,7 @@ def test_innovation_landing_links_to_current_surfaces() -> None:
     assert '<a class="button" href="board/">Innovation board</a>' in html
     assert 'href="../../"' in html
     assert "Football_AI_Platform_Demo_4m48s.mp4" in html
-    assert "Open the live Review Canvas" in html
+    assert "Open the working Review Canvas" in html
     assert '../../review-canvas?theme=innovation' in html
     assert "One review workspace. Two independent conclusions." in html
     assert "Query By Probability" in html
@@ -84,23 +84,23 @@ def test_developer_guide_matches_current_local_artifact_flow() -> None:
     assert "benchmarks\\custom-cameras\\" in html
     assert "verify-innovation-workspace.py" in html
     assert "publish-segment-run.py" in html
-    assert "cold raw-video AI pipeline" in html
+    assert "build frozen BAC plus cached player context" in html
     assert "Own separate event families and segments" in html
     assert "A goal implies on-target" in html
     assert "Serial merge gate" in html
     assert "Full-match upload and team locking are not implemented yet" in html
-    assert "feature/pass-shot-validation" in html
+    assert "git switch main" in html
     assert "segment-0180-020" in html
     assert "event-review-state-innovation" in html
     assert "event-review-state-live" in html
-    assert "separate engines" in html
+    assert "separate directories" in html
     assert "BAC-assisted testing" in html
     assert "Do not inspect locked blind references" in html
     assert "evaluation-only" in html
     assert "app-native Copilot panel" in html
     assert "You do not need to ask Copilot each time" in html
     assert "one-time recovery prompt" in html
-    assert "Live review prompt" in html
+    assert "Live review prompt" not in html
     assert "Innovation review prompt" in html
     assert 'id="copilot-review"' in html
     assert "Use Copilot as an independent reviewer" in html
@@ -133,7 +133,7 @@ def test_landscape_board_tells_current_innovation_story() -> None:
     assert "Shots on target" in html
     assert "Shots off target" in html
     assert "Corners taken" in html
-    assert "Working local prototype" in html
+    assert "Working prototype · Live R&amp;D active" in html
     assert "Query By Probability" in html
     assert "Future architecture" in html
     assert "Live match snapshot" in html

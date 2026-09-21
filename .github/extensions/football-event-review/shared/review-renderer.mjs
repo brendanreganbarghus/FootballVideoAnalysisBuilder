@@ -344,6 +344,53 @@ export function renderHtml({ adapter } = {}) {
       justify-content: flex-end;
       gap: 8px;
     }
+    .manual-ledger-audit-summary {
+      margin: 0;
+      padding: 10px 12px;
+      border-left: 3px solid var(--true-color-blue, #58a6ff);
+      background: rgb(31 111 235 / 10%);
+    }
+    .manual-ledger-audit-list {
+      display: grid;
+      gap: 10px;
+    }
+    .manual-ledger-audit-finding {
+      display: grid;
+      gap: 8px;
+      padding: 12px;
+      border: 1px solid var(--border-color-default, #30363d);
+      border-radius: 9px;
+      background: var(--background-color-default, #0d1117);
+    }
+    .manual-ledger-audit-finding.acknowledged {
+      border-color: var(--true-color-green, #2ea043);
+      opacity: .78;
+    }
+    .manual-ledger-audit-finding header {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 0;
+      border: 0;
+    }
+    .manual-ledger-audit-finding p {
+      margin: 0;
+      color: var(--text-color-muted, #8b949e);
+    }
+    .manual-ledger-audit-meta {
+      font-family: var(--font-mono, Consolas, monospace);
+      font-size: 12px;
+    }
+    .manual-ledger-audit-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .manual-ledger-audit-confirmed {
+      color: var(--true-color-green, #7ee787);
+      font-weight: 700;
+    }
     #confirm-engine-without-copilot {
       border-color: var(--true-color-green, #2ea043);
       background: rgb(46 160 67 / 18%);
@@ -2080,9 +2127,15 @@ export function renderHtml({ adapter } = {}) {
       align-content: start;
       gap: 10px;
       padding: 13px;
+      border: 1px solid rgb(228 165 218 / 52%);
       border-radius: 10px;
-      background: linear-gradient(145deg, #071b12, #0d3322);
+      background:
+        radial-gradient(circle at 85% 8%, rgb(228 165 218 / 18%), transparent 34%),
+        linear-gradient(145deg, #170919, #42103a 58%, #6c1d5f);
       color: #fff;
+      box-shadow:
+        inset 0 1px 0 rgb(255 255 255 / 12%),
+        0 12px 28px rgb(0 0 0 / 34%);
     }
     .match-clock {
       text-align: center;
@@ -2171,15 +2224,28 @@ export function renderHtml({ adapter } = {}) {
       position: absolute;
       left: 50%;
       top: 32px;
-      width: min(820px, calc(100% - 40px));
+      width: min(760px, calc(100% - 40px));
       overflow: hidden;
-      border: 1px solid rgb(255 255 255 / 34%);
-      border-radius: 12px;
+      border: 1px solid rgb(228 165 218 / 68%);
+      border-radius: 16px;
       background:
-        linear-gradient(105deg, rgb(7 27 18 / 94%), rgb(16 44 32 / 92%));
-      box-shadow: 0 12px 40px rgb(0 0 0 / 58%);
-      backdrop-filter: blur(8px);
+        radial-gradient(circle at 86% 0, rgb(228 165 218 / 22%), transparent 34%),
+        linear-gradient(125deg, rgb(20 7 24 / 96%), rgb(76 16 66 / 95%) 58%,
+          rgb(108 29 95 / 96%));
+      box-shadow:
+        inset 0 1px 0 rgb(255 255 255 / 16%),
+        0 16px 48px rgb(0 0 0 / 64%),
+        0 0 28px rgb(166 63 152 / 22%);
+      backdrop-filter: blur(12px);
       transform: translateX(-50%);
+      pointer-events: none;
+    }
+    .stadium-scoreboard::after {
+      position: absolute;
+      inset: 0;
+      border: 1px solid rgb(255 255 255 / 8%);
+      border-radius: inherit;
+      content: "";
       pointer-events: none;
     }
     .stadium-scoreboard-head {
@@ -2187,71 +2253,142 @@ export function renderHtml({ adapter } = {}) {
       grid-template-columns: 1fr auto 1fr;
       gap: 14px;
       align-items: center;
-      padding: 8px 12px;
-      border-bottom: 1px solid rgb(255 255 255 / 18%);
-      background: rgb(0 0 0 / 22%);
+      padding: 9px 12px;
+      border-bottom: 1px solid rgb(228 165 218 / 28%);
+      background: rgb(11 4 14 / 48%);
     }
     .stadium-scoreboard-head strong {
       text-align: center;
       text-transform: uppercase;
-      letter-spacing: .08em;
+      letter-spacing: .12em;
+      text-wrap: balance;
     }
     .stadium-scoreboard-clock {
       font-family: var(--font-mono, Consolas, monospace);
       font-size: 16px;
       font-weight: 800;
+      font-variant-numeric: tabular-nums;
+    }
+    .stadium-scoreboard-live {
+      display: inline-flex;
+      gap: 7px;
+      align-items: center;
+      color: #f6d8f1;
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+    }
+    .stadium-scoreboard-live::before {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #f778ba;
+      box-shadow: 0 0 10px rgb(247 120 186 / 78%);
+      content: "";
     }
     .stadium-scoreboard-brand {
       display: inline-flex;
       gap: 7px;
       align-items: center;
       justify-self: end;
-      color: #fff;
+      color: #f6d8f1;
       font-size: 10px;
       letter-spacing: .04em;
       text-transform: uppercase;
     }
+    .stadium-scoreboard-logo {
+      display: inline-flex;
+      padding: 4px 7px;
+      border-radius: 6px;
+      background: #fff;
+      box-shadow: inset 0 0 0 1px rgb(108 29 95 / 16%);
+    }
     .stadium-scoreboard-brand img {
       display: block;
-      width: 54px;
-      height: auto;
-      filter: brightness(0) invert(1);
+      width: 68px;
+      height: 23px;
     }
     .stadium-scoreboard-teams {
       display: grid;
       grid-template-columns: 1fr auto 1fr;
       gap: 16px;
       align-items: center;
-      padding: 8px 16px 2px;
+      padding: 12px 16px 9px;
       text-align: center;
       font-size: 15px;
       font-weight: 800;
     }
+    .stadium-scoreboard-team {
+      display: inline-flex;
+      gap: 8px;
+      align-items: center;
+      justify-content: center;
+      min-width: 0;
+    }
+    .stadium-scoreboard-team:last-child {
+      flex-direction: row-reverse;
+    }
+    .stadium-scoreboard-kit {
+      width: 14px;
+      height: 14px;
+      border: 2px solid rgb(255 255 255 / 80%);
+      border-radius: 50%;
+      box-shadow: 0 0 0 2px rgb(0 0 0 / 28%);
+    }
+    .stadium-scoreboard-kit.red {
+      background: linear-gradient(135deg, #f7f7f7 0 48%, #d73a49 48%);
+    }
+    .stadium-scoreboard-kit.black { background: #16161a; }
     .stadium-scoreboard-teams span {
-      color: rgb(255 255 255 / 52%);
+      color: rgb(255 255 255 / 62%);
       font-size: 11px;
       text-transform: uppercase;
     }
     .segment-replay-stats {
       width: 100%;
+      border-spacing: 0 4px;
       border-collapse: collapse;
       font-variant-numeric: tabular-nums;
     }
+    .segment-replay-stats thead {
+      color: #e4a5da;
+      font-size: 10px;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
     .segment-replay-stats th,
     .segment-replay-stats td {
-      padding: 6px 4px;
-      border-top: 1px solid rgb(255 255 255 / 15%);
+      padding: 7px 6px;
+      border-top: 1px solid rgb(228 165 218 / 18%);
       text-align: center;
+    }
+    .segment-replay-stats tbody tr {
+      background: linear-gradient(
+        90deg,
+        rgb(166 63 152 / 18%),
+        rgb(255 255 255 / 3%) 42% 58%,
+        rgb(108 29 95 / 24%)
+      );
+    }
+    .segment-replay-stats tbody th {
+      color: #f6d8f1;
+      font-size: 12px;
+      font-weight: 650;
+      letter-spacing: .035em;
+      text-transform: uppercase;
     }
     .segment-replay-stats td {
       width: 54px;
-      font-size: 18px;
-      font-weight: 800;
+      color: #fff;
+      font-size: 20px;
+      font-weight: 900;
+      text-shadow: 0 2px 10px rgb(0 0 0 / 60%);
     }
     .segment-replay-provenance {
       margin: 0;
-      padding: 4px 12px 8px;
-      color: #9fb6a8;
+      padding: 5px 12px 9px;
+      color: #d7acd0;
       font-size: 11px;
       text-align: center;
     }
@@ -2536,6 +2673,36 @@ export function renderHtml({ adapter } = {}) {
       border-color: #f2cc60;
       background: #b58407;
       color: #fff;
+    }
+    #approve-manual-minute[data-reference-state="unfrozen"],
+    #golden-workflow-status[data-reference-state="unfrozen"] {
+      border-color: #f0883e;
+      background: rgb(240 136 62 / 18%);
+      color: #ffa657;
+    }
+    #approve-manual-minute[data-reference-state="frozen"],
+    #golden-workflow-status[data-reference-state="frozen"] {
+      border-color: #58a6ff;
+      background: rgb(31 111 235 / 22%);
+      color: #79c0ff;
+    }
+    #approve-manual-minute[data-reference-state="published"],
+    #golden-workflow-status[data-reference-state="published"] {
+      border-color: var(--true-color-green, #2ea043);
+      background: rgb(46 160 67 / 18%);
+      color: var(--true-color-green, #7ee787);
+    }
+    #approve-manual-minute:disabled[data-reference-state] {
+      opacity: 1;
+    }
+    #golden-workflow-status[data-reference-state] {
+      display: inline-flex;
+      min-height: 40px;
+      align-items: center;
+      padding: 8px 12px;
+      border: 1px solid;
+      border-radius: 8px;
+      font-weight: 700;
     }
     .comparison-summary {
       display: flex;
@@ -3223,11 +3390,49 @@ export function renderHtml({ adapter } = {}) {
       content: "";
       background: linear-gradient(90deg, #ba4ca6 0 46%, transparent 46% 54%, #68e0c1 54%);
     }
-    html[data-app-theme="innovation"] button:hover,
+    html[data-app-theme="innovation"] button {
+      --innovation-hover-border: #cf6fbe;
+      --innovation-hover-background: rgb(108 29 95 / 44%);
+      --innovation-hover-glow: rgb(186 76 166 / 24%);
+    }
+    html[data-app-theme="innovation"]
+      :is(#approve-manual-minute[data-reference-state="unfrozen"],
+        #reopen-manual-minute, #validate-engine-reference, .adjust) {
+      --innovation-hover-border: #ffa657;
+      --innovation-hover-background: rgb(240 136 62 / 32%);
+      --innovation-hover-glow: rgb(240 136 62 / 28%);
+    }
+    html[data-app-theme="innovation"]
+      :is(#confirm-engine-without-copilot, #accept-copilot-decision,
+        #publish-passed-segment, .accept, .segment-replay-action) {
+      --innovation-hover-border: #7ee787;
+      --innovation-hover-background: rgb(46 160 67 / 30%);
+      --innovation-hover-glow: rgb(46 160 67 / 28%);
+    }
+    html[data-app-theme="innovation"]
+      :is(#reject-copilot-decision, .reject, .coordinate-undefined-action) {
+      --innovation-hover-border: #ff7b72;
+      --innovation-hover-background: rgb(218 54 51 / 28%);
+      --innovation-hover-glow: rgb(218 54 51 / 26%);
+    }
+    html[data-app-theme="innovation"]
+      :is(#ask-copilot-engine-review, .regression-action, .publish-reference) {
+      --innovation-hover-border: #79c0ff;
+      --innovation-hover-background: rgb(31 111 235 / 34%);
+      --innovation-hover-glow: rgb(31 111 235 / 28%);
+    }
+    html[data-app-theme="innovation"] button:not(:disabled):hover,
     html[data-app-theme="innovation"] .comparison-event:hover,
     html[data-app-theme="innovation"] .comparison-event:focus-visible {
-      border-color: #cf6fbe;
-      background: rgb(108 29 95 / 34%);
+      border-color: var(--innovation-hover-border, #cf6fbe) !important;
+      background: var(
+        --innovation-hover-background,
+        rgb(108 29 95 / 44%)
+      ) !important;
+      color: #fff !important;
+      box-shadow:
+        0 0 0 1px var(--innovation-hover-glow, rgb(186 76 166 / 24%)),
+        0 0 16px var(--innovation-hover-glow, rgb(186 76 166 / 24%));
     }
     html[data-app-theme="innovation"] .comparison-event.current,
     html[data-app-theme="innovation"] .comparison-row.matched .comparison-event {
@@ -3513,6 +3718,38 @@ export function renderHtml({ adapter } = {}) {
       </div>
     </form>
   </dialog>
+  ${adapter.key === "innovation" ? `
+  <dialog class="engine-verification-modal manual-ledger-audit-modal"
+    id="manual-ledger-audit-modal"
+    aria-labelledby="manual-ledger-audit-title">
+    <form method="dialog">
+      <header>
+        <h2 id="manual-ledger-audit-title">M# Ledger Audit</h2>
+        <p class="muted">
+          Separate deterministic checks for the current manual ledger
+        </p>
+      </header>
+      <p>
+        This local code checks M# only. It does not call Copilot, inspect E#,
+        change an event, or overrule your continuous-video review.
+      </p>
+      <p class="manual-ledger-audit-summary"
+        id="manual-ledger-audit-summary" aria-live="polite"></p>
+      <div class="manual-ledger-audit-list"
+        id="manual-ledger-audit-list"></div>
+      <p class="muted">
+        The current manual schema supports completed passes and turnovers.
+        Restart and shot/SOT checks will remain unavailable until those event
+        types are part of manual review.
+      </p>
+      <p class="muted" id="manual-ledger-audit-status"
+        aria-live="polite"></p>
+      <div class="engine-verification-actions">
+        <button id="close-manual-ledger-audit" type="button">Close</button>
+      </div>
+    </form>
+  </dialog>
+  ` : ""}
   <header>
     <div>
       <h1 id="page-title">${adapter.displayName}</h1>
@@ -3584,19 +3821,27 @@ export function renderHtml({ adapter } = {}) {
       <aside class="stadium-scoreboard"
         aria-label="Football statistics from cached engine output">
         <div class="stadium-scoreboard-head">
-          <span class="stadium-scoreboard-clock"
-            id="segment-replay-clock">00:00 / 00:00</span>
-          <strong>Match statistics</strong>
+          <span class="stadium-scoreboard-live">Replay statistics</span>
+          <strong>Innovation Day Match Centre</strong>
           <div class="stadium-scoreboard-brand">
             <span>Powered by</span>
-            <img src="${homeUrl.replace(/\/$/, "")}/assets/xebia-logo.svg"
-              alt="Xebia">
+            <span class="stadium-scoreboard-logo">
+              <img src="${homeUrl.replace(/\/$/, "")}/assets/xebia-logo.svg"
+                width="68" height="23" alt="Xebia">
+            </span>
           </div>
         </div>
         <div class="stadium-scoreboard-teams">
-          <strong class="live-team-red">Red/white</strong>
-          <span>vs</span>
-          <strong class="live-team-black">Black</strong>
+          <strong class="stadium-scoreboard-team live-team-red">
+            <span class="stadium-scoreboard-kit red" aria-hidden="true"></span>
+            Red/white
+          </strong>
+          <span class="stadium-scoreboard-clock"
+            id="segment-replay-clock">00:00 / 00:00</span>
+          <strong class="stadium-scoreboard-team live-team-black">
+            <span class="stadium-scoreboard-kit black" aria-hidden="true"></span>
+            Black
+          </strong>
         </div>
         <table class="segment-replay-stats">
           <thead>
@@ -3607,7 +3852,7 @@ export function renderHtml({ adapter } = {}) {
             </tr>
           </thead>
           <tbody>
-            <tr><td id="segment-replay-red-passes">0</td><th>Passes</th>
+            <tr><td id="segment-replay-red-passes">0</td><th>Completed passes</th>
               <td id="segment-replay-black-passes">0</td></tr>
             <tr><td id="segment-replay-red-turnovers">0</td><th>Turnovers</th>
               <td id="segment-replay-black-turnovers">0</td></tr>
@@ -3925,12 +4170,6 @@ export function renderHtml({ adapter } = {}) {
               <span>${adapter.key === "innovation" ? "Manual M#" : "Review proposal"}</span>
               <span>Seconds</span>
               <span>${adapter.key === "innovation" ? "Rules engine E#" : "Rules engine output"}</span>
-              ${adapter.key === "innovation" ? `
-              <label class="copilot-reference-toggle">
-                <input id="show-copilot-reference" type="checkbox" checked>
-                Show Copilot C# reference
-              </label>
-              ` : ""}
               <button class="fullscreen-events-drag"
                 id="move-event-panel" type="button"
                 aria-label="Drag the Events panel; use arrow keys to move it"
@@ -4000,6 +4239,9 @@ export function renderHtml({ adapter } = {}) {
                   <input id="show-bac-coordinate" type="checkbox">
                   Show BAC ball coordinate
                 </label>
+                <button id="open-manual-ledger-audit" type="button">
+                  Audit M# ledger
+                </button>
                 <button id="approve-manual-minute" type="button">
                   Freeze manual M# reference as golden
                 </button>
@@ -4111,17 +4353,6 @@ export function renderHtml({ adapter } = {}) {
               </details>
             </details>
           </aside>
-          ${adapter.key === "innovation" ? `
-          <aside class="copilot-reference" id="copilot-reference"
-            aria-label="Read-only Copilot C# diagnostic timeline">
-            <header class="copilot-reference-head">
-              <strong>Copilot C# reference · diagnostic only</strong>
-              <button id="hide-copilot-reference" type="button">Hide</button>
-            </header>
-            <div class="copilot-reference-items"
-              id="copilot-reference-items" role="list"></div>
-          </aside>
-          ` : ""}
           <nav class="compact-engine-rail" id="compact-engine-rail"
             aria-label="Rules engine event positions"></nav>
         </div>
@@ -4824,7 +5055,6 @@ export function renderHtml({ adapter } = {}) {
     let segmentLoadingStartedAt = null;
     let segmentLoadingTimer = null;
     let regressionQueueTimer = null;
-    let automaticReviewStartPending = false;
 
     function updateSegmentLoadingElapsed() {
       if (segmentLoadingStartedAt === null) return;
@@ -4852,10 +5082,7 @@ export function renderHtml({ adapter } = {}) {
       if (loading) {
         document.querySelector(".segment-loading-spinner").hidden = false;
         closeButton.hidden = true;
-        cancelButton.hidden = !(
-          state?.automaticCopilotReview?.status === "reviewing"
-          || state?.activeConversation
-        );
+        cancelButton.hidden = !state?.activeConversation;
         if (segmentLoadingStartedAt === null) {
           segmentLoadingStartedAt = Date.now() -
             Math.max(0, Number(elapsedSeconds || 0)) * 1000;
@@ -4921,33 +5148,14 @@ export function renderHtml({ adapter } = {}) {
           : segment.state === "failed"
             ? "Failed"
             : "In progress";
-        const reviewStatus = state?.automaticCopilotReview?.status;
-        const copilotStatus = reviewStatus === "complete"
-          ? "Complete"
-          : reviewStatus === "failed"
-            ? "Failed"
-            : reviewStatus === "cancelled"
-              ? "Cancelled"
-              : reviewStatus === "reviewing"
-                ? "In progress"
-                : "Waiting";
-        const details = [
+        return [
           "Target: " + timeLabel,
           "Playable segment: Complete",
           "Frozen BAC coordinates: Complete",
           "YOLO player context: Complete",
           "Innovation rules engine: " + eventsStatus,
-          "C# protocol v6 review: " + copilotStatus
-        ];
-        if (reviewStatus === "reviewing" && state.activity?.label) {
-          details.push(
-            "Current C# step: " + state.activity.label
-              + (state.activity.detail ? " — " + state.activity.detail : "")
-          );
-        } else {
-          details.push(segment.statusMessage || "Building football events.");
-        }
-        return details.join("\\n");
+          segment.statusMessage || "Building football events."
+        ].join("\\n");
       }
       const stageOrder = [
         "bac_coordinates",
@@ -5007,70 +5215,15 @@ export function renderHtml({ adapter } = {}) {
           innovationAnalysisDetail(segment, "evidence")
         );
       } else if (analysisModalMode === "rules" && segment.state === "ready") {
-        const reviewStatus = state?.automaticCopilotReview?.status;
-        if (reviewStatus === "complete") {
-          completeSegmentLoading(
-            "Innovation AI processing complete",
-            innovationAnalysisDetail(segment, "rules")
-          );
-        } else if (reviewStatus === "failed") {
-          finishSegmentLoading(
-            "Independent Copilot review failed",
-            innovationAnalysisDetail(segment, "rules")
-          );
-        } else if (reviewStatus === "cancelled") {
-          analysisModalMode = null;
-          setSegmentLoading(false);
-        } else {
-          setSegmentLoading(
-            true,
-            reviewStatus === "reviewing"
-              ? "Reviewing the clip independently"
-              : "Starting independent Copilot review",
-            innovationAnalysisDetail(segment, "rules"),
-            segment.runProvenance?.elapsed_seconds
-          );
-          startAutomaticCopilotReview();
-        }
+        completeSegmentLoading(
+          "Innovation AI processing complete",
+          innovationAnalysisDetail(segment, "rules")
+        );
       } else if (analysisModalMode && segment.state === "failed") {
         finishSegmentLoading(
           "Innovation processing failed",
           innovationAnalysisDetail(segment, analysisModalMode)
         );
-      }
-    }
-
-    async function startAutomaticCopilotReview() {
-      if (
-        automaticReviewStartPending
-        || state?.automaticCopilotReview?.status === "reviewing"
-        || state?.automaticCopilotReview?.status === "complete"
-        || state?.automaticCopilotReview?.status === "cancelled"
-      ) {
-        return;
-      }
-      automaticReviewStartPending = true;
-      try {
-        const response = await fetch(
-          "/api/innovation/start-independent-review",
-          {
-            method: "POST",
-            headers: {"Content-Type": "application/json"},
-            body: JSON.stringify({segment: selectedSegmentKey()})
-          }
-        );
-        const result = await response.json();
-        if (!response.ok) {
-          throw new Error(result.error || "Could not start Copilot review");
-        }
-        await loadState();
-      } catch (error) {
-        finishSegmentLoading(
-          "Could not start independent Copilot review",
-          error.message
-        );
-      } finally {
-        automaticReviewStartPending = false;
       }
     }
 
@@ -5142,7 +5295,13 @@ export function renderHtml({ adapter } = {}) {
     document.getElementById("engine-verification-modal").addEventListener(
       "cancel",
       event => {
-        if (engineVerificationPending) event.preventDefault();
+        if (
+          engineVerificationPending
+          || state.activeDiscrepancyBatch?.kind === "engine"
+          || state.activity?.state === "working"
+        ) {
+          event.preventDefault();
+        }
       }
     );
     document.getElementById("engine-verification-modal").addEventListener(
@@ -6241,8 +6400,6 @@ export function renderHtml({ adapter } = {}) {
     function segmentRunActive() {
       return segmentPreparationPending
         || runStartPending
-        || automaticReviewStartPending
-        || state?.automaticCopilotReview?.status === "reviewing"
         || ["processing", "detections_ready", "building"]
           .includes(state.segment.state);
     }
@@ -6302,8 +6459,8 @@ export function renderHtml({ adapter } = {}) {
         ? "Passed Segment Locked"
         : reviewWorkflow.evidencePreparationEnabled
           ? segment.state === "ready"
-            ? "Rerun AI + C# v6 review"
-            : "Process AI + C# v6 review"
+            ? "Rerun AI"
+            : "Process AI"
         : segment.state === "ready"
           ? "Rerun Segment from Start"
           : segment.state === "failed" && segment.recoveryAvailable
@@ -6467,6 +6624,10 @@ export function renderHtml({ adapter } = {}) {
         state.segment.validated
         || state.segment.validationStatus === "in_review"
         || (
+          reviewWorkflow.key === "innovation"
+          && state.segment.state === "evidence_ready"
+        )
+        || (
           reviewWorkflow.coordinateReviewEnabled
             ? state.coordinateReview?.status === "finalized"
             : state.segment.state === "ready"
@@ -6621,9 +6782,14 @@ export function renderHtml({ adapter } = {}) {
           const regressionRunning = regressionJob?.status === "running";
           const reviewed = Number(summary.reviewed || 0);
           const proposalCount = Number(summary.proposalCount || 0);
+          const matched = Number(summary.matched || 0);
           const values = [
             segment.datasetName + " · " + segment.timeLabel,
-            proposalCount
+            reviewWorkflow.key === "innovation" && proposalCount
+              ? matched + "/" + proposalCount + " M# matched · "
+                + Number(summary.accepted || 0) + " accepted · "
+                + Number(summary.rejected || 0) + " rejected"
+              : proposalCount
               ? reviewed + "/" + proposalCount + " reviewed · "
                 + Number(summary.accepted || 0) + " accepted · "
                 + Number(summary.rejected || 0) + " rejected"
@@ -9848,6 +10014,127 @@ export function renderHtml({ adapter } = {}) {
       return result;
     }
 
+    async function updateManualLedgerAcknowledgement(findingId, acknowledged) {
+      const status = document.getElementById("manual-ledger-audit-status");
+      status.textContent = acknowledged
+        ? "Recording your confirmation…"
+        : "Reopening this advisory…";
+      try {
+        const response = await fetch("/api/manual-ledger-audit", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({
+            segment: selectedSegmentKey(),
+            action: acknowledged ? "acknowledge" : "reopen",
+            findingId
+          })
+        });
+        const result = await response.json();
+        if (!response.ok) {
+          throw new Error(result.error || "Could not update the ledger audit");
+        }
+        await loadState();
+        status.textContent = acknowledged
+          ? "Your M# decision remains unchanged and authoritative."
+          : "The advisory is open again.";
+      } catch (error) {
+        status.textContent = error.message;
+      }
+    }
+
+    function renderManualLedgerAudit() {
+      if (reviewWorkflow.key !== "innovation") return;
+      const audit = state?.manualReference?.ledgerAudit || {
+        findings: [],
+        acknowledgedCount: 0
+      };
+      const findings = audit.findings || [];
+      const openFindings = findings.filter(
+        finding => !finding.acknowledgement
+      );
+      const openButton = document.getElementById("open-manual-ledger-audit");
+      openButton.textContent = openFindings.length
+        ? "Audit M# ledger (" + openFindings.length + ")"
+        : "Audit M# ledger";
+      const totals = (state.manualEvents || []).reduce((result, event) => {
+        const key = event.team + ":" + event.type;
+        result[key] = Number(result[key] || 0) + 1;
+        return result;
+      }, {});
+      const ledgerCounts = (state.manualEvents || []).length + " active M# · "
+        + "Black: " + Number(totals["black:completed_pass"] || 0)
+        + " completed passes, " + Number(totals["black:turnover"] || 0)
+        + " turnovers · Red/white: "
+        + Number(totals["red:completed_pass"] || 0)
+        + " completed passes, " + Number(totals["red:turnover"] || 0)
+        + " turnovers. ";
+      const summary = document.getElementById("manual-ledger-audit-summary");
+      summary.textContent = findings.length === 0
+        ? ledgerCounts
+          + "No potential inconsistencies were found in the current M# ledger."
+        : ledgerCounts + openFindings.length + " open advisory check"
+          + (openFindings.length === 1 ? "" : "s") + " · "
+          + Number(audit.acknowledgedCount || 0) + " confirmed by reviewer. "
+          + "None of these findings blocks approval.";
+      const displayKeys = new Map(
+        (state.manualEvents || []).map(
+          event => [event.key, event.displayKey || event.key]
+        )
+      );
+      const list = document.getElementById("manual-ledger-audit-list");
+      list.replaceChildren(...findings.map(finding => {
+        const item = document.createElement("article");
+        item.className = "manual-ledger-audit-finding"
+          + (finding.acknowledgement ? " acknowledged" : "");
+        const heading = document.createElement("header");
+        const title = document.createElement("strong");
+        title.textContent = finding.title;
+        const category = document.createElement("span");
+        category.className = "muted";
+        category.textContent = finding.category;
+        heading.append(title, category);
+        const detail = document.createElement("p");
+        detail.textContent = finding.detail;
+        const meta = document.createElement("span");
+        meta.className = "manual-ledger-audit-meta";
+        const references = (finding.manualKeys || [])
+          .map(key => displayKeys.get(key) || key);
+        meta.textContent = (references.length ? references.join(" ↔ ") : "Minute")
+          + " · " + Number(finding.seconds || 0).toFixed(3) + "s";
+        const actions = document.createElement("div");
+        actions.className = "manual-ledger-audit-actions";
+        const seek = document.createElement("button");
+        seek.type = "button";
+        seek.textContent = "Seek";
+        seek.addEventListener("click", () => {
+          document.getElementById("manual-ledger-audit-modal").close();
+          seekVideo(Number(finding.seconds || 0));
+        });
+        const confirm = document.createElement("button");
+        confirm.type = "button";
+        confirm.textContent = finding.acknowledgement
+          ? "Reopen advisory"
+          : "Confirm M# is correct";
+        confirm.disabled =
+          referenceLocked() || state.activity?.state === "working";
+        confirm.addEventListener("click", () => {
+          void updateManualLedgerAcknowledgement(
+            finding.id,
+            !finding.acknowledgement
+          );
+        });
+        actions.append(seek, confirm);
+        if (finding.acknowledgement) {
+          const confirmed = document.createElement("span");
+          confirmed.className = "manual-ledger-audit-confirmed";
+          confirmed.textContent = "Reviewer confirmed";
+          actions.append(confirmed);
+        }
+        item.append(heading, detail, meta, actions);
+        return item;
+      }));
+    }
+
     function missingEngineReviewButton(row) {
       const reviewMissing = document.createElement("button");
       reviewMissing.type = "button";
@@ -10958,6 +11245,7 @@ export function renderHtml({ adapter } = {}) {
       renderSegments();
       renderReplayCatalog();
       renderFullscreenEvents();
+      renderManualLedgerAudit();
       document.getElementById("engine-output-notice").hidden =
         state.engineDisplayMode !== "regression_candidate";
       const hasDraft = Boolean(draft);
@@ -11004,11 +11292,34 @@ export function renderHtml({ adapter } = {}) {
           state.manualReference?.comparisonRevealed
         );
         const approveMinute = document.getElementById("approve-manual-minute");
+        const referenceState = state.publication?.published
+          ? "published"
+          : approved
+            ? "frozen"
+            : "unfrozen";
+        const captureLocked = reviewBusy || approved || lockedReference;
+        document.querySelectorAll("[data-manual-team]").forEach(button => {
+          button.disabled = captureLocked;
+          button.title = lockedReference
+            ? "This Passed segment is published and locked."
+            : approved
+              ? "Reopen the frozen M# reference before changing it."
+              : reviewBusy
+                ? "Wait for the active review request to finish."
+                : "Capture this M# at the current video time.";
+        });
         approveMinute.hidden = false;
         approveMinute.disabled =
           approved
           || Math.round(Number(state.segment.durationSeconds) * 1000) !== 60000;
-        document.getElementById("reopen-manual-minute").hidden = !approved;
+        approveMinute.dataset.referenceState = referenceState;
+        approveMinute.textContent = referenceState === "published"
+          ? "Passed segment locked"
+          : approved
+            ? "M# reference frozen"
+            : "Freeze manual M# reference as golden";
+        document.getElementById("reopen-manual-minute").hidden =
+          !approved || lockedReference;
         const validateEngine = document.getElementById(
           "validate-engine-reference"
         );
@@ -11025,9 +11336,11 @@ export function renderHtml({ adapter } = {}) {
           ? "Run the final publication gate and lock this Passed segment"
           : (state.publication?.blockers || []).join(" ");
         const goldenStatus = document.getElementById("golden-workflow-status");
+        goldenStatus.dataset.referenceState = referenceState;
         if (!goldenStatus.textContent.trim()) {
           goldenStatus.textContent = state.publication?.published
-            ? "Passed segment published and locked."
+            ? "Passed segment published and locked. Select an unpublished "
+              + "prepared segment to capture a new manual M# reference."
             : comparisonRevealed
               ? "Engine comparison revealed. Resolve every mismatch before publication."
               : approved
@@ -12201,8 +12514,8 @@ export function renderHtml({ adapter } = {}) {
         true;
       document.getElementById("ask-copilot-engine-review").disabled = true;
       const cancel = document.getElementById("cancel-engine-verification");
-      cancel.textContent = "Cancel review";
-      cancel.disabled = false;
+      cancel.textContent = "Copilot is working…";
+      cancel.disabled = true;
       document.getElementById("engine-verification-guidance").textContent =
         "Copilot is working… Reviewing E" + (engineIndex + 1)
         + ". The rejection is preserved; Cancel review stops only the active "
@@ -12234,6 +12547,29 @@ export function renderHtml({ adapter } = {}) {
         : null;
       const modal = document.getElementById("engine-verification-modal");
       const activeBatch = state.activeDiscrepancyBatch;
+      if (
+        modal.open
+        && activeBatch?.kind === "engine"
+        && state.activity?.state === "working"
+        && engineVerificationPending?.batchId !== activeBatch.id
+      ) {
+        const target = activeBatch.targets.find(
+          candidate => !candidate.completed
+        ) || activeBatch.targets[0];
+        engineVerificationPending = {
+          engineIndex: Number(target?.originalIndex || 0),
+          batchId: activeBatch.id,
+          count: activeBatch.targets.length,
+          identity: target
+            ? {
+                team: target.team,
+                type: target.type,
+                seconds: Number(target.seconds),
+                releaseSeconds: Number(target.releaseSeconds),
+              }
+            : null,
+        };
+      }
       const sameBatchActive = Boolean(
         engineVerificationPending?.batchId
         && activeBatch?.id === engineVerificationPending.batchId
@@ -12246,6 +12582,31 @@ export function renderHtml({ adapter } = {}) {
           "Copilot is working… Reviewing "
           + activeBatch.targets.filter(target => !target.completed).length
           + " remaining similar E# events in this one request.";
+        return;
+      }
+      if (
+        modal.open
+        && modal.dataset.reviewState === "working"
+        && state.activity?.state === "ready"
+      ) {
+        const pending = engineVerificationPending;
+        engineVerificationPending = null;
+        const refreshedIndex = pending?.identity
+          ? state.engineEvents.findIndex(engine =>
+              engine.team === pending.identity.team
+              && engine.type === pending.identity.type
+              && Number(engine.seconds) === pending.identity.seconds
+              && Number(engine.releaseSeconds)
+                === pending.identity.releaseSeconds
+            )
+          : -1;
+        selectedEngineIndex = refreshedIndex >= 0 ? refreshedIndex : null;
+        resetEngineVerificationControls();
+        closeEngineVerificationModal();
+        renderFullscreenEvents();
+        if (selectedEngineIndex !== null) {
+          requestAnimationFrame(scrollSelectedComparisonIntoView);
+        }
         return;
       }
       if (
@@ -12334,7 +12695,8 @@ export function renderHtml({ adapter } = {}) {
         input.checked = false;
       });
       document.getElementById("manual-engine-review-title").textContent =
-        "Review " + manualDisplayKey(event, index) + " missing engine event";
+        "Review " + manualDisplayKey(event, reviewIndex)
+          + " missing engine event";
       document.getElementById("manual-engine-review-event").textContent =
         canonicalComparisonLabel(event) + " at "
         + Number(event.seconds).toFixed(3) + "s";
@@ -12433,6 +12795,29 @@ export function renderHtml({ adapter } = {}) {
     function syncManualEngineReviewModal() {
       const modal = document.getElementById("manual-engine-review-modal");
       const activeBatch = state.activeDiscrepancyBatch;
+      if (
+        modal.open
+        && activeBatch?.kind === "manual"
+        && state.activity?.state === "working"
+        && manualEngineReviewPending?.batchId !== activeBatch.id
+      ) {
+        const target = activeBatch.targets.find(
+          candidate => !candidate.completed
+        ) || activeBatch.targets[0];
+        manualEngineReviewPending = {
+          index: Number(target?.originalIndex || 0),
+          manualKey: target?.manualKey || null,
+          batchId: activeBatch.id,
+          count: activeBatch.targets.length,
+          identity: target
+            ? {
+                team: target.team,
+                type: target.type,
+                seconds: Number(target.seconds),
+              }
+            : null,
+        };
+      }
       const sameBatchActive = Boolean(
         manualEngineReviewPending?.batchId
         && activeBatch?.id === manualEngineReviewPending.batchId
@@ -12453,6 +12838,20 @@ export function renderHtml({ adapter } = {}) {
         document.getElementById(
           "cancel-manual-copilot-review"
         ).hidden = false;
+        return;
+      }
+      if (
+        modal.open
+        && modal.dataset.reviewState === "working"
+        && state.activity?.state === "ready"
+      ) {
+        const completedKey = manualEngineReviewPending?.manualKey;
+        manualEngineReviewPending = null;
+        closeManualEngineReviewModal();
+        renderFullscreenEvents();
+        document.getElementById("fullscreen-chat-status").textContent =
+          (completedKey ? completedKey + " review" : "Grouped review")
+          + " completed. M#/E# rows refreshed.";
         return;
       }
       if (
@@ -12513,7 +12912,7 @@ export function renderHtml({ adapter } = {}) {
           "cancel-manual-copilot-review"
         );
         cancel.hidden = false;
-        cancel.disabled = false;
+        cancel.disabled = true;
         return;
       }
       if (state.activity?.state === "error") {
@@ -13738,6 +14137,22 @@ export function renderHtml({ adapter } = {}) {
       "click",
       () => mutateManualReference({action: "reopen"})
     );
+    const openManualLedgerAudit = () => {
+      renderManualLedgerAudit();
+      document.getElementById("manual-ledger-audit-status").textContent =
+        referenceLocked()
+          ? "This published reference is read-only."
+          : "Advisories never block or alter M# approval.";
+      document.getElementById("manual-ledger-audit-modal").showModal();
+    };
+    document.getElementById("open-manual-ledger-audit")?.addEventListener(
+      "click",
+      openManualLedgerAudit
+    );
+    document.getElementById("close-manual-ledger-audit")?.addEventListener(
+      "click",
+      () => document.getElementById("manual-ledger-audit-modal").close()
+    );
     function setCopilotReferenceVisible(visible) {
       const panel = document.getElementById("copilot-reference");
       const toggle = document.getElementById("show-copilot-reference");
@@ -13829,6 +14244,18 @@ export function renderHtml({ adapter } = {}) {
     document.getElementById("close-manual-engine-review").addEventListener(
       "click",
       closeManualEngineReviewModal
+    );
+    document.getElementById("manual-engine-review-modal").addEventListener(
+      "cancel",
+      event => {
+        if (
+          manualEngineReviewPending
+          || state.activeDiscrepancyBatch?.kind === "manual"
+          || state.activity?.state === "working"
+        ) {
+          event.preventDefault();
+        }
+      }
     );
     document.getElementById(
       "cancel-manual-copilot-review"

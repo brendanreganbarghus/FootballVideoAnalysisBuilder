@@ -14,6 +14,12 @@ replay. The two-camera RTSP ingestion, frame synchronization, GPU optimization,
 operator review UI, and stadium-screen output are the next architecture stage;
 they are not yet implemented.
 
+The active Innovation Day workflow uses frozen BAC ball coordinates, cached
+player evidence, the frozen Innovation engine, and
+`event-review-state-innovation`. Live ball tracking and the Live review
+workflow are frozen and separate; do not run or reuse them for Innovation
+work.
+
 ## 1. Target home-ground architecture
 
 ```text
@@ -199,16 +205,15 @@ local database remains read-only and clients reject it as a writable authority.
 
 The two review-state directories are intentionally incompatible. Innovation
 state uses workflow ID `innovation_day_bac`, frozen BAC coordinates, and the
-frozen Innovation engine. Live state uses workflow ID `live_iteration_25`,
-raw-video coordinates, and the current engine. Do not rename, merge, or use
+frozen Innovation engine. Live state uses workflow ID `live_iteration_25` for
+the separate active ball-tracking R&D workstream. Do not rename, merge, or use
 either directory as a fallback for the other.
 
-`football-event-review` is the canonical single review screen. Its **Workflow**
-selector switches between **Innovation Day — Frozen BAC** and **Live —
-Raw-video pipeline** while remembering the last valid segment for each
-adapter. The `football-event-review-live` provider remains a temporary
-compatibility route while parity is protected. Both providers use the shared
-implementation in `.github\extensions\football-event-review\shared`.
+`football-event-review` is the active Innovation review screen. The
+`football-event-review-live` provider is used only by explicitly requested Live
+work; do not open or use it for Innovation work. The shared implementation
+remains in `.github\extensions\football-event-review\shared`, but each workflow
+keeps its own adapter, state, artifacts, fingerprints, and publication gates.
 
 The selected adapter controls the segment catalog, artifact namespace, state
 directory, engine files, processing API, permitted actions, regression suite,

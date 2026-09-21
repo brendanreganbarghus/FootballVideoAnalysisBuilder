@@ -42,11 +42,14 @@ review requirement pending: report each affected segment and its event
 differences, revise the general rule without weakening the new requirement,
 and repeat the complete protected regression gate. Never reset unrelated work.
 
-**Current boundary:** Live ball tracking and the Live review Canvas are frozen
-and fully separate from Innovation Day. Do not inspect, run, edit, or reuse
-Live code, state, or artifacts unless Brendan explicitly resumes Live work.
-Innovation Day uses frozen BAC coordinates and only its Innovation engine,
-artifact namespace, review state, and Canvas. Treat Innovation Day as a
+**Current boundary:** Live ball tracking is an active R&D workstream, fully
+separate from Innovation Day. Inspect, run, or edit Live code, state, artifacts,
+or the Live review Canvas only when the current task explicitly targets Live
+work. Its current minimum 90% direct-coordinate provenance gate measures
+evidence coverage, not coordinate correctness or calibrated confidence;
+adaptive thresholding remains future work until implemented and independently
+validated. Innovation Day uses frozen BAC coordinates and only its Innovation
+engine, artifact namespace, review state, and Canvas. Treat Innovation Day as a
 BAC-assisted diagnostic/demo of the frozen downstream football engine. Never
 describe it as raw-video ball inference, a valid ball-tracking performance
 benchmark, or current Live pipeline behavior.
