@@ -1,3 +1,29 @@
+export const INNOVATION_MARK_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" aria-hidden="true">
+  <defs>
+    <linearGradient id="review-brand-gradient" x1="64" y1="40" x2="448" y2="472" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ba4ca6"/>
+      <stop offset="1" stop-color="#59164f"/>
+    </linearGradient>
+  </defs>
+  <rect x="36" y="36" width="440" height="440" rx="112" fill="url(#review-brand-gradient)"/>
+  <rect x="92" y="92" width="328" height="328" rx="48" fill="#120d14" fill-opacity=".72" stroke="#e4a5da" stroke-width="10"/>
+  <path d="M256 96v320M96 256h320" stroke="#e4a5da" stroke-width="8" opacity=".62"/>
+  <circle cx="256" cy="256" r="74" fill="none" stroke="#e4a5da" stroke-width="8" opacity=".62"/>
+  <path d="M104 326h72l30-68 50 112 44-144 36 100h72" fill="none" stroke="#68e0c1" stroke-width="22" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="256" cy="256" r="38" fill="#f8f5f8" stroke="#160f18" stroke-width="8"/>
+  <path d="m256 235 18 13-7 21h-22l-7-21 18-13Zm-35 9 18 4m34 0 18-4m-61 43 15-18m22 0 15 18" fill="#6c1d5f" stroke="#6c1d5f" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>`;
+
+const INNOVATION_XEBIA_SVG = `<svg viewBox="0 0 612 202.4" aria-hidden="true">
+  <g fill="#6c1d5f">
+    <path d="M296.5,92.8H239.4A28.91,28.91,0,0,1,267,71.4c15.4,0,25.6,7.6,29.5,21.4m-57.4,19.6h83.8v-5.3c0-13.8-3.2-24.9-9.7-34.3-11.1-14.7-27.6-23.7-45.4-23.7-14.3,0-28.1,6.2-38.7,17.3-9.7,10.3-14.7,23.2-14.7,37.8A57,57,0,0,0,230,142.6c10.8,10.8,23.7,16.1,39.3,16.1,23.2,0,41.6-12.9,50.4-35.7H293.4c-5,8.5-14.3,12.9-24.9,12.9-17.1.6-28.2-8.8-29.4-23.5"/>
+    <path d="M360.7,105.2c0-17.9,12.9-31.3,29.9-31.3S421,88.2,421,104.7c0,17.3-12.9,30.8-31.7,30.8-15.1.1-28.6-13.3-28.6-30.3m-.9-44.6V18.7h-24V157h24v-8.5a50.45,50.45,0,0,0,32.5,11.1,53.38,53.38,0,0,0,34.3-12,56,56,0,0,0,19.6-42.8c0-15.2-6.2-30.4-17.9-40.7-9.7-9.4-22.3-13.8-36.1-13.8-12.7-.3-23,2.7-32.4,10.3"/>
+    <path d="M462.9,52.7h23.2V157H462.9Zm0-34h23.2V41.9H462.9Z"/>
+    <path d="M526.8,103.4a29.6,29.6,0,0,1,29.9-29.9c15.2,0,29.4,13.4,29.4,31.3,0,16.1-13.8,29.9-29,29.9-16.5,0-30.3-12.9-30.3-31.3m62,53.6H612V52.7H588.8V65.2C581.7,54.9,570.9,50,555.7,50c-15.6,0-28.1,5-38.7,16.1-9.7,10.3-14.7,23.7-14.7,38.4,0,31.3,23.2,54.8,53.9,54.8,16.1,0,26.7-4.4,32.5-15.2l.1,12.9Z"/>
+    <polygon points="0.9 202.4 64.5 202.4 133.3 133.8 201.9 202.4 266.3 202.4 165.5 101.6 267.2 0 202.8 0 133.3 69.6 64.2 0 0 0 101.1 101.6 0.9 202.4"/>
+  </g>
+</svg>`;
+
 export function renderHtml({ adapter } = {}) {
   if (!adapter?.key) {
     throw new Error("A football review workflow adapter is required.");
@@ -7,12 +33,16 @@ export function renderHtml({ adapter } = {}) {
   const homeUrl = adapter.homeUrl;
   const homeLabel = adapter.homeLabel;
   const palette = adapter.palette;
+  const innovationFavicon = adapter.key === "innovation"
+    ? '<link rel="icon" type="image/svg+xml" sizes="any" href="/favicon.svg?v=pitch-pulse-1">'
+    : "";
   return `<!doctype html>
 <html lang="en" data-app-theme="${appTheme}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="${themeColor}">
+  ${innovationFavicon}
   <title>${adapter.displayName}</title>
   <style>
     :root { color-scheme: dark; }
@@ -146,11 +176,45 @@ export function renderHtml({ adapter } = {}) {
     button:disabled { cursor: not-allowed; opacity: .55; }
     header {
       display: flex;
+      flex-wrap: wrap;
       justify-content: space-between;
       gap: 12px;
       align-items: center;
       padding: 14px 18px;
       border-bottom: 1px solid var(--border-color-default, #30363d);
+    }
+    .review-heading {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      min-width: 0;
+    }
+    .review-brand-lockup {
+      display: flex;
+      flex: none;
+      align-items: center;
+      gap: 8px;
+      padding-right: 14px;
+      border-right: 1px solid rgb(255 255 255 / 16%);
+    }
+    .review-brand-lockup > svg {
+      display: block;
+      width: 42px;
+      height: 42px;
+    }
+    .review-brand-xebia {
+      display: grid;
+      width: 88px;
+      height: 38px;
+      padding: 7px 9px;
+      place-items: center;
+      border-radius: 7px;
+      background: #fff;
+    }
+    .review-brand-xebia svg {
+      display: block;
+      width: 100%;
+      height: auto;
     }
     .header-actions {
       display: flex;
@@ -3751,23 +3815,31 @@ export function renderHtml({ adapter } = {}) {
   </dialog>
   ` : ""}
   <header>
-    <div>
-      <h1 id="page-title">${adapter.displayName}</h1>
-      <div class="muted" id="page-subtitle">
-        Prepared segment → reference review → engine check
-      </div>
-      <div class="innovation-brand">
-        ${adapter.brandLead ? `<strong>${adapter.brandLead}</strong>` : ""}
-        <span>${adapter.brandDetail}</span>
-        <span class="component-version" id="tracker-version">
-          ${adapter.trackerLoadingLabel}
-        </span>
-        <span class="component-version" id="ball-coordinate-coverage">
-          Ball coordinates: loading
-        </span>
-        <span class="component-version" id="rules-version">
-          Rules engine: loading
-        </span>
+    <div class="review-heading">
+      ${adapter.key === "innovation" ? `
+      <div class="review-brand-lockup"
+        aria-label="Grassroots Football Intelligence and Xebia">
+        ${INNOVATION_MARK_SVG}
+        <span class="review-brand-xebia">${INNOVATION_XEBIA_SVG}</span>
+      </div>` : ""}
+      <div>
+        <h1 id="page-title">${adapter.displayName}</h1>
+        <div class="muted" id="page-subtitle">
+          Prepared segment → reference review → engine check
+        </div>
+        <div class="innovation-brand">
+          ${adapter.brandLead ? `<strong>${adapter.brandLead}</strong>` : ""}
+          <span>${adapter.brandDetail}</span>
+          <span class="component-version" id="tracker-version">
+            ${adapter.trackerLoadingLabel}
+          </span>
+          <span class="component-version" id="ball-coordinate-coverage">
+            Ball coordinates: loading
+          </span>
+          <span class="component-version" id="rules-version">
+            Rules engine: loading
+          </span>
+        </div>
       </div>
     </div>
     <div class="header-actions">

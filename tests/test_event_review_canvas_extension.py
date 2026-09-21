@@ -564,6 +564,14 @@ def test_innovation_canvas_always_uses_innovation_theme() -> None:
     assert 'theme: "innovation"' in extension
     assert "renderHtml({ adapter } = {})" in renderer
     assert 'data-app-theme="${appTheme}"' in renderer
+    assert "INNOVATION_MARK_SVG" in renderer
+    assert "INNOVATION_XEBIA_SVG" in renderer
+    assert 'adapter.key === "innovation"' in renderer
+    assert 'rel="icon" type="image/svg+xml"' in renderer
+    assert 'href="/favicon.svg?v=pitch-pulse-1"' in renderer
+    assert 'url.pathname === "/favicon.svg"' in extension
+    assert '"Content-Type": "image/svg+xml; charset=utf-8"' in extension
+    assert 'class="review-brand-lockup"' in renderer
     assert "Back to Product Home" not in renderer
     assert "Back to Innovation Day" in renderer
     assert "http://127.0.0.1:8080/showcase/innovation-day/" in renderer

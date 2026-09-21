@@ -43,7 +43,10 @@ import {
 import {
   buildPublicationPlan as buildLivePublicationPlan,
 } from "../../football-event-review-live/publication-gate.mjs";
-import { renderHtml } from "./review-renderer.mjs";
+import {
+  INNOVATION_MARK_SVG,
+  renderHtml,
+} from "./review-renderer.mjs";
 import { workflowAdapter } from "./workflow-adapters.mjs";
 
 const extensionRoot = dirname(fileURLToPath(import.meta.url));
@@ -5801,6 +5804,19 @@ async function dispatchCanvasAction(action, context) {
 
 async function handleRequest(request, response, serverInstanceId) {
   const url = new URL(request.url, "http://127.0.0.1");
+  if (
+    request.method === "GET"
+    && url.pathname === "/favicon.svg"
+    && workflow.key === "innovation"
+  ) {
+    response.writeHead(200, {
+      "Cache-Control": "public, max-age=86400",
+      "Content-Type": "image/svg+xml; charset=utf-8",
+      "Content-Length": Buffer.byteLength(INNOVATION_MARK_SVG),
+    });
+    response.end(INNOVATION_MARK_SVG);
+    return;
+  }
   if (request.method === "GET" && url.pathname === "/") {
     const html = renderHtml({adapter: workflow});
     response.writeHead(200, {
