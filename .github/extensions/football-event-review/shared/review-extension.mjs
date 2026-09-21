@@ -2225,7 +2225,7 @@ async function executePublishedInnovationRegression(segment, progress) {
     );
   }
 
-  let baselineSnapshotForRestore = null;
+  let baselineSnapshotForRestore = before;
   let completedResult = null;
   try {
     updateSegmentRegressionProgress(progress, "baseline", "completed");
@@ -2357,6 +2357,7 @@ async function executePublishedInnovationRegression(segment, progress) {
         baselineSnapshotForRestore.matchState,
       );
     }
+    publishPreparedSegmentBundle(segment, review.selected);
     updateSegmentRegressionProgress(progress, "restore", "completed");
     progress.completedAt = new Date().toISOString();
     if (completedResult) {

@@ -244,6 +244,7 @@ def test_canvas_reviews_the_prepared_segment_catalog() -> None:
     assert "if (sharedRoot) return sharedRoot;" in extension
     assert '"scripts", "publish-prepared-segment.py"' in extension
     assert "publishPreparedSegmentBundle(segment, review.selected);" in extension
+    assert "let baselineSnapshotForRestore = before;" in extension
 
 
 def test_live_canvas_blocks_interaction_while_switching_segments() -> None:
@@ -1054,6 +1055,8 @@ def test_innovation_runner_rejects_media_manifest_duration_mismatch() -> None:
     assert 'prepared.get("innovation_video", prepared["video"])' in runner
     assert "if not video.is_absolute():" in runner
     assert "video = segment / video" in runner
+    assert "if args.events_only:" in runner
+    assert "chunk_state.unlink(missing_ok=True)" in runner
     assert '"start_frame": declared_start_frame' in runner
     assert '"end_frame": declared_end_frame' in runner
     assert "Prepared Innovation media does not match its raw-only manifest" in runner

@@ -401,6 +401,9 @@ def main() -> None:
             *ALFHEIM_POSSESSION_ARGUMENTS,
             *boundary_arguments,
         )
+        chunk_state = results / "chunk-simulation-state.json"
+        if args.events_only:
+            chunk_state.unlink(missing_ok=True)
         run(
             "-m",
             "football_poc.chunk_simulator_cli",
@@ -409,6 +412,8 @@ def main() -> None:
             str(results / "predicted-events.json"),
             "--output",
             str(results / "chunk-simulation.json"),
+            "--state",
+            str(chunk_state),
         )
         provenance = {
             "schema_version": 1,
