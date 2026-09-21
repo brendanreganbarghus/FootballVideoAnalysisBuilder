@@ -145,7 +145,10 @@ Innovationday Artifacts\
 |       `-- pitch-calibration.json
 |-- 15-prepared-segments\<camera-id>\<recording-id>\<segment-id>\
 |   |-- segment.json
-|   `-- segment.mp4
+|   |-- manifest.json
+|   |-- segment.mp4
+|   |-- checksums.sha256
+|   `-- <innovation|live>\...
 |-- 20-approved-models\<scope>\<model>\
 |-- 30-shared-baselines\
 |   |-- event-review-state-innovation\
@@ -173,6 +176,31 @@ connection URL remains outside Git. The same code later points to Xebia
 PostgreSQL. Innovation and Live use separate workflow identities, leases,
 review histories, engine/tracker fingerprints, jobs, regressions, receipts, and
 publications even when they reference the same prepared media.
+
+`15-prepared-segments` is the inherited review catalogue. Each active dropdown
+segment has one canonical playable video, immutable provenance metadata, the
+selected workflow's runtime artifacts, and a complete checksum inventory.
+The local server merges this shared catalogue with any disposable local
+generated runs; a local run with the same segment ID takes precedence while it
+is being developed. The Canvas receives the resolved prepared root, so a fresh
+checkout can open the shared bundle without copying it into
+`benchmarks\alfheim\generated`.
+
+Publish or refresh one selected workflow bundle with:
+
+```powershell
+python .\scripts\publish-prepared-segment.py `
+  .\benchmarks\alfheim\generated\segment-0120-020 `
+  --workflow innovation_day_bac `
+  --camera-id f7a5f35d-9c61-5e9c-b6f3-795742c2c8f1 `
+  --recording-id alfheim-pano-camera-setting-2
+```
+
+The final Canvas publication gate runs the same publisher automatically.
+Publication fails rather than claiming success if the shared bundle cannot be
+written and verified. Do not add inactive scratch windows to this catalogue.
+Protected regression fixtures may remain local even when they are intentionally
+absent from the review dropdown.
 
 The configured database must already exist. Backend startup obtains a
 PostgreSQL advisory migration lock, applies checked forward-only migrations,

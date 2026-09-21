@@ -28,6 +28,10 @@ from football_poc.alfheim_segments import (
     resolve_alfheim_pano,
 )
 from football_poc.event_comparison import compare_manual_events
+from football_poc.artifact_store import (
+    discover_prepared_segments,
+    find_prepared_segment,
+)
 from football_poc.coordination import (
     CoordinationConfig,
     DatabaseHealth,
@@ -667,6 +671,23 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
 
     def translate_path(self, path: str) -> str:
         request_path = urlparse(path).path
+        shared_match = re.fullmatch(
+            r"/shared-prepared/(segment-\d{4}-\d{3})/"
+            r"((?:[A-Za-z0-9._-]+/)*[A-Za-z0-9._-]+)",
+            request_path,
+        )
+        if shared_match and SHARED_ARTIFACT_ROOT:
+            segment_id, filename = shared_match.groups()
+            segment = find_prepared_segment(
+                segment_id,
+                SHARED_ARTIFACT_ROOT,
+            )
+            if segment is None:
+                return str(SHARED_ARTIFACT_ROOT / "__invalid__")
+            resolved = (segment.root / filename).resolve()
+            if not resolved.is_relative_to(segment.root):
+                return str(SHARED_ARTIFACT_ROOT / "__invalid__")
+            return str(resolved)
         match = re.fullmatch(
             r"/shared-custom/(custom-[a-z0-9-]+)/"
             r"((?:[A-Za-z0-9._-]+/)*[A-Za-z0-9._-]+)",
@@ -1271,9 +1292,16 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
         self,
         cache_key: str,
         namespace: str | None = None,
+        *,
+        prepared_root: Path | None = None,
+        url_root: str | None = None,
     ) -> dict[str, object]:
-        segment_root = (
-            Path.cwd() / "benchmarks" / "alfheim" / "generated" / cache_key
+        segment_root = prepared_root or (
+            Path.cwd()
+            / "benchmarks"
+            / "alfheim"
+            / "generated"
+            / cache_key
         )
         manifest_path = segment_root / "manifest.json"
         if not manifest_path.is_file():
@@ -1296,7 +1324,13 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
         analysis_status, performance = self._analysis_receipt(root)
         process_key = f"{namespace or 'legacy'}:{cache_key}"
         current_process = self.analysis_processes.get(process_key)
-        relative = root.relative_to(Path.cwd()).as_posix()
+        relative = (
+            f"{url_root.rstrip('/')}/{namespace}"
+            if url_root and namespace
+            else url_root.rstrip("/")
+            if url_root
+            else f"/{root.relative_to(Path.cwd()).as_posix()}"
+        )
         if current_process is not None and current_process.poll() is None:
             state = (
                 "processing"
@@ -1328,16 +1362,115 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
             "run_provenance": analysis_status or None,
             "performance": performance,
             "events_url": (
-                f"/{relative}/analytics-data/predicted-events.json"
+                f"{relative}/analytics-data/predicted-events.json"
                 if events.is_file()
                 else None
             ),
             "tracking_url": (
-                f"/{relative}/analytics-data/tracking-verification.webm"
+                f"{relative}/analytics-data/tracking-verification.webm"
                 if tracking.is_file()
                 else None
             ),
         }
+
+    def _shared_prepared_segments(
+        self,
+        namespace: str | None = None,
+    ) -> list[dict[str, object]]:
+        workflow_id = {
+            "innovation": "innovation_day_bac",
+            "live": "live_iteration_25",
+        }.get(namespace)
+        items: list[dict[str, object]] = []
+        for shared in discover_prepared_segments(SHARED_ARTIFACT_ROOT):
+            if workflow_id and workflow_id not in shared.workflows:
+                continue
+            metadata = dict(shared.metadata)
+            manifest = json.loads(
+                shared.manifest.read_text(encoding="utf-8")
+            )
+            first_segment, segment_count = map(
+                int,
+                shared.segment_id.removeprefix("segment-").split("-"),
+            )
+            run_root = shared.root / namespace if namespace else shared.root
+            status = self._segment_status(
+                shared.segment_id,
+                namespace=namespace,
+                prepared_root=shared.root,
+                url_root=f"/shared-prepared/{shared.segment_id}",
+            )
+            manual_reference = run_root / "manual-reference.json"
+            predicted_events = (
+                run_root / "analytics-data" / "predicted-events.json"
+            )
+            validated = False
+            if manual_reference.is_file() and predicted_events.is_file():
+                manual = json.loads(
+                    manual_reference.read_text(encoding="utf-8")
+                )["events"]
+                predicted = json.loads(
+                    predicted_events.read_text(encoding="utf-8")
+                )
+                report = compare_manual_events(
+                    manual,
+                    predicted,
+                    tolerance_seconds=1.0,
+                )
+                validated = (
+                    len(manual) == len(predicted)
+                    == report["matched_event_count"]
+                    and not report["unmatched_manual"]
+                    and not report["unmatched_predicted"]
+                )
+            evidence_ready = (
+                (run_root / "analytics-cache" / "ball-tracks.json").is_file()
+                and (
+                    run_root / "analytics-cache" / "detections.jsonl"
+                ).is_file()
+                and (
+                    run_root / "analytics-data" / "player-tracks.json"
+                ).is_file()
+            )
+            items.append(
+                {
+                    **status,
+                    "cache_key": shared.segment_id,
+                    "source_start_seconds": float(
+                        metadata.get(
+                            "source_start_seconds",
+                            manifest.get(
+                                "source_start_seconds",
+                                first_segment * 3,
+                            ),
+                        )
+                    ),
+                    "duration_seconds": float(
+                        metadata.get(
+                            "duration_seconds",
+                            manifest.get(
+                                "duration_seconds",
+                                segment_count * 3,
+                            ),
+                        )
+                    ),
+                    "raw_video_only": "ball_ground_truth" not in manifest,
+                    "ball_track_available": (
+                        run_root / "analytics-cache" / "ball-tracks.json"
+                    ).is_file(),
+                    "evidence_ready": evidence_ready,
+                    "validated": validated,
+                    "protected": False,
+                    "video_url": (
+                        f"/shared-prepared/{shared.segment_id}/"
+                        f"{shared.video.relative_to(shared.root).as_posix()}"
+                    ),
+                    "prepared_root": str(shared.root),
+                    "review_workflows": list(shared.workflows),
+                    "labels_url": None,
+                }
+            )
+        return items
 
     def _prepared_segments(
         self,
@@ -1391,9 +1524,7 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
             )
 
         generated = workspace / "benchmarks" / "alfheim" / "generated"
-        if not generated.is_dir():
-            return items
-        for root in sorted(generated.iterdir()):
+        for root in sorted(generated.iterdir()) if generated.is_dir() else ():
             match = re.fullmatch(r"segment-(\d{4})-(\d{3})", root.name)
             if not match or not root.is_dir():
                 continue
@@ -1475,10 +1606,21 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
                         "segment-0615-020",
                     },
                     "video_url": f"/{relative}/alfheim-window-playable.mp4",
+                    "prepared_root": str(root.resolve()),
+                    "review_workflows": [
+                        str(value)
+                        for value in manifest.get("review_workflows", [])
+                    ],
                     "labels_url": None,
                 }
             )
-        return items
+        local_keys = {str(item["cache_key"]) for item in items}
+        items.extend(
+            segment
+            for segment in self._shared_prepared_segments(namespace=namespace)
+            if str(segment["cache_key"]) not in local_keys
+        )
+        return sorted(items, key=lambda item: str(item["cache_key"]))
 
     def _alfheim_review_segments(
         self,
@@ -1489,22 +1631,9 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
             segment: dict[str, object],
             workflow_id: str,
         ) -> bool:
-            manifest_path = (
-                Path.cwd()
-                / "benchmarks"
-                / "alfheim"
-                / "generated"
-                / str(segment["cache_key"])
-                / "manifest.json"
-            )
-            if not manifest_path.is_file():
-                return False
-            manifest = json.loads(
-                manifest_path.read_text(encoding="utf-8")
-            )
             return workflow_id in {
                 str(value)
-                for value in manifest.get("review_workflows", [])
+                for value in segment.get("review_workflows", [])
             }
 
         if namespace == "innovation":

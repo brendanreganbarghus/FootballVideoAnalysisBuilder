@@ -73,6 +73,32 @@ Existing passed Innovation segments can be reviewed from their frozen
 artifacts without rerunning AI. Run the processor only for a new prepared
 segment, an intentional frozen-pipeline rebuild, or a guarded event rebuild.
 
+### Publish an active prepared segment
+
+Only segments intentionally exposed in an Innovation or Live dropdown belong
+in the shared prepared catalogue. Publish one selected workflow after its
+local artifacts are ready:
+
+```powershell
+python .\scripts\publish-prepared-segment.py `
+  .\benchmarks\alfheim\generated\segment-0120-020 `
+  --workflow innovation_day_bac `
+  --camera-id f7a5f35d-9c61-5e9c-b6f3-795742c2c8f1 `
+  --recording-id alfheim-pano-camera-setting-2
+```
+
+For Live, use `--workflow live_iteration_25`. The command copies only the
+selected namespace, writes one canonical `segment.mp4`, normalizes the shared
+manifest, and verifies every file against `checksums.sha256`. Re-publishing
+one workflow preserves the other workflow namespace for the same prepared
+segment. The final Canvas publication gate invokes this command automatically.
+
+The local server prefers a local generated segment with the same ID; otherwise
+it discovers the verified bundle under
+`15-prepared-segments\<camera-id>\<recording-id>\<segment-id>`. PostgreSQL
+continues to provide mutable review state and history. Do not publish inactive
+scratch windows merely because they exist in the local generated directory.
+
 ## Namespace and output safety
 
 The remaining commands in this guide operate on the Live workflow and have two

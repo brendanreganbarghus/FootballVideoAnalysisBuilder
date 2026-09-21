@@ -236,6 +236,14 @@ def test_canvas_reviews_the_prepared_segment_catalog() -> None:
     assert "left.startSeconds - right.startSeconds" in extension
     assert "left.durationSeconds - right.durationSeconds" in extension
     assert "left.key.localeCompare(right.key)" in extension
+    assert "const preparedSegmentRoots = new Map();" in extension
+    assert (
+        "preparedSegmentRoots.set(segment.cache_key, segment.prepared_root)"
+        in extension
+    )
+    assert "if (sharedRoot) return sharedRoot;" in extension
+    assert '"scripts", "publish-prepared-segment.py"' in extension
+    assert "publishPreparedSegmentBundle(segment, review.selected);" in extension
 
 
 def test_live_canvas_blocks_interaction_while_switching_segments() -> None:

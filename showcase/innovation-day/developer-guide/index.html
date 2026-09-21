@@ -353,6 +353,15 @@ Test-Path $liveState
             <code>15-prepared-segments\</code> catalog so other developers can
             select the identical evidence window.
           </p>
+          <p>
+            Active dropdown segments are published under
+            <code>15-prepared-segments\&lt;camera&gt;\&lt;recording&gt;\&lt;segment&gt;</code>
+            with one canonical playable video, immutable metadata, selected
+            workflow artifacts, and checksums. PostgreSQL supplies the shared
+            review history. A fresh checkout therefore discovers the same
+            segment and decisions without copying another developer's local
+            generated directory.
+          </p>
         </div>
       </article>
 

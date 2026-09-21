@@ -55,6 +55,7 @@ const buildPublicationPlan = workflow.key === "innovation"
   : buildLivePublicationPlan;
 const alfheimRoot = join(projectRoot, "benchmarks", "alfheim");
 const generatedRoot = join(alfheimRoot, "generated");
+const preparedSegmentRoots = new Map();
 const soccertrackReviewRoot = join(
   projectRoot,
   "benchmarks",
@@ -1041,6 +1042,8 @@ function publicSegmentRegressionProgress() {
 }
 
 function preparedSegmentRoot(segment) {
+  const sharedRoot = preparedSegmentRoots.get(segment);
+  if (sharedRoot) return sharedRoot;
   return segment === "alfheim-window-555"
     ? join(alfheimRoot, "window-555")
     : join(generatedRoot, segment);
@@ -1143,6 +1146,11 @@ async function loadPreparedSegments() {
   }
   const payload = await response.json();
   const hiddenSegments = new Set(workflow.hiddenSegments || []);
+  payload.segments.forEach((segment) => {
+    if (segment.prepared_root) {
+      preparedSegmentRoots.set(segment.cache_key, segment.prepared_root);
+    }
+  });
   const segments = await Promise.all(payload.segments
     .filter((segment) => !hiddenSegments.has(segment.cache_key))
     .map(async (segment) => {
@@ -1852,6 +1860,28 @@ async function registerWorkflowRegression(segment, reference, current) {
     entry,
   ].sort((left, right) => left.segment.localeCompare(right.segment));
   await writeJsonAtomically(regressionRegistryPath, registry);
+}
+
+function publishPreparedSegmentBundle(segment, selected) {
+  return execFileSync(
+    "python",
+    [
+      join(projectRoot, "scripts", "publish-prepared-segment.py"),
+      preparedSegmentRoot(segment),
+      "--workflow",
+      workflowId,
+      "--camera-id",
+      selected.cameraId,
+      "--recording-id",
+      selected.recordingId,
+    ],
+    {
+      cwd: projectRoot,
+      encoding: "utf8",
+      env: process.env,
+      windowsHide: true,
+    },
+  ).trim();
 }
 
 async function engineFingerprint() {
@@ -10875,6 +10905,20 @@ session = await joinSession({
               throw new CanvasError(
                 "reference_exact_match_failed",
                 "The published reference did not exactly match current engine output.",
+              );
+            }
+            try {
+              publishPreparedSegmentBundle(segment, review.selected);
+            } catch (error) {
+              if (previousReference === null) {
+                await unlink(path).catch(() => {});
+              } else {
+                await writeTextAtomically(path, previousReference);
+              }
+              throw new CanvasError(
+                "shared_segment_publication_failed",
+                "The reference passed locally but its shared segment bundle "
+                  + `could not be published: ${error.message}`,
               );
             }
             review.state.publicationAuthorization = null;

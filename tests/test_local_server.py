@@ -6,6 +6,8 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from football_poc.coordination import (
     DatabaseHealth,
     DatabaseMode,
@@ -21,6 +23,17 @@ SPEC = importlib.util.spec_from_file_location(
 assert SPEC and SPEC.loader
 SERVE_LOCAL = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(SERVE_LOCAL)
+
+
+@pytest.fixture(autouse=True)
+def isolate_shared_artifact_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        SERVE_LOCAL,
+        "SHARED_ARTIFACT_ROOT",
+        tmp_path / "shared-artifacts",
+    )
 
 
 def coordination_service() -> tuple[object, InMemoryCoordinationRepository]:
@@ -468,6 +481,10 @@ def test_prepared_segment_list_reports_times_protection_and_ai_state(
                 "/benchmarks/alfheim/generated/segment-0575-020/"
                 "alfheim-window-playable.mp4"
             ),
+            "prepared_root": str(
+                (generated / "segment-0575-020").resolve()
+            ),
+            "review_workflows": [],
             "labels_url": None,
         },
         {
@@ -484,6 +501,10 @@ def test_prepared_segment_list_reports_times_protection_and_ai_state(
                 "/benchmarks/alfheim/generated/segment-0700-010/"
                 "alfheim-window-playable.mp4"
             ),
+            "prepared_root": str(
+                (generated / "segment-0700-010").resolve()
+            ),
+            "review_workflows": [],
             "labels_url": None,
         },
     ]
@@ -555,6 +576,95 @@ def test_dynamic_prepared_segments_stay_in_their_registered_workflow(
     assert [segment["cache_key"] for segment in live] == [
         "segment-0100-020"
     ]
+
+
+def test_shared_prepared_segments_are_listed_without_local_generated_copy(
+    tmp_path: Path, monkeypatch
+) -> None:
+    artifact_root = tmp_path / "artifacts"
+    shared = (
+        artifact_root
+        / "15-prepared-segments"
+        / "camera-1"
+        / "recording-1"
+        / "segment-0120-020"
+    )
+    run_root = shared / "innovation"
+    (run_root / "analytics-cache").mkdir(parents=True)
+    (run_root / "analytics-data").mkdir()
+    (shared / "segment.mp4").write_bytes(b"video")
+    (shared / "manifest.json").write_text(
+        json.dumps(
+            {
+                "video": "segment.mp4",
+                "start_frame": 0,
+                "end_frame": 1500,
+                "source_start_seconds": 360.0,
+                "duration_seconds": 60.0,
+                "review_workflows": ["innovation_day_bac"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (shared / "segment.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "segment_id": "segment-0120-020",
+                "dataset_id": "alfheim",
+                "source_start_seconds": 360.0,
+                "duration_seconds": 60.0,
+                "video": "segment.mp4",
+                "manifest": "manifest.json",
+                "workflows": ["innovation_day_bac"],
+                "workflow_artifacts": {
+                    "innovation_day_bac": "innovation"
+                },
+                "camera_id": "camera-1",
+                "recording_id": "recording-1",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (run_root / "analytics-cache" / "ball-tracks.json").write_text(
+        "[]", encoding="utf-8"
+    )
+    (run_root / "analytics-cache" / "detections.jsonl").write_text(
+        '{"stride":5}\n', encoding="utf-8"
+    )
+    (run_root / "analytics-data" / "player-tracks.json").write_text(
+        "[]", encoding="utf-8"
+    )
+    (run_root / "analytics-data" / "predicted-events.json").write_text(
+        "[]", encoding="utf-8"
+    )
+    (run_root / "manual-reference.json").write_text(
+        '{"events":[]}', encoding="utf-8"
+    )
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        SERVE_LOCAL,
+        "SHARED_ARTIFACT_ROOT",
+        artifact_root,
+    )
+    handler = object.__new__(SERVE_LOCAL.RangeRequestHandler)
+
+    innovation = handler._alfheim_review_segments(namespace="innovation")
+    live = handler._alfheim_review_segments(namespace="live")
+
+    assert [segment["cache_key"] for segment in innovation] == [
+        "segment-0120-020"
+    ]
+    assert live == []
+    segment = innovation[0]
+    assert segment["validated"] is True
+    assert segment["prepared_root"] == str(shared.resolve())
+    assert segment["video_url"] == (
+        "/shared-prepared/segment-0120-020/segment.mp4"
+    )
+    assert Path(handler.translate_path(segment["video_url"])) == (
+        shared / "segment.mp4"
+    ).resolve()
 
 
 def test_custom_camera_uses_its_own_sample_and_calibration_state(
