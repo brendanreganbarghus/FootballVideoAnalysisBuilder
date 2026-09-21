@@ -2736,7 +2736,7 @@ function canvasSessionConnection(hostInstanceId, serverInstanceId) {
     };
   }
   const connected = Boolean(
-    session?.sessionId
+    session
     && repositoryAvailable
     && hostInstanceId
     && hostInstanceId === serverInstanceId
