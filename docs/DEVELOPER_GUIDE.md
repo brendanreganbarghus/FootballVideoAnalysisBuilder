@@ -361,10 +361,15 @@ generated caches.
    .\.venv\Scripts\python .\scripts\verify-innovation-workspace.py --require-alfheim
    ```
 
-5. Configure PostgreSQL without putting credentials in the repository. Copy
-   the non-secret profile to the per-user application directory, then obtain
-   `FOOTBALL_DATABASE_URL` from the current coordination administrator through
-   the approved Xebia secret-sharing channel:
+5. Configure PostgreSQL without putting credentials in the repository. The
+   standard development database is the shared Azure PostgreSQL Flexible
+   Server at `grassroots-dev.postgres.database.azure.com` (database
+   `football_video_analysis`, TLS required via `sslmode=require`), so no
+   local PostgreSQL installation is needed. Copy the non-secret profile to
+   the per-user application directory, then obtain the full
+   `FOOTBALL_DATABASE_URL` (including credentials) from the current
+   coordination administrator through the approved Xebia secret-sharing
+   channel:
 
    ```powershell
    $configHome = Join-Path $env:LOCALAPPDATA "FootballVideoPOC"

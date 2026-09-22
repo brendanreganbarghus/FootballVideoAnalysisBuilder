@@ -149,13 +149,17 @@ falls back to the current Copilot session workspace.
 The application remains usable without PostgreSQL in single-user local mode.
 For coordinated development, copy `config\coordination.example.json` outside
 the repository or point `FOOTBALL_COORDINATION_CONFIG` at a
-deployment-specific copy, then provide the secret connection URL separately:
+deployment-specific copy, then provide the secret connection URL separately.
+The standard shared development server is
+`grassroots-dev.postgres.database.azure.com` (Azure PostgreSQL Flexible
+Server, `sslmode=require`); obtain credentials from the coordination
+administrator — never from the repository:
 
 ```powershell
 $env:FOOTBALL_COORDINATION_CONFIG = `
   "C:\secure-config\football-coordination.json"
 $env:FOOTBALL_DATABASE_URL = `
-  "postgresql://<user>:<password>@<host>:5432/<database>"
+  "postgresql://<user>:<password>@<host>:5432/<database>?sslmode=require"
 python .\scripts\serve-local.py --bind 127.0.0.1 --port 8080
 ```
 
