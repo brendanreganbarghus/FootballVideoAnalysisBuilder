@@ -312,6 +312,41 @@
       height: 100%;
       display: block;
       object-fit: cover;
+      transition: transform .35s ease;
+    }
+    .visual:hover img { transform: scale(1.07); }
+    .visual {
+      transition: border-color .35s ease, box-shadow .35s ease;
+    }
+    .visual:hover {
+      border-color: rgb(186 76 166 / 55%);
+      box-shadow: 0 1.6cqw 4.6cqw rgb(108 29 95 / 45%);
+    }
+    .proof-card,
+    .match-snapshot,
+    .pipeline-step,
+    .challenge-item {
+      transition: transform .25s ease, border-color .25s ease,
+        box-shadow .25s ease;
+    }
+    .proof-card:hover,
+    .pipeline-step:hover,
+    .challenge-item:hover {
+      transform: scale(1.05);
+      border-color: rgb(104 224 193 / 55%);
+      box-shadow: 0 .5cqw 1.8cqw rgb(0 0 0 / 45%);
+    }
+    .match-snapshot:hover {
+      transform: scale(1.02);
+      border-color: rgb(186 76 166 / 55%);
+      box-shadow: 0 .5cqw 1.8cqw rgb(0 0 0 / 45%);
+    }
+    @media print {
+      .visual:hover img,
+      .proof-card:hover,
+      .pipeline-step:hover,
+      .challenge-item:hover,
+      .match-snapshot:hover { transform: none; }
     }
     .visual-main img { object-position: center 64%; }
     .visual-validation img { object-position: center top; }

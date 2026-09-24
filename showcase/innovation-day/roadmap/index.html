@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Roadmap slide for the Grassroots Football Intelligence Innovation Day pitch.">
+  <meta name="theme-color" content="#6c1d5f">
+  <link rel="icon" type="image/svg+xml" href="../assets/grassroots-football-mark.svg">
+  <title>Grassroots Football Intelligence | Roadmap</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --ink: #fbf8fb;
+      --muted: #c5bac6;
+      --surface: #19131b;
+      --surface-2: #241826;
+      --line: #49354b;
+      --purple: #ba4ca6;
+      --purple-deep: #6c1d5f;
+      --mint: #68e0c1;
+      --amber: #f5bd68;
+      font-family: Inter, "Segoe UI", Arial, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; }
+    body {
+      min-height: 100svh;
+      display: grid;
+      place-items: center;
+      overflow: auto;
+      background: #080609;
+      color: var(--ink);
+    }
+
+    .slide {
+      container-type: inline-size;
+      position: relative;
+      width: min(100vw, 177.78vh);
+      aspect-ratio: 16 / 9;
+      overflow: hidden;
+      padding: 3cqw 3.4cqw;
+      display: flex;
+      flex-direction: column;
+      background:
+        radial-gradient(circle at 78% 12%, rgb(108 29 95 / 42%), transparent 28%),
+        radial-gradient(circle at 8% 92%, rgb(104 224 193 / 11%), transparent 28%),
+        linear-gradient(135deg, #100d12 0%, #120e14 48%, #0d0a0f 100%);
+      box-shadow: 0 0 80px rgb(0 0 0 / 65%);
+    }
+    .slide::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      opacity: .18;
+      background-image:
+        linear-gradient(rgb(255 255 255 / 5%) 1px, transparent 1px),
+        linear-gradient(90deg, rgb(255 255 255 / 5%) 1px, transparent 1px);
+      background-size: 2.8cqw 2.8cqw;
+      mask-image: linear-gradient(to bottom, black, transparent 72%);
+    }
+
+    .topbar {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 2cqw;
+      padding-bottom: 1cqw;
+      border-bottom: 1px solid rgb(255 255 255 / 10%);
+    }
+    .brand { display: flex; align-items: center; gap: 1cqw; }
+    .brand img.mark { width: 3.2cqw; height: 3.2cqw; }
+    .brand img.xebia { width: 7cqw; padding: .45cqw .62cqw; border-radius: .45cqw; background: white; }
+    .brand-copy strong { display: block; font-size: 1cqw; letter-spacing: .14em; text-transform: uppercase; }
+    .brand-copy span { display: block; margin-top: .22cqw; color: var(--muted); font-size: .64cqw; letter-spacing: .12em; text-transform: uppercase; }
+    .status {
+      display: flex; align-items: center; gap: .6cqw;
+      padding: .6cqw .95cqw;
+      border: 1px solid rgb(104 224 193 / 40%);
+      border-radius: 999px;
+      color: var(--mint);
+      background: rgb(104 224 193 / 8%);
+      font-size: .7cqw; font-weight: 850;
+      letter-spacing: .08em; text-transform: uppercase;
+    }
+    .status::before {
+      content: ""; width: .5cqw; aspect-ratio: 1; border-radius: 50%;
+      background: var(--mint); box-shadow: 0 0 1cqw var(--mint);
+    }
+
+    h1 {
+      position: relative;
+      z-index: 1;
+      margin: 2cqw 0 .5cqw;
+      font-size: 3.2cqw;
+      line-height: 1.05;
+    }
+    h1 em { color: var(--mint); font-style: normal; }
+    .sub {
+      position: relative;
+      z-index: 1;
+      margin: 0;
+      color: var(--muted);
+      font-size: 1.05cqw;
+      max-width: 58cqw;
+      line-height: 1.4;
+    }
+
+    .track {
+      position: relative;
+      z-index: 1;
+      flex: 1;
+      margin-top: 2.6cqw;
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 1.4cqw;
+      align-items: stretch;
+    }
+    .track::before {
+      content: "";
+      position: absolute;
+      top: 1.7cqw;
+      left: 5cqw;
+      right: 5cqw;
+      height: .22cqw;
+      border-radius: 999px;
+      background: linear-gradient(90deg, var(--mint), var(--purple), var(--purple), var(--amber));
+      opacity: .6;
+    }
+    .stage {
+      position: relative;
+      padding: 3.4cqw 1.3cqw 1.3cqw;
+      border: 1px solid var(--line);
+      border-radius: 1cqw;
+      background: linear-gradient(155deg, rgb(108 29 95 / 20%), transparent 55%), var(--surface);
+    }
+    .stage::before {
+      content: "";
+      position: absolute;
+      top: 1.18cqw;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 1.15cqw;
+      aspect-ratio: 1;
+      border-radius: 50%;
+      background: var(--dot, var(--purple));
+      box-shadow: 0 0 1.2cqw var(--dot, var(--purple));
+    }
+    .stage.now { --dot: var(--mint); border-color: rgb(104 224 193 / 50%); }
+    .stage.future { --dot: var(--amber); border-style: dashed; border-color: rgb(245 189 104 / 45%); }
+    .stage i {
+      display: block;
+      font-style: normal;
+      font-size: .78cqw;
+      font-weight: 900;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+      color: var(--dot, var(--purple));
+      text-align: center;
+    }
+    .stage b {
+      display: block;
+      margin: .55cqw 0 .8cqw;
+      font-size: 1.5cqw;
+      line-height: 1.1;
+      text-align: center;
+    }
+    .stage ul {
+      margin: 0;
+      padding-left: 1.4cqw;
+      color: var(--muted);
+      font-size: .92cqw;
+      line-height: 1.5;
+    }
+    .stage li + li { margin-top: .45cqw; }
+    .stage .tag {
+      position: absolute;
+      right: .9cqw;
+      top: .9cqw;
+      padding: .28cqw .6cqw;
+      border-radius: 999px;
+      font-size: .58cqw;
+      font-weight: 900;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+    }
+    .stage.now .tag { color: var(--mint); border: 1px solid rgb(104 224 193 / 45%); background: rgb(104 224 193 / 10%); }
+    .stage.future .tag { color: var(--amber); border: 1px solid rgb(245 189 104 / 45%); background: rgb(245 189 104 / 10%); }
+
+    .bottom {
+      position: relative;
+      z-index: 1;
+      margin-top: 1.6cqw;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 2cqw;
+      padding-top: 1cqw;
+      border-top: 1px solid rgb(255 255 255 / 10%);
+    }
+    .bottom strong { color: var(--mint); font-size: 1cqw; }
+    .bottom span { color: #8f8490; font-size: .6cqw; }
+  </style>
+</head>
+<body>
+  <main class="slide">
+    <header class="topbar">
+      <div class="brand">
+        <img class="mark" src="../assets/grassroots-football-mark.svg" alt="">
+        <img class="xebia" src="../assets/xebia-logo.svg" alt="">
+        <div class="brand-copy">
+          <strong>Grassroots Football Intelligence</strong>
+          <span>Innovation Day concept · Brendan Barghus</span>
+        </div>
+      </div>
+      <div class="status">Roadmap</div>
+    </header>
+
+    <h1>What's proven. <em>What's next.</em></h1>
+    <p class="sub">
+      Every step ships through the same guarded review workflow: independent
+      golden events, one-to-one engine comparison, hash-locked publication.
+    </p>
+
+    <div class="track">
+      <div class="stage now">
+        <span class="tag">Working</span>
+        <i>Today</i>
+        <b>Validated foundation</b>
+        <ul>
+          <li>Completed passes, turnovers, possession</li>
+          <li>Guarded M#/E# review workflow</li>
+          <li>Published, hash-locked reference segment</li>
+        </ul>
+      </div>
+      <div class="stage">
+        <i>Still to be done</i>
+        <b>Decisive moments</b>
+        <ul>
+          <li>Shots on target</li>
+          <li>Shots off target</li>
+          <li>Corners taken</li>
+        </ul>
+      </div>
+      <div class="stage">
+        <i>Still to be done</i>
+        <b>Trust &amp; scale</b>
+        <ul>
+          <li>Raw-video ball evidence with direct provenance (Live R&amp;D)</li>
+          <li>Full-match segment cadence</li>
+          <li>Grassroots club pilot</li>
+        </ul>
+      </div>
+      <div class="stage future">
+        <span class="tag">Future architecture</span>
+        <i>Future vision</i>
+        <b>Query By Probability</b>
+        <ul>
+          <li>One main camera by default</li>
+          <li>Query relevant secondary cameras only on low confidence</li>
+          <li>Larger-venue deployments</li>
+        </ul>
+      </div>
+    </div>
+
+    <footer class="bottom">
+      <strong>Local-first. Human-validated. Grassroots-focused.</strong>
+      <span>Internal Innovation Day concept · Research footage subject to dataset restrictions</span>
+    </footer>
+  </main>
+</body>
+</html>
