@@ -135,6 +135,69 @@
     }
     .fact b { display: block; font-size: 1.25rem; color: var(--mint); }
     .fact span { color: var(--muted); font-size: .68rem; line-height: 1.3; display: block; margin-top: .25rem; }
+    .roadmap {
+      margin-top: 1.6rem;
+      border: 1px solid var(--line);
+      border-radius: .9rem;
+      background: linear-gradient(155deg, rgb(108 29 95 / 18%), transparent 55%), var(--surface);
+      padding: 1.1rem 1.2rem 1.3rem;
+    }
+    .roadmap h2 { margin: 0 0 .2rem; font-size: 1.06rem; }
+    .roadmap > p { margin: 0 0 1rem; color: var(--muted); font-size: .74rem; }
+    .roadmap-track {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: .8rem;
+      position: relative;
+    }
+    .roadmap-track::before {
+      content: "";
+      position: absolute;
+      top: 1.05rem;
+      left: 2rem;
+      right: 2rem;
+      height: 2px;
+      background: linear-gradient(90deg, var(--mint), var(--purple), var(--amber), rgb(245 189 104 / 35%));
+      opacity: .55;
+    }
+    .stage {
+      position: relative;
+      padding: 2rem .8rem .8rem;
+      border: 1px solid var(--line);
+      border-radius: .7rem;
+      background: var(--surface-2);
+    }
+    .stage::before {
+      content: "";
+      position: absolute;
+      top: .72rem;
+      left: 50%;
+      transform: translateX(-50%);
+      width: .7rem;
+      aspect-ratio: 1;
+      border-radius: 50%;
+      background: var(--dot, var(--purple));
+      box-shadow: 0 0 .7rem var(--dot, var(--purple));
+    }
+    .stage.now { --dot: var(--mint); border-color: rgb(104 224 193 / 45%); }
+    .stage.m1, .stage.m2 { --dot: var(--purple); }
+    .stage.future { --dot: var(--amber); border-style: dashed; }
+    .stage i {
+      display: block;
+      font-style: normal;
+      font-size: .58rem;
+      font-weight: 900;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+      color: var(--dot, var(--purple));
+      text-align: center;
+    }
+    .stage b { display: block; margin: .3rem 0 .35rem; font-size: .82rem; text-align: center; }
+    .stage ul { margin: 0; padding-left: 1rem; color: var(--muted); font-size: .66rem; line-height: 1.45; }
+    @media (max-width: 46rem) {
+      .roadmap-track { grid-template-columns: 1fr 1fr; }
+      .roadmap-track::before { display: none; }
+    }
     .guardrails {
       margin-top: 1.6rem;
       padding: 1rem 1.2rem;
@@ -307,6 +370,49 @@
       <div class="fact"><b>1-to-1 match</b><span>independent golden reference equals engine output exactly</span></div>
       <div class="fact"><b>Hash-locked</b><span>publication fingerprint + protected regression gate</span></div>
     </div>
+
+    <section class="roadmap" aria-label="Funding roadmap">
+      <h2>Roadmap — what the budget buys</h2>
+      <p>Point at this during 3:30–4:20. Solid = funded scope, dashed = future architecture.</p>
+      <div class="roadmap-track">
+        <div class="stage now">
+          <i>Today · working</i>
+          <b>Validated foundation</b>
+          <ul>
+            <li>Passes, turnovers, possession</li>
+            <li>Guarded M#/E# review workflow</li>
+            <li>Published, hash-locked segment</li>
+          </ul>
+        </div>
+        <div class="stage m1">
+          <i>Month 1</i>
+          <b>Decisive moments</b>
+          <ul>
+            <li>Shots on / off target</li>
+            <li>Corners taken</li>
+            <li>Same validated review gates</li>
+          </ul>
+        </div>
+        <div class="stage m2">
+          <i>Month 2</i>
+          <b>Trust &amp; scale</b>
+          <ul>
+            <li>Live R&amp;D: raw-video ball evidence with direct provenance</li>
+            <li>Full-match segment cadence</li>
+            <li>Grassroots club pilot</li>
+          </ul>
+        </div>
+        <div class="stage future">
+          <i>Future architecture</i>
+          <b>Query By Probability</b>
+          <ul>
+            <li>One main camera by default</li>
+            <li>Query relevant secondary cameras only on low confidence</li>
+            <li>Larger-venue deployments</li>
+          </ul>
+        </div>
+      </div>
+    </section>
 
     <div class="guardrails">
       <b>Claim guardrails — do not cross these on stage:</b>
