@@ -4307,6 +4307,15 @@ export function renderHtml({ adapter } = {}) {
                   data-manual-type="completed_pass">White/red completed pass</button>
                 <button type="button" data-manual-team="red"
                   data-manual-type="turnover">White/red turnover</button>
+                <button type="button" data-manual-team="black"
+                  data-manual-type="shot_on_target">Black shot on target</button>
+                <button type="button" data-manual-team="red"
+                  data-manual-type="shot_on_target">White/red shot on target</button>
+                <label>
+                  <input id="shots-on-target-enabled" type="checkbox">
+                  Enable shots on target
+                </label>
+                <output id="shots-on-target-status" aria-live="polite"></output>
                 <label>
                   <input id="show-bac-coordinate" type="checkbox">
                   Show BAC ball coordinate
@@ -4481,6 +4490,10 @@ export function renderHtml({ adapter } = {}) {
               data-manual-type="completed_pass">White/red completed pass</button>
             <button type="button" data-manual-team="red"
               data-manual-type="turnover">White/red turnover</button>
+            <button type="button" data-manual-team="black"
+              data-manual-type="shot_on_target">Black shot on target</button>
+            <button type="button" data-manual-team="red"
+              data-manual-type="shot_on_target">White/red shot on target</button>
             <output id="manual-capture-status" aria-live="polite"></output>
           </div>
           ` : ""}
@@ -4955,6 +4968,7 @@ export function renderHtml({ adapter } = {}) {
       coordinateCorrectionEnabled: adapter.coordinateCorrectionEnabled,
       reviewerCorrectedDemoLayer: adapter.reviewerCorrectedDemoLayer,
       evidencePreparationEnabled: adapter.evidencePreparationEnabled,
+      shotsOnTargetCapable: Boolean(adapter.shotsOnTargetCapable),
     })};
     const stateUrl = "/api/state";
     const hostInstanceId =
@@ -9201,13 +9215,19 @@ export function renderHtml({ adapter } = {}) {
     function emptyStatistics() {
       return {
         red: {passes: 0, turnovers: 0, shots: 0, onTarget: 0, goals: 0},
-        black: {passes: 0, turnovers: 0, shots: 0, onTarget: 0, goals: 0}
+        black: {passes: 0, turnovers: 0, shots: 0, onTarget: 0, goals: 0},
+        attempts: new Set()
       };
     }
 
     function includeEventInStatistics(totals, event) {
       const team = totals[event.team];
       if (!team || event.decision?.status === "rejected") return;
+      if (event.attemptId) {
+        // One shot attempt counts once regardless of how many rows cite it.
+        if (totals.attempts?.has(event.attemptId)) return;
+        totals.attempts?.add(event.attemptId);
+      }
       if (event.type === "completed_pass") team.passes += 1;
       if (event.type === "turnover") team.turnovers += 1;
       if (["shot_candidate", "shot_on_target_candidate", "shot_on_target"]
@@ -9215,6 +9235,15 @@ export function renderHtml({ adapter } = {}) {
       if (["shot_on_target_candidate", "shot_on_target"]
         .includes(event.type)) team.onTarget += 1;
       if (["goal", "goal_candidate"].includes(event.type)) team.goals += 1;
+    }
+
+    function onTargetText(value, statuses) {
+      if (!reviewWorkflow.shotsOnTargetCapable) return String(value);
+      const list = statuses.filter(Boolean);
+      if (!list.length || list.some(status =>
+        !["complete", "partial"].includes(status)
+      )) return "—";
+      return list.includes("partial") ? value + "*" : String(value);
     }
 
     function cachedReplaySegment(segmentKey = segmentReplayKey) {
@@ -9244,7 +9273,10 @@ export function renderHtml({ adapter } = {}) {
         ).textContent = String(totals[team].shots);
         document.getElementById(
           "segment-replay-" + team + "-on-target"
-        ).textContent = String(totals[team].onTarget);
+        ).textContent = onTargetText(
+          totals[team].onTarget,
+          [segment.shotsOnTargetStatus || "disabled"]
+        );
       });
       document.getElementById("segment-replay-clock").textContent =
         formatReplayTime(seconds) + " / "
@@ -10294,7 +10326,10 @@ export function renderHtml({ adapter } = {}) {
       });
       const type = document.createElement("select");
       type.setAttribute("aria-label", displayKey + " event type");
-      [["completed_pass", "Completed pass"], ["turnover", "Turnover"]]
+      [["completed_pass", "Completed pass"], ["turnover", "Turnover"],
+        ...(reviewWorkflow.shotsOnTargetCapable
+          ? [["shot_on_target", "Shot on target"]]
+          : [])]
         .forEach(([value, label]) => {
           type.add(new Option(label, value, false, row.review.type === value));
         });
@@ -10879,7 +10914,12 @@ export function renderHtml({ adapter } = {}) {
         document.getElementById(team + "-shots").textContent =
           String(totals[team].shots);
         document.getElementById(team + "-on-target").textContent =
-          String(totals[team].onTarget);
+          onTargetText(
+            totals[team].onTarget,
+            run.segments
+              .slice(0, replaySegmentIndex + 1)
+              .map(segment => segment.shotsOnTargetStatus || "disabled")
+          );
       });
       const totalDuration = run.segments.reduce(
         (total, segment) => total + segment.durationSeconds,
@@ -10975,6 +11015,7 @@ export function renderHtml({ adapter } = {}) {
       return {
         completed_pass: "Completed pass",
         turnover: "Turnover",
+        shot_on_target: "Shot on target",
         foul_encountered: "Foul encountered"
       }[type] || type.replaceAll("_", " ");
     }
@@ -11312,12 +11353,36 @@ export function renderHtml({ adapter } = {}) {
       }));
     }
 
+    function renderShotsOnTargetStatus() {
+      const sot = state.shotsOnTarget;
+      const toggle = document.getElementById("shots-on-target-enabled");
+      const output = document.getElementById("shots-on-target-status");
+      if (!sot || !toggle || !output) return;
+      toggle.checked = Boolean(sot.enabled);
+      const teams = sot.counts
+        ? Object.entries(sot.counts)
+          .map(([team, count]) => teamLabel(team) + " " + count)
+          .join(" · ")
+        : "";
+      output.textContent = {
+        disabled: "Shots on target: disabled (not a zero).",
+        not_run: "Shots on target: enabled; rerun the analysis to apply.",
+        unavailable: "Shots on target: unavailable — "
+          + (sot.reasons || []).join(", ") + ".",
+        partial: "Shots on target (incomplete): " + teams + " · total "
+          + sot.total + " · " + sot.unresolvedAttemptCount + " unresolved ("
+          + (sot.reasons || []).join(", ") + ").",
+        complete: "Shots on target: " + teams + " · total " + sot.total + "."
+      }[sot.analysisStatus] || ("Shots on target: " + sot.analysisStatus);
+    }
+
     function render() {
       const draft = currentDraft();
       renderSegments();
       renderReplayCatalog();
       renderFullscreenEvents();
       renderManualLedgerAudit();
+      renderShotsOnTargetStatus();
       document.getElementById("engine-output-notice").hidden =
         state.engineDisplayMode !== "regression_candidate";
       const hasDraft = Boolean(draft);
@@ -14243,6 +14308,53 @@ export function renderHtml({ adapter } = {}) {
     document.getElementById("hide-copilot-reference")?.addEventListener(
       "click",
       () => setCopilotReferenceVisible(false)
+    );
+    document.getElementById("shots-on-target-enabled")?.addEventListener(
+      "change",
+      async event => {
+        const toggle = event.currentTarget;
+        const status = document.getElementById("shots-on-target-status");
+        const enabled = toggle.checked;
+        let authorize = false;
+        if (state?.publication?.published) {
+          authorize = window.confirm(
+            "This segment was published with its original analysis scope. "
+            + "Changing shots-on-target scope requires reprocessing and a "
+            + "new independent review and publication. Continue?"
+          );
+          if (!authorize) {
+            toggle.checked = !enabled;
+            return;
+          }
+        }
+        try {
+          const response = await fetch("/api/shots-on-target", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({
+              segment: selectedSegmentKey(),
+              enabled,
+              authorizePublishedReprocessing: authorize
+            })
+          });
+          const result = await response.json();
+          if (!response.ok) {
+            toggle.checked = !enabled;
+            status.textContent = (result.error || "Could not change setting")
+              + (result.readiness?.reasons?.length
+                ? " Missing: " + result.readiness.reasons.join(", ") + "."
+                : "");
+            return;
+          }
+          status.textContent = enabled
+            ? "Shots on target enabled. Rerun the Innovation analysis to apply."
+            : "Shots on target disabled. Rerun the analysis to remove SOT output.";
+          await loadState();
+        } catch (error) {
+          toggle.checked = !enabled;
+          status.textContent = error.message;
+        }
+      }
     );
     document.getElementById("show-bac-coordinate")?.addEventListener(
       "change",

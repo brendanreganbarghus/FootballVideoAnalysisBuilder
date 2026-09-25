@@ -311,3 +311,5 @@ scheduling idea, not a license to skip regression protection.
 
 When the Live freeze or another current workstream boundary changes, update
 this file, `AGENTS.md`, and `CLAUDE.md` together.
+
+Innovation shots on target is an opt-in, evidence-gated project statistic (off by default) that requires a runtime `innovation\shot-evidence.json` built by `shot_evidence_adapter.py` from frozen runtime inputs only (height comes only from monocular goal-face arrests; thresholds are provisional until validated across segments); unavailable evidence reports unavailable rather than zero.

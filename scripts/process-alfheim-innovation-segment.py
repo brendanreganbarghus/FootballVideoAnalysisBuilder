@@ -18,12 +18,21 @@ if str(LOCAL_SOURCE) not in sys.path:
     sys.path.insert(0, str(LOCAL_SOURCE))
 
 from football_poc.alfheim_segments import resolve_alfheim_pano
-from football_poc.artifact_store import resolve_detector_model
+from football_poc.artifact_store import (
+    discover_artifact_root,
+    resolve_detector_model,
+)
 from football_poc.innovation_day_snapshot.alfheim_profile import (
     ALFHEIM_POSSESSION_ARGUMENTS,
 )
 from football_poc.innovation_day_snapshot.bac_ball_tracks import (
     write_bac_ball_tracks,
+)
+from football_poc.innovation_day_snapshot.shots_on_target import (
+    EVIDENCE_FILE_NAME as SHOT_EVIDENCE_FILE_NAME,
+    SETTING_FILE_NAME as SHOTS_SETTING_FILE_NAME,
+    SUMMARY_FILE_NAME as SHOTS_SUMMARY_FILE_NAME,
+    load_setting as load_shots_setting,
 )
 
 
@@ -43,6 +52,37 @@ INNOVATION_DETECTOR_PROFILE = {
     "overlap": 0.1,
     "nms_iou": 0.5,
 }
+
+
+def alfheim_config_path(name: str) -> Path:
+    local_path = PROJECT_ROOT / "benchmarks" / "alfheim" / "window-555" / name
+    if local_path.is_file():
+        return local_path
+
+    artifact_root = discover_artifact_root()
+    if artifact_root is not None:
+        candidates = sorted(
+            (
+                artifact_root
+                / "30-shared-baselines"
+            ).glob(f"*/alfheim-config/{name}")
+        )
+        if len(candidates) == 1:
+            return candidates[0]
+        if len(candidates) > 1:
+            raise FileNotFoundError(
+                f"Multiple shared {name} configurations found; "
+                "select one explicitly."
+            )
+
+    raise FileNotFoundError(
+        f"Alfheim configuration {name} was not found locally or in the "
+        "shared artifact store."
+    )
+
+
+def goalkeeper_affiliations_path() -> Path:
+    return alfheim_config_path("goalkeeper-affiliations.json")
 
 
 def sha256(path: Path) -> str:
@@ -306,13 +346,7 @@ def main() -> None:
                 "--team-profile",
                 "red-black",
                 "--goalkeeper-affiliations",
-                str(
-                    PROJECT_ROOT
-                    / "benchmarks"
-                    / "alfheim"
-                    / "window-555"
-                    / "goalkeeper-affiliations.json"
-                ),
+                str(goalkeeper_affiliations_path()),
                 "--no-video",
             )
             if args.evidence_only:
@@ -364,13 +398,7 @@ def main() -> None:
                 "--team-profile",
                 "red-black",
                 "--goalkeeper-affiliations",
-                str(
-                    PROJECT_ROOT
-                    / "benchmarks"
-                    / "alfheim"
-                    / "window-555"
-                    / "goalkeeper-affiliations.json"
-                ),
+                str(goalkeeper_affiliations_path()),
                 "--no-video",
             )
             if args.skip_events:
@@ -388,6 +416,24 @@ def main() -> None:
             if boundary_events.is_file()
             else []
         )
+        shots_setting = run_root / SHOTS_SETTING_FILE_NAME
+        shots_enabled = load_shots_setting(shots_setting)
+        shot_evidence = run_root / SHOT_EVIDENCE_FILE_NAME
+        shots_arguments = (
+            [
+                "--shots-on-target",
+                "--shot-evidence",
+                str(shot_evidence),
+                "--shot-goal-calibration",
+                str(alfheim_config_path("pitch-calibration.json")),
+                "--shot-goalkeeper-affiliations",
+                str(goalkeeper_affiliations_path()),
+            ]
+            if shots_enabled
+            else []
+        )
+        if not shots_enabled:
+            (results / SHOTS_SUMMARY_FILE_NAME).unlink(missing_ok=True)
         run(
             "-m",
             "football_poc.innovation_day_snapshot.possession_cli",
@@ -400,6 +446,7 @@ def main() -> None:
             str(results),
             *ALFHEIM_POSSESSION_ARGUMENTS,
             *boundary_arguments,
+            *shots_arguments,
         )
         chunk_state = results / "chunk-simulation-state.json"
         if args.events_only:
@@ -441,6 +488,15 @@ def main() -> None:
             "events_sha256": sha256(results / "predicted-events.json"),
             "performance_benchmark_valid": False,
         }
+        if shots_enabled:
+            provenance["shots_on_target"] = {
+                "enabled": True,
+                "setting_sha256": sha256(shots_setting),
+                "evidence_sha256": (
+                    sha256(shot_evidence) if shot_evidence.is_file() else None
+                ),
+                "summary_sha256": sha256(results / SHOTS_SUMMARY_FILE_NAME),
+            }
         (results / "run-provenance.json").write_text(
             json.dumps(provenance, indent=2) + "\n",
             encoding="utf-8",
