@@ -53,3 +53,6 @@ docs/*.pptx
 demo/az-demo-video/build/
 *.wav
 *.srt.bak
+
+# Claude review host dependencies
+scripts/claude-review-host/node_modules/
