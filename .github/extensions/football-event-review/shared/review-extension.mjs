@@ -1280,7 +1280,17 @@ async function loadEngineEvents(segment) {
       : null,
     details: event.details || null,
     ballEvidence: event.ball_evidence || null,
+    attemptId: event.attempt_id || null,
   })).filter((event) => Number.isFinite(event.seconds));
+}
+
+async function loadShotsOnTargetStatus(segment) {
+  if (!workflow.shotsOnTargetCapable) return null;
+  const summary = await readJson(
+    join(segmentRoot(segment), "analytics-data", SHOTS_ON_TARGET_SUMMARY_FILE),
+    null,
+  );
+  return summary?.analysis_status || "disabled";
 }
 
 async function loadDrafts(segment, segmentInfo) {
@@ -1356,6 +1366,7 @@ async function buildReplayRuns(segments) {
       protected: segment.protected,
       eventSource: "cached_engine_output",
       events: await loadEngineEvents(segment.key),
+      shotsOnTargetStatus: await loadShotsOnTargetStatus(segment.key),
     })));
     const start = group[0].startSeconds;
     const end = group.at(-1).startSeconds + group.at(-1).durationSeconds;
@@ -1401,6 +1412,7 @@ async function buildReplaySegments(segments) {
       protected: segment.protected,
       eventSource: "cached_engine_output",
       events: await loadEngineEvents(segment.key),
+      shotsOnTargetStatus: await loadShotsOnTargetStatus(segment.key),
     })));
 }
 
@@ -1959,9 +1971,21 @@ async function captureEngineSnapshot(segment, knownFingerprint = null) {
   );
   const predictions = await readJson(predictionsPath, []);
   const matchState = await readJson(matchStatePath, { intervals: [] });
+  const shotsOnTarget = workflow.shotsOnTargetCapable
+    ? await readJson(
+        join(root, "analytics-data", SHOTS_ON_TARGET_SUMMARY_FILE),
+        null,
+      )
+    : null;
   const fingerprint = knownFingerprint || await engineFingerprint();
+  // The SOT summary joins the hash only when present, so disabled segments
+  // keep their published output hashes.
   const outputHash = createHash("sha256")
-    .update(JSON.stringify({ predictions, matchState }))
+    .update(JSON.stringify(
+      shotsOnTarget
+        ? { predictions, matchState, shotsOnTarget }
+        : { predictions, matchState },
+    ))
     .digest("hex");
   return {
     capturedAt: new Date().toISOString(),
@@ -1969,7 +1993,74 @@ async function captureEngineSnapshot(segment, knownFingerprint = null) {
     outputHash,
     predictions,
     matchState,
+    shotsOnTarget,
   };
+}
+
+const SHOTS_ON_TARGET_SUMMARY_FILE = "shots-on-target.json";
+const SHOTS_ON_TARGET_SETTING_FILE = "shots-on-target-setting.json";
+const SHOT_EVIDENCE_FILE = "shot-evidence.json";
+
+export function shotsOnTargetStatus(summary, setting) {
+  if (!workflow.shotsOnTargetCapable) return null;
+  const enabled = Boolean(setting?.enabled);
+  if (!summary) {
+    return {
+      enabled,
+      analysisStatus: enabled ? "not_run" : "disabled",
+      counts: null,
+      total: null,
+      unresolvedAttemptCount: null,
+      reasons: enabled ? ["engine_not_rerun_since_enabling"] : [],
+      definitionVersion: null,
+    };
+  }
+  return {
+    enabled,
+    analysisStatus: summary.analysis_status,
+    counts: summary.counts ?? null,
+    total: summary.total ?? null,
+    unresolvedAttemptCount: summary.unresolved_attempt_count ?? null,
+    reasons: Object.keys(summary.unresolved_reasons || {}),
+    definitionVersion: summary.definition_version || null,
+  };
+}
+
+export function publishedAnalysisScope(current) {
+  const status = current?.shotsOnTarget?.analysis_status;
+  return status
+    ? ["completed_pass", "turnover", "shot_on_target"]
+    : ["completed_pass", "turnover"];
+}
+
+async function readShotsOnTargetSetting(segment) {
+  return readJson(join(segmentRoot(segment), SHOTS_ON_TARGET_SETTING_FILE), null);
+}
+
+async function shotEvidenceReadiness(segment) {
+  const evidencePath = join(segmentRoot(segment), SHOT_EVIDENCE_FILE);
+  const {stdout} = await execFileAsync(
+    "python",
+    [
+      "-m",
+      "football_poc.innovation_day_snapshot.shots_on_target",
+      "readiness",
+      evidencePath,
+    ],
+    {
+      cwd: projectRoot,
+      encoding: "utf8",
+      windowsHide: true,
+      env: {
+        ...process.env,
+        PYTHONPATH: [
+          join(projectRoot, "src"),
+          process.env.PYTHONPATH || "",
+        ].filter(Boolean).join(";"),
+      },
+    },
+  );
+  return JSON.parse(stdout);
 }
 
 function withheldEngineSnapshot() {
@@ -3051,6 +3142,7 @@ function snapshotEvents(snapshot) {
         ? Number(event.confidence)
         : null,
       ballEvidence: event.ball_evidence || null,
+      attemptId: event.attempt_id || null,
     };
   }).filter((event) => Number.isFinite(event.seconds));
 }
@@ -3537,7 +3629,7 @@ function innovationPublicationPlan(state, current) {
   const approved = reference?.approved;
   const validation = reference?.comparisonValidation;
   const engineEvents = snapshotEvents(current)
-    .filter((event) => ["completed_pass", "turnover"].includes(event.type))
+    .filter((event) => workflow.analyticsEventTypes.includes(event.type))
     .map((event, index) => ({
       ...event,
       key: `E${index + 1}`,
@@ -3546,6 +3638,22 @@ function innovationPublicationPlan(state, current) {
   const blockers = [];
   if (!approved) {
     blockers.push("Freeze the manual M# reference as golden first.");
+  }
+  const sotSummary = current.shotsOnTarget || null;
+  const manualHasShots = Boolean(
+    approved?.events?.some((event) => event.type === "shot_on_target")
+  );
+  if (sotSummary && sotSummary.analysis_status !== "complete") {
+    blockers.push(
+      `Shots-on-target analysis is ${sotSummary.analysis_status}; complete `
+      + "SOT evidence coverage is required before publishing SOT statistics.",
+    );
+  }
+  if (manualHasShots && !sotSummary) {
+    blockers.push(
+      "The golden M# set records shots on target, but shots-on-target "
+      + "analysis is not enabled for this engine output.",
+    );
   }
   const validationFresh = Boolean(
     approved
@@ -4293,7 +4401,7 @@ export function refreshEngineReferenceValidation(state, current, action) {
   if (!approved) return null;
   const engineEvents = snapshotEvents(current)
     .filter((event) =>
-      ["completed_pass", "turnover"].includes(event.type)
+      workflow.analyticsEventTypes.includes(event.type)
     )
     .map((event, index) => ({...event, key: `E${index + 1}`}));
   const validatedAt = new Date().toISOString();
@@ -4769,6 +4877,12 @@ export async function publicState(
       ? "regression_candidate"
       : "published",
     ballProvenance,
+    shotsOnTarget: shotsOnTargetStatus(
+      currentEngine?.shotsOnTarget,
+      workflow.shotsOnTargetCapable
+        ? await readShotsOnTargetSetting(selected.key)
+        : null,
+    ),
     ballRecoveryDiagnostic,
     coordinateReview: state.coordinateReview,
     trajectoryAudit: state.trajectoryAudit || {
@@ -6245,6 +6359,61 @@ async function handleRequest(request, response, serverInstanceId) {
         canvasSessionConnectionFromRequest(request, serverInstanceId),
       ),
     );
+    return;
+  }
+  if (
+    request.method === "POST"
+    && url.pathname === "/api/shots-on-target"
+    && workflow.shotsOnTargetCapable
+  ) {
+    const body = await readBody(request);
+    const segment = requestedSegment(url, body);
+    if (!/^segment-\d{4}-\d{3}$/.test(segment)) {
+      sendJson(response, 400, {error: "Select a prepared segment"});
+      return;
+    }
+    if (typeof body.enabled !== "boolean") {
+      sendJson(response, 400, {error: "enabled must be a boolean"});
+      return;
+    }
+    const review = await reviewContext(segment);
+    if (
+      (review.selected.validated || review.state.publishedReference)
+      && body.authorizePublishedReprocessing !== true
+    ) {
+      sendJson(response, 409, {
+        code: "published_scope_locked",
+        error: (
+          "This segment was published with its original analysis scope. "
+          + "Changing shots-on-target scope requires explicit authorization "
+          + "to reprocess and republish it."
+        ),
+      });
+      return;
+    }
+    const settingPath = join(segmentRoot(segment), SHOTS_ON_TARGET_SETTING_FILE);
+    if (!body.enabled) {
+      await unlink(settingPath).catch(() => {});
+      sendJson(response, 200, {segment, enabled: false});
+      return;
+    }
+    const readinessResult = await shotEvidenceReadiness(segment);
+    if (readinessResult.status !== "ready") {
+      sendJson(response, 409, {
+        code: "shot_evidence_not_ready",
+        error: (
+          "Shots on target cannot be enabled: the runtime evidence does not "
+          + "satisfy the SOT contract."
+        ),
+        readiness: readinessResult,
+      });
+      return;
+    }
+    await writeTextAtomically(
+      settingPath,
+      `${JSON.stringify({schema_version: 1, enabled: true}, null, 2)}\n`,
+    );
+    sendJson(response, 200, {segment, enabled: true, readiness: readinessResult});
     return;
   }
   if (request.method === "POST" && url.pathname === "/api/analyze") {
@@ -8393,7 +8562,7 @@ async function handleRequest(request, response, serverInstanceId) {
           return;
         }
         if (
-          !["completed_pass", "turnover"].includes(String(body.eventType))
+          !workflow.analyticsEventTypes.includes(String(body.eventType))
         ) {
           sendJson(response, 400, {error: "Choose a supported event type"});
           return;
@@ -10963,6 +11132,7 @@ session = await joinSession({
               engineContentHash: current.fingerprint.contentHash,
               outputHash: current.outputHash,
               regressionRecordedAt: review.state.regression.recordedAt,
+              analysisScope: publishedAnalysisScope(current),
             };
             review.state.conversation.push({
               role: "system",

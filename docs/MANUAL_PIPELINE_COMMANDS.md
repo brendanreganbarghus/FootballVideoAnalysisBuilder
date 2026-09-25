@@ -48,6 +48,14 @@ Rebuild only the cached Innovation event output:
 python scripts\process-alfheim-innovation-segment.py $segment --events-only
 ```
 
+Check optional shots-on-target evidence readiness (SOT stays off unless the
+Canvas setting is enabled and readiness is `ready`; see
+`docs\RULES_ENGINE_ARCHITECTURE.md`):
+
+```powershell
+python -m football_poc.innovation_day_snapshot.shots_on_target readiness "$segment\innovation\shot-evidence.json"
+```
+
 The runner accepts BAC only through its dedicated extraction step and writes
 `innovation\analytics-cache\ball-tracks.json` with:
 

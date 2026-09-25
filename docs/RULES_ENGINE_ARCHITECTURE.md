@@ -449,15 +449,54 @@ regressions.
 
 An authorized Innovation review should complete as one bounded manual
 adjudication pass, not as a frame-export or engineering investigation. Watch
-the prepared 30–60-second Canvas video and use the four quick-capture actions
-to record completed passes and turnovers at the playhead. Review the ordered
+the prepared 30–60-second Canvas video and use the quick-capture actions
+to record completed passes, turnovers, and (optionally) shots on target at the
+playhead. Review the ordered
 list and team/type counts, make corrections, map useful E# comparisons, then
-approve the complete minute as golden. The current Innovation scope is
-completed passes and turnovers; shots and fouls remain disabled until suitable
-segments are prepared. Use frozen BAC and prepared player context only to
+approve the complete minute as golden. The Innovation scope is completed passes
+and turnovers, plus shots on target when the opt-in SOT analysis is enabled
+(see below); shots and fouls otherwise remain disabled. Use frozen BAC and prepared player context only to
 clarify an uncertain moment. Do not replace continuous viewing with
 frame-by-frame export, exhaustive coordinate analysis, an automatic Copilot
 pre-review, or a new inference run.
+
+### Innovation shots on target (opt-in, evidence-gated)
+
+`innovation_day_snapshot\shots_on_target.py` implements the SOT analytics
+contract above (definition `innovation-sot-v1`, a project statistic, not an
+IFAB statistic). It is off by default. The Canvas **Enable shots on target**
+setting writes `innovation\shots-on-target-setting.json` only after a
+readiness check of the runtime evidence file `innovation\shot-evidence.json`
+(`source_kind: innovation_runtime_shot_evidence`) succeeds. That file must
+supply calibrated goal geometry (goal line, posts, crossbar, uncertainty),
+team attacking directions, observed 3-D ball samples, deliberate-release
+intent records, contact roles (goalkeeper, last-line defender, outfield,
+woodwork), and separately supported valid-goal facts. Frozen BAC image
+coordinates cannot establish height, goal-mouth intersection, or saves, and
+**no adapter currently produces this file**, so SOT readiness is
+`unavailable` for every prepared segment until such an adapter is separately
+scoped and validated. Manual labels, M#/C#, or provider events must never
+populate it.
+
+Each attempt resolves at most once as on target (valid goal, goalkeeper save,
+or last-line save of a goal-bound path), off target (wide/high, woodwork out,
+keeper collecting an off-target path), blocked (ordinary block), excluded
+(dead-ball release), or unresolved with an explicit reason. A goal after
+woodwork or a save counts once; a rebound is a new attempt only after an
+intervening contact; repeated observations and track handoffs are merged by
+attempt identity (`sot-v1-<team>-<release frame>-<goal>`), not by debounce.
+The outcome may fall at its own goal/stoppage transition; an earlier stoppage
+leaves the attempt unresolved. One `shot_on_target` row per on-target attempt
+is merged into `predicted-events.json` (outcome time is `completion_seconds`),
+and `analytics-data\shots-on-target.json` records status
+(`unavailable`/`partial`/`complete`), per-team counts, total, unresolved
+reasons, and fingerprints. Disabled or unavailable totals are null, never
+zero; the Canvas shows `—`, and `*` for partial counts. Disabled runs leave
+`predicted-events.json` and output hashes unchanged, and published
+pass/turnover-only segments keep their scope unless reprocessing is
+explicitly authorized. Publication is blocked unless SOT status is
+`complete` whenever SOT is in scope, or when golden M# includes SOT that the
+engine output does not analyse.
 
 The **Process AI** action runs only the cached BAC-assisted Innovation rules
 engine. It does not automatically launch the optional independent C# protocol.

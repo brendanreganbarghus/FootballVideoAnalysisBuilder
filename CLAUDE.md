@@ -56,3 +56,5 @@ benchmark, or current Live pipeline behavior.
 
 Do not copy all repository documentation into this file. The documentation map
 is the maintained index; the linked documents and code remain authoritative.
+
+Innovation shots on target is an opt-in, evidence-gated project statistic (off by default) that requires a runtime `innovation\shot-evidence.json`; frozen BAC alone cannot supply it, so it reports unavailable rather than zero.

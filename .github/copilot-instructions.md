@@ -311,3 +311,5 @@ scheduling idea, not a license to skip regression protection.
 
 When the Live freeze or another current workstream boundary changes, update
 this file, `AGENTS.md`, and `CLAUDE.md` together.
+
+Innovation shots on target is an opt-in, evidence-gated project statistic (off by default) that requires a runtime `innovation\shot-evidence.json`; frozen BAC alone cannot supply it, so it reports unavailable rather than zero.

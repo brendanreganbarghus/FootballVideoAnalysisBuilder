@@ -4,8 +4,12 @@ import argparse
 from pathlib import Path
 from typing import Any
 
+from football_poc.innovation_day_snapshot.benchmark import BenchmarkManifest
 from football_poc.innovation_day_snapshot.possession import (
     infer_cached_possession,
+)
+from football_poc.innovation_day_snapshot.shots_on_target import (
+    apply_shots_on_target,
 )
 
 
@@ -43,6 +47,16 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Disable shot inference when goal geometry is not calibrated.",
     )
+    parser.add_argument(
+        "--shots-on-target",
+        action="store_true",
+        help=(
+            "Opt in to evidence-gated shots-on-target analytics. Requires a "
+            "runtime --shot-evidence file; missing evidence yields an "
+            "'unavailable' summary and no events."
+        ),
+    )
+    parser.add_argument("--shot-evidence", type=Path, default=None)
     parser.add_argument("--control-radius-heights", type=float, default=1.2)
     parser.add_argument(
         "--identity-switch-radius-heights",
@@ -123,6 +137,18 @@ def main() -> None:
 
 
 def run(args: Any) -> Path:
+    destination = _infer(args)
+    if getattr(args, "shots_on_target", False):
+        manifest = BenchmarkManifest.load(args.manifest)
+        apply_shots_on_target(
+            args.output,
+            getattr(args, "shot_evidence", None),
+            duration_seconds=manifest.source_frame_count / manifest.fps,
+        )
+    return destination
+
+
+def _infer(args: Any) -> Path:
     return infer_cached_possession(
         manifest_path=args.manifest,
         player_tracks_path=args.player_tracks,

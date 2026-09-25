@@ -494,7 +494,7 @@ class CoordinationService:
                 raise ValueError("timestampMs must be an integer from 0 to 60000")
             if team not in {"black", "red"}:
                 raise ValueError("Unknown manual event team")
-            if event_type not in {"completed_pass", "turnover"}:
+            if event_type not in {"completed_pass", "turnover", "shot_on_target"}:
                 raise ValueError("Unknown manual event type")
             seen_keys.add(key)
             prepared_events.append(
