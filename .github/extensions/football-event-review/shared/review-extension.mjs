@@ -4,6 +4,7 @@ import { existsSync } from "node:fs";
 import {
   mkdir,
   open,
+  readdir,
   readFile,
   rename,
   stat,
@@ -84,6 +85,60 @@ const sharedArtifactRoot = (() => {
 const customCameraSourceRoot = sharedArtifactRoot
   ? join(sharedArtifactRoot, "10-master-data", "custom-cameras")
   : null;
+
+async function directoryNames(root) {
+  try {
+    const entries = await readdir(root, {withFileTypes: true});
+    const names = await Promise.all(entries.map(async (entry) => {
+      if (entry.isDirectory()) return entry.name;
+      // OneDrive-synced shared libraries appear as junctions/symlinks.
+      if (!entry.isSymbolicLink()) return null;
+      const target = await stat(join(root, entry.name)).catch(() => null);
+      return target?.isDirectory() ? entry.name : null;
+    }));
+    return names.filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+// Read-only lookup of shared artifact libraries for configuration files. It
+// deliberately does not change sharedArtifactRoot, which also selects where
+// review state is stored.
+async function sharedConfigLibraries() {
+  const libraries = sharedArtifactRoot ? [sharedArtifactRoot] : [];
+  // OneDrive syncs shared SharePoint libraries to
+  // %USERPROFILE%\<Organisation>\<Owner> - Innovationday Artifacts.
+  for (const organisation of await directoryNames(homedir())) {
+    for (const name of await directoryNames(join(homedir(), organisation))) {
+      const candidate = join(homedir(), organisation, name);
+      if (
+        name.endsWith(" - Innovationday Artifacts")
+        && existsSync(join(candidate, "00-governance", "checksums.sha256"))
+        && !libraries.includes(candidate)
+      ) {
+        libraries.push(candidate);
+      }
+    }
+  }
+  return libraries;
+}
+
+async function alfheimConfigPath(name) {
+  const local = join(alfheimRoot, "window-555", name);
+  if (existsSync(local)) return local;
+  for (const library of await sharedConfigLibraries()) {
+    const baselines = join(library, "30-shared-baselines");
+    const versions = (await directoryNames(baselines))
+      .filter((version) => /^v\d+$/.test(version))
+      .sort((left, right) => Number(right.slice(1)) - Number(left.slice(1)));
+    for (const version of versions) {
+      const candidate = join(baselines, version, "alfheim-config", name);
+      if (existsSync(candidate)) return candidate;
+    }
+  }
+  return null;
+}
 const customCameraRunRoot = join(
   projectRoot,
   "benchmarks",
@@ -6033,17 +6088,13 @@ async function handleRequest(request, response, serverInstanceId) {
     const segment = requestedSegment(url);
     const segments = await loadPreparedSegments();
     const selected = segments.find((candidate) => candidate.key === segment);
+    const alfheimCalibrationPath = selected?.datasetId === "alfheim"
+      ? await alfheimConfigPath("pitch-calibration.json")
+      : null;
     const calibration = selected?.datasetId === "alfheim"
-      ? await readJson(
-          join(
-            projectRoot,
-            "benchmarks",
-            "alfheim",
-            "window-555",
-            "pitch-calibration.json",
-          ),
-          null,
-        )
+      ? (alfheimCalibrationPath
+          ? await readJson(alfheimCalibrationPath, null)
+          : null)
       : (
           selected?.datasetId === "soccertrack-v2"
           || selected?.datasetId?.startsWith("custom-")
