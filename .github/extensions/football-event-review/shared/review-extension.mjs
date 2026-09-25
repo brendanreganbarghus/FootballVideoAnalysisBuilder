@@ -2171,11 +2171,25 @@ function eventRegressionSummary(event) {
   };
 }
 
+// JSON with object keys sorted recursively. Key order carries no meaning in
+// engine output, and a snapshot stored through the PostgreSQL coordination
+// store (jsonb) comes back with its keys reordered.
+function canonicalJson(value) {
+  const sortKeys = (child) => {
+    if (Array.isArray(child)) return child.map(sortKeys);
+    if (!child || typeof child !== "object") return child;
+    return Object.fromEntries(
+      Object.keys(child).sort().map((key) => [key, sortKeys(child[key])]),
+    );
+  };
+  return JSON.stringify(sortKeys(value));
+}
+
 function eventRegressionDifferences(baselineEvents, currentEvents) {
-  const remaining = currentEvents.map((event) => JSON.stringify(event));
+  const remaining = currentEvents.map((event) => canonicalJson(event));
   const missingEvents = [];
   for (const event of baselineEvents) {
-    const serialized = JSON.stringify(event);
+    const serialized = canonicalJson(event);
     const index = remaining.indexOf(serialized);
     if (index >= 0) {
       remaining.splice(index, 1);
@@ -2234,8 +2248,16 @@ async function executePublishedInnovationRegression(segment, progress) {
     );
   }
   const before = await captureEngineSnapshot(segment);
+  // The regression registry records the exact publication hash. Prefer it:
+  // the published files and state snapshots can lose their original key
+  // order, which changes their hash but not their content.
+  const registry = await readJson(regressionRegistryPath, {segments: []});
+  const publishedOutputHash = (registry.segments || []).find(
+    (entry) => entry.segment === segment,
+  )?.output_hash;
   const baselineOutputHash = (
-    review.state.publishedReference?.outputHash
+    publishedOutputHash
+    || review.state.publishedReference?.outputHash
     || review.state.engineBefore?.outputHash
     || before.outputHash
   );
@@ -2276,14 +2298,17 @@ async function executePublishedInnovationRegression(segment, progress) {
     updateSegmentRegressionProgress(progress, "compare", "running");
     const current = await captureEngineSnapshot(segment);
     const exactOutputMatch = current.outputHash === baselineOutputHash;
+    // When the rebuilt output matches the publication hash exactly, restore
+    // it rather than an older copy of the same content with reordered keys.
     const baselineSnapshot = [
+      exactOutputMatch ? current : null,
       review.state.engineBefore,
       review.state.engineAfter,
       before,
     ].find((snapshot) => snapshot?.outputHash === baselineOutputHash);
     baselineSnapshotForRestore = baselineSnapshot || before;
     const eventDifferences = eventRegressionDifferences(
-      baselineSnapshot?.predictions || [],
+      (baselineSnapshot || before).predictions || [],
       current.predictions,
     );
     const matchStateChanged = Boolean(
@@ -5747,6 +5772,7 @@ async function setActiveAdapter(instanceId, workflowKey) {
   const update = adapterRegistryUpdate.then(async () => {
     const registry = await readJson(activeAdapterRegistryPath, {});
     registry[instanceId] = workflowKey;
+    await mkdir(dirname(activeAdapterRegistryPath), {recursive: true});
     await writeJsonAtomically(activeAdapterRegistryPath, registry);
   });
   adapterRegistryUpdate = update.catch(() => {});
@@ -8680,7 +8706,8 @@ async function startServer(instanceId) {
   try {
     await listen(preferredPort);
   } catch (error) {
-    if (error?.code !== "EADDRINUSE") throw error;
+    // Windows reports ports in an excluded (reserved) range as EACCES.
+    if (!["EADDRINUSE", "EACCES"].includes(error?.code)) throw error;
     await listen(0);
   }
 
