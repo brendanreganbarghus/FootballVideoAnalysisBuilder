@@ -25,7 +25,6 @@ from typing import Any, Callable, Iterable
 SCHEMA_VERSION = 1
 DEFINITION_VERSION = "innovation-sot-v1"
 EVIDENCE_SOURCE_KIND = "innovation_runtime_shot_evidence"
-SETTING_FILE_NAME = "shots-on-target-setting.json"
 EVIDENCE_FILE_NAME = "shot-evidence.json"
 SUMMARY_FILE_NAME = "shots-on-target.json"
 EVENT_TYPE = "shot_on_target"
@@ -788,21 +787,6 @@ def _fingerprint(payload: Any) -> str | None:
     ).hexdigest()
 
 
-def disabled_summary() -> dict[str, Any]:
-    return {
-        "schema_version": SCHEMA_VERSION,
-        "definition_version": DEFINITION_VERSION,
-        "enabled": False,
-        "analysis_status": "disabled",
-        "readiness": None,
-        "counts": None,
-        "total": None,
-        "unresolved_attempt_count": None,
-        "unresolved_reasons": {},
-        "attempts": [],
-    }
-
-
 def summarize(
     attempts: Iterable[Attempt] | None,
     *,
@@ -814,7 +798,6 @@ def summarize(
     base = {
         "schema_version": SCHEMA_VERSION,
         "definition_version": DEFINITION_VERSION,
-        "enabled": True,
         "readiness": readiness_result.to_dict(),
         "evidence_fingerprint": evidence_fingerprint,
         "configuration_fingerprint": configuration_fingerprint,
@@ -855,25 +838,6 @@ def summarize(
     }
 
 
-def load_setting(path: Path) -> bool:
-    """Read the opt-in setting. Missing means disabled; malformed raises."""
-    if not path.is_file():
-        return False
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as error:
-        raise ShotEvidenceError(f"Malformed {path.name}: {error}") from error
-    if (
-        not isinstance(payload, dict)
-        or payload.get("schema_version") != SCHEMA_VERSION
-        or not isinstance(payload.get("enabled"), bool)
-    ):
-        raise ShotEvidenceError(
-            f"{path.name} must contain schema_version 1 and a boolean 'enabled'"
-        )
-    return payload["enabled"]
-
-
 def _load_evidence(path: Path | None) -> dict[str, Any] | None:
     if path is None or not path.is_file():
         return None
@@ -898,7 +862,7 @@ def apply_shots_on_target(
     result = readiness(payload)
     events_path = output / "predicted-events.json"
     configuration_fingerprint = _fingerprint(
-        {"definition_version": DEFINITION_VERSION, "enabled": True}
+        {"definition_version": DEFINITION_VERSION}
     )
     if result.status != "ready":
         summary = summarize(

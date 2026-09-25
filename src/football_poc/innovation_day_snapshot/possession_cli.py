@@ -51,15 +51,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Disable shot inference when goal geometry is not calibrated.",
     )
     parser.add_argument(
-        "--shots-on-target",
-        action="store_true",
+        "--shot-evidence",
+        type=Path,
+        default=None,
         help=(
-            "Opt in to evidence-gated shots-on-target analytics. Requires a "
-            "runtime --shot-evidence file; missing evidence yields an "
-            "'unavailable' summary and no events."
+            "Runtime shots-on-target evidence. Shots on target are always "
+            "analysed; missing evidence yields an 'unavailable' summary and "
+            "no events."
         ),
     )
-    parser.add_argument("--shot-evidence", type=Path, default=None)
     parser.add_argument(
         "--shot-goal-calibration",
         type=Path,
@@ -152,28 +152,27 @@ def main() -> None:
 
 def run(args: Any) -> Path:
     destination = _infer(args)
-    if getattr(args, "shots_on_target", False):
-        manifest = BenchmarkManifest.load(args.manifest)
-        calibration = getattr(args, "shot_goal_calibration", None)
-        affiliations = getattr(args, "shot_goalkeeper_affiliations", None)
-        evidence_path = getattr(args, "shot_evidence", None)
-        if calibration is not None and affiliations is not None:
-            if evidence_path is None:
-                evidence_path = args.output / "shot-evidence.json"
-            write_shot_evidence(
-                evidence_path,
-                ball_tracks=args.ball_tracks,
-                player_tracks=args.player_tracks,
-                goal_calibration=calibration,
-                goalkeeper_affiliations=affiliations,
-                match_state=args.output / "match-state-events.json",
-                fps=manifest.fps,
-            )
-        apply_shots_on_target(
-            args.output,
+    manifest = BenchmarkManifest.load(args.manifest)
+    calibration = getattr(args, "shot_goal_calibration", None)
+    affiliations = getattr(args, "shot_goalkeeper_affiliations", None)
+    evidence_path = getattr(args, "shot_evidence", None)
+    if calibration is not None and affiliations is not None:
+        if evidence_path is None:
+            evidence_path = args.output / "shot-evidence.json"
+        write_shot_evidence(
             evidence_path,
-            duration_seconds=manifest.source_frame_count / manifest.fps,
+            ball_tracks=args.ball_tracks,
+            player_tracks=args.player_tracks,
+            goal_calibration=calibration,
+            goalkeeper_affiliations=affiliations,
+            match_state=args.output / "match-state-events.json",
+            fps=manifest.fps,
         )
+    apply_shots_on_target(
+        args.output,
+        evidence_path,
+        duration_seconds=manifest.source_frame_count / manifest.fps,
+    )
     return destination
 
 

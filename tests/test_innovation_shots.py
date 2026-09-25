@@ -335,19 +335,33 @@ def test_readiness_and_invalid_configuration() -> None:
         sot.readiness(broken)
 
 
-def test_setting_loading(tmp_path: Path) -> None:
-    path = tmp_path / sot.SETTING_FILE_NAME
-    assert sot.load_setting(path) is False
-    path.write_text(json.dumps({"schema_version": 1, "enabled": True}))
-    assert sot.load_setting(path) is True
-    path.write_text(json.dumps({"enabled": "yes"}))
-    with pytest.raises(sot.ShotEvidenceError):
-        sot.load_setting(path)
+def test_shots_on_target_always_runs_without_opt_in() -> None:
+    from football_poc.innovation_day_snapshot import possession_cli
+
+    root = Path(__file__).resolve().parents[1]
+    assert not hasattr(sot, "SETTING_FILE_NAME")
+    assert not hasattr(sot, "load_setting")
+    options = {
+        option
+        for action in possession_cli.build_parser()._actions
+        for option in action.option_strings
+    }
+    assert "--shots-on-target" not in options
+    assert "--shot-evidence" in options
+    runner = (root / "scripts" / "process-alfheim-innovation-segment.py").read_text(
+        encoding="utf-8"
+    )
+    assert "shots-on-target-setting" not in runner
+    assert "SHOTS_SETTING" not in runner
+    canvas = root / ".github" / "extensions" / "football-event-review" / "shared"
+    renderer = (canvas / "review-renderer.mjs").read_text(encoding="utf-8")
+    extension = (canvas / "review-extension.mjs").read_text(encoding="utf-8")
+    assert "shots-on-target-enabled" not in renderer
+    assert "/api/shots-on-target" not in renderer + extension
+    assert "shots-on-target-setting" not in extension
 
 
 def test_summary_statuses_distinguish_unavailable_partial_and_zero() -> None:
-    disabled = sot.disabled_summary()
-    assert disabled["analysis_status"] == "disabled" and disabled["total"] is None
     unavailable = sot.summarize(None, readiness_result=sot.readiness(None))
     assert unavailable["analysis_status"] == "unavailable"
     assert unavailable["counts"] is None and unavailable["total"] is None
@@ -419,7 +433,7 @@ def test_enabled_output_is_deterministic_and_adds_one_event(tmp_path) -> None:
     assert summary["analysis_status"] == "complete"
 
 
-def test_comparison_includes_sot_only_when_opted_in() -> None:
+def test_comparison_includes_sot_only_in_innovation_scope() -> None:
     manual = [{"clip_seconds": 4.3, "team": "red", "event_type": "shot_on_target"}]
     predicted = [{"event_type": "shot_on_target", "clip_seconds": 4.0,
                   "completion_seconds": 4.16, "team": "red"}]

@@ -450,24 +450,26 @@ regressions.
 An authorized Innovation review should complete as one bounded manual
 adjudication pass, not as a frame-export or engineering investigation. Watch
 the prepared 30–60-second Canvas video and use the quick-capture actions
-to record completed passes, turnovers, and (optionally) shots on target at the
+to record completed passes, turnovers, and shots on target at the
 playhead. Review the ordered
 list and team/type counts, make corrections, map useful E# comparisons, then
-approve the complete minute as golden. The Innovation scope is completed passes
-and turnovers, plus shots on target when the opt-in SOT analysis is enabled
-(see below); shots and fouls otherwise remain disabled. Use frozen BAC and prepared player context only to
+approve the complete minute as golden. The Innovation scope is completed passes,
+turnovers, and shots on target (always analysed; see below); shots and fouls
+otherwise remain disabled. Use frozen BAC and prepared player context only to
 clarify an uncertain moment. Do not replace continuous viewing with
 frame-by-frame export, exhaustive coordinate analysis, an automatic Copilot
 pre-review, or a new inference run.
 
-### Innovation shots on target (opt-in, evidence-gated)
+### Innovation shots on target (always analysed, evidence-gated)
 
 `innovation_day_snapshot\shots_on_target.py` implements the SOT analytics
 contract above (definition `innovation-sot-v1`, a project statistic, not an
-IFAB statistic). It is off by default. The Canvas **Enable shots on target**
-setting writes `innovation\shots-on-target-setting.json` only after a
-readiness check of the runtime evidence file `innovation\shot-evidence.json`
-(`source_kind: innovation_runtime_shot_evidence`) succeeds. That file must
+IFAB statistic). Every Innovation engine run analyses shots on target; there
+is no opt-in setting. The runner rebuilds the runtime evidence file
+`innovation\shot-evidence.json`
+(`source_kind: innovation_runtime_shot_evidence`) before every event build and
+applies the classifier only when that evidence passes its readiness check.
+That file must
 supply calibrated goal geometry (goal line, posts, crossbar, uncertainty),
 team attacking directions, observed 3-D ball samples, deliberate-release
 intent records, contact roles (goalkeeper, last-line defender, outfield,
@@ -516,13 +518,15 @@ leaves the attempt unresolved. One `shot_on_target` row per on-target attempt
 is merged into `predicted-events.json` (outcome time is `completion_seconds`),
 and `analytics-data\shots-on-target.json` records status
 (`unavailable`/`partial`/`complete`), per-team counts, total, unresolved
-reasons, and fingerprints. Disabled or unavailable totals are null, never
-zero; the Canvas shows `—`, and `*` for partial counts. Disabled runs leave
-`predicted-events.json` and output hashes unchanged, and published
-pass/turnover-only segments keep their scope unless reprocessing is
-explicitly authorized. Publication is blocked unless SOT status is
-`complete` whenever SOT is in scope, or when golden M# includes SOT that the
-engine output does not analyse.
+reasons, and fingerprints. Unavailable totals are null, never zero; the Canvas
+shows `—`, and `*` for partial counts. Unavailable or zero-attempt runs leave
+`predicted-events.json` unchanged. The Canvas engine-output hash covers
+`predicted-events.json` (including any SOT rows) and match state, not the
+derived SOT summary, so published pass/turnover segments whose events are
+unchanged keep their publication hash; any added SOT row is an E# difference
+that fails the published-segment regression. Publication is blocked unless
+SOT status is `complete`, or when golden M# includes SOT that the engine
+output does not analyse.
 
 The **Process AI** action runs only the cached BAC-assisted Innovation rules
 engine. It does not automatically launch the optional independent C# protocol.

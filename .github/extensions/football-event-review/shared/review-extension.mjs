@@ -1345,7 +1345,7 @@ async function loadShotsOnTargetStatus(segment) {
     join(segmentRoot(segment), "analytics-data", SHOTS_ON_TARGET_SUMMARY_FILE),
     null,
   );
-  return summary?.analysis_status || "disabled";
+  return summary?.analysis_status || "not_run";
 }
 
 async function loadDrafts(segment, segmentInfo) {
@@ -2033,14 +2033,11 @@ async function captureEngineSnapshot(segment, knownFingerprint = null) {
       )
     : null;
   const fingerprint = knownFingerprint || await engineFingerprint();
-  // The SOT summary joins the hash only when present, so disabled segments
-  // keep their published output hashes.
+  // SOT events are hashed through predictions; the derived SOT summary is
+  // gated separately at publication so pass/turnover-only published hashes
+  // remain comparable now that SOT analysis always runs.
   const outputHash = createHash("sha256")
-    .update(JSON.stringify(
-      shotsOnTarget
-        ? { predictions, matchState, shotsOnTarget }
-        : { predictions, matchState },
-    ))
+    .update(JSON.stringify({ predictions, matchState }))
     .digest("hex");
   return {
     capturedAt: new Date().toISOString(),
@@ -2053,25 +2050,20 @@ async function captureEngineSnapshot(segment, knownFingerprint = null) {
 }
 
 const SHOTS_ON_TARGET_SUMMARY_FILE = "shots-on-target.json";
-const SHOTS_ON_TARGET_SETTING_FILE = "shots-on-target-setting.json";
-const SHOT_EVIDENCE_FILE = "shot-evidence.json";
 
-export function shotsOnTargetStatus(summary, setting) {
+export function shotsOnTargetStatus(summary) {
   if (!workflow.shotsOnTargetCapable) return null;
-  const enabled = Boolean(setting?.enabled);
   if (!summary) {
     return {
-      enabled,
-      analysisStatus: enabled ? "not_run" : "disabled",
+      analysisStatus: "not_run",
       counts: null,
       total: null,
       unresolvedAttemptCount: null,
-      reasons: enabled ? ["engine_not_rerun_since_enabling"] : [],
+      reasons: ["engine_not_rerun_with_shots_on_target"],
       definitionVersion: null,
     };
   }
   return {
-    enabled,
     analysisStatus: summary.analysis_status,
     counts: summary.counts ?? null,
     total: summary.total ?? null,
@@ -2086,35 +2078,6 @@ export function publishedAnalysisScope(current) {
   return status
     ? ["completed_pass", "turnover", "shot_on_target"]
     : ["completed_pass", "turnover"];
-}
-
-async function readShotsOnTargetSetting(segment) {
-  return readJson(join(segmentRoot(segment), SHOTS_ON_TARGET_SETTING_FILE), null);
-}
-
-async function shotEvidenceReadiness(segment) {
-  const {stdout} = await execFileAsync(
-    "python",
-    [
-      "-m",
-      "football_poc.innovation_day_snapshot.shot_evidence_adapter",
-      "--segment-innovation-root",
-      segmentRoot(segment),
-    ],
-    {
-      cwd: projectRoot,
-      encoding: "utf8",
-      windowsHide: true,
-      env: {
-        ...process.env,
-        PYTHONPATH: [
-          join(projectRoot, "src"),
-          process.env.PYTHONPATH || "",
-        ].filter(Boolean).join(";"),
-      },
-    },
-  );
-  return JSON.parse(stdout);
 }
 
 function withheldEngineSnapshot() {
@@ -3706,7 +3669,8 @@ function innovationPublicationPlan(state, current) {
   if (manualHasShots && !sotSummary) {
     blockers.push(
       "The golden M# set records shots on target, but shots-on-target "
-      + "analysis is not enabled for this engine output.",
+      + "analysis has not run for this engine output. Rerun the Innovation "
+      + "analysis.",
     );
   }
   const validationFresh = Boolean(
@@ -4931,12 +4895,7 @@ export async function publicState(
       ? "regression_candidate"
       : "published",
     ballProvenance,
-    shotsOnTarget: shotsOnTargetStatus(
-      currentEngine?.shotsOnTarget,
-      workflow.shotsOnTargetCapable
-        ? await readShotsOnTargetSetting(selected.key)
-        : null,
-    ),
+    shotsOnTarget: shotsOnTargetStatus(currentEngine?.shotsOnTarget),
     ballRecoveryDiagnostic,
     coordinateReview: state.coordinateReview,
     trajectoryAudit: state.trajectoryAudit || {
@@ -6409,61 +6368,6 @@ async function handleRequest(request, response, serverInstanceId) {
         canvasSessionConnectionFromRequest(request, serverInstanceId),
       ),
     );
-    return;
-  }
-  if (
-    request.method === "POST"
-    && url.pathname === "/api/shots-on-target"
-    && workflow.shotsOnTargetCapable
-  ) {
-    const body = await readBody(request);
-    const segment = requestedSegment(url, body);
-    if (!/^segment-\d{4}-\d{3}$/.test(segment)) {
-      sendJson(response, 400, {error: "Select a prepared segment"});
-      return;
-    }
-    if (typeof body.enabled !== "boolean") {
-      sendJson(response, 400, {error: "enabled must be a boolean"});
-      return;
-    }
-    const review = await reviewContext(segment);
-    if (
-      (review.selected.validated || review.state.publishedReference)
-      && body.authorizePublishedReprocessing !== true
-    ) {
-      sendJson(response, 409, {
-        code: "published_scope_locked",
-        error: (
-          "This segment was published with its original analysis scope. "
-          + "Changing shots-on-target scope requires explicit authorization "
-          + "to reprocess and republish it."
-        ),
-      });
-      return;
-    }
-    const settingPath = join(segmentRoot(segment), SHOTS_ON_TARGET_SETTING_FILE);
-    if (!body.enabled) {
-      await unlink(settingPath).catch(() => {});
-      sendJson(response, 200, {segment, enabled: false});
-      return;
-    }
-    const readinessResult = await shotEvidenceReadiness(segment);
-    if (readinessResult.status !== "ready") {
-      sendJson(response, 409, {
-        code: "shot_evidence_not_ready",
-        error: (
-          "Shots on target cannot be enabled: the runtime evidence does not "
-          + "satisfy the SOT contract."
-        ),
-        readiness: readinessResult,
-      });
-      return;
-    }
-    await writeTextAtomically(
-      settingPath,
-      `${JSON.stringify({schema_version: 1, enabled: true}, null, 2)}\n`,
-    );
-    sendJson(response, 200, {segment, enabled: true, readiness: readinessResult});
     return;
   }
   if (request.method === "POST" && url.pathname === "/api/analyze") {

@@ -30,9 +30,7 @@ from football_poc.innovation_day_snapshot.bac_ball_tracks import (
 )
 from football_poc.innovation_day_snapshot.shots_on_target import (
     EVIDENCE_FILE_NAME as SHOT_EVIDENCE_FILE_NAME,
-    SETTING_FILE_NAME as SHOTS_SETTING_FILE_NAME,
     SUMMARY_FILE_NAME as SHOTS_SUMMARY_FILE_NAME,
-    load_setting as load_shots_setting,
 )
 
 
@@ -416,24 +414,15 @@ def main() -> None:
             if boundary_events.is_file()
             else []
         )
-        shots_setting = run_root / SHOTS_SETTING_FILE_NAME
-        shots_enabled = load_shots_setting(shots_setting)
         shot_evidence = run_root / SHOT_EVIDENCE_FILE_NAME
-        shots_arguments = (
-            [
-                "--shots-on-target",
-                "--shot-evidence",
-                str(shot_evidence),
-                "--shot-goal-calibration",
-                str(alfheim_config_path("pitch-calibration.json")),
-                "--shot-goalkeeper-affiliations",
-                str(goalkeeper_affiliations_path()),
-            ]
-            if shots_enabled
-            else []
-        )
-        if not shots_enabled:
-            (results / SHOTS_SUMMARY_FILE_NAME).unlink(missing_ok=True)
+        shots_arguments = [
+            "--shot-evidence",
+            str(shot_evidence),
+            "--shot-goal-calibration",
+            str(alfheim_config_path("pitch-calibration.json")),
+            "--shot-goalkeeper-affiliations",
+            str(goalkeeper_affiliations_path()),
+        ]
         run(
             "-m",
             "football_poc.innovation_day_snapshot.possession_cli",
@@ -487,16 +476,13 @@ def main() -> None:
             ),
             "events_sha256": sha256(results / "predicted-events.json"),
             "performance_benchmark_valid": False,
-        }
-        if shots_enabled:
-            provenance["shots_on_target"] = {
-                "enabled": True,
-                "setting_sha256": sha256(shots_setting),
+            "shots_on_target": {
                 "evidence_sha256": (
                     sha256(shot_evidence) if shot_evidence.is_file() else None
                 ),
                 "summary_sha256": sha256(results / SHOTS_SUMMARY_FILE_NAME),
-            }
+            },
+        }
         (results / "run-provenance.json").write_text(
             json.dumps(provenance, indent=2) + "\n",
             encoding="utf-8",
