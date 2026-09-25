@@ -2038,14 +2038,13 @@ async function readShotsOnTargetSetting(segment) {
 }
 
 async function shotEvidenceReadiness(segment) {
-  const evidencePath = join(segmentRoot(segment), SHOT_EVIDENCE_FILE);
   const {stdout} = await execFileAsync(
     "python",
     [
       "-m",
-      "football_poc.innovation_day_snapshot.shots_on_target",
-      "readiness",
-      evidencePath,
+      "football_poc.innovation_day_snapshot.shot_evidence_adapter",
+      "--segment-innovation-root",
+      segmentRoot(segment),
     ],
     {
       cwd: projectRoot,

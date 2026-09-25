@@ -54,14 +54,8 @@ INNOVATION_DETECTOR_PROFILE = {
 }
 
 
-def goalkeeper_affiliations_path() -> Path:
-    local_path = (
-        PROJECT_ROOT
-        / "benchmarks"
-        / "alfheim"
-        / "window-555"
-        / "goalkeeper-affiliations.json"
-    )
+def alfheim_config_path(name: str) -> Path:
+    local_path = PROJECT_ROOT / "benchmarks" / "alfheim" / "window-555" / name
     if local_path.is_file():
         return local_path
 
@@ -71,20 +65,24 @@ def goalkeeper_affiliations_path() -> Path:
             (
                 artifact_root
                 / "30-shared-baselines"
-            ).glob("*/alfheim-config/goalkeeper-affiliations.json")
+            ).glob(f"*/alfheim-config/{name}")
         )
         if len(candidates) == 1:
             return candidates[0]
         if len(candidates) > 1:
             raise FileNotFoundError(
-                "Multiple shared goalkeeper affiliation configurations found; "
+                f"Multiple shared {name} configurations found; "
                 "select one explicitly."
             )
 
     raise FileNotFoundError(
-        "Goalkeeper affiliation configuration was not found locally or in the "
+        f"Alfheim configuration {name} was not found locally or in the "
         "shared artifact store."
     )
+
+
+def goalkeeper_affiliations_path() -> Path:
+    return alfheim_config_path("goalkeeper-affiliations.json")
 
 
 def sha256(path: Path) -> str:
@@ -422,7 +420,15 @@ def main() -> None:
         shots_enabled = load_shots_setting(shots_setting)
         shot_evidence = run_root / SHOT_EVIDENCE_FILE_NAME
         shots_arguments = (
-            ["--shots-on-target", "--shot-evidence", str(shot_evidence)]
+            [
+                "--shots-on-target",
+                "--shot-evidence",
+                str(shot_evidence),
+                "--shot-goal-calibration",
+                str(alfheim_config_path("pitch-calibration.json")),
+                "--shot-goalkeeper-affiliations",
+                str(goalkeeper_affiliations_path()),
+            ]
             if shots_enabled
             else []
         )

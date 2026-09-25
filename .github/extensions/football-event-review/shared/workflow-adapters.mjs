@@ -66,6 +66,8 @@ export const innovationWorkflow = Object.freeze({
     "src/football_poc/innovation_day_snapshot/possession.py",
     "src/football_poc/innovation_day_snapshot/possession_cli.py",
     "src/football_poc/innovation_day_snapshot/shots_on_target.py",
+    "src/football_poc/innovation_day_snapshot/goal_calibration.py",
+    "src/football_poc/innovation_day_snapshot/shot_evidence_adapter.py",
     "scripts/process-alfheim-innovation-segment.py",
   ],
   trackerVersionFiles: [
@@ -78,6 +80,8 @@ export const innovationWorkflow = Object.freeze({
     "src/football_poc/innovation_day_snapshot/possession.py",
     "src/football_poc/innovation_day_snapshot/possession_cli.py",
     "src/football_poc/innovation_day_snapshot/shots_on_target.py",
+    "src/football_poc/innovation_day_snapshot/goal_calibration.py",
+    "src/football_poc/innovation_day_snapshot/shot_evidence_adapter.py",
   ],
   regressionTests: [
     "tests/test_innovation_shots.py",

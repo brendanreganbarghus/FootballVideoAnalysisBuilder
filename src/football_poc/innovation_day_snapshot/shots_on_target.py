@@ -40,6 +40,8 @@ CONTACT_KINDS = {
 }
 STOPPAGE_TOLERANCE_SECONDS = 0.2
 MINIMUM_OBSERVED_SAMPLES = 2
+FACE_CONTACT_TOLERANCE_SECONDS = 0.6
+FACE_LIVE_PLAY_SECONDS = 2.0
 
 
 class ShotEvidenceError(ValueError):
@@ -114,6 +116,17 @@ class GoalFact:
 
 
 @dataclass(frozen=True)
+class FaceArrival:
+    frame: int
+    seconds: float
+    goal_side: str
+    y: float
+    z: float
+    arrested: bool
+    method: str
+
+
+@dataclass(frozen=True)
 class ShotEvidence:
     teams: tuple[str, ...]
     goals: dict[str, GoalGeometry]
@@ -122,6 +135,7 @@ class ShotEvidence:
     releases: tuple[Release, ...]
     contacts: tuple[Contact, ...]
     goal_facts: tuple[GoalFact, ...]
+    face_arrivals: tuple[FaceArrival, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -227,11 +241,14 @@ def readiness(payload: dict[str, Any] | None) -> Readiness:
     elif not calibration.get("attacking_goal"):
         reasons.append("attacking_direction_missing")
     trajectory = payload.get("ball_trajectory")
-    if not isinstance(trajectory, list) or not any(
+    has_height = isinstance(trajectory, list) and any(
         isinstance(sample, dict)
         and sample.get("observed") is True
         and sample.get("z") is not None
         for sample in trajectory
+    )
+    if not isinstance(trajectory, list) or not (
+        has_height or isinstance(payload.get("goal_face_arrivals"), list)
     ):
         reasons.append("ball_height_missing")
     if not isinstance(payload.get("releases"), list):
@@ -362,6 +379,26 @@ def parse_evidence(payload: dict[str, Any]) -> ShotEvidence:
                 str(item.get("evidence") or ""),
             )
         )
+    arrivals = []
+    for index, item in enumerate(payload.get("goal_face_arrivals") or []):
+        context = f"goal_face_arrivals[{index}]"
+        side = _require(item, "goal_side", context)
+        if side not in goals:
+            raise ShotEvidenceError(f"{context}.goal_side is not calibrated")
+        arrested = _require(item, "arrested", context)
+        if not isinstance(arrested, bool):
+            raise ShotEvidenceError(f"{context}.arrested must be boolean")
+        arrivals.append(
+            FaceArrival(
+                _integer(_require(item, "frame", context), f"{context}.frame"),
+                _number(_require(item, "seconds", context), f"{context}.seconds"),
+                side,
+                _number(_require(item, "y", context), f"{context}.y"),
+                _number(_require(item, "z", context), f"{context}.z"),
+                arrested,
+                str(item.get("method") or ""),
+            )
+        )
     return ShotEvidence(
         teams,
         goals,
@@ -370,6 +407,7 @@ def parse_evidence(payload: dict[str, Any]) -> ShotEvidence:
         tuple(sorted(releases, key=lambda release: release.frame)),
         tuple(sorted(contacts, key=lambda contact: contact.frame)),
         tuple(sorted(goal_facts, key=lambda goal: goal.frame)),
+        tuple(sorted(arrivals, key=lambda arrival: arrival.frame)),
     )
 
 
@@ -445,6 +483,69 @@ def _projected_frame_position(
         second.y + (second.y - first.y) * ratio,
         second.z + (second.z - first.z) * ratio,
     )
+
+
+def _face_arrival_near(
+    evidence: ShotEvidence,
+    target: str,
+    within: Callable[[int], bool],
+    seconds: float,
+) -> FaceArrival | None:
+    return next(
+        (
+            item
+            for item in evidence.face_arrivals
+            if item.goal_side == target
+            and within(item.frame)
+            and abs(item.seconds - seconds) <= FACE_CONTACT_TOLERANCE_SECONDS
+        ),
+        None,
+    )
+
+
+def _resolve_face_arrival(
+    attempt: Attempt,
+    arrival: FaceArrival,
+    geometry: GoalGeometry,
+    match_state: dict[str, Any],
+    duration_seconds: float,
+) -> None:
+    """Resolve a monocular goal-face arrest without a detected contact.
+
+    A ball arrested inside the calibrated goal face has reached the goal
+    plane inside the frame. If play then stays live (no goal), it was stopped
+    on the line and counts as on target. Arrests outside the frame count as
+    off target only when the ball then leaves play.
+    """
+    attempt.outcome_frame = arrival.frame
+    attempt.outcome_seconds = arrival.seconds
+    if not arrival.arrested:
+        attempt.reason = "outcome_not_observed"
+        return
+    if _stoppage_before(match_state, attempt.release.seconds, arrival.seconds):
+        attempt.reason = "play_stopped_before_outcome"
+        return
+    position = geometry.classify(arrival.y, arrival.z)
+    live_until = arrival.seconds + FACE_LIVE_PLAY_SECONDS
+    if position == "ambiguous":
+        attempt.reason = "goal_frame_ambiguous"
+    elif live_until > duration_seconds:
+        attempt.reason = "flight_truncated"
+    elif position == "inside":
+        if _stoppage_before(
+            match_state, arrival.seconds, live_until + STOPPAGE_TOLERANCE_SECONDS
+        ):
+            attempt.reason = "goal_entry_without_goal_confirmation"
+        else:
+            attempt.resolution = "on_target"
+            attempt.reason = "stopped_at_goal_face"
+    elif _stoppage_before(
+        match_state, arrival.seconds, live_until + STOPPAGE_TOLERANCE_SECONDS
+    ):
+        attempt.resolution = "off_target"
+        attempt.reason = "wide_or_high"
+    else:
+        attempt.reason = "off_frame_arrest_in_play"
 
 
 def classify_attempts(
@@ -594,6 +695,10 @@ def classify_attempts(
                 continue
             projected = _projected_frame_position(flight, geometry)
             if projected == "insufficient":
+                arrival = _face_arrival_near(evidence, target, within, contact.seconds)
+                if arrival is not None:
+                    projected = geometry.classify(arrival.y, arrival.z)
+            if projected == "insufficient":
                 attempt.reason = "insufficient_observed_motion"
             elif projected == "inside":
                 attempt.resolution = "on_target"
@@ -607,6 +712,19 @@ def classify_attempts(
                 attempt.reason = "pre_contact_path_off_target"
             else:
                 attempt.reason = "goal_frame_ambiguous"
+            continue
+        arrival = next(
+            (
+                item
+                for item in evidence.face_arrivals
+                if item.goal_side == target and within(item.frame)
+            ),
+            None,
+        )
+        if len(flight) < MINIMUM_OBSERVED_SAMPLES and arrival is not None:
+            _resolve_face_arrival(
+                attempt, arrival, geometry, match_state, duration_seconds
+            )
             continue
         if len(flight) < MINIMUM_OBSERVED_SAMPLES:
             attempt.reason = "insufficient_observed_motion"
@@ -633,7 +751,9 @@ def classify_attempts(
 
 
 def attempt_event(attempt: Attempt) -> dict[str, Any]:
-    confidence = 0.9 if attempt.reason == "valid_goal" else 0.8
+    confidence = {"valid_goal": 0.9, "stopped_at_goal_face": 0.65}.get(
+        attempt.reason, 0.8
+    )
     return {
         "event_type": EVENT_TYPE,
         "clip_seconds": round(attempt.release.seconds, 3),

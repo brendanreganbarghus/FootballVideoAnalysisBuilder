@@ -472,10 +472,36 @@ supply calibrated goal geometry (goal line, posts, crossbar, uncertainty),
 team attacking directions, observed 3-D ball samples, deliberate-release
 intent records, contact roles (goalkeeper, last-line defender, outfield,
 woodwork), and separately supported valid-goal facts. Frozen BAC image
-coordinates cannot establish height, goal-mouth intersection, or saves, and
-**no adapter currently produces this file**, so SOT readiness is
-`unavailable` for every prepared segment until such an adapter is separately
-scoped and validated. Manual labels, M#/C#, or provider events must never
+coordinates alone cannot establish height, so the runtime adapter
+`innovation_day_snapshot\shot_evidence_adapter.py`
+(`innovation-shot-evidence-v1`) builds the file from frozen runtime inputs
+only: BAC ball tracks, cached player tracks and goalkeeper roles, the
+goalkeeper-affiliation config (attacking directions), engine match state,
+and the calibrated goal mouths in `pitch-calibration.json`.
+`goal_calibration.py` (`innovation-goal-face-v1`) fits one goal-face
+homography per goal from the four image corners and the Law 1 goal size
+(7.32 m × 2.44 m). Its uncertainty is the worst-case shift under ±4 px corner
+error plus a 0.25 m monocular depth margin (about 0.5 m on Alfheim).
+Because one camera cannot measure height in flight, height evidence comes
+only from **goal-face arrivals**. An arrival requires a fast approach
+(≥ 400 px/s within 1 s) that arrests (speed ≤ 0.35 × approach) inside a
+40 px zone around the face. The median arrested position is projected onto
+the goal plane. Release is the last player-foot contact 0.4–3 s earlier.
+Intent is `scoring_attempt` only for a direct approach toward the kicker's
+attacking goal. An opponent within 0.4 s of the arrest is a contact.
+A face arrival resolves as:
+
+- on target (`stopped_at_goal_face`, confidence 0.65) when the ball arrests
+  inside the face and play stays live for 2 s;
+- off target (`wide_or_high`) when it arrests outside the face and a
+  stoppage follows;
+- unresolved otherwise.
+
+These thresholds are provisional. They were fixed before comparison but have
+only one positive example, and they need multi-segment validation. Known
+monocular ambiguity remains: a catch in front of the goal can project inside
+the face. The adapter output is a BAC-assisted diagnostic, not raw-video
+ball inference. Manual labels, M#/C#, or provider events must never
 populate it.
 
 Each attempt resolves at most once as on target (valid goal, goalkeeper save,
