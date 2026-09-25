@@ -18,7 +18,10 @@ if str(LOCAL_SOURCE) not in sys.path:
     sys.path.insert(0, str(LOCAL_SOURCE))
 
 from football_poc.alfheim_segments import resolve_alfheim_pano
-from football_poc.artifact_store import resolve_detector_model
+from football_poc.artifact_store import (
+    discover_artifact_root,
+    resolve_detector_model,
+)
 from football_poc.innovation_day_snapshot.alfheim_profile import (
     ALFHEIM_POSSESSION_ARGUMENTS,
 )
@@ -49,6 +52,39 @@ INNOVATION_DETECTOR_PROFILE = {
     "overlap": 0.1,
     "nms_iou": 0.5,
 }
+
+
+def goalkeeper_affiliations_path() -> Path:
+    local_path = (
+        PROJECT_ROOT
+        / "benchmarks"
+        / "alfheim"
+        / "window-555"
+        / "goalkeeper-affiliations.json"
+    )
+    if local_path.is_file():
+        return local_path
+
+    artifact_root = discover_artifact_root()
+    if artifact_root is not None:
+        candidates = sorted(
+            (
+                artifact_root
+                / "30-shared-baselines"
+            ).glob("*/alfheim-config/goalkeeper-affiliations.json")
+        )
+        if len(candidates) == 1:
+            return candidates[0]
+        if len(candidates) > 1:
+            raise FileNotFoundError(
+                "Multiple shared goalkeeper affiliation configurations found; "
+                "select one explicitly."
+            )
+
+    raise FileNotFoundError(
+        "Goalkeeper affiliation configuration was not found locally or in the "
+        "shared artifact store."
+    )
 
 
 def sha256(path: Path) -> str:
@@ -312,13 +348,7 @@ def main() -> None:
                 "--team-profile",
                 "red-black",
                 "--goalkeeper-affiliations",
-                str(
-                    PROJECT_ROOT
-                    / "benchmarks"
-                    / "alfheim"
-                    / "window-555"
-                    / "goalkeeper-affiliations.json"
-                ),
+                str(goalkeeper_affiliations_path()),
                 "--no-video",
             )
             if args.evidence_only:
@@ -370,13 +400,7 @@ def main() -> None:
                 "--team-profile",
                 "red-black",
                 "--goalkeeper-affiliations",
-                str(
-                    PROJECT_ROOT
-                    / "benchmarks"
-                    / "alfheim"
-                    / "window-555"
-                    / "goalkeeper-affiliations.json"
-                ),
+                str(goalkeeper_affiliations_path()),
                 "--no-video",
             )
             if args.skip_events:
