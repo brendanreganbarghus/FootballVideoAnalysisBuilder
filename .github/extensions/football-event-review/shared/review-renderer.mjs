@@ -4311,10 +4311,6 @@ export function renderHtml({ adapter } = {}) {
                   data-manual-type="shot_on_target">Black shot on target</button>
                 <button type="button" data-manual-team="red"
                   data-manual-type="shot_on_target">White/red shot on target</button>
-                <label>
-                  <input id="shots-on-target-enabled" type="checkbox">
-                  Enable shots on target
-                </label>
                 <output id="shots-on-target-status" aria-live="polite"></output>
                 <label>
                   <input id="show-bac-coordinate" type="checkbox">
@@ -9275,7 +9271,7 @@ export function renderHtml({ adapter } = {}) {
           "segment-replay-" + team + "-on-target"
         ).textContent = onTargetText(
           totals[team].onTarget,
-          [segment.shotsOnTargetStatus || "disabled"]
+          [segment.shotsOnTargetStatus || "not_run"]
         );
       });
       document.getElementById("segment-replay-clock").textContent =
@@ -10918,7 +10914,7 @@ export function renderHtml({ adapter } = {}) {
             totals[team].onTarget,
             run.segments
               .slice(0, replaySegmentIndex + 1)
-              .map(segment => segment.shotsOnTargetStatus || "disabled")
+              .map(segment => segment.shotsOnTargetStatus || "not_run")
           );
       });
       const totalDuration = run.segments.reduce(
@@ -11355,18 +11351,15 @@ export function renderHtml({ adapter } = {}) {
 
     function renderShotsOnTargetStatus() {
       const sot = state.shotsOnTarget;
-      const toggle = document.getElementById("shots-on-target-enabled");
       const output = document.getElementById("shots-on-target-status");
-      if (!sot || !toggle || !output) return;
-      toggle.checked = Boolean(sot.enabled);
+      if (!sot || !output) return;
       const teams = sot.counts
         ? Object.entries(sot.counts)
           .map(([team, count]) => teamLabel(team) + " " + count)
           .join(" · ")
         : "";
       output.textContent = {
-        disabled: "Shots on target: disabled (not a zero).",
-        not_run: "Shots on target: enabled; rerun the analysis to apply.",
+        not_run: "Shots on target: not yet analysed; rerun the analysis.",
         unavailable: "Shots on target: unavailable — "
           + (sot.reasons || []).join(", ") + ".",
         partial: "Shots on target (incomplete): " + teams + " · total "
@@ -14308,53 +14301,6 @@ export function renderHtml({ adapter } = {}) {
     document.getElementById("hide-copilot-reference")?.addEventListener(
       "click",
       () => setCopilotReferenceVisible(false)
-    );
-    document.getElementById("shots-on-target-enabled")?.addEventListener(
-      "change",
-      async event => {
-        const toggle = event.currentTarget;
-        const status = document.getElementById("shots-on-target-status");
-        const enabled = toggle.checked;
-        let authorize = false;
-        if (state?.publication?.published) {
-          authorize = window.confirm(
-            "This segment was published with its original analysis scope. "
-            + "Changing shots-on-target scope requires reprocessing and a "
-            + "new independent review and publication. Continue?"
-          );
-          if (!authorize) {
-            toggle.checked = !enabled;
-            return;
-          }
-        }
-        try {
-          const response = await fetch("/api/shots-on-target", {
-            method: "POST",
-            headers: {"Content-Type": "application/json"},
-            body: JSON.stringify({
-              segment: selectedSegmentKey(),
-              enabled,
-              authorizePublishedReprocessing: authorize
-            })
-          });
-          const result = await response.json();
-          if (!response.ok) {
-            toggle.checked = !enabled;
-            status.textContent = (result.error || "Could not change setting")
-              + (result.readiness?.reasons?.length
-                ? " Missing: " + result.readiness.reasons.join(", ") + "."
-                : "");
-            return;
-          }
-          status.textContent = enabled
-            ? "Shots on target enabled. Rerun the Innovation analysis to apply."
-            : "Shots on target disabled. Rerun the analysis to remove SOT output.";
-          await loadState();
-        } catch (error) {
-          toggle.checked = !enabled;
-          status.textContent = error.message;
-        }
-      }
     );
     document.getElementById("show-bac-coordinate")?.addEventListener(
       "change",

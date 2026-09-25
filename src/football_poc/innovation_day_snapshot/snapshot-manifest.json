@@ -16,9 +16,9 @@
     "player_tracking.py": "9b43264ecb4a76b85dd9797ced3307ccce439652d46a898a7a8328fc8866bbb6",
     "player_tracking_cli.py": "b5e05b356750cf6c7bfaa1226af965d11527eb78f3feb836e07b5c3cde374d52",
     "possession.py": "6483d485f7493b465462710c1c41fcb15490f4625fd4341eda431def459cd9a9",
-    "possession_cli.py": "78d3ea08ce4c52e12fa292d151e34428a3f1af83c66ef9f08a7f22b30295e6b8",
+    "possession_cli.py": "58dc91338bc7c21e4b46b9f16e95678d9c4fb3544974845ca16d652aec80bb4c",
     "shot_evidence_adapter.py": "7a801daf90f29a183180eed28d23f3a018a8e0d6120ad540541d56d4cac68aa3",
-    "shots_on_target.py": "ef3a878039d51a654e3b4302661b22898c9620ba5043818d2e762fb54edba726",
+    "shots_on_target.py": "a31c43ca1099718e40c54811a0fff8cbe6fb5ae7ee8fbbd2bb3c890c1ad35b1a",
     "team_colors.py": "ce0310ac6dc215af049ef9b10465ec4a9187e4b1bf2cf87aeffa91c010ee2e30"
   }
 }

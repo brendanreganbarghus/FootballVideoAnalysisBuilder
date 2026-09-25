@@ -1478,6 +1478,7 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
                     manual,
                     predicted,
                     tolerance_seconds=1.0,
+                    include_shots_on_target=namespace == "innovation",
                 )
                 validated = (
                     len(manual) == len(predicted)
@@ -1636,6 +1637,7 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
                     manual,
                     predicted,
                     tolerance_seconds=1.0,
+                    include_shots_on_target=namespace == "innovation",
                 )
                 validated = (
                     len(manual) == len(predicted) == report["matched_event_count"]
