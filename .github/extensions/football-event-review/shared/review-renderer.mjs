@@ -6722,8 +6722,8 @@ export function renderHtml({ adapter } = {}) {
             ". Recover every additional frame supported by the raw video. " +
             "90% is the minimum gate, not the target."
           : segment.runProvenance?.interrupted
-            ? "Processing was interrupted. Click \"" + processButton.textContent
-              + "\" to continue."
+            ? "Processing was interrupted. Click '" + processButton.textContent
+              + "' to continue."
             : "AI failed: " + friendlyRunFailure(segment.statusMessage);
       } else if (!segment.processingSupported) {
         segmentRunStatus.textContent = (
