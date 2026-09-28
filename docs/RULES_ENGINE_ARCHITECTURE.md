@@ -350,6 +350,16 @@ The Innovation **Football Event Review** canvas is manual-first:
    request; do not launch a separate Plan, adjudication, or follow-up request.
    The inconclusive choice remains an independent adjudication request. If the
    engine agrees, no Copilot call, inference change, or regression is required.
+   An unmatched E# also offers a video-review shortcut for a potentially
+   missing M#. It seeks to just before the play but does not create an M#.
+   The reviewer may independently record M# from video after explicitly
+   reopening an approved minute; a published minute remains locked. Approving
+   a single unmatched E# can instead open a separate E-assisted review form
+   pre-filled from that E#. The reviewer checks and explicitly confirms the
+   entry against video. It remains E-derived diagnostic evidence, not M#,
+   and cannot enter golden matches, publication, or inference. The review
+   comparison may display A# entries alongside M# in the manual column with
+   an explicit E-assisted label; this never converts or counts them as M#.
 8. If a discrepancy requires an engine correction, implement a general
    evidence-based rule. Never use an M# timestamp, segment, track ID, or manual
    label as an inference input.
@@ -396,6 +406,9 @@ activity state is `working`. Retaining the selected E#/M# conversation after a
 response must not keep either modal active. Publishing the final response
 changes activity out of `working`, automatically closes the corresponding
 modal, refreshes the M#/E# rows, and retains the conversation separately.
+If an interrupted grouped E# review remains pending after activity stops, its
+decision modal can be reopened with a paused notice. It must not display
+`Copilot is working…`, mark pending decisions complete, or start another batch.
 
 When the reviewer chooses that an E# represents the same play but has incorrect
 details, they may enter an alternative completion time to seek and inspect that
@@ -416,7 +429,21 @@ must never affect event inference, thresholds, or engine rule execution.
   that the team, canonical event type, and completion time are all correct.
   Their explicit approval creates a hash-bound human review receipt directly.
   Because this exact E# already exists, no further Copilot review, engine
-  check, engine change, or regression run is needed.
+  check, engine change, or regression run is needed. After a single unmatched
+  E# is approved, if no same-team, same-type M# exists within the review
+  tolerance, a compact E-assisted review modal opens with that E#'s time, team, and
+  type. The reviewer checks these fields against video, edits if needed, and
+  explicitly confirms before an `A#` diagnostic entry is saved. It retains
+  the source E# identity and engine/output hashes, becoming stale when either
+  changes. It never enters M#, the golden count, inference, or the publication
+  reference. A distinct blank M# form offers "Use current video time" for
+  independent capture and requires reopening a frozen minute before saving.
+  Group E# approvals never batch-create assisted or manual events. After an
+  exact group approval, the Canvas can queue each eligible selected E# for
+  separate video review in the compact A# form. The reviewer confirms or skips
+  each entry; only an individually confirmed entry is saved. A reviewer can
+  resume by opening the remaining confirmed E# entries from the assisted-review
+  panel. Skipping or stopping never records an A#.
 - **Event exists, but details are wrong:** an event occurred, but its team,
   canonical type, or completion time differs. The exact `E#` is not confirmed;
   an explicitly requested Copilot review may document the mismatch and

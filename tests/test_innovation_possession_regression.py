@@ -1610,6 +1610,47 @@ def test_team_flip_at_reception_suppresses_ambiguous_pass() -> None:
     assert corrected == []
 
 
+def test_isolated_sender_team_flip_does_not_create_same_team_pass() -> None:
+    apparent_pass = PredictedEvent(
+        "pass_candidate", 1.8, "black", 10, 20, 0.6, "control", 2.2
+    )
+    players = {
+        frame: [{
+            "track_id": 10,
+            "clip_seconds": seconds,
+            "team": "red" if seconds < 1.8 else "black",
+            "color_scores": (
+                {"white": 0.25, "warm": 0.15}
+                if seconds < 1.6
+                else {"dark": 0.6}
+            ),
+        }]
+        for frame, seconds in [
+            (25, 1.0),
+            (30, 1.2),
+            (35, 1.4),
+            (40, 1.6),
+            (45, 1.8),
+        ]
+    }
+    players.update({
+        frame: [
+            *players.get(frame, []),
+            {
+                "track_id": 20,
+                "clip_seconds": seconds,
+                "team": "black",
+                "color_scores": {"dark": 0.6},
+            },
+        ]
+        for frame, seconds in [(50, 2.0), (55, 2.2), (60, 2.4)]
+    })
+
+    assert reconcile_track_identity_team_switches(
+        [apparent_pass], players, maximum_chain_seconds=2,
+    ) == []
+
+
 def test_later_control_resolves_earlier_contested_turnover() -> None:
     spanning = PredictedEvent(
         "pass_candidate", 0.6, "black", 1, 2, 0.8, "flight", 1.4
@@ -1850,6 +1891,64 @@ def test_terminal_control_confirms_direction_change_reception(
     assert [(event.team, event.completion_seconds) for event in events] == [
         ("red", 0.8),
         ("red", 2.0),
+    ]
+
+
+def test_terminal_direction_change_during_continuous_owner_control_is_not_pass(
+    monkeypatch,
+) -> None:
+    prior = PredictedEvent(
+        "pass_candidate", 0.6, "black", 7, 9, 0.8, "pass", 0.8
+    )
+    controls = [
+        observation(1.2, "black", 9, 100, 100, control_ratio=0.3),
+        observation(1.4, "black", 9, 100, 100, control_ratio=0.3),
+        observation(1.6, "black", 9, 100, 100, control_ratio=0.3),
+        observation(1.8, "black", 9, 100, 100, control_ratio=0.3),
+        observation(2.0, "black", 9, 100, 100, control_ratio=0.3),
+        observation(2.2, "black", 9, 100, 100, control_ratio=0.2),
+        observation(2.4, "black", 9, 100, 100, control_ratio=0.3),
+    ]
+    monkeypatch.setattr(
+        "football_poc.innovation_day_snapshot.possession."
+        "_ball_motion_evidence",
+        lambda balls: {(1, controls[-2].source_frame): (120.0, -0.6)},
+    )
+
+    assert infer_unresolved_direction_change_receptions(
+        [prior],
+        controls,
+        {},
+        minimum_speed_pixels_per_second=45,
+    ) == [prior]
+
+
+def test_brief_same_track_control_does_not_prove_owner_continuity(
+    monkeypatch,
+) -> None:
+    prior = PredictedEvent(
+        "pass_candidate", 0.6, "red", 7, 9, 0.8, "pass", 0.8
+    )
+    controls = [
+        observation(2.0, "red", 9, 100, 100, control_ratio=0.3),
+        observation(2.2, "red", 9, 100, 100, control_ratio=0.2),
+        observation(2.4, "red", 9, 100, 100, control_ratio=0.3),
+    ]
+    monkeypatch.setattr(
+        "football_poc.innovation_day_snapshot.possession."
+        "_ball_motion_evidence",
+        lambda balls: {(1, controls[1].source_frame): (120.0, -0.6)},
+    )
+
+    events = infer_unresolved_direction_change_receptions(
+        [prior],
+        controls,
+        {},
+        minimum_speed_pixels_per_second=45,
+    )
+    assert [(event.team, event.completion_seconds) for event in events] == [
+        ("red", 0.8),
+        ("red", 2.2),
     ]
 
 
@@ -3526,6 +3625,55 @@ def test_sharp_deceleration_with_same_team_retention_completes_pass() -> None:
     )
 
     assert [(event.team, event.completion_seconds) for event in events] == [
+        ("black", 1.4)
+    ]
+
+
+def test_deceleration_does_not_make_pass_to_opponent_labeled_receiver() -> None:
+    segments = build_possession_segments(
+        [
+            observation(1.0, "black", 1, 100, 100),
+            observation(1.2, "black", 1, 105, 105),
+            observation(2.4, "black", 2, 220, 220),
+            observation(2.6, "black", 2, 225, 225),
+        ],
+        segment_gap_seconds=0.5,
+        identity_switch_radius_heights=0,
+    )
+    balls = {
+        1: [{"track_id": 1, "clip_seconds": 1.2, "x": 100, "y": 100}],
+        2: [{"track_id": 1, "clip_seconds": 1.4, "x": 160, "y": 100}],
+        3: [{"track_id": 1, "clip_seconds": 1.6, "x": 165, "y": 100}],
+        4: [{"track_id": 1, "clip_seconds": 2.0, "x": 165, "y": 100}],
+        5: [{"track_id": 1, "clip_seconds": 2.2, "x": 225, "y": 100}],
+    }
+
+    events = infer_deceleration_transfer_events(
+        balls,
+        segments,
+        observations=[
+            observation(1.6, "red", 2, 165, 100),
+            observation(1.8, "red", 2, 165, 100),
+        ],
+        minimum_incoming_speed_pixels_per_second=60,
+        maximum_outgoing_speed_ratio=0.35,
+        sender_lookback_seconds=1,
+        receiver_window_seconds=2,
+        minimum_transfer_heights=0.5,
+    )
+
+    assert events == []
+    single_team_flip = infer_deceleration_transfer_events(
+        balls,
+        segments,
+        observations=[observation(1.6, "red", 2, 165, 100)],
+        minimum_incoming_speed_pixels_per_second=60,
+        maximum_outgoing_speed_ratio=0.35,
+        sender_lookback_seconds=1,
+        receiver_window_seconds=2,
+        minimum_transfer_heights=0.5,
+    )
+    assert [(event.team, event.completion_seconds) for event in single_team_flip] == [
         ("black", 1.4)
     ]
 

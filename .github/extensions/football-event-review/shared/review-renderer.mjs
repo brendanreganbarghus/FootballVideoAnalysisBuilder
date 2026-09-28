@@ -255,6 +255,36 @@ export function renderHtml({ adapter } = {}) {
     .engine-verification-modal::backdrop {
       background: rgb(0 0 0 / 72%);
     }
+    .assisted-review-modal {
+      width: min(440px, calc(100vw - 32px));
+    }
+    .assisted-review-modal-content {
+      display: grid;
+      gap: 14px;
+      padding: 20px;
+    }
+    .assisted-review-modal-content > p {
+      margin: 0;
+      color: var(--text-color-muted, #8b949e);
+      line-height: 1.45;
+    }
+    .assisted-review-fields {
+      display: grid;
+      gap: 10px;
+    }
+    .assisted-review-fields label {
+      display: grid;
+      gap: 4px;
+    }
+    .assisted-review-fields :is(input, select) {
+      min-width: 0;
+      width: 100%;
+      box-sizing: border-box;
+    }
+    .assisted-review-modal output {
+      display: block;
+      min-height: 1.4em;
+    }
     .engine-verification-modal form {
       display: grid;
       gap: 14px;
@@ -2790,6 +2820,7 @@ export function renderHtml({ adapter } = {}) {
     .comparison-summary .reviewed::before { background: #58a6ff; }
     .comparison-summary .stoppage::before { background: #d29922; }
     .comparison-summary .off::before { background: #f85149; }
+    .comparison-summary .assisted::before { background: #a371f7; }
     .comparison-guide {
       flex: 0 0 auto;
       padding: 7px 10px;
@@ -2842,6 +2873,21 @@ export function renderHtml({ adapter } = {}) {
       overflow: hidden;
       border-top: 1px solid rgb(240 246 252 / 18%);
       background: rgb(13 17 23 / 82%);
+    }
+    .innovation-manual-panel[hidden] { display: none; }
+    #assisted-review-panel > p {
+      margin: 4px 10px 8px;
+    }
+    #assisted-review-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      padding: 0 10px 10px;
+    }
+    #assisted-review-list p {
+      flex: 1 1 100%;
+      margin: 0;
     }
     .innovation-manual-panel:not([open]) {
       min-height: 34px;
@@ -3012,6 +3058,22 @@ export function renderHtml({ adapter } = {}) {
       box-shadow: inset 3px 0 0 #f85149;
       opacity: .8;
     }
+    .comparison-assisted-event {
+      display: block;
+      width: 100%;
+      margin: 2px 0;
+      padding: 6px;
+      border: 1px solid #a371f7;
+      border-radius: 6px;
+      background: rgb(163 113 247 / 14%);
+      color: #e2c5ff;
+      text-align: left;
+      font-size: 11px;
+    }
+    .comparison-assisted-event.stale {
+      border-color: #8b949e;
+      color: #8b949e;
+    }
     .comparison-time {
       display: grid;
       align-content: start;
@@ -3069,6 +3131,9 @@ export function renderHtml({ adapter } = {}) {
     }
     .comparison-review-cell > .comparison-actions {
       grid-area: action;
+    }
+    .comparison-review-cell > .comparison-assisted-event {
+      grid-column: 1 / -1;
     }
     .comparison-review-cell > .comparison-accepted,
     .comparison-review-cell > .comparison-rejected,
@@ -3546,6 +3611,54 @@ export function renderHtml({ adapter } = {}) {
       </div>
     </form>
   </dialog>
+  ${adapter.key === "innovation" ? `
+  <dialog class="engine-verification-modal assisted-review-modal"
+    id="assisted-review-modal" aria-labelledby="assisted-review-heading">
+    <div class="assisted-review-modal-content">
+      <header>
+        <h2 id="assisted-review-heading">Review E# template</h2>
+      </header>
+      <p>
+        Check the suggested values against the video. Confirming saves an
+        E-derived A# entry, not a golden M#.
+      </p>
+      <p id="assisted-review-progress" aria-live="polite"></p>
+      <div class="assisted-review-fields">
+        <label for="assisted-review-seconds">
+          Observed video time (seconds)
+          <input id="assisted-review-seconds" type="text"
+            inputmode="decimal" autocomplete="off">
+        </label>
+        <label for="assisted-review-team">
+          Team
+          <select id="assisted-review-team">
+            <option value="black">Black</option>
+            <option value="red">White/red</option>
+          </select>
+        </label>
+        <label for="assisted-review-type">
+          Event type
+          <select id="assisted-review-type">
+            <option value="completed_pass">Completed pass</option>
+            <option value="turnover">Turnover</option>
+          </select>
+        </label>
+      </div>
+      <output id="assisted-review-status" aria-live="polite"></output>
+      <div class="engine-verification-actions">
+        <button id="assisted-review-cancel" type="button">
+          Cancel
+        </button>
+        <button id="assisted-review-stop" type="button" hidden>
+          Stop reviewing
+        </button>
+        <button id="assisted-review-confirm" type="button">
+          Confirm E-assisted entry
+        </button>
+      </div>
+    </div>
+  </dialog>
+  ` : ""}
   <dialog class="engine-verification-modal" id="engine-verification-modal"
     aria-labelledby="engine-verification-title">
     <form method="dialog">
@@ -3635,6 +3748,9 @@ export function renderHtml({ adapter } = {}) {
       <div class="engine-verification-actions">
         <button id="cancel-engine-verification" type="button">
           Close
+        </button>
+        <button id="review-unmatched-engine-for-manual" type="button" hidden>
+          Review video for missing M#
         </button>
         <button id="confirm-engine-without-copilot" type="button" disabled>
           Approve exact E# without Copilot
@@ -3861,6 +3977,13 @@ export function renderHtml({ adapter } = {}) {
           <option value="developer">Developer</option>
         </select>
       </label>
+      ${adapter.key === "innovation" ? `
+      <button id="reopen-grouped-review" type="button" hidden>
+        Reopen grouped E# review
+      </button>
+      <button id="jump-to-assisted-review" type="button" hidden>
+        E-assisted reviews
+      </button>` : ""}
       <a class="home-link" href="${homeUrl}">${homeLabel}</a>
       <span class="scope">${adapter.scopeLabel}</span>
     </div>
@@ -4263,6 +4386,10 @@ export function renderHtml({ adapter } = {}) {
                     <strong>Unmatched M#</strong>: no engine event has the same
                     team and event type within one second.
                   </span>
+                  <span class="comparison-guide-line">
+                    <strong>A#</strong>: E-assisted diagnostic shown alongside
+                    M#, but never counted as a golden M#.
+                  </span>
                 </div>
                 <div class="comparison-guide-column general">
                   <span class="comparison-guide-line">
@@ -4327,6 +4454,52 @@ export function renderHtml({ adapter } = {}) {
                   Reopen approved minute for editing (cannot be undone)
                 </button>
                 <output id="golden-workflow-status" aria-live="polite"></output>
+              </div>
+              <div class="manual-review-fields"
+                id="independent-manual-capture" hidden>
+                <strong class="manual-review-heading">
+                  Record an independently observed M#
+                </strong>
+                <p class="manual-review-note">
+                  Review the video before entering your own event time, team,
+                  and type. E# supplies none of these fields.
+                </p>
+                <label for="independent-manual-seconds">
+                  Video time (seconds)
+                  <input id="independent-manual-seconds" type="text"
+                    inputmode="decimal" autocomplete="off"
+                    placeholder="Enter observed time">
+                </label>
+                <button id="independent-manual-use-video-time" type="button">
+                  Use current video time
+                </button>
+                <label for="independent-manual-team">
+                  Team
+                  <select id="independent-manual-team">
+                    <option value="" selected>Choose team</option>
+                    <option value="black">Black</option>
+                    <option value="red">White/red</option>
+                  </select>
+                </label>
+                <label for="independent-manual-type">
+                  Event type
+                  <select id="independent-manual-type">
+                    <option value="" selected>Choose event type</option>
+                    <option value="completed_pass">Completed pass</option>
+                    <option value="turnover">Turnover</option>
+                  </select>
+                </label>
+                <button id="independent-manual-reopen" type="button" hidden>
+                  Reopen approved minute before adding M#
+                </button>
+                <button id="independent-manual-save" type="button">
+                  Save observed M#
+                </button>
+                <button id="independent-manual-cancel" type="button">
+                  Close without adding M#
+                </button>
+                <output id="independent-manual-status"
+                  aria-live="polite"></output>
               </div>
             </details>
             ` : ""}
@@ -4720,6 +4893,25 @@ export function renderHtml({ adapter } = {}) {
         <p class="muted publication-status" id="publication-status"
           aria-live="polite"></p>
           </nav>
+          ${adapter.key === "innovation" ? `
+          <details class="innovation-manual-panel"
+            id="assisted-review-panel" hidden>
+            <summary>
+              <strong id="assisted-review-title">
+                E-assisted reviews · diagnostic only
+              </strong>
+            </summary>
+            <p class="muted">
+              These entries come from approved E# suggestions. They are
+              not M#, do not affect golden matches, and cannot publish a
+              reference.
+            </p>
+            <button id="review-remaining-assisted" type="button" hidden>
+              Review confirmed E# entries one by one
+            </button>
+            <div id="assisted-review-list"></div>
+          </details>
+          ` : ""}
 
           <details class="workflow-hints" open>
             <summary>How to verify and accept</summary>
@@ -4981,6 +5173,10 @@ export function renderHtml({ adapter } = {}) {
     let selectedCopilotReferenceIndex = null;
     let manualEngineReviewIndex = null;
     let manualEngineReviewPending = null;
+    let assistedReviewOrigin = null;
+    let assistedReviewSaving = false;
+    let assistedReviewQueue = [];
+    let assistedReviewQueueTotal = 0;
     let selectedEngineIndex = null;
     let showBacCoordinate = false;
     let verificationModalEngineIndex = null;
@@ -5363,6 +5559,16 @@ export function renderHtml({ adapter } = {}) {
     document.getElementById("ask-copilot-engine-review").addEventListener(
       "click",
       askCopilotFromEngineVerification
+    );
+    document.getElementById("reopen-grouped-review")?.addEventListener(
+      "click",
+      () => {
+        const batch = state.activeDiscrepancyBatch;
+        const target = batch?.targets?.find(item => !item.completed);
+        if (batch?.kind !== "engine" || !target) return;
+        openEngineVerificationModal(target.originalIndex);
+        syncEngineVerificationModal();
+      }
     );
     document.getElementById("engine-verification-modal").addEventListener(
       "cancel",
@@ -10373,7 +10579,22 @@ export function renderHtml({ adapter } = {}) {
     }
 
     function comparisonReviewCell(row) {
+      const assisted = reviewWorkflow.key === "innovation" && row.engine
+        ? (state.assistedReviewEntries || []).filter(entry =>
+            entry.fresh
+            && entry.engine.team === row.engine.team
+            && entry.engine.type === row.engine.type
+            && entry.engine.seconds === row.engine.seconds
+            && entry.engine.releaseSeconds === row.engine.releaseSeconds
+          )
+        : [];
       if (!row.review) {
+        if (assisted.length) {
+          const cell = document.createElement("div");
+          cell.className = "comparison-review-cell";
+          cell.append(...assisted.map(assistedReviewButton));
+          return cell;
+        }
         const empty = document.createElement("span");
         empty.className = "comparison-empty";
         return empty;
@@ -10402,6 +10623,7 @@ export function renderHtml({ adapter } = {}) {
         )
       );
       if (reviewWorkflow.key === "innovation") {
+        cell.append(...assisted.map(assistedReviewButton));
         if (!state.manualReference?.approved) {
           cell.append(manualControls(row));
         } else if (
@@ -10482,6 +10704,23 @@ export function renderHtml({ adapter } = {}) {
         cell.append(actions);
       }
       return cell;
+    }
+
+    function assistedReviewButton(entry) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "comparison-assisted-event"
+        + (entry.fresh ? "" : " stale");
+      button.textContent = entry.id + " · "
+        + canonicalComparisonLabel(entry.observed) + " · "
+        + Number(entry.observed.seconds).toFixed(3) + "s · E-assisted"
+        + (entry.fresh ? "" : " (stale)");
+      button.title = "E-derived diagnostic only; not a golden M#."
+        + " Click to seek the video.";
+      button.addEventListener("click", () =>
+        seekVideo(Number(entry.observed.seconds))
+      );
+      return button;
     }
 
     function comparisonEngineCell(row) {
@@ -10621,6 +10860,9 @@ export function renderHtml({ adapter } = {}) {
         manualRevision: state?.manualReference?.revision ?? null,
         approvedRevision: state?.manualReference?.approved?.revision ?? null,
         manualEvents: state?.manualEvents || [],
+        assistedReviewEntries: reviewWorkflow.key === "innovation"
+          ? state?.assistedReviewEntries || []
+          : [],
         rejectedManualEvents: state?.rejectedManualEvents || [],
         engineEvents: state?.engineEvents || [],
         suggestions: state?.manualReference?.suggestions || {},
@@ -10687,7 +10929,9 @@ export function renderHtml({ adapter } = {}) {
                     ? " · " + totals["manual-rejected"] + " rejected M#"
                     : ""
                 )
-            ]
+            ],
+            ["assisted", (state.assistedReviewEntries || []).length
+              + " E-assisted A# · not golden M#"]
           ]
         : [
           ["matched", totals.matched + " synchronized"],
@@ -10703,7 +10947,7 @@ export function renderHtml({ adapter } = {}) {
           return label;
         })
       );
-      target.replaceChildren(...rows.map(row => {
+      const displayRows = rows.map(row => {
         const item = document.createElement("div");
         item.className = "comparison-row " + row.status;
         if (
@@ -10729,6 +10973,7 @@ export function renderHtml({ adapter } = {}) {
         const timeLabel = document.createElement("span");
         const reviewSeconds = row.review?.seconds;
         const engineSeconds = row.engine?.seconds;
+        item.dataset.seconds = String(reviewSeconds ?? engineSeconds);
         timeLabel.textContent = reviewSeconds !== undefined
           && engineSeconds !== undefined
           ? reviewSeconds.toFixed(3) + "s / " + engineSeconds.toFixed(3)
@@ -10743,7 +10988,32 @@ export function renderHtml({ adapter } = {}) {
           comparisonEngineCell(row)
         );
         return item;
-      }));
+      });
+      if (reviewWorkflow.key === "innovation") {
+        for (const entry of state.assistedReviewEntries || []) {
+          if (entry.fresh) continue;
+          const item = document.createElement("div");
+          item.className = "comparison-row assisted";
+          item.dataset.seconds = String(entry.observed.seconds);
+          const cell = document.createElement("div");
+          cell.className = "comparison-review-cell";
+          cell.append(assistedReviewButton(entry));
+          const time = document.createElement("div");
+          time.className = "comparison-time";
+          const label = document.createElement("span");
+          label.textContent = Number(entry.observed.seconds).toFixed(3)
+            + "s · stale A#";
+          time.append(label);
+          const empty = document.createElement("span");
+          empty.className = "comparison-empty";
+          item.append(cell, time, empty);
+          displayRows.push(item);
+        }
+        displayRows.sort((left, right) =>
+          Number(left.dataset.seconds) - Number(right.dataset.seconds)
+        );
+      }
+      target.replaceChildren(...displayRows);
       openManualEditors.forEach(manualKey => {
         const editor = target.querySelector(
           '[data-manual-editor="' + manualKey + '"]'
@@ -11380,6 +11650,8 @@ export function renderHtml({ adapter } = {}) {
                 ? "Wait for the active review request to finish."
                 : "Capture this M# at the current video time.";
         });
+        updateIndependentManualCapture();
+        renderAssistedReviews();
         approveMinute.hidden = false;
         approveMinute.disabled =
           approved
@@ -11390,8 +11662,10 @@ export function renderHtml({ adapter } = {}) {
           : approved
             ? "M# reference frozen"
             : "Freeze manual M# reference as golden";
-        document.getElementById("reopen-manual-minute").hidden =
-          !approved || lockedReference;
+        const reopenMinute = document.getElementById("reopen-manual-minute");
+        reopenMinute.hidden = !approved || lockedReference;
+        reopenMinute.disabled =
+          !approved || lockedReference || !coordinationMutationAllowed();
         const validateEngine = document.getElementById(
           "validate-engine-reference"
         );
@@ -12418,6 +12692,10 @@ export function renderHtml({ adapter } = {}) {
       const batchCount = selectedEngineBatchIndices().filter(
         Number.isInteger
       ).length;
+      const assistedCandidateCount = selectedEngineBatchIndices().filter(
+        index => engineNeedsIndependentManualCapture(index)
+          && !hasCurrentAssistedReview(index)
+      ).length;
       const timePanel = document.getElementById("engine-verification-time");
       const confirm = document.getElementById(
         "confirm-engine-without-copilot"
@@ -12431,8 +12709,14 @@ export function renderHtml({ adapter } = {}) {
       timePanel.hidden = decision !== "details_wrong" || batchCount > 1;
       confirm.textContent = decision === "correct"
         ? batchCount > 1
-          ? "Approve " + batchCount + " exact E# events without Copilot"
-          : "Approve exact E# without Copilot"
+          ? "Approve " + batchCount + " exact E# events"
+            + (assistedCandidateCount
+              ? "; review " + assistedCandidateCount + " A# next"
+              : " without Copilot")
+          : engineNeedsIndependentManualCapture(verificationModalEngineIndex)
+            && !hasCurrentAssistedReview(verificationModalEngineIndex)
+            ? "Approve E# & review assisted entry"
+            : "Approve exact E# without Copilot"
         : decision === "details_wrong"
           ? "Send " + batchCount + " E# correction"
           : decision === "incorrect"
@@ -12447,6 +12731,11 @@ export function renderHtml({ adapter } = {}) {
       guidance.textContent = decision === "correct"
         ? "Your professional review can approve this existing E# without "
           + "Copilot, an engine check, or a regression run."
+          + (assistedCandidateCount
+            ? " After approval, check each eligible E# against the video "
+              + "and confirm or skip its separate A# entry. No A# is "
+              + "created by group approval."
+            : "")
         : decision === "details_wrong"
           ? batchCount > 1
             ? "The same details-wrong verdict applies to every checked E#. "
@@ -12467,9 +12756,40 @@ export function renderHtml({ adapter } = {}) {
                 + "independent review without stating a verdict.";
     }
 
+    function engineNeedsIndependentManualCapture(engineIndex) {
+      const engine = state.engineEvents?.[engineIndex];
+      return reviewWorkflow.key === "innovation"
+        && Boolean(engine)
+        && innovationComparisonRows().some(row =>
+          row.engineIndex === engineIndex && !row.review
+        )
+        && !(state.manualEvents || []).some(manual =>
+          manual.team === engine.team
+          && manual.type === engine.type
+          && Math.abs(Number(manual.seconds) - Number(engine.seconds)) <= 1
+        );
+    }
+
+    function hasCurrentAssistedReview(engineIndex) {
+      const engine = state.engineEvents?.[engineIndex];
+      return Boolean(engine && (state.assistedReviewEntries || []).some(entry =>
+        entry.fresh
+        && entry.engine.team === engine.team
+        && entry.engine.type === engine.type
+        && entry.engine.seconds === engine.seconds
+        && entry.engine.releaseSeconds === engine.releaseSeconds
+      ));
+    }
+
     function openEngineVerificationModal(engineIndex) {
       const engine = state.engineEvents?.[engineIndex];
       if (!engine) return;
+      const manualReview = document.getElementById(
+        "review-unmatched-engine-for-manual"
+      );
+      manualReview.hidden = !engineNeedsIndependentManualCapture(engineIndex);
+      manualReview.disabled =
+        referenceLocked() || state.activity?.state === "working";
       verificationModalEngineIndex = engineIndex;
       document.querySelectorAll(
         "[name=engine-verification-decision]"
@@ -12555,6 +12875,374 @@ export function renderHtml({ adapter } = {}) {
       dismissCompletedSegmentOverlay();
     }
 
+    function reviewUnmatchedEngineForManualCapture() {
+      const engineIndex = verificationModalEngineIndex;
+      const engine = state.engineEvents?.[engineIndex];
+      if (
+        reviewWorkflow.key !== "innovation"
+        || !engine
+        || referenceLocked()
+        || state.activity?.state === "working"
+        || !engineNeedsIndependentManualCapture(engineIndex)
+      ) return;
+      closeEngineVerificationModal();
+      openIndependentManualCapture(engineIndex);
+      document.getElementById("manual-capture-status").textContent =
+        "Review the video around E" + (engineIndex + 1)
+        + " independently. E# is a navigation cue, not an M# source. "
+        + (state.manualReference?.approved
+          ? "Reopen the frozen minute before recording a new M#."
+          : "If you see a missing event, enter its time, team, and type "
+            + "in the blank M# form.");
+    }
+
+    function updateIndependentManualCapture() {
+      const panel = document.getElementById("independent-manual-capture");
+      if (!panel || panel.hidden) return;
+      const approved = Boolean(state.manualReference?.approved);
+      const locked = referenceLocked();
+      const referenceState = locked ? "locked" : approved ? "approved" : "draft";
+      const reopen = document.getElementById(
+        "independent-manual-reopen"
+      );
+      reopen.hidden = !approved || locked;
+      reopen.disabled = !approved || locked || !coordinationMutationAllowed();
+      document.getElementById("independent-manual-save").disabled =
+        approved || locked || state.activity?.state === "working";
+      if (panel.dataset.referenceState !== referenceState) {
+        panel.dataset.referenceState = referenceState;
+        document.getElementById("independent-manual-status").textContent =
+          locked
+            ? "This published minute is locked; M# cannot be added."
+            : approved
+              ? "Reopen the approved minute explicitly before saving an M#."
+              : "Enter only the time, team, and type you observed in the video.";
+      }
+    }
+
+    function openIndependentManualCapture(engineIndex) {
+      const engine = state.engineEvents?.[engineIndex];
+      if (reviewWorkflow.key !== "innovation" || !engine) return;
+      const panel = document.getElementById("independent-manual-capture");
+      document.getElementById("independent-manual-seconds").value = "";
+      document.getElementById("independent-manual-team").value = "";
+      document.getElementById("independent-manual-type").value = "";
+      delete panel.dataset.referenceState;
+      panel.hidden = false;
+      document.getElementById("innovation-manual-panel").open = true;
+      seekVideo(Math.max(0, Number(engine.seconds) - 2));
+      updateIndependentManualCapture();
+      document.getElementById("independent-manual-seconds").focus();
+    }
+
+    function renderAssistedReviews() {
+      const panel = document.getElementById("assisted-review-panel");
+      if (!panel) return;
+      panel.hidden = !state.manualReference?.approved
+        || !state.manualReference?.comparisonRevealed;
+      const modal = document.getElementById("assisted-review-modal");
+      const origin = assistedReviewOrigin;
+      const engine = state.engineEvents?.[origin?.index];
+      if (modal.open && (
+        panel.hidden || !origin || !canOpenAssistedReview(origin.index)
+        || origin.segmentKey !== selectedSegmentKey()
+        || engine?.team !== origin.engineTeam
+        || engine?.type !== origin.engineType
+        || Number(engine?.seconds) !== origin.engineSeconds
+        || Number(engine?.releaseSeconds) !== origin.engineReleaseSeconds
+        || engine?.review?.status !== "confirmed"
+        || !engine.review.fresh
+        || engine.review.engineContentHash !== origin.engineContentHash
+        || engine.review.outputHash !== origin.outputHash
+      )) {
+        assistedReviewQueue = [];
+        assistedReviewQueueTotal = 0;
+        modal.close();
+        document.getElementById("fullscreen-chat-status").textContent =
+          "Review context changed; the E-assisted entry was not saved.";
+      }
+      const jump = document.getElementById("jump-to-assisted-review");
+      jump.hidden = panel.hidden;
+      if (panel.hidden) return;
+      if (!panel.dataset.initialized) {
+        panel.open = true;
+        panel.dataset.initialized = "true";
+      }
+      const entries = state.assistedReviewEntries || [];
+      jump.textContent = "E-assisted reviews (" + entries.length + ")";
+      document.getElementById("assisted-review-confirm").disabled =
+        assistedReviewSaving || referenceLocked()
+        || state.activity?.state === "working";
+      document.getElementById("assisted-review-cancel").disabled =
+        assistedReviewSaving;
+      document.getElementById("assisted-review-stop").disabled =
+        assistedReviewSaving;
+      document.getElementById("assisted-review-title").textContent =
+        "E-assisted reviews · diagnostic only (" + entries.length + ")";
+      const list = document.getElementById("assisted-review-list");
+      list.replaceChildren();
+      for (const entry of entries) {
+        const item = document.createElement("p");
+        item.className = "muted";
+        item.textContent =
+          entry.id + " · " + entry.observed.team + " "
+          + entry.observed.type.replaceAll("_", " ") + " at "
+          + Number(entry.observed.seconds).toFixed(3) + "s"
+          + " · E-derived · " + (entry.fresh ? "current" : "stale")
+          + " · excluded from golden M#";
+        list.append(item);
+      }
+      if (!entries.length) {
+        list.textContent = "No E-assisted entries confirmed yet.";
+      }
+      const available = (state.engineEvents || [])
+        .map((_, index) => index)
+        .filter(canOpenAssistedReview);
+      const reviewRemaining = document.getElementById(
+        "review-remaining-assisted"
+      );
+      reviewRemaining.hidden = available.length === 0;
+      reviewRemaining.disabled = assistedReviewSaving
+        || state.activity?.state === "working";
+      reviewRemaining.textContent = "Review " + available.length
+        + " confirmed E# " + (available.length === 1 ? "entry" : "entries")
+        + " as A#, one by one";
+      available.forEach(index => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = "Review E" + (index + 1) + " as A#";
+        button.disabled = assistedReviewSaving
+          || state.activity?.state === "working";
+        button.addEventListener("click", () => openAssistedReviewCapture(index));
+        list.append(button);
+      });
+    }
+
+    function canOpenAssistedReview(engineIndex) {
+      const engine = state.engineEvents?.[engineIndex];
+      return reviewWorkflow.key === "innovation"
+        && Boolean(state.manualReference?.approved)
+        && Boolean(state.manualReference?.comparisonRevealed)
+        && !referenceLocked()
+        && engineNeedsIndependentManualCapture(engineIndex)
+        && engine?.review?.status === "confirmed"
+        && engine.review.reviewSource === "professional_reviewer"
+        && engine.review.fresh
+        && !hasCurrentAssistedReview(engineIndex);
+    }
+
+    function reviewNextAssistedEntry() {
+      while (assistedReviewQueue.length) {
+        const index = assistedReviewQueue.shift();
+        if (canOpenAssistedReview(index)) {
+          openAssistedReviewCapture(index);
+          return;
+        }
+      }
+      assistedReviewQueueTotal = 0;
+      document.getElementById("fullscreen-chat-status").textContent =
+        "E-assisted review finished. Skipped events remain available "
+        + "in E-assisted reviews.";
+    }
+
+    function reviewAssistedEntries(indices) {
+      if (assistedReviewSaving) return;
+      assistedReviewQueue = [...new Set(indices)]
+        .filter(canOpenAssistedReview);
+      assistedReviewQueueTotal = assistedReviewQueue.length;
+      if (assistedReviewQueueTotal) reviewNextAssistedEntry();
+    }
+
+    function skipAssistedEntry() {
+      if (assistedReviewSaving) return;
+      document.getElementById("assisted-review-modal").close();
+      assistedReviewOrigin = null;
+      if (assistedReviewQueueTotal) reviewNextAssistedEntry();
+    }
+
+    function stopAssistedReview() {
+      if (assistedReviewSaving) return;
+      assistedReviewQueue = [];
+      assistedReviewQueueTotal = 0;
+      document.getElementById("assisted-review-modal").close();
+      assistedReviewOrigin = null;
+      document.getElementById("fullscreen-chat-status").textContent =
+        "E-assisted review paused. Remaining entries can be reviewed later.";
+    }
+
+    function openAssistedReviewCapture(engineIndex) {
+      if (!canOpenAssistedReview(engineIndex) || assistedReviewSaving) return;
+      const engine = state.engineEvents[engineIndex];
+      assistedReviewOrigin = {
+        segmentKey: selectedSegmentKey(),
+        index: engineIndex,
+        engineSeconds: Number(engine.seconds),
+        engineReleaseSeconds: Number(engine.releaseSeconds),
+        engineTeam: engine.team,
+        engineType: engine.type,
+        engineContentHash: engine.review.engineContentHash,
+        outputHash: engine.review.outputHash,
+      };
+      const panel = document.getElementById("assisted-review-panel");
+      panel.hidden = false;
+      panel.open = true;
+      document.getElementById("assisted-review-heading").textContent =
+        "Review E" + (engineIndex + 1) + " template before confirming A#";
+      document.getElementById("assisted-review-seconds").value =
+        engine.seconds.toFixed(3);
+      document.getElementById("assisted-review-team").value = engine.team;
+      document.getElementById("assisted-review-type").value = engine.type;
+      document.getElementById("assisted-review-status").textContent =
+        "Review the video and confirm separately; this will not add M#.";
+      document.getElementById("assisted-review-progress").textContent =
+        assistedReviewQueueTotal
+          ? "Entry " + (assistedReviewQueueTotal - assistedReviewQueue.length)
+            + " of " + assistedReviewQueueTotal
+          : "";
+      document.getElementById("assisted-review-cancel").textContent =
+        assistedReviewQueueTotal ? "Skip this entry" : "Cancel";
+      document.getElementById("assisted-review-stop").hidden =
+        !assistedReviewQueueTotal;
+      seekVideo(Math.max(0, Number(engine.seconds) - 2));
+      const modal = document.getElementById("assisted-review-modal");
+      if (!modal.open) modal.showModal();
+      document.getElementById("assisted-review-seconds").focus();
+    }
+
+    async function confirmAssistedReview() {
+      const status = document.getElementById("assisted-review-status");
+      const modal = document.getElementById("assisted-review-modal");
+      if (
+        !modal.open || !assistedReviewOrigin
+        || assistedReviewOrigin.segmentKey !== selectedSegmentKey()
+        || !canOpenAssistedReview(assistedReviewOrigin.index)
+        || assistedReviewSaving
+      ) {
+        status.textContent = "This E-assisted review is no longer available.";
+        return;
+      }
+      const secondsText = document.getElementById(
+        "assisted-review-seconds"
+      ).value.trim();
+      const seconds = Number(secondsText);
+      if (
+        !secondsText || !Number.isFinite(seconds)
+        || seconds < 0 || seconds > Number(state.segment.durationSeconds)
+      ) {
+        status.textContent = "Enter a valid observed time within this segment.";
+        return;
+      }
+      const button = document.getElementById("assisted-review-confirm");
+      assistedReviewSaving = true;
+      button.disabled = true;
+      document.getElementById("assisted-review-cancel").disabled = true;
+      try {
+        const response = await fetch("/api/innovation/assisted-review", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({
+            segment: selectedSegmentKey(),
+            ...assistedReviewOrigin,
+            timestampMs: Math.round(seconds * 1000),
+            team: document.getElementById("assisted-review-team").value,
+            type: document.getElementById("assisted-review-type").value,
+          }),
+        });
+        const result = await response.json();
+        if (!response.ok) {
+          throw new Error(result.error || "Could not confirm assisted review");
+        }
+        assistedReviewOrigin = null;
+        modal.close();
+        document.getElementById("fullscreen-chat-status").textContent =
+          result.entry.id + " saved as E-assisted review, not golden M#.";
+        try {
+          await loadState();
+          if (assistedReviewQueueTotal) reviewNextAssistedEntry();
+        } catch (error) {
+          assistedReviewQueue = [];
+          assistedReviewQueueTotal = 0;
+          document.getElementById("fullscreen-chat-status").textContent =
+            result.entry.id + " saved, but the review could not refresh: "
+            + error.message;
+        }
+      } catch (error) {
+        status.textContent = error.message;
+      } finally {
+        assistedReviewSaving = false;
+        button.disabled = !modal.open || referenceLocked()
+          || state.activity?.state === "working";
+        document.getElementById("assisted-review-cancel").disabled = false;
+      }
+    }
+
+    function useCurrentVideoTimeForManualCapture() {
+      const status = document.getElementById("independent-manual-status");
+      const seconds = Number(video.currentTime);
+      if (
+        video.readyState < 1 || !Number.isFinite(seconds)
+        || seconds < 0 || seconds > Number(state.segment.durationSeconds)
+      ) {
+        status.textContent = "Wait for the segment video before selecting a time.";
+        return;
+      }
+      video.pause();
+      document.getElementById("independent-manual-seconds").value =
+        (Math.round(seconds * 1000) / 1000).toFixed(3);
+      status.textContent =
+        "Video time captured. Choose the observed team and event type.";
+    }
+
+    async function saveIndependentManualCapture() {
+      const status = document.getElementById("independent-manual-status");
+      if (
+        referenceLocked() || state.manualReference?.approved
+        || state.activity?.state === "working"
+      ) {
+        updateIndependentManualCapture();
+        return;
+      }
+      const secondsInput = document.getElementById(
+        "independent-manual-seconds"
+      );
+      const secondsText = secondsInput.value.trim();
+      const seconds = Number(secondsText);
+      if (
+        !secondsText || !Number.isFinite(seconds)
+        || seconds < 0 || seconds > Number(state.segment.durationSeconds)
+      ) {
+        status.textContent = "Enter the observed video time within this segment.";
+        secondsInput.focus();
+        return;
+      }
+      const team = document.getElementById("independent-manual-team");
+      const type = document.getElementById("independent-manual-type");
+      if (!team.value || !type.value) {
+        status.textContent = "Choose the observed team and event type.";
+        (!team.value ? team : type).focus();
+        return;
+      }
+      const save = document.getElementById("independent-manual-save");
+      save.disabled = true;
+      try {
+        const result = await mutateManualReference({
+          action: "create",
+          timestampMs: Math.round(seconds * 1000),
+          team: team.value,
+          eventType: type.value
+        });
+        document.getElementById("independent-manual-capture").hidden = true;
+        document.getElementById("manual-capture-status").textContent =
+          result.event.key + " saved from your video review at "
+          + seconds.toFixed(3) + "s. E# was not used to create it.";
+      } catch (error) {
+        status.textContent = error.message;
+      } finally {
+        save.disabled = Boolean(state.manualReference?.approved)
+          || referenceLocked() || state.activity?.state === "working";
+      }
+    }
+
     function setEngineVerificationWorking(engineIndex) {
       if (!engineVerificationPending) {
         const engine = state.engineEvents?.[engineIndex];
@@ -12585,6 +13273,9 @@ export function renderHtml({ adapter } = {}) {
       document.getElementById("confirm-engine-without-copilot").disabled =
         true;
       document.getElementById("ask-copilot-engine-review").disabled = true;
+      document.getElementById(
+        "review-unmatched-engine-for-manual"
+      ).disabled = true;
       const cancel = document.getElementById("cancel-engine-verification");
       cancel.textContent = "Copilot is working…";
       cancel.disabled = true;
@@ -12607,6 +13298,9 @@ export function renderHtml({ adapter } = {}) {
         false
       );
       document.getElementById("ask-copilot-engine-review").disabled = false;
+      document.getElementById(
+        "review-unmatched-engine-for-manual"
+      ).disabled = referenceLocked() || state.activity?.state === "working";
       document.getElementById("cancel-engine-verification").textContent =
         "Close";
       updateEngineVerificationActions();
@@ -12619,6 +13313,59 @@ export function renderHtml({ adapter } = {}) {
         : null;
       const modal = document.getElementById("engine-verification-modal");
       const activeBatch = state.activeDiscrepancyBatch;
+      const groupedReview = document.getElementById("reopen-grouped-review");
+      const pendingBatch = activeBatch?.kind === "engine"
+        && activeBatch.status === "working";
+      if (groupedReview) {
+        groupedReview.hidden = !pendingBatch;
+        if (pendingBatch) {
+          groupedReview.textContent = "Reopen grouped E# review ("
+            + activeBatch.targets.filter(target => !target.completed).length
+            + " pending)";
+        }
+      }
+      if (
+        pendingBatch && !modal.open
+        && modal.dataset.restoredBatchId !== activeBatch.id
+        && !document.querySelector("dialog[open]")
+      ) {
+        const target = activeBatch.targets.find(item => !item.completed);
+        if (target && state.engineEvents?.[target.originalIndex]) {
+          openEngineVerificationModal(target.originalIndex);
+          modal.dataset.restoredBatchId = activeBatch.id;
+        }
+      }
+      if (pendingBatch && state.activity?.state !== "working") {
+        engineVerificationPending = null;
+        if (modal.open) {
+          modal.dataset.reviewState = "paused";
+          document.querySelectorAll(
+            "[name=engine-verification-decision]"
+          ).forEach(input => { input.disabled = true; });
+          setSimilarReviewChoicesDisabled("engine-similar-review-list", true);
+          document.getElementById("confirm-engine-without-copilot").disabled =
+            true;
+          document.getElementById("ask-copilot-engine-review").disabled = true;
+          document.getElementById(
+            "review-unmatched-engine-for-manual"
+          ).disabled = true;
+          const close = document.getElementById("cancel-engine-verification");
+          close.textContent = "Close";
+          close.disabled = false;
+          document.getElementById("engine-verification-guidance").textContent =
+            "This grouped E# review was interrupted. "
+            + activeBatch.targets.filter(target => !target.completed).length
+            + " decisions remain pending; Copilot is not currently working. "
+            + "No pending decision has been confirmed or rejected.";
+        }
+        return;
+      }
+      if (modal.open && modal.dataset.reviewState === "paused") {
+        resetEngineVerificationControls();
+        closeEngineVerificationModal();
+        renderFullscreenEvents();
+        return;
+      }
       if (
         modal.open
         && activeBatch?.kind === "engine"
@@ -13285,7 +14032,12 @@ export function renderHtml({ adapter } = {}) {
             ? batchIndices.length + " E# events"
             : "E" + (engineIndex + 1))
           + " approved from your professional review."
-          + " No Copilot, engine check, or regression run was needed.";
+          + " No Copilot, engine check, or regression run was needed."
+          + (batchIndices.length > 1
+            ? " Review each play separately before confirming A# or "
+              + "recording any missing M#."
+            : "");
+        reviewAssistedEntries(batchIndices);
       } catch (error) {
         document.getElementById("engine-verification-guidance").textContent =
           error.message;
@@ -14193,6 +14945,72 @@ export function renderHtml({ adapter } = {}) {
         }
       });
     });
+    document.getElementById("independent-manual-reopen")?.addEventListener(
+      "click",
+      async () => {
+        const status = document.getElementById("independent-manual-status");
+        const button = document.getElementById("independent-manual-reopen");
+        button.disabled = true;
+        try {
+          await mutateManualReference({action: "reopen"});
+          updateIndependentManualCapture();
+        } catch (error) {
+          status.textContent = error.message;
+        } finally {
+          button.disabled = false;
+        }
+      }
+    );
+    document.getElementById("independent-manual-save")?.addEventListener(
+      "click",
+      saveIndependentManualCapture
+    );
+    document.getElementById(
+      "independent-manual-use-video-time"
+    )?.addEventListener("click", useCurrentVideoTimeForManualCapture);
+    document.getElementById("assisted-review-confirm")?.addEventListener(
+      "click",
+      confirmAssistedReview
+    );
+    document.getElementById("jump-to-assisted-review")?.addEventListener(
+      "click",
+      () => {
+        const panel = document.getElementById("assisted-review-panel");
+        panel.open = true;
+        panel.scrollIntoView({behavior: "smooth", block: "start"});
+      }
+    );
+    document.getElementById("assisted-review-cancel")?.addEventListener(
+      "click", skipAssistedEntry
+    );
+    document.getElementById("assisted-review-stop")?.addEventListener(
+      "click", stopAssistedReview
+    );
+    document.getElementById("review-remaining-assisted")?.addEventListener(
+      "click", () => {
+        reviewAssistedEntries((state.engineEvents || [])
+          .map((_, index) => index));
+      }
+    );
+    document.getElementById("assisted-review-modal")?.addEventListener(
+      "cancel",
+      event => {
+        event.preventDefault();
+        if (!assistedReviewSaving) skipAssistedEntry();
+      }
+    );
+    document.getElementById("assisted-review-modal")?.addEventListener(
+      "close",
+      event => {
+        if (!event.currentTarget.open) assistedReviewOrigin = null;
+      }
+    );
+    document.getElementById("independent-manual-cancel")?.addEventListener(
+      "click",
+      () => {
+        document.getElementById("independent-manual-capture").hidden = true;
+      }
+    );
     document.getElementById("approve-manual-minute")?.addEventListener(
       "click",
       () => mutateManualReference({action: "approve"})
@@ -14317,6 +15135,9 @@ export function renderHtml({ adapter } = {}) {
       "click",
       closeManualEngineReviewModal
     );
+    document.getElementById(
+      "review-unmatched-engine-for-manual"
+    ).addEventListener("click", reviewUnmatchedEngineForManualCapture);
     document.getElementById("manual-engine-review-modal").addEventListener(
       "cancel",
       event => {
@@ -14711,6 +15532,13 @@ export function renderHtml({ adapter } = {}) {
         document.fullscreenElement === videoShell
           ? "Exit Full Screen"
           : "Enlarge Review";
+      const assistedPanel = document.getElementById("assisted-review-panel");
+      if (assistedPanel) {
+        const anchor = document.fullscreenElement === videoShell
+          ? document.getElementById("fullscreen-event-chat")
+          : document.querySelector(".event-rail .workflow-hints");
+        anchor.before(assistedPanel);
+      }
       document.getElementById("toggle-event-panel").setAttribute(
         "aria-expanded",
         String(!videoShell.classList.contains("events-hidden"))

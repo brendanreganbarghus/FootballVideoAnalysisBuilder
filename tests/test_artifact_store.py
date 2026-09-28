@@ -97,6 +97,12 @@ def test_published_prepared_segment_is_discoverable_and_checksummed(
         "segment-0120-020",
         artifact_root,
     ) == published
+    conflict_copy = published.root.with_name(f"{published.root.name} 2")
+    conflict_copy.mkdir()
+    (conflict_copy / "segment.json").write_bytes(
+        (published.root / "segment.json").read_bytes()
+    )
+    assert discover_prepared_segments(artifact_root) == (published,)
 
     republished = publish_prepared_segment(
         published.root,

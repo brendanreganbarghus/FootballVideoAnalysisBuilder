@@ -44,10 +44,14 @@ Use this authority order:
 Provider events, dataset annotations, manual review labels, and user-supplied
 coordinates are evaluation-only. They must never influence detection,
 tracking, classification, possession, match state, event generation,
-thresholds, or performance results. In Innovation review, build the M# golden
-set independently, compare it with E#, and keep C# optional and
-diagnostic-only. Follow the guarded approval and publication workflow in the
-architecture document.
+thresholds, or performance results. In Innovation review, the M# golden set
+is recorded independently from video and compared against E#; C# stays
+optional and diagnostic-only. Approving a single unmatched E# may offer a
+separate E-assisted entry pre-filled from E#, requiring an explicit
+video-based confirmation. E-assisted entries are not M#, never count toward
+golden matches or publication, and never enter inference. Group approval
+never batch-creates assisted entries. Follow the guarded approval and
+publication workflow in the architecture document.
 
 A decisive M# modal outcome (`engine missed M#` or `existing E# represents M#
 but is wrong`) is final professional acceptance of that golden event. Do not

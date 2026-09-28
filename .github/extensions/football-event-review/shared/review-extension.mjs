@@ -47,6 +47,10 @@ import {
   INNOVATION_MARK_SVG,
   renderHtml,
 } from "./review-renderer.mjs";
+import {
+  publicAssistedReviews,
+  recordAssistedReview,
+} from "./assisted-review.mjs";
 import { workflowAdapter } from "./workflow-adapters.mjs";
 
 const extensionRoot = dirname(fileURLToPath(import.meta.url));
@@ -2523,6 +2527,7 @@ async function loadState(segment, segmentInfo, drafts) {
     });
     state.copilotAcceptanceAuthorizations ||= {};
     state.engineEventReviews ||= {};
+    state.assistedReviewEntries ||= [];
     state.engineEventReviewAuthorizations ||= {};
     state.pendingMissingCandidate ||= null;
     state.pendingClipRequest ||= null;
@@ -2681,6 +2686,7 @@ async function loadState(segment, segmentInfo, drafts) {
     sameFrameReviewRequirements: {},
     copilotAcceptanceAuthorizations: {},
     engineEventReviews: {},
+    assistedReviewEntries: [],
     engineEventReviewAuthorizations: {},
     pendingMissingCandidate: null,
     pendingClipRequest: null,
@@ -3826,10 +3832,10 @@ function displayedActivity(selected, state) {
       (target) => !target.completed,
     ).length;
     return {
-      state: "working",
-      label: "Copilot reviewing grouped discrepancies",
+      state: "waiting",
+      label: "Grouped review paused",
       detail: `${remaining} grouped ${discrepancyBatch.kind === "engine" ? "E#" : "M#"} `
-        + "results remain in the active request.",
+        + "results are pending; no Copilot review is currently running.",
     };
   }
   if (
@@ -4765,6 +4771,10 @@ export async function publicState(
     }),
     ...manualPublicState,
     engineEvents: publicEngineEvents,
+    assistedReviewEntries: workflow.key === "innovation"
+      && engineComparisonRevealed
+      ? publicAssistedReviews(state, displayedEngine, engineEvents)
+      : [],
     engineDisplayMode: showRegressionCandidate
       ? "regression_candidate"
       : "published",
@@ -5297,7 +5307,7 @@ function publishValidatedReferencePrompt(segment) {
     `Run the ${workflow.key === "innovation" ? "Innovation" : "live raw-video and rules-engine"} `
       + "regression tests once with: $env:PYTHONPATH=\"$PWD\\src\"; "
       + `python -m pytest ${workflow.regressionTests.join(" ")} -q`,
-    "If they pass, call football-event-review-live refresh_engine_snapshot for "
+    `If they pass, call ${workflow.canvasId} refresh_engine_snapshot for `
       + `segment ${segment.key} without an event index, then call `
       + "record_regression_result with passed=true, the segment, and the exact "
       + "test summary. Then call publish_validated_reference.",
@@ -5309,7 +5319,7 @@ function publishValidatedReferencePrompt(segment) {
     "Do not rerun detection, tracking, or event building and do not edit the "
       + "rules engine during final publication. If any gate fails, stop and "
       + "report the blocker.",
-    "Before ending, call football-event-review-live publish_review_response with "
+    `Before ending, call ${workflow.canvasId} publish_review_response with `
       + "neither eventIndex nor engineIndex so the result appears in the "
       + "general clip conversation.",
   ]);
@@ -5326,7 +5336,7 @@ function engineEventConversationPrompt(segment, event, index, text) {
     "This is a follow-up discussion in Plan mode. Explain the evidence and "
       + "current review result, but do not confirm the engine event, create or "
       + "accept a Copilot proposal, edit the engine, or rerun any pipeline stage.",
-    "Before ending, call football-event-review-live publish_review_response "
+    `Before ending, call ${workflow.canvasId} publish_review_response `
       + `with engineIndex ${index} and without a C# eventIndex so the reply `
       + `appears in the E${index + 1} event conversation.`,
   ]);
@@ -5404,7 +5414,7 @@ function manualEngineDiscrepancyPrompt(
       + "response in this single Autopilot "
       + "request. Do not start a separate Plan, adjudication, or follow-up "
       + "Copilot request for this accepted M# decision.",
-    "Before ending, call football-event-review-live publish_review_response "
+    `Before ending, call ${workflow.canvasId} publish_review_response `
       + `with eventIndex ${index} and without an engineIndex so the result `
       + `appears in the M${index + 1} conversation.`,
   ]);
@@ -5649,8 +5659,8 @@ function acceptedEngineRecheckPrompt(segment, draft, index, comparison) {
       + "missing or conflicting, implement only a general evidence-based rule; "
       + "never add a timestamp, frame, segment, track-ID, or label exception.",
     "Record refreshed snapshots and regression results through the existing "
-      + "football-event-review-live tools. Before ending, call "
-      + "football-event-review-live publish_review_response with eventIndex "
+      + `${workflow.canvasId} tools. Before ending, call `
+      + `${workflow.canvasId} publish_review_response with eventIndex `
       + `${index} so the complete result appears in the C${index + 1} conversation.`,
   ]);
 }
@@ -5683,7 +5693,7 @@ function copilotBulkAcceptancePrompt(segment, drafts, indexes) {
       + "or segment-specific exception. Rebuild cached events once, run the "
       + "protected regressions once, refresh the engine snapshot, and record "
       + "the regression result.",
-    "Before ending, call football-event-review-live publish_review_response "
+    `Before ending, call ${workflow.canvasId} publish_review_response `
       + `without eventIndex so the batch summary appears only in the general `
       + `clip conversation for ${segment.key}.`,
   ]);
@@ -6452,6 +6462,67 @@ async function handleRequest(request, response, serverInstanceId) {
       index,
     );
     sendJson(response, 200, result);
+    return;
+  }
+  if (
+    request.method === "POST"
+    && url.pathname === "/api/innovation/assisted-review"
+  ) {
+    if (workflow.key !== "innovation") {
+      sendJson(response, 404, {error: "Assisted review is Innovation-only"});
+      return;
+    }
+    const body = await readBody(request);
+    const segment = requestedSegment(url, body);
+    const review = await reviewContext(segment);
+    if (
+      !review.state.manualReference?.approved
+      || review.selected.validated
+      || review.state.publishedReference
+    ) {
+      sendJson(response, 409, {
+        error: "Use an approved, unpublished Innovation minute",
+      });
+      return;
+    }
+    const current = engineReviewSnapshot(
+      review.state,
+      await captureEngineSnapshot(segment),
+    );
+    const event = Number.isInteger(body.index)
+      ? snapshotEvents(current)[body.index]
+      : null;
+    if (!event) {
+      sendJson(response, 400, {error: "Choose a current E#"});
+      return;
+    }
+    if (activeManualEvents(review.state.manualReference).some(manual =>
+      manual.team === event.team
+      && manual.type === event.type
+      && Math.abs(Number(manual.seconds) - event.seconds) <= 1
+    )) {
+      sendJson(response, 409, {
+        error: "A nearby same-team, same-type M# already exists",
+      });
+      return;
+    }
+    let entry;
+    try {
+      entry = recordAssistedReview(review.state, {
+        engine: event,
+        review: review.state.engineEventReviews[
+          engineEventReviewKey(event)
+        ],
+        snapshot: current,
+        submitted: body,
+        durationSeconds: review.selected.durationSeconds,
+      });
+    } catch (error) {
+      sendJson(response, 409, {error: error.message});
+      return;
+    }
+    await saveState(segment, review.state);
+    sendJson(response, 201, {entry});
     return;
   }
   if (
@@ -11261,5 +11332,15 @@ session.on("session.error", (event) => {
     "error",
     "Copilot needs attention",
     String(event.data?.message || "The current operation did not complete."),
+  );
+});
+
+session.on("session.idle", () => {
+  if (!reviewRequestPending) return;
+  reviewRequestPending = false;
+  setActivity(
+    "error",
+    "Copilot review needs attention",
+    "The review ended without publishing a result. The conversation is retained; retry the selected review.",
   );
 });

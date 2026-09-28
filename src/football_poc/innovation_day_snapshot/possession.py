@@ -288,6 +288,7 @@ def infer_cached_possession(
     deceleration_transfer_events = infer_deceleration_transfer_events(
         balls,
         stable_segments,
+        observations=observations,
         minimum_incoming_speed_pixels_per_second=(
             minimum_pass_speed_pixels_per_second
         ),
@@ -2045,6 +2046,18 @@ def reconcile_track_identity_team_switches(
                 in {"pass_candidate", "restart_pass_candidate"}
                 else other_team(chain_anchor.team)
             )
+
+        tracked_sender_team = stable_precontact_team(
+            event.from_player_track_id,
+            event.clip_seconds,
+        )
+        if (
+            chain_anchor is None
+            and event.event_type in {"pass_candidate", "restart_pass_candidate"}
+            and tracked_sender_team is not None
+            and tracked_sender_team != sender_team
+        ):
+            continue
 
         receiver_team = local_team(
             event.to_player_track_id,
@@ -6128,6 +6141,8 @@ def infer_unresolved_direction_change_receptions(
     maximum_control_ratio: float = 0.5,
     event_exclusion_seconds: float = 1.0,
     minimum_evidence_points: int = 3,
+    owner_continuity_seconds: float = 0.4,
+    minimum_owner_control_seconds: float = 1.0,
 ) -> list[PredictedEvent]:
     source = list(events)
     observation_list = list(observations)
@@ -6249,6 +6264,41 @@ def infer_unresolved_direction_change_receptions(
             if track_id is not None
         }
         same_tracked_owner = observation.player_track_id in known_owner_track_ids
+        recent_owner_controls = sorted(
+            (
+                candidate.clip_seconds
+                for candidate in observation_list
+                if candidate.team == observation.team
+                and candidate.player_track_id == observation.player_track_id
+                and candidate.control_ratio <= maximum_control_ratio
+                and observation.clip_seconds - minimum_owner_control_seconds - 1e-6
+                <= candidate.clip_seconds < observation.clip_seconds
+            )
+        )
+        continuous_owner_control = (
+            prior is not None
+            and prior.to_player_track_id == observation.player_track_id
+            and bool(recent_owner_controls)
+            and (
+                observation.clip_seconds - recent_owner_controls[0]
+                >= minimum_owner_control_seconds - 1e-6
+            )
+            and all(
+                later - earlier <= owner_continuity_seconds + 1e-6
+                for earlier, later in zip(
+                    recent_owner_controls,
+                    [*recent_owner_controls[1:], observation.clip_seconds],
+                )
+            )
+            and any(
+                candidate.team == observation.team
+                and candidate.player_track_id == observation.player_track_id
+                and candidate.control_ratio <= maximum_control_ratio
+                and 0 < candidate.clip_seconds - observation.clip_seconds
+                <= owner_continuity_seconds + 1e-6
+                for candidate in observation_list
+            )
+        )
         retained_owner = (
             prior is not None
             and following is not None
@@ -6258,6 +6308,7 @@ def infer_unresolved_direction_change_receptions(
         if (
             not linked_to_possession
             or retained_owner
+            or continuous_owner_control
             or same_tracked_owner
             and evidence[0] < minimum_speed_pixels_per_second * 2
         ):
@@ -6812,6 +6863,7 @@ def infer_deceleration_transfer_events(
     balls: dict[int, list[dict[str, Any]]],
     possession_segments: Iterable[PossessionSegment],
     *,
+    observations: Iterable[PossessionObservation] = (),
     minimum_incoming_speed_pixels_per_second: float,
     maximum_outgoing_speed_ratio: float,
     sender_lookback_seconds: float,
@@ -6829,6 +6881,7 @@ def infer_deceleration_transfer_events(
                 tracks[int(point["track_id"])].append(point)
 
     segments = list(possession_segments)
+    controls = list(observations)
     events: list[PredictedEvent] = []
     all_points = sorted(
         (point for points in tracks.values() for point in points),
@@ -6836,6 +6889,26 @@ def infer_deceleration_transfer_events(
     )
     for sender, receiver in zip(segments, segments[1:]):
         if sender.team != receiver.team:
+            continue
+        prior_receiver_observations = sorted(
+            (
+                observation
+                for observation in controls
+                if observation.player_track_id == receiver.player_track_id
+                and observation.team != receiver.team
+                and sender.end_seconds < observation.clip_seconds
+                < receiver.start_seconds
+            ),
+            key=lambda observation: observation.clip_seconds,
+        )
+        if any(
+            earlier.team == later.team
+            and later.clip_seconds - earlier.clip_seconds <= 0.4
+            for earlier, later in zip(
+                prior_receiver_observations,
+                prior_receiver_observations[1:],
+            )
+        ):
             continue
         candidates: list[tuple[float, float, float]] = []
         for previous, current, following in zip(

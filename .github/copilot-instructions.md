@@ -108,12 +108,12 @@ Use a fast cached-first path for targeted M#/E# reviews:
 - Start with the prepared Canvas video, current cached possession/match-state
   evidence, and current E# output. Never rerun detection or ball tracking.
 - A decisive M# modal outcome (`engine missed M#` or `existing E# represents
-  M# but is wrong`) is final professional acceptance. Do not independently
+M# but is wrong`) is final professional acceptance. Do not independently
   re-adjudicate, reject, edit, reinterpret, or remap that M#. Inspect evidence
   only to diagnose the general pipeline cause, then fix it, rebuild E#, and run
   the required regressions in the same single Autopilot request. Do not start a
   separate Plan, adjudication, or follow-up Copilot request. Only `Cannot
-  verify` requests adjudication.
+verify` requests adjudication.
 - If that accepted requirement exposes a general player-tracking defect, fix
   it and rebuild player tracks only from the existing cached detector output;
   do not rerun the detector or ball tracker.
@@ -189,8 +189,12 @@ independent:
 1. The prepared segment may cache tracking, possession, match state, and
    rules-engine `E#` events.
 2. In Innovation review, the professional reviewer records the ordered `M#`
-   golden set independently from the video. `E#` may be compared only after M#
-   exists and must never create or rewrite M#.
+   golden set independently from video. `E#` may be compared only after M#
+   exists and never creates or rewrites M#. A single human-approved E# may
+   pre-fill a separate E-assisted review entry; the reviewer must check the
+   values against video and explicitly confirm the entry. It is not M#,
+   cannot affect golden matches, publication, or inference, and group
+   approvals never batch-create assisted entries.
 3. Automatic `M#`/`E#` links are suggestions. The reviewer may explicitly map,
    replace, or remove a one-to-one link without changing either timestamp.
 4. Keep `C#` optional and diagnostic-only. If requested, create it
@@ -278,7 +282,7 @@ as shipped or partially-shipped behavior:
   evidence in normal operation.
 - The system only reaches for other cameras when the Main Camera's own
   ball/player detection confidence drops below a decision threshold for
-  particular frames or a short window. At that point it queries the *relevant*
+  particular frames or a short window. At that point it queries the _relevant_
   secondary/query cameras only — e.g. a goal-end camera or a touchline camera
   whose field of view actually covers the ambiguous moment — never every
   secondary stream, and never for the full match.
