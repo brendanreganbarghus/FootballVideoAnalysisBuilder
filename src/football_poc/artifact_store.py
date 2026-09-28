@@ -127,6 +127,8 @@ def discover_prepared_segments(
         return ()
     segments: dict[str, SharedPreparedSegment] = {}
     for manifest in sorted(catalog.glob("*/*/*/segment.json")):
+        if PREPARED_SEGMENT_ID.fullmatch(manifest.parent.name) is None:
+            continue
         segment = _load_shared_segment(manifest)
         if segment.segment_id in segments:
             raise ValueError(

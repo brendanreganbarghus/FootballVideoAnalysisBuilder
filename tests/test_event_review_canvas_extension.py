@@ -2680,6 +2680,22 @@ def test_innovation_manual_first_ui_and_live_gating_contracts() -> None:
     assert renderer.count('data-manual-type="completed_pass"') >= 4
     assert renderer.count('data-manual-type="turnover"') >= 4
     assert "Add M# at the current video time:" in renderer
+    assert 'id="review-unmatched-engine-for-manual"' in renderer
+    assert 'manualReview.hidden = !engineNeedsIndependentManualCapture(engineIndex);' in renderer
+    assert 'row.engineIndex === engineIndex && !row.review' in renderer
+    assert 'manualReview.disabled =\n        referenceLocked()' in renderer
+    assert "function reviewUnmatchedEngineForManualCapture()" in renderer
+    assert 'seekVideo(Math.max(0, Number(engine.seconds) - 2));' in renderer
+    assert '"Reopen the frozen minute before recording a new M#."' in renderer
+    assert '"If you see a missing event, enter its time, team, and type "' in renderer
+    assert (
+        ').addEventListener("click", reviewUnmatchedEngineForManualCapture);'
+    ) in renderer
+    architecture = (
+        Path(__file__).parents[1] / "docs" / "RULES_ENGINE_ARCHITECTURE.md"
+    ).read_text(encoding="utf-8")
+    assert "seeks to just before the play but does not create an M#" in architecture
+    assert "It remains E-derived diagnostic evidence, not M#" in architecture
     assert 'id="show-bac-coordinate"' in renderer
     assert "Show BAC ball coordinate" in renderer
     assert "Undo last change" not in renderer
@@ -2693,6 +2709,11 @@ def test_innovation_manual_first_ui_and_live_gating_contracts() -> None:
     assert 'action: "delete"' in renderer
     assert 'action: "approve"' in renderer
     assert 'action: "reopen"' in renderer
+    assert "reopenMinute.hidden = !approved || lockedReference;" in renderer
+    assert (
+        "reopenMinute.disabled =\n"
+        "          !approved || lockedReference || !coordinationMutationAllowed();"
+    ) in renderer
     assert 'id="fullscreen-edit-current-ball-coordinate"' not in renderer
     assert "#validate-engine-reference {" in renderer
     assert "background: #9a6700;" in renderer
@@ -3555,8 +3576,8 @@ def test_innovation_modals_group_similar_discrepancies_in_one_request() -> None:
     assert "target.manualKey === row.review?.key" in renderer
     assert "target.engineReviewKey === [" in renderer
     assert "const discrepancyBatch = state.pendingDiscrepancyBatch;" in extension
-    assert '"Copilot reviewing grouped discrepancies"' in extension
-    assert "results remain in the active request." in extension
+    assert '"Grouped review paused"' in extension
+    assert "results are pending; no Copilot review is currently running." in extension
 
     assert (
         'url.pathname === "/api/copilot-review-discrepancy-batch"'
@@ -3911,6 +3932,8 @@ def test_canvas_hides_internal_context_and_reports_review_status() -> None:
     assert "!reviewRequestPending" in extension
     assert 'session.on("tool.execution_start", (event) => {\n  if (!reviewRequestPending) return;' in extension
     assert 'session.on("session.error", (event) => {\n  if (!reviewRequestPending) return;' in extension
+    assert 'session.on("session.idle", () => {\n  if (!reviewRequestPending) return;' in extension
+    assert "The review ended without publishing a result." in extension
     assert '"Copilot result ready"' in extension
     assert "Open Copilot Chat to read the result" in extension
     assert 'name: "publish_review_response"' in extension
@@ -3919,6 +3942,180 @@ def test_canvas_hides_internal_context_and_reports_review_status() -> None:
     assert 'session.on("assistant.message"' not in extension
     assert 'id="chat-status"' in renderer
     assert 'current.label + "…"' in renderer
+
+
+def test_manual_review_prompt_targets_the_selected_canvas() -> None:
+    extension = EXTENSION.read_text(encoding="utf-8")
+    prompt = extension.split("function manualEngineDiscrepancyPrompt(", 1)[1].split(
+        "function engineEventReviewPrompt(", 1
+    )[0]
+
+    assert "`Before ending, call ${workflow.canvasId} publish_review_response `" in prompt
+    assert "football-event-review-live publish_review_response" not in prompt
+
+
+def test_correct_unmatched_engine_event_offers_separate_assisted_review() -> None:
+    renderer = RENDERER.read_text(encoding="utf-8")
+    extension = EXTENSION.read_text(encoding="utf-8")
+    assert 'id="independent-manual-capture" hidden' in renderer
+    assert 'id="independent-manual-seconds" type="text"' in renderer
+    assert 'id="independent-manual-use-video-time" type="button"' in renderer
+    assert "function useCurrentVideoTimeForManualCapture()" in renderer
+    assert "const seconds = Number(video.currentTime);" in renderer
+    assert "(Math.round(seconds * 1000) / 1000).toFixed(3);" in renderer
+    assert (
+        ')?.addEventListener("click", useCurrentVideoTimeForManualCapture);'
+    ) in renderer
+    assert '<option value="" selected>Choose team</option>' in renderer
+    assert '<option value="" selected>Choose event type</option>' in renderer
+    assert 'function engineNeedsIndependentManualCapture(engineIndex)' in renderer
+    assert "closeEngineVerificationModal();\n      openIndependentManualCapture(engineIndex);" in renderer
+    assert '"Approve E# & review assisted entry"' in renderer
+    assert 'Math.abs(Number(manual.seconds) - Number(engine.seconds)) <= 1' in renderer
+    assert "reviewAssistedEntries(batchIndices);" in renderer
+    assert "function reviewNextAssistedEntry()" in renderer
+    assert "if (canOpenAssistedReview(index)) {" in renderer
+    assert 'id="assisted-review-progress" aria-live="polite"' in renderer
+    assert 'id="assisted-review-stop" type="button" hidden' in renderer
+    assert 'id="review-remaining-assisted" type="button" hidden' in renderer
+    assert "if (assistedReviewQueueTotal) reviewNextAssistedEntry();" in renderer
+    assert "event.preventDefault();\n        if (!assistedReviewSaving) skipAssistedEntry();" in renderer
+    assert "assistedReviewQueue = [];\n          assistedReviewQueueTotal = 0;" in renderer
+    assert "reviewAssistedEntries((state.engineEvents || [])" in renderer
+    assert "function assistedReviewButton(entry)" in renderer
+    assert 'button.className = "comparison-assisted-event"' in renderer
+    assert 'cell.append(...assisted.map(assistedReviewButton));' in renderer
+    assert 'assistedReviewEntries: reviewWorkflow.key === "innovation"' in renderer
+    assert '["assisted", (state.assistedReviewEntries || []).length' in renderer
+    assert 'if (entry.fresh) continue;' in renderer
+    assert 'E-derived diagnostic only; not a golden M#.' in renderer
+    assert 'id="assisted-review-panel" hidden' in renderer
+    assert 'id="jump-to-assisted-review" type="button" hidden' in renderer
+    assert 'jump.textContent = "E-assisted reviews (" + entries.length + ")";' in renderer
+    assert 'panel.scrollIntoView({behavior: "smooth", block: "start"});' in renderer
+    assert (
+        renderer.index('id="fullscreen-event-chat"')
+        < renderer.index('<aside class="event-rail"')
+        < renderer.index('id="assisted-review-panel" hidden')
+    )
+    assert 'panel.dataset.initialized = "true";' in renderer
+    assert 'anchor.before(assistedPanel);' in renderer
+    assert 'id="assisted-review-modal" aria-labelledby="assisted-review-heading"' in renderer
+    assert "width: min(440px, calc(100vw - 32px));" in renderer
+    assert ".innovation-manual-panel[hidden] { display: none; }" in renderer
+    assert "if (!modal.open) modal.showModal();" in renderer
+    assert 'document.getElementById("assisted-review-modal").close();' in renderer
+    assert "if (!assistedReviewSaving) skipAssistedEntry();" in renderer
+    assert "Review context changed; the E-assisted entry was not saved." in renderer
+    assert 'button.textContent = "Review E" + (index + 1) + " as A#";' in renderer
+    assert "if (!canOpenAssistedReview(engineIndex) || assistedReviewSaving) return;" in renderer
+    assert 'id="assisted-review-confirm"' in renderer
+    assert 'fetch("/api/innovation/assisted-review"' in renderer
+    assert 'url.pathname === "/api/innovation/assisted-review"' in extension
+    assert "recordAssistedReview(review.state, {" in extension
+    assert "assistedReviewEntries: workflow.key === \"innovation\"" in extension
+    assert "assistedReviewEntries" not in (
+        Path(__file__).parents[1]
+        / ".github/extensions/football-event-review/publication-gate.mjs"
+    ).read_text(encoding="utf-8")
+    assert 'document.getElementById("independent-manual-seconds").value = "";' in renderer
+    assert 'document.getElementById("independent-manual-team").value = "";' in renderer
+    assert 'document.getElementById("independent-manual-type").value = "";' in renderer
+    assert 'await mutateManualReference({action: "reopen"});' in renderer
+    assert 'timestampMs: Math.round(seconds * 1000),' in renderer
+    assert "team: team.value," in renderer
+    assert "eventType: type.value" in renderer
+    assert "approved || locked || state.activity?.state === \"working\"" in renderer
+
+
+def test_assisted_review_is_version_bound_and_never_becomes_golden_m() -> None:
+    module = (
+        Path(__file__).parents[1]
+        / ".github/extensions/football-event-review/shared/assisted-review.mjs"
+    ).as_uri()
+    script = f"""
+      import assert from "node:assert/strict";
+      import {{recordAssistedReview, publicAssistedReviews}} from {module!r};
+      const state = {{manualReference: {{events: [{{key: "M1"}}]}}}};
+      const snapshot = {{fingerprint: {{contentHash: "source1"}}, outputHash: "output1"}};
+      const engine = {{team: "black", type: "completed_pass", seconds: 24.2,
+        releaseSeconds: 23.4}};
+      const review = {{status: "confirmed", reviewSource: "professional_reviewer",
+        engineContentHash: "source1", outputHash: "output1", fresh: true}};
+      const submitted = {{engineTeam: "black", engineType: "completed_pass",
+        engineSeconds: 24.2, engineReleaseSeconds: 23.4,
+        engineContentHash: "source1", outputHash: "output1",
+        timestampMs: 24200, team: "black", type: "completed_pass"}};
+      const entry = recordAssistedReview(state, {{engine, review, snapshot,
+        submitted, durationSeconds: 60}});
+      assert.equal(entry.id, "A1");
+      assert.equal(entry.source, "engine_assisted");
+      assert.equal(entry.observed.seconds, 24.2);
+      assert.deepEqual(state.manualReference.events, [{{key: "M1"}}]);
+      assert.equal(publicAssistedReviews(state, snapshot,
+        [{{...engine, review}}])[0].fresh, true);
+      assert.equal(publicAssistedReviews(state,
+        {{fingerprint: {{contentHash: "source2"}}, outputHash: "output2"}},
+        [{{...engine, review}}])[0].fresh, false);
+      assert.equal(publicAssistedReviews(state, snapshot, [])[0].fresh, false);
+      assert.equal(publicAssistedReviews(state, snapshot,
+        [{{...engine, review: {{...review, fresh: false}}}}])[0].fresh, false);
+      assert.throws(() => recordAssistedReview(state, {{engine, review, snapshot,
+        submitted, durationSeconds: 60}}), /already has/);
+      assert.throws(() => recordAssistedReview({{}}, {{engine, review, snapshot,
+        submitted: {{...submitted, outputHash: "outdated"}},
+        durationSeconds: 60}}), /changed/);
+      assert.throws(() => recordAssistedReview({{}}, {{engine, review, snapshot,
+        submitted: {{...submitted, engineSeconds: 24.4}},
+        durationSeconds: 60}}), /changed/);
+      assert.throws(() => recordAssistedReview({{}}, {{engine, review, snapshot,
+        submitted: {{...submitted, team: "unknown"}},
+        durationSeconds: 60}}), /Enter a valid observed time, team, and event type/);
+      assert.throws(() => recordAssistedReview({{}}, {{engine,
+        review: {{...review, reviewSource: "copilot_review"}}, snapshot,
+        submitted, durationSeconds: 60}}), /human confirmation/);
+    """
+    result = subprocess.run(
+        ["node", "--input-type=module"],
+        input=script,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_group_engine_approval_queues_individual_assisted_reviews() -> None:
+    renderer = RENDERER.read_text(encoding="utf-8")
+    approval = renderer.split(
+        "async function confirmEngineWithoutCopilot()", 1
+    )[1].split("for (const index of batchIndices) {", 1)[1].split(
+        "async function askCopilotFromEngineVerification()", 1
+    )[0]
+    assert approval.index('fetch("/api/reviewer-confirm-engine"') < approval.index(
+        "await loadState();"
+    ) < approval.index("reviewAssistedEntries(batchIndices);")
+    assert "/api/innovation/assisted-review" not in approval
+    assert 'if (canOpenAssistedReview(index)) {' in renderer
+    assert 'button.textContent = "Review E" + (index + 1) + " as A#";' in renderer
+    assert 'assistedReviewQueue = [...new Set(indices)]' in renderer
+    assert 'document.getElementById("assisted-review-modal").close();' in renderer
+    assert "if (assistedReviewQueueTotal) reviewNextAssistedEntry();" in renderer
+
+
+def test_interrupted_grouped_engine_review_can_reopen_without_false_working_state() -> None:
+    renderer = RENDERER.read_text(encoding="utf-8")
+    sync = renderer.split("function syncEngineVerificationModal()", 1)[1].split(
+        "async function cancelOrCloseEngineVerification()", 1
+    )[0]
+    assert 'id="reopen-grouped-review" type="button" hidden' in renderer
+    assert "openEngineVerificationModal(target.originalIndex);" in renderer
+    assert 'activeBatch.status === "working"' in sync
+    assert "modal.dataset.restoredBatchId !== activeBatch.id" in sync
+    assert 'state.activity?.state !== "working"' in sync
+    assert 'modal.dataset.reviewState = "paused";' in sync
+    assert "Copilot is not currently working." in sync
+    assert 'modal.dataset.reviewState === "paused"' in sync
+    assert '"Copilot is working… Reviewing "' in sync
 
 
 def test_copilot_reviews_are_recorded_without_acceptance_handover() -> None:

@@ -17,8 +17,11 @@ work:
 Use the reviewed IFAB law profile first, project analytics definitions second,
 and available video/tracking/match-state evidence third. Abstain when evidence
 is insufficient. Keep provider annotations and manual labels evaluation-only.
-In Innovation review, treat the independently recorded M# set as golden,
-compare it with E#, and keep C# optional and diagnostic-only. Follow the
+In Innovation review, the M# set is independently recorded from video and
+compared against E#; C# stays optional and diagnostic-only. A separately
+confirmed E-assisted entry may be pre-filled from a single approved E#, but
+is not M#, cannot count as a golden match, and cannot influence inference or
+publication. Group approval never batch-creates assisted entries. Follow the
 guarded approval, fingerprinting, regression, and publication workflow.
 
 A decisive M# modal outcome (`engine missed M#` or `existing E# represents M#
