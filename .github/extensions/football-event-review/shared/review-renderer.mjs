@@ -5635,7 +5635,6 @@ export function renderHtml({ adapter } = {}) {
         + path("scripts", reviewWorkflow.processorScript) + " "
         + segmentPath + " " + reviewWorkflow.processorArguments.join(" ");
       const protectedTests = [
-        path("tests", "test_ball_tracking.py"),
         path("tests", "test_match_state.py"),
         path("tests", "test_possession.py"),
         path("tests", "test_live_review_regressions.py")

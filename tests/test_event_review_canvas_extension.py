@@ -79,9 +79,12 @@ def test_engine_fingerprints_and_regression_contract() -> None:
         'tests/test_possession_regression.py',
         'tests/test_match_state_regression.py',
         'tests/test_review_regressions.py',
-        'tests/test_ball_tracking.py',
     ]:
         assert test in adapter
+    assert 'rulesRegressionScopeFiles: [' in adapter
+    assert 'trackerRegressionTests: [\n    "tests/test_ball_tracking.py",\n    "tests/ball_stages",' in adapter
+    extension = read(SHARED_EXTENSION)
+    assert "fullReceipt.rulesScopeHash === rulesScopeHash" in extension
 
 
 def test_ball_source_selector_and_analyze_payload() -> None:

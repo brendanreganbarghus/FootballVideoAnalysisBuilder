@@ -77,13 +77,30 @@ export const reviewWorkflow = Object.freeze({
     "src/football_poc/goal_calibration.py",
     "src/football_poc/shot_evidence_adapter.py",
   ],
+  // Rules-engine regressions run on cached ball tracks. Ball coordinates are
+  // already gated (BAC frozen, detected >= 90% direct provenance) before the
+  // rules engine runs, so only these files scope the Canvas regression gate.
+  rulesRegressionScopeFiles: [
+    "src/football_poc/match_state.py",
+    "src/football_poc/player_tracking.py",
+    "src/football_poc/possession.py",
+    "src/football_poc/possession_cli.py",
+    "src/football_poc/shots_on_target.py",
+    "src/football_poc/goal_calibration.py",
+    "src/football_poc/shot_evidence_adapter.py",
+    "scripts/process-alfheim-segment.py",
+  ],
   regressionTests: [
     "tests/test_shots_on_target.py",
     "tests/test_shot_evidence.py",
     "tests/test_possession_regression.py",
     "tests/test_match_state_regression.py",
     "tests/test_review_regressions.py",
+  ],
+  // Run only when ball-tracker code changes (tests/ball_stages takes ~18 min).
+  trackerRegressionTests: [
     "tests/test_ball_tracking.py",
+    "tests/ball_stages",
   ],
   palette: {
     backgroundDefault: "#080d14",

@@ -2026,6 +2026,12 @@ async function sourceVersion(files) {
   return hash.digest("hex");
 }
 
+function rulesRegressionScopeHash() {
+  return sourceVersion(
+    workflow.rulesRegressionScopeFiles || rulesEngineVersionFiles,
+  );
+}
+
 async function componentVersions() {
   const [tracker, rulesEngine] = await Promise.all([
     sourceVersion(trackerVersionFiles),
@@ -2145,9 +2151,13 @@ async function ensureReviewRegressionsCurrent(segment, state) {
     segments: [],
   });
   const fullReceipt = registry.last_full_regression;
+  const rulesScopeHash = await rulesRegressionScopeHash();
   if (
     fullReceipt?.passed
-    && fullReceipt.engineContentHash === current.fingerprint.contentHash
+    && (
+      fullReceipt.rulesScopeHash === rulesScopeHash
+      || fullReceipt.engineContentHash === current.fingerprint.contentHash
+    )
     && JSON.stringify(fullReceipt.segments || [])
       === JSON.stringify(publishedSegmentKeys)
   ) {
@@ -2208,6 +2218,7 @@ async function ensureReviewRegressionsCurrent(segment, state) {
       passed: false,
       summary: state.regression.summary,
       engineContentHash: refreshedCurrent.fingerprint.contentHash,
+      rulesScopeHash,
       recordedAt,
       segments: publishedSegmentKeys,
       segmentResults,
@@ -2261,6 +2272,7 @@ async function ensureReviewRegressionsCurrent(segment, state) {
       passed: false,
       summary: state.regression.summary,
       engineContentHash: refreshedCurrent.fingerprint.contentHash,
+      rulesScopeHash,
       recordedAt,
       segments: publishedSegmentKeys,
       segmentResults,
@@ -2293,6 +2305,7 @@ async function ensureReviewRegressionsCurrent(segment, state) {
     passed: true,
     summary: state.regression.summary,
     engineContentHash: refreshedCurrent.fingerprint.contentHash,
+    rulesScopeHash,
     recordedAt: state.regression.recordedAt,
     segments: publishedSegmentKeys,
     segmentResults,
@@ -5292,7 +5305,18 @@ function setActivity(state, label, detail) {
 const projectRulesInstruction =
   "Apply the shared project definitions and match-state gates in "
   + "docs\\RULES_ENGINE_ARCHITECTURE.md. The proposal's Rule basis is "
-  + "event-specific context, not a replacement for those global rules.";
+  + "event-specific context, not a replacement for those global rules. "
+  + "Regression scope: ball coordinates are already gated before the rules "
+  + "engine runs, so rules-engine work is validated only against cached ball "
+  + "tracks. Run cached event rebuilding and the protected rules regressions "
+  + `(python -m pytest ${workflow.regressionTests.join(" ")} -q) only after `
+  + "you edit a rules-engine file ("
+  + (workflow.rulesRegressionScopeFiles || workflow.rulesEngineVersionFiles)
+    .join(", ")
+  + "). If you made no such edit, do not rebuild or run pytest; the Canvas "
+  + "reuses the current passing regression receipt. Run "
+  + (workflow.trackerRegressionTests || []).join(" and ")
+  + " only when ball-tracker code changes, never for a rules-engine review.";
 
 function joinPrompt(lines) {
   return lines.join("\n").replaceAll("football-event-review", canvasId);
