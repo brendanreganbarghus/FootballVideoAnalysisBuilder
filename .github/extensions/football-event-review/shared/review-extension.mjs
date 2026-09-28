@@ -4,6 +4,7 @@ import { existsSync } from "node:fs";
 import {
   mkdir,
   open,
+  readdir,
   readFile,
   rename,
   stat,
@@ -88,6 +89,60 @@ const sharedArtifactRoot = (() => {
 const customCameraSourceRoot = sharedArtifactRoot
   ? join(sharedArtifactRoot, "10-master-data", "custom-cameras")
   : null;
+
+async function directoryNames(root) {
+  try {
+    const entries = await readdir(root, {withFileTypes: true});
+    const names = await Promise.all(entries.map(async (entry) => {
+      if (entry.isDirectory()) return entry.name;
+      // OneDrive-synced shared libraries appear as junctions/symlinks.
+      if (!entry.isSymbolicLink()) return null;
+      const target = await stat(join(root, entry.name)).catch(() => null);
+      return target?.isDirectory() ? entry.name : null;
+    }));
+    return names.filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+// Read-only lookup of shared artifact libraries for configuration files. It
+// deliberately does not change sharedArtifactRoot, which also selects where
+// review state is stored.
+async function sharedConfigLibraries() {
+  const libraries = sharedArtifactRoot ? [sharedArtifactRoot] : [];
+  // OneDrive syncs shared SharePoint libraries to
+  // %USERPROFILE%\<Organisation>\<Owner> - Innovationday Artifacts.
+  for (const organisation of await directoryNames(homedir())) {
+    for (const name of await directoryNames(join(homedir(), organisation))) {
+      const candidate = join(homedir(), organisation, name);
+      if (
+        name.endsWith(" - Innovationday Artifacts")
+        && existsSync(join(candidate, "00-governance", "checksums.sha256"))
+        && !libraries.includes(candidate)
+      ) {
+        libraries.push(candidate);
+      }
+    }
+  }
+  return libraries;
+}
+
+async function alfheimConfigPath(name) {
+  const local = join(alfheimRoot, "window-555", name);
+  if (existsSync(local)) return local;
+  for (const library of await sharedConfigLibraries()) {
+    const baselines = join(library, "30-shared-baselines");
+    const versions = (await directoryNames(baselines))
+      .filter((version) => /^v\d+$/.test(version))
+      .sort((left, right) => Number(right.slice(1)) - Number(left.slice(1)));
+    for (const version of versions) {
+      const candidate = join(baselines, version, "alfheim-config", name);
+      if (existsSync(candidate)) return candidate;
+    }
+  }
+  return null;
+}
 const customCameraRunRoot = join(
   projectRoot,
   "benchmarks",
@@ -1284,7 +1339,17 @@ async function loadEngineEvents(segment) {
       : null,
     details: event.details || null,
     ballEvidence: event.ball_evidence || null,
+    attemptId: event.attempt_id || null,
   })).filter((event) => Number.isFinite(event.seconds));
+}
+
+async function loadShotsOnTargetStatus(segment) {
+  if (!workflow.shotsOnTargetCapable) return null;
+  const summary = await readJson(
+    join(segmentRoot(segment), "analytics-data", SHOTS_ON_TARGET_SUMMARY_FILE),
+    null,
+  );
+  return summary?.analysis_status || "not_run";
 }
 
 async function loadDrafts(segment, segmentInfo) {
@@ -1360,6 +1425,7 @@ async function buildReplayRuns(segments) {
       protected: segment.protected,
       eventSource: "cached_engine_output",
       events: await loadEngineEvents(segment.key),
+      shotsOnTargetStatus: await loadShotsOnTargetStatus(segment.key),
     })));
     const start = group[0].startSeconds;
     const end = group.at(-1).startSeconds + group.at(-1).durationSeconds;
@@ -1405,6 +1471,7 @@ async function buildReplaySegments(segments) {
       protected: segment.protected,
       eventSource: "cached_engine_output",
       events: await loadEngineEvents(segment.key),
+      shotsOnTargetStatus: await loadShotsOnTargetStatus(segment.key),
     })));
 }
 
@@ -1963,7 +2030,16 @@ async function captureEngineSnapshot(segment, knownFingerprint = null) {
   );
   const predictions = await readJson(predictionsPath, []);
   const matchState = await readJson(matchStatePath, { intervals: [] });
+  const shotsOnTarget = workflow.shotsOnTargetCapable
+    ? await readJson(
+        join(root, "analytics-data", SHOTS_ON_TARGET_SUMMARY_FILE),
+        null,
+      )
+    : null;
   const fingerprint = knownFingerprint || await engineFingerprint();
+  // SOT events are hashed through predictions; the derived SOT summary is
+  // gated separately at publication so pass/turnover-only published hashes
+  // remain comparable now that SOT analysis always runs.
   const outputHash = createHash("sha256")
     .update(JSON.stringify({ predictions, matchState }))
     .digest("hex");
@@ -1973,7 +2049,39 @@ async function captureEngineSnapshot(segment, knownFingerprint = null) {
     outputHash,
     predictions,
     matchState,
+    shotsOnTarget,
   };
+}
+
+const SHOTS_ON_TARGET_SUMMARY_FILE = "shots-on-target.json";
+
+export function shotsOnTargetStatus(summary) {
+  if (!workflow.shotsOnTargetCapable) return null;
+  if (!summary) {
+    return {
+      analysisStatus: "not_run",
+      counts: null,
+      total: null,
+      unresolvedAttemptCount: null,
+      reasons: ["engine_not_rerun_with_shots_on_target"],
+      definitionVersion: null,
+    };
+  }
+  return {
+    analysisStatus: summary.analysis_status,
+    counts: summary.counts ?? null,
+    total: summary.total ?? null,
+    unresolvedAttemptCount: summary.unresolved_attempt_count ?? null,
+    reasons: Object.keys(summary.unresolved_reasons || {}),
+    definitionVersion: summary.definition_version || null,
+  };
+}
+
+export function publishedAnalysisScope(current) {
+  const status = current?.shotsOnTarget?.analysis_status;
+  return status
+    ? ["completed_pass", "turnover", "shot_on_target"]
+    : ["completed_pass", "turnover"];
 }
 
 function withheldEngineSnapshot() {
@@ -2175,11 +2283,25 @@ function eventRegressionSummary(event) {
   };
 }
 
+// JSON with object keys sorted recursively. Key order carries no meaning in
+// engine output, and a snapshot stored through the PostgreSQL coordination
+// store (jsonb) comes back with its keys reordered.
+function canonicalJson(value) {
+  const sortKeys = (child) => {
+    if (Array.isArray(child)) return child.map(sortKeys);
+    if (!child || typeof child !== "object") return child;
+    return Object.fromEntries(
+      Object.keys(child).sort().map((key) => [key, sortKeys(child[key])]),
+    );
+  };
+  return JSON.stringify(sortKeys(value));
+}
+
 function eventRegressionDifferences(baselineEvents, currentEvents) {
-  const remaining = currentEvents.map((event) => JSON.stringify(event));
+  const remaining = currentEvents.map((event) => canonicalJson(event));
   const missingEvents = [];
   for (const event of baselineEvents) {
-    const serialized = JSON.stringify(event);
+    const serialized = canonicalJson(event);
     const index = remaining.indexOf(serialized);
     if (index >= 0) {
       remaining.splice(index, 1);
@@ -2238,8 +2360,16 @@ async function executePublishedInnovationRegression(segment, progress) {
     );
   }
   const before = await captureEngineSnapshot(segment);
+  // The regression registry records the exact publication hash. Prefer it:
+  // the published files and state snapshots can lose their original key
+  // order, which changes their hash but not their content.
+  const registry = await readJson(regressionRegistryPath, {segments: []});
+  const publishedOutputHash = (registry.segments || []).find(
+    (entry) => entry.segment === segment,
+  )?.output_hash;
   const baselineOutputHash = (
-    review.state.publishedReference?.outputHash
+    publishedOutputHash
+    || review.state.publishedReference?.outputHash
     || review.state.engineBefore?.outputHash
     || before.outputHash
   );
@@ -2280,14 +2410,17 @@ async function executePublishedInnovationRegression(segment, progress) {
     updateSegmentRegressionProgress(progress, "compare", "running");
     const current = await captureEngineSnapshot(segment);
     const exactOutputMatch = current.outputHash === baselineOutputHash;
+    // When the rebuilt output matches the publication hash exactly, restore
+    // it rather than an older copy of the same content with reordered keys.
     const baselineSnapshot = [
+      exactOutputMatch ? current : null,
       review.state.engineBefore,
       review.state.engineAfter,
       before,
     ].find((snapshot) => snapshot?.outputHash === baselineOutputHash);
     baselineSnapshotForRestore = baselineSnapshot || before;
     const eventDifferences = eventRegressionDifferences(
-      baselineSnapshot?.predictions || [],
+      (baselineSnapshot || before).predictions || [],
       current.predictions,
     );
     const matchStateChanged = Boolean(
@@ -3057,6 +3190,7 @@ function snapshotEvents(snapshot) {
         ? Number(event.confidence)
         : null,
       ballEvidence: event.ball_evidence || null,
+      attemptId: event.attempt_id || null,
     };
   }).filter((event) => Number.isFinite(event.seconds));
 }
@@ -3543,7 +3677,7 @@ function innovationPublicationPlan(state, current) {
   const approved = reference?.approved;
   const validation = reference?.comparisonValidation;
   const engineEvents = snapshotEvents(current)
-    .filter((event) => ["completed_pass", "turnover"].includes(event.type))
+    .filter((event) => workflow.analyticsEventTypes.includes(event.type))
     .map((event, index) => ({
       ...event,
       key: `E${index + 1}`,
@@ -3552,6 +3686,23 @@ function innovationPublicationPlan(state, current) {
   const blockers = [];
   if (!approved) {
     blockers.push("Freeze the manual M# reference as golden first.");
+  }
+  const sotSummary = current.shotsOnTarget || null;
+  const manualHasShots = Boolean(
+    approved?.events?.some((event) => event.type === "shot_on_target")
+  );
+  if (sotSummary && sotSummary.analysis_status !== "complete") {
+    blockers.push(
+      `Shots-on-target analysis is ${sotSummary.analysis_status}; complete `
+      + "SOT evidence coverage is required before publishing SOT statistics.",
+    );
+  }
+  if (manualHasShots && !sotSummary) {
+    blockers.push(
+      "The golden M# set records shots on target, but shots-on-target "
+      + "analysis has not run for this engine output. Rerun the Innovation "
+      + "analysis.",
+    );
   }
   const validationFresh = Boolean(
     approved
@@ -4299,7 +4450,7 @@ export function refreshEngineReferenceValidation(state, current, action) {
   if (!approved) return null;
   const engineEvents = snapshotEvents(current)
     .filter((event) =>
-      ["completed_pass", "turnover"].includes(event.type)
+      workflow.analyticsEventTypes.includes(event.type)
     )
     .map((event, index) => ({...event, key: `E${index + 1}`}));
   const validatedAt = new Date().toISOString();
@@ -4779,6 +4930,7 @@ export async function publicState(
       ? "regression_candidate"
       : "published",
     ballProvenance,
+    shotsOnTarget: shotsOnTargetStatus(currentEngine?.shotsOnTarget),
     ballRecoveryDiagnostic,
     coordinateReview: state.coordinateReview,
     trajectoryAudit: state.trajectoryAudit || {
@@ -5757,6 +5909,7 @@ async function setActiveAdapter(instanceId, workflowKey) {
   const update = adapterRegistryUpdate.then(async () => {
     const registry = await readJson(activeAdapterRegistryPath, {});
     registry[instanceId] = workflowKey;
+    await mkdir(dirname(activeAdapterRegistryPath), {recursive: true});
     await writeJsonAtomically(activeAdapterRegistryPath, registry);
   });
   adapterRegistryUpdate = update.catch(() => {});
@@ -5930,17 +6083,13 @@ async function handleRequest(request, response, serverInstanceId) {
     const segment = requestedSegment(url);
     const segments = await loadPreparedSegments();
     const selected = segments.find((candidate) => candidate.key === segment);
+    const alfheimCalibrationPath = selected?.datasetId === "alfheim"
+      ? await alfheimConfigPath("pitch-calibration.json")
+      : null;
     const calibration = selected?.datasetId === "alfheim"
-      ? await readJson(
-          join(
-            projectRoot,
-            "benchmarks",
-            "alfheim",
-            "window-555",
-            "pitch-calibration.json",
-          ),
-          null,
-        )
+      ? (alfheimCalibrationPath
+          ? await readJson(alfheimCalibrationPath, null)
+          : null)
       : (
           selected?.datasetId === "soccertrack-v2"
           || selected?.datasetId?.startsWith("custom-")
@@ -8464,7 +8613,7 @@ async function handleRequest(request, response, serverInstanceId) {
           return;
         }
         if (
-          !["completed_pass", "turnover"].includes(String(body.eventType))
+          !workflow.analyticsEventTypes.includes(String(body.eventType))
         ) {
           sendJson(response, 400, {error: "Choose a supported event type"});
           return;
@@ -8751,7 +8900,8 @@ async function startServer(instanceId) {
   try {
     await listen(preferredPort);
   } catch (error) {
-    if (error?.code !== "EADDRINUSE") throw error;
+    // Windows reports ports in an excluded (reserved) range as EACCES.
+    if (!["EADDRINUSE", "EACCES"].includes(error?.code)) throw error;
     await listen(0);
   }
 
@@ -11034,6 +11184,7 @@ session = await joinSession({
               engineContentHash: current.fingerprint.contentHash,
               outputHash: current.outputHash,
               regressionRecordedAt: review.state.regression.recordedAt,
+              analysisScope: publishedAnalysisScope(current),
             };
             review.state.conversation.push({
               role: "system",

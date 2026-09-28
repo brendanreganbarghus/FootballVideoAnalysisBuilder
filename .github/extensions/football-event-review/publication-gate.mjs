@@ -7,14 +7,22 @@ export function buildPublicationPlan({
   snapshotMatches,
   verificationIsCurrent,
   regressionFresh,
+  analyticsTypes: analyticsTypeList = ["completed_pass", "turnover"],
+  shotsOnTarget = null,
 }) {
-  const analyticsTypes = new Set(["completed_pass", "turnover"]);
+  const analyticsTypes = new Set(analyticsTypeList);
   const analyticsEngineEvents = engineEvents.filter((event) =>
     analyticsTypes.has(event.type)
   );
   const usedEngineIndexes = new Set();
   const referenceEvents = [];
   const blockers = [];
+  if (shotsOnTarget && shotsOnTarget.analysis_status !== "complete") {
+    blockers.push(
+      `Shots-on-target analysis is ${shotsOnTarget.analysis_status}; complete `
+      + "SOT evidence coverage is required before publishing SOT statistics.",
+    );
+  }
   const reviewComplete = drafts.every((_, index) =>
     ["accepted", "rejected"].includes(decisions[String(index)]?.status)
   );

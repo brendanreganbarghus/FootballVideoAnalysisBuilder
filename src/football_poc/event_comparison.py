@@ -11,6 +11,7 @@ def compare_manual_events(
     *,
     tolerance_seconds: float = 1.0,
     review_tolerance_seconds: float = 3.0,
+    include_shots_on_target: bool = False,
 ) -> dict[str, Any]:
     if tolerance_seconds < 0 or review_tolerance_seconds < tolerance_seconds:
         raise ValueError(
@@ -22,7 +23,9 @@ def compare_manual_events(
         (
             {
                 **event,
-                "comparison_type": _prediction_type(str(event["event_type"])),
+                "comparison_type": _prediction_type(
+                    str(event["event_type"]), include_shots_on_target
+                ),
                 "comparison_seconds": float(
                     event.get("completion_seconds")
                     if event.get("completion_seconds") is not None
@@ -30,7 +33,10 @@ def compare_manual_events(
                 ),
             }
             for event in predicted_events
-            if _prediction_type(str(event.get("event_type"))) is not None
+            if _prediction_type(
+                str(event.get("event_type")), include_shots_on_target
+            )
+            is not None
         ),
         key=lambda event: event["comparison_seconds"],
     )
@@ -118,6 +124,7 @@ def compare_manual_events(
         )
         for match in matches
     )
+    event_types = _event_types(include_shots_on_target)
     return {
         "tolerance_seconds": tolerance_seconds,
         "review_tolerance_seconds": review_tolerance_seconds,
@@ -125,9 +132,9 @@ def compare_manual_events(
         "predicted_event_count": len(predicted),
         "matched_event_count": len(matches),
         "additional_review_match_count": len(review_matches),
-        "manual_counts": _expand_counts(manual_counts),
-        "predicted_counts": _expand_counts(predicted_counts),
-        "matched_counts": _expand_counts(match_counts),
+        "manual_counts": _expand_counts(manual_counts, event_types),
+        "predicted_counts": _expand_counts(predicted_counts, event_types),
+        "matched_counts": _expand_counts(match_counts, event_types),
         "matches": matches,
         "unmatched_manual": unmatched_manual,
         "unmatched_predicted": unmatched_predicted,
@@ -202,7 +209,12 @@ def _optimal_event_matches(
     return align(0, 0)[2]
 
 
-def _prediction_type(event_type: str) -> str | None:
+def _prediction_type(
+    event_type: str,
+    include_shots_on_target: bool = False,
+) -> str | None:
+    if include_shots_on_target and event_type == "shot_on_target":
+        return "shot_on_target"
     return {
         "pass_candidate": "completed_pass",
         "restart_pass_candidate": "completed_pass",
@@ -210,11 +222,22 @@ def _prediction_type(event_type: str) -> str | None:
     }.get(event_type)
 
 
-def _expand_counts(counts: Counter[tuple[str, str]]) -> dict[str, dict[str, int]]:
+def _event_types(include_shots_on_target: bool) -> tuple[str, ...]:
+    return (
+        ("completed_pass", "turnover", "shot_on_target")
+        if include_shots_on_target
+        else ("completed_pass", "turnover")
+    )
+
+
+def _expand_counts(
+    counts: Counter[tuple[str, str]],
+    event_types: tuple[str, ...] = ("completed_pass", "turnover"),
+) -> dict[str, dict[str, int]]:
     return {
         team: {
             event_type: counts.get((team, event_type), 0)
-            for event_type in ("completed_pass", "turnover")
+            for event_type in event_types
         }
         for team in ("red", "black")
     }

@@ -48,6 +48,14 @@ Rebuild only the cached Innovation event output:
 python scripts\process-alfheim-innovation-segment.py $segment --events-only
 ```
 
+Build the shots-on-target runtime evidence and check its readiness manually
+(the processor rebuilds it automatically on every event build because SOT is
+always analysed; see `docs\RULES_ENGINE_ARCHITECTURE.md`):
+
+```powershell
+python -m football_poc.innovation_day_snapshot.shot_evidence_adapter --segment-innovation-root "$segment\innovation"
+```
+
 The runner accepts BAC only through its dedicated extraction step and writes
 `innovation\analytics-cache\ball-tracks.json` with:
 

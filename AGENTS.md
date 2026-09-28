@@ -67,6 +67,27 @@ Retained conversation identity is not active work. A completed final response
 must close the modal automatically and refresh M#/E# while keeping the
 conversation available.
 
+## Review Canvas agent host
+
+The Innovation review Canvas is a GitHub Copilot CLI extension, and its
+Copilot handovers run in that Copilot session. To use Claude Code instead,
+run the Canvas with the Claude review host in
+[`scripts\claude-review-host`](scripts/claude-review-host/README.md):
+
+```powershell
+cd scripts\claude-review-host
+npm install
+node host.mjs --segment segment-0120-020
+```
+
+The host loads the same extension, runs each handover as a Claude Agent SDK
+request in this repository, and exposes the Canvas actions to Claude as
+`mcp__football-event-review__<action>` tools. Where a handover prompt or this
+file says Copilot, it means the agent that hosts the Canvas. Every rule in this
+file applies unchanged, including the single Autopilot request and the
+working-status contract. The port-8080 local app must be running first, and
+only the Innovation workflow is hosted.
+
 ## Working rules
 
 - Treat the architecture document and implementation/tests as authoritative;
@@ -87,3 +108,5 @@ conversation available.
 
 When the Live freeze or another current workstream boundary changes, update
 this file, `CLAUDE.md`, and `.github\copilot-instructions.md` together.
+
+Innovation shots on target is an always-analysed, evidence-gated project statistic (no opt-in setting) that requires a runtime `innovation\shot-evidence.json` built by `shot_evidence_adapter.py` from frozen runtime inputs only (height comes only from monocular goal-face arrests; thresholds are provisional until validated across segments); unavailable evidence reports unavailable rather than zero.
