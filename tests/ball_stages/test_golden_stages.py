@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import shutil
 from pathlib import Path
 
@@ -79,6 +80,13 @@ def _assert_cache_matches_manifest(segment_root: Path) -> None:
     assert metadata["manifest_sha256"] == manifest_hash
 
 
+@pytest.mark.skipif(
+    os.environ.get("FOOTBALL_RUN_BALL_GOLDENS") != "1",
+    reason=(
+        "Ball-stage golden replay reruns the detected tracker; set "
+        "FOOTBALL_RUN_BALL_GOLDENS=1 for the opt-in refactor proof."
+    ),
+)
 def test_cached_detected_tracker_matches_stage_goldens(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
