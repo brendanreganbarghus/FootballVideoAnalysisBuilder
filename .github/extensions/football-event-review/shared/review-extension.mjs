@@ -2794,7 +2794,7 @@ async function loadState(segment, segmentInfo, drafts) {
       });
     }
     if (changed && coordination.mode === "available") {
-      await saveState(segment, state, {allowAutoAcquire: false});
+      await saveNormalizedStateIfLeased(segment, state);
     }
     return state;
   }
@@ -2884,7 +2884,7 @@ async function loadState(segment, segmentInfo, drafts) {
     }
   }
   if (coordination.mode === "available") {
-    await saveState(segment, initial, {allowAutoAcquire: false});
+    await saveNormalizedStateIfLeased(segment, initial);
   }
   return initial;
 }
@@ -3156,6 +3156,23 @@ function resetStateForBallSourceSwitch(state, segment, ballSource) {
       needsReview: true,
     },
   };
+}
+
+// Read-time normalization is persisted only by a live editing lease. Viewing a
+// segment with an expired or foreign lease keeps the normalized state in
+// memory instead of failing the load.
+async function saveNormalizedStateIfLeased(segment, state) {
+  try {
+    await saveState(segment, state, {allowAutoAcquire: false});
+  } catch (error) {
+    const message = String(error?.message || error);
+    if (!/lease/i.test(message)) throw error;
+    const key = coordinationKey(segment);
+    const current = coordinationSessions.get(key);
+    if (current?.leaseToken) {
+      coordinationSessions.set(key, {...current, leaseToken: null});
+    }
+  }
 }
 
 async function saveState(
@@ -4587,7 +4604,7 @@ export async function publicState(
     && !state.reviewerCoordinateLayer?.baseCoordinates?.length
   ) {
     await ensureReviewerCoordinateLayer(requestedSegment, state, selected);
-    await saveState(requestedSegment, state, {allowAutoAcquire: false});
+    await saveNormalizedStateIfLeased(requestedSegment, state);
   }
   const coordinationHealth = await coordinationStatus();
   const identityResult = coordinationHealth.mode === "available"
@@ -4744,6 +4761,9 @@ export async function publicState(
       state.manualReference,
       displayedEngine,
     );
+  if (selected.validated && !engineComparisonRevealed) {
+    selected.validationStatus = "published_stale";
+  }
   const publicEngineEvents = engineComparisonRevealed ? engineEvents : [];
   const manualPublicState = publicManualReferenceState(
     workflowId,
@@ -4773,6 +4793,14 @@ export async function publicState(
     rememberSegmentReviewSummary(segment, currentEngine, summary);
     return summary;
   }));
+  segments.forEach((segment) => {
+    const summary = sharedReviewStatus.find(
+      (candidate) => candidate.segment === segment.key,
+    );
+    if (segment.validated && summary?.publishedStale) {
+      segment.validationStatus = "published_stale";
+    }
+  });
   async function segmentReviewSummary(segment) {
     let stored;
     try {
@@ -4918,6 +4946,11 @@ export async function publicState(
       regressionCandidateOutputHash:
         stored.regression?.candidateOutputHash || null,
       published,
+      publishedStale: Boolean(
+        published
+        && workflow.manualReferenceEnabled
+        && !manualValidationCurrent
+      ),
       blockers: plan.blockers,
       updatedAt: stored.updatedAt || null,
     };
