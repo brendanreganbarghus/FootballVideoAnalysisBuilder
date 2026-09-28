@@ -2596,6 +2596,14 @@ async function loadState(segment, segmentInfo, drafts) {
       version: Number(coordinatedSnapshot.version || 0),
     });
     state = coordinatedSnapshot.state;
+    if (state && typeof state === "object") {
+      Object.defineProperty(state, "loadedVersion", {
+        value: Number(coordinatedSnapshot.version || 0),
+        writable: true,
+        enumerable: false,
+        configurable: true,
+      });
+    }
     if (workflow.manualReferenceEnabled) {
       normalizedManualReference = await localJson(
         "/api/coordination/manual-reference?workflow="
@@ -3042,6 +3050,7 @@ async function heartbeatCoordinationLease(segment) {
 function applyNormalizedManualReference(state, payload) {
   const normalized = payload?.draft || payload?.approved;
   if (!normalized) return false;
+  const before = JSON.stringify(state.manualReference ?? null);
   state.manualReference ||= {};
   const normalizedRevisionChanged =
     Number(state.manualReference.normalizedRevision ?? -1)
@@ -3091,7 +3100,7 @@ function applyNormalizedManualReference(state, payload) {
   if (normalizedRevisionChanged) {
     resetManualLedgerAudit(state.manualReference);
   }
-  return true;
+  return JSON.stringify(state.manualReference) !== before;
 }
 
 async function persistNormalizedManualReference(segment, state, approve = false) {
@@ -3185,6 +3194,8 @@ async function saveNormalizedStateIfLeased(segment, state) {
     await saveState(segment, state, {allowAutoAcquire: false});
   } catch (error) {
     const message = String(error?.message || error);
+    // Read-time normalization never wins over a concurrent real save.
+    if (/expected state version/i.test(message)) return;
     if (!/lease/i.test(message)) throw error;
     const key = coordinationKey(segment);
     const current = coordinationSessions.get(key);
@@ -3237,11 +3248,18 @@ async function saveState(
           workflow: workflowId,
           segment,
           leaseToken: coordinated.leaseToken,
-          expectedVersion: coordinated.version,
+          // A state object must be saved against the version it was loaded
+          // from, so a concurrent load cannot overwrite a newer save.
+          expectedVersion: Number.isFinite(state.loadedVersion)
+            ? state.loadedVersion
+            : coordinated.version,
           state,
         }),
       });
       coordinated.version = Number(saved.version);
+      if (Object.hasOwn(state, "loadedVersion")) {
+        state.loadedVersion = Number(saved.version);
+      }
       broadcast("state");
     });
     stateSaveQueue = save;

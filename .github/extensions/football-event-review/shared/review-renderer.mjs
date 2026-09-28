@@ -6924,7 +6924,9 @@ export function renderHtml({ adapter } = {}) {
                 + Number(summary.accepted || 0) + " accepted · "
                 + Number(summary.rejected || 0) + " rejected"
               : reviewed ? reviewed + " reviewed" : "Not started",
-            regressionJobLabel(
+            !summary.published
+              ? "—"
+              : regressionJobLabel(
               regressionJob,
               summary.regressionChangeKind === "metadata_only"
                 ? "Passed"
