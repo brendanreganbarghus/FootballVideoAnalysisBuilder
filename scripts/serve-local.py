@@ -1618,7 +1618,24 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
                     )
                 except Exception:
                     pass
-            if analysis_status.get("stage") == "failed":
+            interrupted = bool(
+                analysis_status
+                and not events.is_file()
+                and analysis_status.get("stage")
+                not in {"ready", "failed", "evidence_ready"}
+            )
+            if interrupted:
+                analysis_status = {
+                    **analysis_status,
+                    "interrupted": True,
+                    "message": (
+                        "Processing was interrupted and is no longer "
+                        "running. Start processing again to resume from "
+                        "the completed detections."
+                    ),
+                }
+                analysis_status.pop("elapsed_seconds", None)
+            if analysis_status.get("stage") == "failed" or interrupted:
                 state = "failed"
             elif events.is_file():
                 state = "ready"

@@ -629,6 +629,31 @@ def test_ready_status_records_outputs_to_coordination(
     ]
 
 
+def test_interrupted_run_without_process_is_not_reported_as_building(
+    tmp_path: Path, monkeypatch
+) -> None:
+    generated = tmp_path / "benchmarks" / "alfheim" / "generated"
+    root = generated / "segment-0120-020"
+    write_prepared_segment(root, ai_ready=False)
+    (root / "analysis-status.json").write_text(
+        json.dumps({
+            "stage": "ball_track",
+            "started_at_utc": "2026-09-16T20:15:08+00:00",
+        }),
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+    service, _repository = coordination_service()
+    handler = object.__new__(SERVE_LOCAL.RangeRequestHandler)
+    handler.coordination_service = service
+
+    status = handler._segment_status("segment-0120-020")
+
+    assert status["state"] == "failed"
+    assert "interrupted" in status["message"]
+    assert "elapsed_seconds" not in status["run_provenance"]
+
+
 def test_switch_ball_source_requires_confirmation_and_removes_only_derived_artifacts(
     tmp_path: Path, monkeypatch
 ) -> None:
