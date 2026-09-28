@@ -1583,10 +1583,17 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
         cache_path = root / "analytics-cache" / "detections.jsonl"
         processed_frames = 0
         expected_frames = 0
+        detections_reusable = False
         if cache_path.is_file():
             with cache_path.open(encoding="utf-8") as cache:
                 metadata = json.loads(cache.readline())
                 processed_frames = sum(1 for line in cache if line.strip())
+            runtime_manifest = segment_root / "runtime-manifest.json"
+            detections_reusable = bool(
+                runtime_manifest.is_file()
+                and metadata.get("manifest_sha256")
+                == hashlib.sha256(runtime_manifest.read_bytes()).hexdigest()
+            )
             frame_count = int(manifest["end_frame"]) - int(manifest["start_frame"])
             expected_frames = (
                 frame_count + int(metadata["stride"]) - 1
@@ -1678,6 +1685,7 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
             "state": state,
             "processed_frames": processed_frames,
             "expected_frames": expected_frames,
+            "detections_reusable": detections_reusable,
             "stage": analysis_status.get("stage"),
             "message": analysis_status.get("message"),
             "run_provenance": analysis_status or None,

@@ -3982,6 +3982,7 @@ async function reviewContext(requestedSegment = defaultSegment) {
       selected.state === "failed"
       && selected.expectedFrames > 0
       && selected.processedFrames >= selected.expectedFrames
+      && status.detections_reusable !== false
     );
     selected.stageTiming = selected.ballSource === "detected"
       ? await liveStageTiming(selected)
