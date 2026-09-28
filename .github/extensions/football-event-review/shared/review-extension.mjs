@@ -8648,10 +8648,12 @@ async function handleRequest(request, response, serverInstanceId) {
       }
       if (
         action === "approve"
-        && Math.round(review.selected.durationSeconds * 1000) !== 60_000
+        && ![20_000, 30_000, 60_000].includes(
+          Math.round(review.selected.durationSeconds * 1000)
+        )
       ) {
         sendJson(response, 400, {
-          error: "Golden approval is available only for a complete 60-second minute",
+          error: "Golden approval is available only for a complete 20-, 30-, or 60-second segment",
         });
         return;
       }

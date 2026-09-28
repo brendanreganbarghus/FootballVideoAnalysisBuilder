@@ -11491,7 +11491,9 @@ export function renderHtml({ adapter } = {}) {
         approveMinute.hidden = false;
         approveMinute.disabled =
           approved
-          || Math.round(Number(state.segment.durationSeconds) * 1000) !== 60000;
+          || ![20000, 30000, 60000].includes(
+            Math.round(Number(state.segment.durationSeconds) * 1000)
+          );
         approveMinute.dataset.referenceState = referenceState;
         approveMinute.textContent = referenceState === "published"
           ? "Passed segment locked"
@@ -14382,7 +14384,10 @@ export function renderHtml({ adapter } = {}) {
           });
           status.textContent = result.event.key + " saved at "
             + (timestampMs / 1000).toFixed(3) + "s · frame "
-            + Math.min(1499, Math.round(timestampMs * 25 / 1000));
+            + Math.min(
+              Math.round(Number(state.segment.durationSeconds) * 25) - 1,
+              Math.round(timestampMs * 25 / 1000)
+            );
         } catch (error) {
           status.textContent = error.message;
         }
