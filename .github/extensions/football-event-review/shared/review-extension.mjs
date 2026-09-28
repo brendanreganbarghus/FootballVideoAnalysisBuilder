@@ -4903,6 +4903,10 @@ export async function publicState(
           (event) => event.reviewStatus === "rejected",
         )
       : [];
+    // Segments published through accepted C# decisions (before M# existed)
+    // keep reporting those decisions until an M# golden set is approved.
+    const manualCounts = workflow.manualReferenceEnabled
+      && (approvedManualEvents.length > 0 || !decisions.length);
     const publishedOutputHash = published
       ? publishedOutputHashFor(segment.key, stored)
       : null;
@@ -4955,26 +4959,27 @@ export async function publicState(
     );
     return {
       segment: segment.key,
-      accepted: workflow.manualReferenceEnabled
+      countsMode: manualCounts ? "manual" : "proposal",
+      accepted: manualCounts
         ? approvedManualEvents.length
         : decisions.filter(
             (decision) => decision?.status === "accepted",
           ).length,
-      rejected: workflow.manualReferenceEnabled
+      rejected: manualCounts
         ? rejectedManualEvents.length
         : decisions.filter(
             (decision) => decision?.status === "rejected",
           ).length,
-      reviewed: workflow.manualReferenceEnabled
+      reviewed: manualCounts
         ? approvedManualEvents.length
         : decisions.length,
-      proposalCount: workflow.manualReferenceEnabled
+      proposalCount: manualCounts
         ? Math.max(
             manualReferenceEvents.length,
             approvedManualEvents.length,
           )
         : Math.max(storedDrafts.length, decisions.length),
-      matched: workflow.manualReferenceEnabled
+      matched: manualCounts
         ? manualMatchedCount
         : null,
       regression: !stored.regression

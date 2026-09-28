@@ -6913,7 +6913,9 @@ export function renderHtml({ adapter } = {}) {
           const matched = Number(summary.matched || 0);
           const values = [
             segment.datasetName + " · " + segment.timeLabel,
-            reviewWorkflow.manualReferenceEnabled && proposalCount
+            reviewWorkflow.manualReferenceEnabled
+              && summary.countsMode !== "proposal"
+              && proposalCount
               ? matched + "/" + proposalCount + " M# matched · "
                 + Number(summary.accepted || 0) + " accepted · "
                 + Number(summary.rejected || 0) + " rejected"
