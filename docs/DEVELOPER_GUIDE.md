@@ -344,7 +344,22 @@ generated caches.
    ```
 
 4. Sync the approved **Innovationday Artifacts** folder through OneDrive and
-   configure its logical root outside Git:
+   configure its logical root outside Git. Everyone shares the coordination
+   administrator's OneDrive folder: accept the share invitation, choose **Add
+   shortcut to My files**, and let OneDrive sync it locally. The shortcut then
+   appears under your own OneDrive path (for example
+   `C:\Users\<name>\OneDrive - Xebia\Innovationday Artifacts`); it is a synced
+   local copy of the shared folder, not a mapped network drive.
+
+   Steps 4 and 5 can be completed in one go with the interactive setup script,
+   which auto-detects the synced folder, copies the coordination profile, and
+   prompts for the secret database URL:
+
+   ```powershell
+   .\scripts\setup-dev-env.ps1
+   ```
+
+   Then continue at step 6 in a new terminal. To configure manually instead:
 
    ```powershell
    $artifactRoot = "C:\Users\<name>\OneDrive - Xebia\Innovationday Artifacts"

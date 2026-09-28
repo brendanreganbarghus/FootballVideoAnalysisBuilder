@@ -220,8 +220,12 @@ export function renderHtml({ adapter } = {}) {
       display: flex;
       flex-wrap: wrap;
       gap: 10px;
-      align-items: center;
+      align-items: flex-end;
       justify-content: flex-end;
+    }
+    .header-actions .scope {
+      align-self: flex-end;
+      margin-bottom: 9px;
     }
     .review-mode-field {
       display: grid;
