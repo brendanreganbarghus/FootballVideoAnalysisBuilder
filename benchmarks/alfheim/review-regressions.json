@@ -12,9 +12,9 @@
     },
     {
       "segment": "segment-0120-020",
-      "published_at": "2026-09-21T07:17:09.585Z",
+      "published_at": "2026-09-28T13:34:56.616Z",
       "event_count": 12,
-      "engine_content_hash": "fee3784ed1a0646fb65601959d85cdfec8cbe746d453a3dad5a8f56fa8647f11",
+      "engine_content_hash": "6645bccbba773160fcaf0af020ffaa61d2d303161ed0ce8158832d4cd07774bd",
       "output_hash": "7a10927f613aea40b8e3b07525ae0c1580f4b5338815f50d28a65df25b555a91",
       "ball_source": "bac"
     },

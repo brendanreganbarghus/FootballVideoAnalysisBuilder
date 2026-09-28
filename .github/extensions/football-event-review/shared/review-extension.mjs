@@ -1954,6 +1954,14 @@ async function registerWorkflowRegression(segment, reference, current) {
     event_count: reference.events.length,
     engine_content_hash: current.fingerprint.contentHash,
     output_hash: current.outputHash,
+    ball_source: (
+      (await readJson(join(preparedSegmentRoot(segment), "segment.json"), {}))
+        .ball_source
+      || current.outputBallSource
+      || (registry.segments || []).find((item) => item.segment === segment)
+        ?.ball_source
+      || null
+    ),
   };
   registry.segments = [
     ...(registry.segments || []).filter((item) => item.segment !== segment),
