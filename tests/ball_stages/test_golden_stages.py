@@ -21,27 +21,12 @@ SOURCE_SEGMENT_ROOT = (
     / "_local-copy-segment-0540-060-20260928"
 )
 STAGES = [
-    "motion_supported_points",
-    "template_supported_points",
-    "select_single_ball_trajectory",
-    "resolve_detector_conflicts",
-    "restore_plausible_detector_points",
-    "bidirectional_template_bridges",
-    "terminal_template_bridges",
-    "forward_template_consensus",
-    "startup_attention_gate",
-    "raw_motion_proposals",
-    "kalman_guided_reacquisitions",
-    "dense_optical_flow_bridges",
-    "discard_detector_outliers",
-    "bracketed_outlier_recoveries",
-    "full_rate_motion_streaks",
-    "full_rate_trajectory_corridors",
-    "discard_temporal_upper_body_points",
-    "focused_multiscale_points",
-    "final_trajectory_integrity",
-    "short_stationary_template_recoveries",
-    "post_recovery_trajectory_integrity",
+    "01_confirm_yolo",
+    "02_time_machine",
+    "03_motion_and_optical_flow",
+    "04_focused_multiscale",
+    "05_short_stationary",
+    "final",
 ]
 
 
@@ -57,14 +42,22 @@ def _point_payload(point) -> dict:
         "evidence": point.evidence,
         "temporal_score": point.temporal_score,
         "source_attribution": point.source_attribution,
+        "confirming_module": point.confirming_module,
+        "ledger_source_attribution": point.ledger_source_attribution,
     }
 
 
 def _accepted_tracks(result) -> list:
+    if hasattr(result, "to_tracks"):
+        return list(result.to_tracks())
+    if hasattr(result, "points"):
+        return [result]
     if isinstance(result, tuple) and (
         not result or not hasattr(result[0], "points")
     ):
         result = result[0]
+        if hasattr(result, "to_tracks"):
+            return list(result.to_tracks())
     return list(result)
 
 
@@ -121,6 +114,34 @@ def test_cached_detected_tracker_matches_stage_goldens(
         cache_path=segment_root / "analytics-cache" / "detections.jsonl",
         output=segment_root / "analytics-cache",
         reuse_decoded_frame_cache=True,
+    )
+    captured["final"] = _stage_payload(
+        ball_tracking.BallTrack(
+            1,
+            [
+                ball_tracking.BallPoint(
+                    int(point["source_frame"]),
+                    float(point["clip_seconds"]),
+                    float(point["confidence"]),
+                    float(point["x"]),
+                    float(point["y"]),
+                    bool(point.get("interpolated", False)),
+                    float(point.get("box_diagonal", 0.0) or 0.0),
+                    str(point.get("evidence", "detector")),
+                    point.get("temporal_score"),
+                    str(point.get("source_attribution", "yolo26_observed")),
+                    point.get("confirming_module"),
+                    tuple(point.get("rejection_reasons", ())),
+                    str(point.get("ledger_source_attribution", "detected")),
+                )
+                for track in json.loads(
+                    (segment_root / "analytics-cache" / "ball-tracks.json").read_text(
+                        encoding="utf-8"
+                    )
+                ).get("tracks", [])
+                for point in track.get("points", [])
+            ],
+        )
     )
 
     for index, stage in enumerate(STAGES, start=1):

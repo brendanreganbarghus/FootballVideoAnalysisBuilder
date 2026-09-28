@@ -61,6 +61,94 @@ def point(frame: int, seconds: float, x: float, y: float = 200) -> BallPoint:
     return BallPoint(frame, seconds, 0.8, x, y)
 
 
+def test_frame_ledger_rejects_confirmed_frame_changes_20260928T191549001Z() -> None:
+    ledger = ball_tracking.FrameLedger([(0, 0.0)])
+    ledger.confirm(
+        0,
+        x=10,
+        y=20,
+        confirming_module="01_confirm_yolo",
+        evidence={"kind": "synthetic"},
+        confidence=0.8,
+    )
+
+    try:
+        ledger.confirm(
+            0,
+            x=12,
+            y=22,
+            confirming_module="02_time_machine",
+            evidence={"kind": "synthetic"},
+            confidence=0.4,
+        )
+    except ValueError as exc:
+        assert "already confirmed" in str(exc)
+    else:
+        raise AssertionError("confirmed frames must be immutable")
+
+
+def test_confirm_yolo_rejects_unanchored_static_object_20260928T191549001Z() -> None:
+    frames = [(frame, frame / 5) for frame in range(12)]
+    ledger = ball_tracking.FrameLedger(frames)
+    candidates_by_frame = {
+        frame: [
+            _BallCandidate(
+                BallPoint(frame, frame / 5, 0.7, 1876.0, 725.0),
+                near_player_feet=False,
+            )
+        ]
+        for frame, _seconds in frames
+    }
+
+    ball_tracking._confirm_yolo_detections(
+        ledger,
+        [candidate.point for candidates in candidates_by_frame.values() for candidate in candidates],
+        candidates_by_frame=candidates_by_frame,
+        records_by_frame={frame: {"source_frame": frame, "detections": []} for frame, _ in frames},
+        fps=5,
+        frame_step=1,
+        max_speed_pixels_per_second=1600,
+    )
+
+    assert ledger.confirmed(0) is None
+    assert any(
+        reason["reason"] == "static_object_without_player_or_motion_support"
+        for reason in ledger.entries[0].rejection_reasons
+    )
+
+
+def test_time_machine_bounds_one_sided_extrapolation_20260928T191549001Z() -> None:
+    ledger = ball_tracking.FrameLedger((frame, frame / 5) for frame in range(10))
+    ledger.confirm(
+        5,
+        x=100,
+        y=200,
+        confirming_module="01_confirm_yolo",
+        evidence={"kind": "anchor"},
+        confidence=0.8,
+        box_diagonal=10,
+    )
+
+    ball_tracking._confirm_time_machine_estimates(
+        ledger,
+        fps=5,
+        frame_step=1,
+        width=500,
+        height=400,
+        max_speed_pixels_per_second=1600,
+        max_one_sided_seconds=0.4,
+    )
+
+    assert ledger.confirmed(3) is not None
+    assert ledger.confirmed(7) is not None
+    assert ledger.confirmed(2) is None
+    assert ledger.confirmed(8) is None
+    assert any(
+        reason["reason"] == "one_sided_extrapolation_beyond_bound"
+        for reason in ledger.entries[2].rejection_reasons
+    )
+
+
 def test_static_cells_require_repeated_frame_occupancy() -> None:
     static = _static_cells(
         [

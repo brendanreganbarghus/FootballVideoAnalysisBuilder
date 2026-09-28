@@ -442,8 +442,9 @@ def _write_summary(
         _KalmanReacquisitionDiagnostics()
     ),
     dense_flow_diagnostics: _DenseFlowDiagnostics = _DenseFlowDiagnostics(),
-    analysis_start_seconds: float | None,
-    analysis_end_seconds: float | None,
+    ledger: FrameLedger | None = None,
+    analysis_start_seconds: float | None = None,
+    analysis_end_seconds: float | None = None,
 ) -> None:
     tracked_points = [point for track in tracks for point in track.points]
     detector_points = [
@@ -749,6 +750,25 @@ def _write_summary(
             },
             "manual_coordinate_validation_performed": False,
         },
+        "confirmation_cascade": (
+            {
+                "lock_invariant": (
+                    "A confirmed sampled frame cannot be changed or removed; "
+                    "later modules can only append confirmations for "
+                    "previously unresolved frames."
+                ),
+                "module_order": [
+                    "01_confirm_yolo",
+                    "02_time_machine",
+                    "03_motion_and_optical_flow",
+                    "04_focused_multiscale",
+                    "05_short_stationary",
+                ],
+                **ledger.module_summary(),
+            }
+            if ledger is not None
+            else None
+        ),
         "interpretation": (
             "Coverage counts detector, template-consensus, raw-motion "
             "micro-crop, and endpoint-bounded optical-flow coordinates with "

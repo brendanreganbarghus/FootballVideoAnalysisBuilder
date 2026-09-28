@@ -11,6 +11,7 @@ def _sampled_ball_state_estimates(
     width: int,
     height: int,
     max_speed_pixels_per_second: float,
+    ledger: FrameLedger | None = None,
 ) -> list[dict[str, Any]]:
     if fps <= 0 or frame_step < 1 or width < 1 or height < 1:
         raise ValueError("Ball-state estimate dimensions and timing must be positive")
@@ -24,6 +25,13 @@ def _sampled_ball_state_estimates(
     for source_frame in sampled_frames:
         point = observed_by_frame.get(source_frame)
         if point is not None:
+            is_direct = (
+                True
+                if ledger is None
+                else point.confirming_module == "01_confirm_yolo"
+                if point.confirming_module is not None
+                else point.source_attribution == "yolo26_observed"
+            )
             states.append(
                 {
                     **asdict(point),
@@ -36,7 +44,29 @@ def _sampled_ball_state_estimates(
                         max(1.0, point.box_diagonal / 2),
                         3,
                     ),
-                    "event_evidence_eligible": True,
+                    "event_evidence_eligible": is_direct,
+                }
+            )
+            continue
+        if ledger is not None and ledger.confirmed(source_frame) is None:
+            reasons = ledger.entries[source_frame].rejection_reasons
+            states.append(
+                {
+                    "source_frame": source_frame,
+                    "clip_seconds": round(source_frame / fps, 3),
+                    "confidence": None,
+                    "x": None,
+                    "y": None,
+                    "interpolated": False,
+                    "box_diagonal": None,
+                    "evidence": "unresolved",
+                    "temporal_score": None,
+                    "source_attribution": "unresolved",
+                    "state": "unresolved",
+                    "uncertainty_radius_pixels": None,
+                    "event_evidence_eligible": False,
+                    "confirming_module": None,
+                    "rejection_reasons": list(reasons),
                 }
             )
             continue

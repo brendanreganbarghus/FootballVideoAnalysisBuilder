@@ -5,6 +5,9 @@ from pathlib import Path
 _MODULE_ORDER = (
     "settings.py",
     "types.py",
+    "ledger.py",
+    "confirm_yolo.py",
+    "time_machine.py",
     "tracker.py",
     "state_estimates.py",
     "selection.py",

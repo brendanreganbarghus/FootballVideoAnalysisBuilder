@@ -61,6 +61,173 @@ def track_cached_balls(
         frame_store.close(delete_cache=succeeded)
 
 
+def _ledger_from_records(records: Iterable[dict[str, Any]]) -> FrameLedger:
+    return FrameLedger(
+        (
+            int(record["source_frame"]),
+            float(record["clip_seconds"]),
+        )
+        for record in records
+    )
+
+
+def _single_track_from_ledger(ledger: FrameLedger) -> tuple[BallTrack, ...]:
+    return ledger.to_tracks()
+
+
+def _proposal_allowed_by_confirmed_neighbours(
+    ledger: FrameLedger,
+    point: BallPoint,
+    *,
+    fps: float,
+    max_speed_pixels_per_second: float,
+) -> bool:
+    confirmed = sorted(
+        ledger.confirmed_entries(),
+        key=lambda entry: entry.source_frame,
+    )
+    previous = next(
+        (
+            entry
+            for entry in reversed(confirmed)
+            if entry.source_frame < point.source_frame
+        ),
+        None,
+    )
+    following = next(
+        (
+            entry
+            for entry in confirmed
+            if entry.source_frame > point.source_frame
+        ),
+        None,
+    )
+    for anchor in (previous, following):
+        if anchor is None:
+            continue
+        elapsed = abs(point.source_frame - anchor.source_frame) / fps
+        if elapsed <= 0:
+            return False
+        speed = hypot(point.x - float(anchor.x), point.y - float(anchor.y)) / elapsed
+        if speed > max_speed_pixels_per_second * 1.25:
+            return False
+    return previous is not None or following is not None
+
+
+def _confirm_track_points_from_module(
+    ledger: FrameLedger,
+    module: str,
+    tracks: Iterable[BallTrack],
+    *,
+    records_by_frame: dict[int, dict[str, Any]],
+    fps: float,
+    max_speed_pixels_per_second: float,
+) -> FrameLedger:
+    proposed_by_frame: dict[int, BallPoint] = {}
+    for track in tracks:
+        for point in track.points:
+            if ledger.confirmed(point.source_frame) is not None:
+                continue
+            current = proposed_by_frame.get(point.source_frame)
+            if current is None or point.confidence > current.confidence:
+                proposed_by_frame[point.source_frame] = point
+    for frame in ledger.unresolved_frames():
+        point = proposed_by_frame.get(frame)
+        if point is None:
+            ledger.reject(frame, module, "module_found_no_candidate")
+            continue
+        record = records_by_frame.get(frame, {})
+        if _inside_player_upper_body(point, record):
+            ledger.reject(frame, module, "candidate_inside_player_upper_body")
+            continue
+        if not _proposal_allowed_by_confirmed_neighbours(
+            ledger,
+            point,
+            fps=fps,
+            max_speed_pixels_per_second=max_speed_pixels_per_second,
+        ):
+            ledger.reject(frame, module, "candidate_fails_confirmed_neighbour_gate")
+            continue
+        ledger.confirm(
+            frame,
+            x=point.x,
+            y=point.y,
+            confirming_module=module,
+            evidence={
+                "proposal_evidence": point.evidence,
+                "proposal_source_attribution": point.source_attribution,
+            },
+            confidence=point.confidence,
+            clip_seconds=point.clip_seconds,
+            box_diagonal=point.box_diagonal,
+            point_evidence=point.evidence,
+            point_source_attribution=point.source_attribution,
+            temporal_score=point.temporal_score,
+        )
+    return ledger
+
+
+def _run_motion_and_optical_flow_module(
+    ledger: FrameLedger,
+    *,
+    records: list[dict[str, Any]],
+    video: Path,
+    width: int,
+    height: int,
+    fps: float,
+    frame_step: int,
+    max_speed_pixels_per_second: float,
+    detector_candidates: list[BallPoint],
+) -> tuple[FrameLedger, _RawMotionDiagnostics, _DenseFlowDiagnostics]:
+    tracks = _single_track_from_ledger(ledger)
+    tracks, raw_motion_diagnostics = _add_raw_motion_proposals(
+        tracks,
+        records=records,
+        video=video,
+        width=width,
+        height=height,
+        fps=fps,
+        frame_step=frame_step,
+        max_speed_pixels_per_second=max_speed_pixels_per_second,
+        detector_candidates=detector_candidates,
+    )
+    tracks, kalman_diagnostics = _add_kalman_guided_reacquisitions(
+        tracks,
+        detector_candidates=detector_candidates,
+        records=records,
+        video=video,
+        width=width,
+        height=height,
+        fps=fps,
+        frame_step=frame_step,
+    )
+    tracks, dense_flow_diagnostics = _add_dense_optical_flow_bridges(
+        tracks,
+        records=records,
+        video=video,
+        width=width,
+        height=height,
+        fps=fps,
+        frame_step=frame_step,
+    )
+    ledger = _confirm_track_points_from_module(
+        ledger,
+        "03_motion_and_optical_flow",
+        tracks,
+        records_by_frame={int(record["source_frame"]): record for record in records},
+        fps=fps,
+        max_speed_pixels_per_second=max_speed_pixels_per_second,
+    )
+    raw_motion_diagnostics = replace(
+        raw_motion_diagnostics,
+        attention_accepted=(
+            raw_motion_diagnostics.attention_accepted
+            + kalman_diagnostics.successes
+        ),
+    )
+    return ledger, raw_motion_diagnostics, dense_flow_diagnostics
+
+
 def _track_cached_balls_impl(
     *,
     manifest_path: Path,
@@ -189,27 +356,21 @@ def _track_cached_balls_impl(
         foot_supported_points=foot_supported_points,
     )
     frame_step = int(metadata["stride"])
-    motion_supported_tracks = _timed_tracker_call(
-        "motion_supported_points",
-        _add_motion_supported_points,
+    motion_supported_tracks = _add_motion_supported_points(
         supported_tracks,
         video=manifest.video,
         fps=manifest.fps,
         frame_step=frame_step,
         maximum_gap_seconds=max_gap_seconds,
     )
-    temporally_supported_tracks = _timed_tracker_call(
-        "template_supported_points",
-        _add_template_supported_points,
+    temporally_supported_tracks = _add_template_supported_points(
         motion_supported_tracks,
         video=manifest.video,
         fps=manifest.fps,
         frame_step=frame_step,
         maximum_gap_seconds=max_gap_seconds,
     )
-    accepted = _timed_tracker_call(
-        "select_single_ball_trajectory",
-        select_single_ball_trajectory,
+    selected_tracks = select_single_ball_trajectory(
         temporally_supported_tracks,
         max_gap_seconds=max_gap_seconds,
         max_speed_pixels_per_second=max_speed_pixels_per_second,
@@ -224,20 +385,16 @@ def _track_cached_balls_impl(
             for candidate in candidates
         )
     )
-    accepted = _timed_tracker_call(
-        "resolve_detector_conflicts",
-        _resolve_detector_conflicts_by_attention,
-        accepted,
+    selected_tracks = _resolve_detector_conflicts_by_attention(
+        selected_tracks,
         detector_candidates=filtered_candidate_objects,
         supported_foot_points=supported_foot_points,
         records=records,
         video=manifest.video,
         frame_step=frame_step,
     )
-    accepted = _timed_tracker_call(
-        "restore_plausible_detector_points",
-        _restore_plausible_detector_points,
-        accepted,
+    selected_tracks = _restore_plausible_detector_points(
+        selected_tracks,
         detector_candidates=filtered_candidate_objects,
         frame_step=frame_step,
         fps=manifest.fps,
@@ -245,52 +402,43 @@ def _track_cached_balls_impl(
         cell_size=static_cell_size,
         supported_foot_points=foot_supported_points,
     )
-    accepted = _timed_tracker_call(
-        "bidirectional_template_bridges",
-        _add_bidirectional_template_bridges,
-        accepted,
-        video=manifest.video,
-        fps=manifest.fps,
-        frame_step=frame_step,
-        maximum_gap_seconds=max_gap_seconds,
-    )
-    accepted = _timed_tracker_call(
-        "terminal_template_bridges",
-        _add_terminal_template_bridges,
-        accepted,
-        candidates=filtered,
-        video=manifest.video,
+
+    ledger = _ledger_from_records(records)
+    records_by_frame = {int(record["source_frame"]): record for record in records}
+    candidates_by_frame: dict[int, list[_BallCandidate]] = defaultdict(list)
+    for candidate in candidates:
+        candidates_by_frame[candidate.point.source_frame].append(candidate)
+    selected_detector_points = [
+        point
+        for track in selected_tracks
+        for point in track.points
+        if point.source_attribution == "yolo26_observed"
+    ]
+    ledger = _timed_tracker_call(
+        "01_confirm_yolo",
+        _confirm_yolo_detections,
+        ledger,
+        selected_detector_points,
+        candidates_by_frame=candidates_by_frame,
+        records_by_frame=records_by_frame,
         fps=manifest.fps,
         frame_step=frame_step,
         max_speed_pixels_per_second=max_speed_pixels_per_second,
-        maximum_gap_seconds=max_gap_seconds,
     )
-    accepted = _timed_tracker_call(
-        "forward_template_consensus",
-        _add_forward_template_consensus,
-        accepted,
-        video=manifest.video,
+    ledger = _timed_tracker_call(
+        "02_time_machine",
+        _confirm_time_machine_estimates,
+        ledger,
         fps=manifest.fps,
         frame_step=frame_step,
-        maximum_gap_seconds=max_gap_seconds,
+        width=width,
+        height=height,
+        max_speed_pixels_per_second=max_speed_pixels_per_second,
     )
-    accepted, startup_attention_rejections = (
-        _timed_tracker_call(
-            "startup_attention_gate",
-            _gate_unanchored_start_points_by_attention,
-            accepted,
-            records=records,
-            video=manifest.video,
-            width=width,
-            height=height,
-            fps=manifest.fps,
-            frame_step=frame_step,
-        )
-    )
-    accepted, raw_motion_diagnostics = _timed_tracker_call(
-        "raw_motion_proposals",
-        _add_raw_motion_proposals,
-        accepted,
+    ledger, raw_motion_diagnostics, dense_flow_diagnostics = _timed_tracker_call(
+        "03_motion_and_optical_flow",
+        _run_motion_and_optical_flow_module,
+        ledger,
         records=records,
         video=manifest.video,
         width=width,
@@ -300,136 +448,43 @@ def _track_cached_balls_impl(
         max_speed_pixels_per_second=max_speed_pixels_per_second,
         detector_candidates=filtered,
     )
-    raw_motion_diagnostics = replace(
-        raw_motion_diagnostics,
-        startup_points_rejected=startup_attention_rejections,
-    )
-    accepted, kalman_reacquisition_diagnostics = (
-        _timed_tracker_call(
-            "kalman_guided_reacquisitions",
-            _add_kalman_guided_reacquisitions,
-            accepted,
-            detector_candidates=filtered,
-            records=records,
-            video=manifest.video,
-            width=width,
-            height=height,
-            fps=manifest.fps,
-            frame_step=frame_step,
-        )
-    )
-    accepted, dense_flow_diagnostics = _timed_tracker_call(
-        "dense_optical_flow_bridges",
-        _add_dense_optical_flow_bridges,
-        accepted,
-        records=records,
-        video=manifest.video,
-        width=width,
-        height=height,
-        fps=manifest.fps,
-        frame_step=frame_step,
-    )
-    accepted, rejected_outlier_frames = (
-        _timed_tracker_call(
-            "discard_detector_outliers",
-            _discard_unsupported_detector_outliers,
-            accepted,
-            records=records,
-            video=manifest.video,
-            fps=manifest.fps,
-            frame_step=frame_step,
-            max_gap_seconds=max_gap_seconds,
-            max_speed_pixels_per_second=max_speed_pixels_per_second,
-        )
-    )
-    accepted = _timed_tracker_call(
-        "bracketed_outlier_recoveries",
-        _add_bracketed_outlier_motion_recoveries,
-        accepted,
-        records=records,
-        video=manifest.video,
-        width=width,
-        height=height,
-        fps=manifest.fps,
-        frame_step=frame_step,
-        rejected_frames=rejected_outlier_frames,
-        max_speed_pixels_per_second=max_speed_pixels_per_second,
-    )
-    accepted = _timed_tracker_call(
-        "full_rate_motion_streaks",
-        _add_full_rate_motion_streaks,
-        accepted,
-        video=manifest.video,
-        fps=manifest.fps,
-        frame_step=frame_step,
-        max_speed_pixels_per_second=max_speed_pixels_per_second,
-    )
-    accepted = _timed_tracker_call(
-        "full_rate_trajectory_corridors",
-        _add_full_rate_trajectory_corridors,
-        accepted,
-        video=manifest.video,
-        fps=manifest.fps,
-        frame_step=frame_step,
-        analysis_end_frame=max(int(record["source_frame"]) for record in records),
-        max_speed_pixels_per_second=max_speed_pixels_per_second,
-    )
-    accepted, discarded_temporal_upper_body_points = (
-        _timed_tracker_call(
-            "discard_temporal_upper_body_points",
-            _discard_temporal_upper_body_points,
-            accepted,
-            records_by_frame={
-                int(record["source_frame"]): record for record in records
-            },
-        )
-    )
-    accepted = _timed_tracker_call(
-        "focused_multiscale_points",
-        _recover_focused_multiscale_points,
-        accepted,
+    focused_tracks = _recover_focused_multiscale_points(
+        _single_track_from_ledger(ledger),
         records=records,
         video=manifest.video,
         model_path=Path(str(metadata["model"])),
         fps=manifest.fps,
         frame_step=frame_step,
     )
-    accepted = _deduplicate_track_frames(accepted)
-    accepted, final_trajectory_rejections = _timed_tracker_call(
-        "final_trajectory_integrity",
-        _discard_final_trajectory_conflicts,
-        accepted,
+    ledger = _timed_tracker_call(
+        "04_focused_multiscale",
+        _confirm_track_points_from_module,
+        ledger,
+        "04_focused_multiscale",
+        focused_tracks,
+        records_by_frame=records_by_frame,
         fps=manifest.fps,
         max_speed_pixels_per_second=max_speed_pixels_per_second,
-        max_acceleration_pixels_per_second_squared=float(
-            SOCCERTRACK_MICRO_CROP_VERIFICATION_PROFILE[
-                "maximum_acceleration_pixels_per_second_squared"
-            ]
-        ),
     )
-    accepted = _timed_tracker_call(
-        "short_stationary_template_recoveries",
-        _add_short_stationary_template_recoveries,
-        accepted,
+    stationary_tracks = _add_short_stationary_template_recoveries(
+        _single_track_from_ledger(ledger),
         video=manifest.video,
         fps=manifest.fps,
         frame_step=frame_step,
     )
-    accepted, post_recovery_rejections = _timed_tracker_call(
-        "post_recovery_trajectory_integrity",
-        _discard_final_trajectory_conflicts,
-        accepted,
+    ledger = _timed_tracker_call(
+        "05_short_stationary",
+        _confirm_track_points_from_module,
+        ledger,
+        "05_short_stationary",
+        stationary_tracks,
+        records_by_frame=records_by_frame,
         fps=manifest.fps,
         max_speed_pixels_per_second=max_speed_pixels_per_second,
-        max_acceleration_pixels_per_second_squared=float(
-            SOCCERTRACK_MICRO_CROP_VERIFICATION_PROFILE[
-                "maximum_acceleration_pixels_per_second_squared"
-            ]
-        ),
     )
-    final_trajectory_rejections = frozenset(
-        final_trajectory_rejections | post_recovery_rejections
-    )
+    accepted = _single_track_from_ledger(ledger)
+    discarded_temporal_upper_body_points = 0
+    final_trajectory_rejections: frozenset[int] = frozenset()
 
     output.mkdir(parents=True, exist_ok=True)
     track_path = output / "ball-tracks.json"
@@ -462,6 +517,20 @@ def _track_cached_balls_impl(
                         ]
                     ),
                 },
+                "confirmation_cascade": {
+                    "invariant": (
+                        "Confirmed frames are append-only locks; later "
+                        "modules can only confirm unresolved frames."
+                    ),
+                    "modules": [
+                        "01_confirm_yolo",
+                        "02_time_machine",
+                        "03_motion_and_optical_flow",
+                        "04_focused_multiscale",
+                        "05_short_stationary",
+                    ],
+                    "summary": ledger.module_summary(),
+                },
                 "tracks": [
                     {
                         "track_id": track.track_id,
@@ -493,6 +562,7 @@ def _track_cached_balls_impl(
                     width=width,
                     height=height,
                     max_speed_pixels_per_second=max_speed_pixels_per_second,
+                    ledger=ledger,
                 ),
             },
             indent=2,
@@ -526,9 +596,10 @@ def _track_cached_balls_impl(
         ),
         raw_motion_diagnostics=raw_motion_diagnostics,
         kalman_reacquisition_diagnostics=(
-            kalman_reacquisition_diagnostics
+            _KalmanReacquisitionDiagnostics()
         ),
         dense_flow_diagnostics=dense_flow_diagnostics,
+        ledger=ledger,
         analysis_start_seconds=analysis_start_seconds,
         analysis_end_seconds=analysis_end_seconds,
     )

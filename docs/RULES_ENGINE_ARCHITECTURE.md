@@ -636,7 +636,7 @@ four BAC publications still match exactly on the single path, but the detected
 0540-020 publication remains a pending review mismatch until a general
 evidence-based rule change or re-review resolves the difference.
 
-### Detected ball tracker stage table
+### Detected ball confirmation cascade
 
 The detected-ball tracker is split under `src\football_poc\ball` while
 `src\football_poc\ball_tracking.py` remains an import-compatible shim. Cached
@@ -644,33 +644,33 @@ rebuilds use the shared frame and detection cache layer in `ball\frames.py` and
 `ball\io_filters.py`; this cache-rebuild path must remain labelled separately
 from a fresh raw-video detection, tracking, inference, and publication run.
 
-`track_cached_balls` applies the tracker stages in this fixed order, and the
-ball-stage golden harness names files with the same stage labels so the first
-changed stage is visible:
+Detected coordinates are now published through an append-only frame ledger rather
+than a free-form sequence of stages that can later remove earlier points. The
+ledger has one entry per sampled frame. Each entry starts `unresolved`; the first
+module that satisfies its evidence gate may mark it `confirmed` with x/y,
+confidence, confirming module, evidence, and detected-source attribution. A
+confirmed frame is a lock: later modules may read it as context, but they cannot
+edit, unconfirm, or remove it. Failed attempts append rejection reasons to the
+unresolved entry. Frames still unresolved at the end remain explicit unresolved
+states and are not event-evidence/direct provenance.
 
-| # | Stage | Module |
+`track_cached_balls` applies the confirmation cascade in this fixed order, and
+the ball-stage golden harness names files with the same module labels so the
+first changed module is visible:
+
+| # | Module | Responsibility |
 | --- | --- | --- |
-| 1 | `motion_supported_points` | `ball\motion_support.py` |
-| 2 | `template_supported_points` | `ball\template_support.py` |
-| 3 | `select_single_ball_trajectory` | `ball\selection.py` |
-| 4 | `resolve_detector_conflicts` | `ball\selection.py` |
-| 5 | `restore_plausible_detector_points` | `ball\selection.py` |
-| 6 | `bidirectional_template_bridges` | `ball\bidirectional_templates.py` |
-| 7 | `terminal_template_bridges` | `ball\terminal_forward_templates.py` |
-| 8 | `forward_template_consensus` | `ball\terminal_forward_templates.py` |
-| 9 | `startup_attention_gate` | `ball\frames.py` |
-| 10 | `raw_motion_proposals` | `ball\frames.py` / `ball\raw_motion_selection.py` |
-| 11 | `kalman_guided_reacquisitions` | `ball\kalman.py` |
-| 12 | `dense_optical_flow_bridges` | `ball\dense_flow.py` |
-| 13 | `discard_detector_outliers` | `ball\outliers.py` |
-| 14 | `bracketed_outlier_recoveries` | `ball\outliers.py` |
-| 15 | `full_rate_motion_streaks` | `ball\full_rate_corridors.py` / `ball\motion_streaks.py` |
-| 16 | `full_rate_trajectory_corridors` | `ball\full_rate_corridors.py` |
-| 17 | `discard_temporal_upper_body_points` | `ball\io_filters.py` |
-| 18 | `focused_multiscale_points` | `ball\focused_multiscale.py` |
-| 19 | `final_trajectory_integrity` | `ball\state_estimates.py` |
-| 20 | `short_stationary_template_recoveries` | `ball\bidirectional_templates.py` |
-| 21 | `post_recovery_trajectory_integrity` | `ball\state_estimates.py` |
+| 1 | `01_confirm_yolo` | Lock real YOLO ball detections only after detector confidence, player/upper-body exclusion, neighbouring motion consistency, and static-object rejection agree. Static detections that remain within a few pixels over a long span without nearby player or motion support are rejected here before they can become track anchors. |
+| 2 | `02_time_machine` | Fill only unresolved frames by bounded interpolation between confirmed neighbours or a short one-sided hold from the nearest confirmed frame. Long one-sided backward/forward extrapolation remains unresolved with a reason. |
+| 3 | `03_motion_and_optical_flow` | Try raw-motion, Kalman-guided visual reacquisition, and dense optical-flow proposals for unresolved frames; each proposal must pass its module gate and the confirmed-neighbour plausibility gate before locking. |
+| 4 | `04_focused_multiscale` | Run the existing focused multiscale re-detection on cached crops only, never a full-video detector rerun, and lock only unresolved frames that pass the cascade gate. |
+| 5 | `05_short_stationary` | Apply short stationary template recovery for unresolved frames that are supported by the locked context and pass the cascade gate. |
+| Final | `final` | Write the locked track, unresolved ledger states, per-frame confirming module/rejection metadata, and a per-module summary in `ball-tracking-summary.json`. |
+
+Only `01_confirm_yolo` confirmations are direct detector observations for the
+fixed 90% detected-source provenance gate. Later confirmations can preserve
+continuity and review visibility, but they remain non-direct under
+`src\football_poc\ball_provenance.py`.
 
 The workflow identity is carried and checked at every review boundary:
 

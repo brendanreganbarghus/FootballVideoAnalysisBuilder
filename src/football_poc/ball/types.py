@@ -14,6 +14,9 @@ class BallPoint:
     evidence: str = "detector"
     temporal_score: float | None = None
     source_attribution: str = "yolo26_observed"
+    confirming_module: str | None = None
+    rejection_reasons: tuple[dict[str, str], ...] = ()
+    ledger_source_attribution: str = "detected"
 
 
 @dataclass
