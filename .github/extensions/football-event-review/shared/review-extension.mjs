@@ -2049,10 +2049,10 @@ async function captureEngineSnapshot(
           null,
         )
     : null;
-  const fingerprint = knownFingerprint || await engineFingerprint();
-  if (stored?.engineSha256 || stored?.engine_sha256) {
-    fingerprint.contentHash = stored.engineSha256 || stored.engine_sha256;
-  }
+  // The Canvas engine fingerprint is the only engine identity used for
+  // regression and confirmation receipts; the stored output record's engine
+  // hash comes from a different hashing scheme and must not replace it.
+  const fingerprint = {...(knownFingerprint || await engineFingerprint())};
   // SOT events are hashed through predictions; the derived SOT summary is
   // gated separately at publication so pass/turnover-only published hashes
   // remain comparable now that SOT analysis always runs.
@@ -2615,6 +2615,7 @@ async function loadState(segment, segmentInfo, drafts) {
     state = null;
   }
   let changed = false;
+  const loadedJson = state ? JSON.stringify(state) : null;
   if (state) {
     // Migration 0005 relabelled database rows but left append-only snapshot
     // JSON unchanged, so retired workflow and Canvas labels are normalized here.
@@ -2820,7 +2821,11 @@ async function loadState(segment, segmentInfo, drafts) {
         changed = true;
       });
     }
-    if (changed && coordination.mode === "available") {
+    if (
+      changed
+      && coordination.mode === "available"
+      && JSON.stringify(state) !== loadedJson
+    ) {
       await saveNormalizedStateIfLeased(segment, state);
     }
     return state;

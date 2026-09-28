@@ -257,7 +257,8 @@ def test_engine_snapshot_prefers_coordination_outputs() -> None:
     assert 'outputRecordFile(stored, "predicted-events.json", [])' in snapshot
     assert 'outputRecordFile(stored, "match-state-events.json", {intervals: []})' in snapshot
     assert 'stored?.outputSha256 || stored?.output_sha256' in snapshot
-    assert 'fingerprint.contentHash = stored.engineSha256 || stored.engine_sha256' in snapshot
+    assert 'fingerprint.contentHash = stored.engineSha256' not in snapshot
+    assert 'const fingerprint = {...(knownFingerprint || await engineFingerprint())};' in snapshot
     assert 'outputSource: stored ? "coordination_outputs" : "artifact_files"' in snapshot
 
 
