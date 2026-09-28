@@ -1,0 +1,145 @@
+{
+  "player_order": [
+    61,
+    8,
+    131,
+    93,
+    125,
+    168,
+    72,
+    174,
+    125,
+    176,
+    165,
+    276,
+    287,
+    309,
+    262
+  ],
+  "segment_count": 15,
+  "segments": [
+    {
+      "end_seconds": 15.4,
+      "observation_count": 6,
+      "player_track_id": 61,
+      "start_seconds": 14.0,
+      "team": "black"
+    },
+    {
+      "end_seconds": 20.4,
+      "observation_count": 2,
+      "player_track_id": 8,
+      "start_seconds": 20.2,
+      "team": "black"
+    },
+    {
+      "end_seconds": 22.2,
+      "observation_count": 5,
+      "player_track_id": 131,
+      "start_seconds": 21.4,
+      "team": "black"
+    },
+    {
+      "end_seconds": 23.8,
+      "observation_count": 5,
+      "player_track_id": 93,
+      "start_seconds": 23.0,
+      "team": "red"
+    },
+    {
+      "end_seconds": 26.0,
+      "observation_count": 8,
+      "player_track_id": 125,
+      "start_seconds": 24.6,
+      "team": "black"
+    },
+    {
+      "end_seconds": 30.2,
+      "observation_count": 7,
+      "player_track_id": 168,
+      "start_seconds": 29.0,
+      "team": "black"
+    },
+    {
+      "end_seconds": 32.2,
+      "observation_count": 8,
+      "player_track_id": 72,
+      "start_seconds": 30.6,
+      "team": "black"
+    },
+    {
+      "end_seconds": 38.2,
+      "observation_count": 14,
+      "player_track_id": 174,
+      "start_seconds": 34.6,
+      "team": "black"
+    },
+    {
+      "end_seconds": 44.0,
+      "observation_count": 24,
+      "player_track_id": 125,
+      "start_seconds": 39.4,
+      "team": "black"
+    },
+    {
+      "end_seconds": 46.6,
+      "observation_count": 10,
+      "player_track_id": 176,
+      "start_seconds": 44.4,
+      "team": "black"
+    },
+    {
+      "end_seconds": 48.6,
+      "observation_count": 5,
+      "player_track_id": 165,
+      "start_seconds": 47.8,
+      "team": "black"
+    },
+    {
+      "end_seconds": 50.2,
+      "observation_count": 8,
+      "player_track_id": 276,
+      "start_seconds": 48.8,
+      "team": "black"
+    },
+    {
+      "end_seconds": 52.4,
+      "observation_count": 7,
+      "player_track_id": 287,
+      "start_seconds": 51.2,
+      "team": "black"
+    },
+    {
+      "end_seconds": 56.8,
+      "observation_count": 11,
+      "player_track_id": 309,
+      "start_seconds": 54.8,
+      "team": "black"
+    },
+    {
+      "end_seconds": 59.2,
+      "observation_count": 2,
+      "player_track_id": 262,
+      "start_seconds": 58.8,
+      "team": "red"
+    }
+  ],
+  "stage": "possession_ledger",
+  "team_order": [
+    "black",
+    "black",
+    "black",
+    "red",
+    "black",
+    "black",
+    "black",
+    "black",
+    "black",
+    "black",
+    "black",
+    "black",
+    "black",
+    "black",
+    "red"
+  ]
+}

@@ -1,0 +1,56 @@
+{
+  "count": 5,
+  "events": [
+    {
+      "clip_seconds": 14.4,
+      "completion_seconds": 16.8,
+      "confidence": 0.75,
+      "details": "Control transferred after 2.40s and 4.07 player-heights of ball travel.",
+      "event_type": "turnover_candidate",
+      "from_player_track_id": 75,
+      "team": "black",
+      "to_player_track_id": 10
+    },
+    {
+      "clip_seconds": 19.4,
+      "completion_seconds": 20.0,
+      "confidence": 0.9,
+      "details": "Ball release at 674.17 pixels/second followed by black control after 0.60s.",
+      "event_type": "turnover_candidate",
+      "from_player_track_id": 91,
+      "team": "red",
+      "to_player_track_id": 115
+    },
+    {
+      "clip_seconds": 45.4,
+      "completion_seconds": 45.6,
+      "confidence": 0.9,
+      "details": "Frame-level jersey evidence corrected a cross-team player-track identity switch.",
+      "event_type": "turnover_candidate",
+      "from_player_track_id": 10,
+      "team": "black",
+      "to_player_track_id": 245
+    },
+    {
+      "clip_seconds": 48.6,
+      "completion_seconds": 49.4,
+      "confidence": 0.6813,
+      "details": "Control transferred after 0.80s and 1.63 player-heights of ball travel.",
+      "event_type": "turnover_candidate",
+      "from_player_track_id": 271,
+      "team": "red",
+      "to_player_track_id": 253
+    },
+    {
+      "clip_seconds": 57.2,
+      "completion_seconds": 58.8,
+      "confidence": 0.65,
+      "details": "The preceding completed pass established possession before the opponent's subsequent controlled touch.",
+      "event_type": "turnover_candidate",
+      "from_player_track_id": 310,
+      "team": "black",
+      "to_player_track_id": 298
+    }
+  ],
+  "stage": "turnover"
+}

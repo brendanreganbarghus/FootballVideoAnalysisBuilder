@@ -1,0 +1,32 @@
+{
+  "count": 1,
+  "events": [
+    {
+      "ball_evidence": {
+        "direct_frames": [
+          345,
+          350,
+          355
+        ],
+        "estimated_frames": [],
+        "evidence_types": [
+          "detector",
+          "motion_circle",
+          "raw_motion_global_fallback"
+        ],
+        "maximum_uncertainty_radius_pixels": null,
+        "review_note": "All overlapping ball samples have direct detector or recovery evidence.",
+        "status": "direct"
+      },
+      "clip_seconds": 14.0,
+      "completion_seconds": 14.0,
+      "confidence": 0.6,
+      "details": "A contested direction-changing contact was resolved retrospectively by sustained opposing-team control.",
+      "event_type": "turnover_candidate",
+      "from_player_track_id": null,
+      "team": "black",
+      "to_player_track_id": null
+    }
+  ],
+  "stage": "turnover"
+}

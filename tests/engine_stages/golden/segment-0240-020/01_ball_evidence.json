@@ -1,0 +1,12 @@
+{
+  "ball_evidence_summary": {},
+  "evidence_values": [
+    "evaluation_only_provider_coordinate"
+  ],
+  "has_ball_state_estimates": false,
+  "observation_count": 190,
+  "stage": "ball_evidence",
+  "state_values": [
+    "observed"
+  ]
+}

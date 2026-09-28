@@ -127,7 +127,9 @@ fabricated referee decision.
 ### Layer C: analytics definitions
 
 Implemented primarily in
-[`src\football_poc\possession.py`](..\src\football_poc\possession.py).
+[`src\football_poc\engine`](..\src\football_poc\engine). The legacy
+`src\football_poc\possession.py` import path remains a compatibility shim for
+tests and callers that still import its public or private helpers.
 These are project definitions, not IFAB Laws:
 
 - **Completed pass:** a player deliberately plays the ball and the first
@@ -170,6 +172,22 @@ event timestamp. A pass and a later turnover are separate events even when they
 occur close together.
 
 An event must satisfy both its analytics definition and the match-state gate.
+
+#### Stage modules
+
+The cached event-inference path is decomposed into explicit stage modules. Each
+stage reads only its declared inputs, returns a JSON-serialisable result for the
+stage-golden gate, and leaves earlier stage results immutable.
+
+| Order | Stage | Module | Inputs | Output |
+| --- | --- | --- | --- | --- |
+| 1 | Ball-evidence annotation | `football_poc.engine.ball_evidence` | Cached ball tracks plus optional ball-state estimates selected by `has_ball_state_estimates` | Evidence summary and observed/estimated ball-state provenance |
+| 2 | Ball control and touch candidates | `football_poc.engine.ball_control` | Player tracks, ball evidence, control-distance settings | JSON control/touch observations keyed by frame, team, player, and control ratio |
+| 3 | Possession ledger | `football_poc.engine.possession_ledger` | Control observations, smoothing settings, identity-continuity and jersey reconciliation context | Chronological team/player possession segments |
+| 4 | Completed-pass inference | `football_poc.engine.completed_pass` | Possession ledger, ball flight/deceleration evidence, match-state allowance | Completed pass candidates with release and reception evidence |
+| 5 | Turnover inference | `football_poc.engine.turnover` | Possession ledger, pass candidates, opponent-control evidence | Turnover candidates attributed to the team that lost controlled possession |
+| 6 | Shot inference | `football_poc.engine.shot` | Possession/player continuity, ball motion, goal geometry and runtime shot evidence | Shot and shots-on-target analytics events where evidence is available |
+| 7 | Match-state glue/export | `football_poc.engine.match_state_export` | Analytics candidates, boundary/restart evidence, `MATCH_LAW_PROFILE` timeline | `predicted-events.json`, `match-state-events.json`, and stage-golden export summary |
 
 ## 3. Law-derived transition contracts
 

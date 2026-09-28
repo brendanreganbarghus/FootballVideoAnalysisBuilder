@@ -1,0 +1,139 @@
+{
+  "count": 5,
+  "events": [
+    {
+      "ball_evidence": {
+        "direct_frames": [
+          295,
+          300,
+          305
+        ],
+        "estimated_frames": [],
+        "evidence_types": [
+          "detector",
+          "raw_motion_trajectory_corridor"
+        ],
+        "maximum_uncertainty_radius_pixels": null,
+        "review_note": "All overlapping ball samples have direct detector or recovery evidence.",
+        "status": "direct"
+      },
+      "clip_seconds": 12.0,
+      "completion_seconds": 12.0,
+      "confidence": 0.6,
+      "details": "A local closest approach at the first controlled ball re-entry recovered a same-team reception after an observation gap.",
+      "event_type": "pass_candidate",
+      "from_player_track_id": 32,
+      "team": "black",
+      "to_player_track_id": 42
+    },
+    {
+      "ball_evidence": {
+        "direct_frames": [
+          395,
+          400
+        ],
+        "estimated_frames": [],
+        "evidence_types": [
+          "detector"
+        ],
+        "maximum_uncertainty_radius_pixels": null,
+        "review_note": "All overlapping ball samples have direct detector or recovery evidence.",
+        "status": "direct"
+      },
+      "clip_seconds": 15.8,
+      "completion_seconds": 15.8,
+      "confidence": 0.55,
+      "details": "Deferred possession validation recovered a direction-changing intermediate same-team controlled contact.",
+      "event_type": "pass_candidate",
+      "from_player_track_id": null,
+      "team": "red",
+      "to_player_track_id": 166
+    },
+    {
+      "ball_evidence": {
+        "direct_frames": [
+          415,
+          420,
+          425
+        ],
+        "estimated_frames": [],
+        "evidence_types": [
+          "focused_multiscale_detector",
+          "raw_motion_near_feet"
+        ],
+        "maximum_uncertainty_radius_pixels": null,
+        "review_note": "All overlapping ball samples have direct detector or recovery evidence.",
+        "status": "direct"
+      },
+      "clip_seconds": 16.8,
+      "completion_seconds": 16.8,
+      "confidence": 0.55,
+      "details": "Deferred possession validation recovered a direction-changing intermediate same-team controlled contact.",
+      "event_type": "pass_candidate",
+      "from_player_track_id": 166,
+      "team": "red",
+      "to_player_track_id": 42
+    },
+    {
+      "ball_evidence": {
+        "direct_frames": [
+          430,
+          435,
+          440,
+          445,
+          450
+        ],
+        "estimated_frames": [],
+        "evidence_types": [
+          "focused_multiscale_detector",
+          "raw_motion_global_fallback"
+        ],
+        "maximum_uncertainty_radius_pixels": null,
+        "review_note": "All overlapping ball samples have direct detector or recovery evidence.",
+        "status": "direct"
+      },
+      "clip_seconds": 17.4,
+      "completion_seconds": 17.8,
+      "confidence": 0.7267,
+      "details": "Deferred receiver validation confirmed the new possession team at its earliest direction-changing controlled touch. Ball direction changed sharply as same-team control transferred.",
+      "event_type": "pass_candidate",
+      "from_player_track_id": 42,
+      "team": "red",
+      "to_player_track_id": 159
+    },
+    {
+      "ball_evidence": {
+        "direct_frames": [
+          445,
+          450,
+          455,
+          460,
+          465,
+          475,
+          480,
+          485
+        ],
+        "estimated_frames": [],
+        "evidence_types": [
+          "detector",
+          "focused_multiscale_detector",
+          "raw_motion_global_fallback",
+          "raw_motion_near_feet",
+          "raw_motion_trajectory_corridor"
+        ],
+        "maximum_uncertainty_radius_pixels": null,
+        "review_note": "All overlapping ball samples have direct detector or recovery evidence.",
+        "status": "direct"
+      },
+      "clip_seconds": 18.0,
+      "completion_seconds": 19.4,
+      "confidence": 0.55,
+      "details": "A direction-changing release was followed by the final directly observed ball sample reaching a projected same-team runner before an overlapping opponent.",
+      "event_type": "pass_candidate",
+      "from_player_track_id": 191,
+      "team": "red",
+      "to_player_track_id": 159
+    }
+  ],
+  "stage": "completed_pass"
+}

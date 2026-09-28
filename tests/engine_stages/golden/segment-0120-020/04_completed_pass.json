@@ -1,0 +1,116 @@
+{
+  "count": 11,
+  "events": [
+    {
+      "clip_seconds": 9.6,
+      "completion_seconds": 13.2,
+      "confidence": 0.6,
+      "details": "A sustained in-play delivery decelerated at the first supported controlled touch.",
+      "event_type": "pass_candidate",
+      "from_player_track_id": null,
+      "team": "red",
+      "to_player_track_id": 4
+    },
+    {
+      "clip_seconds": 20.4,
+      "completion_seconds": 21.4,
+      "confidence": 0.6,
+      "details": "Distinct co-visible teammates established consecutive controlled touches across a short ball transfer.",
+      "event_type": "pass_candidate",
+      "from_player_track_id": 8,
+      "team": "black",
+      "to_player_track_id": 131
+    },
+    {
+      "clip_seconds": 22.0,
+      "completion_seconds": 24.6,
+      "confidence": 0.6511,
+      "details": "Local jersey evidence rejected a brief false opponent identity; the original team retained the delivery until the next controlled teammate touch.",
+      "event_type": "pass_candidate",
+      "from_player_track_id": 131,
+      "team": "black",
+      "to_player_track_id": 125
+    },
+    {
+      "clip_seconds": 26.8,
+      "completion_seconds": 28.8,
+      "confidence": 0.9,
+      "details": "Ball release at 531.51 pixels/second reached a direction-changing contact after 2.00s; black control was independently established after 2.20s.",
+      "event_type": "pass_candidate",
+      "from_player_track_id": 125,
+      "team": "black",
+      "to_player_track_id": 168
+    },
+    {
+      "clip_seconds": 30.2,
+      "completion_seconds": 32.2,
+      "confidence": 0.69,
+      "details": "Ball release at 240.00 pixels/second followed by black control after 0.40s. Completion was refined from weak proximity to the first clear controlled touch.",
+      "event_type": "pass_candidate",
+      "from_player_track_id": 168,
+      "team": "black",
+      "to_player_track_id": 72
+    },
+    {
+      "clip_seconds": 38.2,
+      "completion_seconds": 39.4,
+      "confidence": 0.8883,
+      "details": "Ball release at 438.29 pixels/second followed by black control after 1.20s.",
+      "event_type": "pass_candidate",
+      "from_player_track_id": 174,
+      "team": "black",
+      "to_player_track_id": 125
+    },
+    {
+      "clip_seconds": 44.4,
+      "completion_seconds": 44.8,
+      "confidence": 0.7407,
+      "details": "Ball release at 290.69 pixels/second followed by black control after 0.00s. Completion was refined from weak proximity to the first clear controlled touch.",
+      "event_type": "pass_candidate",
+      "from_player_track_id": 125,
+      "team": "black",
+      "to_player_track_id": 176
+    },
+    {
+      "clip_seconds": 46.6,
+      "completion_seconds": 47.8,
+      "confidence": 0.8222,
+      "details": "Ball release at 372.16 pixels/second followed by black control after 1.20s.",
+      "event_type": "pass_candidate",
+      "from_player_track_id": 176,
+      "team": "black",
+      "to_player_track_id": 165
+    },
+    {
+      "clip_seconds": 50.8,
+      "completion_seconds": 51.2,
+      "confidence": 0.9,
+      "details": "Ball release at 574.28 pixels/second followed by black control after 0.40s.",
+      "event_type": "pass_candidate",
+      "from_player_track_id": 276,
+      "team": "black",
+      "to_player_track_id": 287
+    },
+    {
+      "clip_seconds": 51.8,
+      "completion_seconds": 53.6,
+      "confidence": 0.6,
+      "details": "A sharp ball reversal with stable local same-team jersey evidence established an intermediate one-touch reception.",
+      "event_type": "pass_candidate",
+      "from_player_track_id": 287,
+      "team": "black",
+      "to_player_track_id": 295
+    },
+    {
+      "clip_seconds": 53.6,
+      "completion_seconds": 54.8,
+      "confidence": 0.7284,
+      "details": "The outgoing pass began at a sharp, locally confirmed same-team one-touch contact. Control transferred after 3.00s and 2.57 player-heights of ball travel.",
+      "event_type": "pass_candidate",
+      "from_player_track_id": 295,
+      "team": "black",
+      "to_player_track_id": 309
+    }
+  ],
+  "stage": "completed_pass"
+}

@@ -1,0 +1,26 @@
+{
+  "count": 2,
+  "events": [
+    {
+      "clip_seconds": 48.0,
+      "completion_seconds": 48.6,
+      "confidence": 0.9,
+      "details": "Ball release at 570.35 pixels/second followed by red control after 0.60s.",
+      "event_type": "turnover_candidate",
+      "from_player_track_id": 221,
+      "team": "black",
+      "to_player_track_id": 215
+    },
+    {
+      "clip_seconds": 54.8,
+      "completion_seconds": 55.2,
+      "confidence": 0.5921,
+      "details": "The receiver's controlled touch was corroborated by continued team control and the receiver track returning.",
+      "event_type": "turnover_candidate",
+      "from_player_track_id": 210,
+      "team": "red",
+      "to_player_track_id": 219
+    }
+  ],
+  "stage": "turnover"
+}
