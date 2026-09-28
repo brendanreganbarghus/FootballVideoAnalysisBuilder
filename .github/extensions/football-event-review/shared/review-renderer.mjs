@@ -220,7 +220,7 @@ export function renderHtml({ adapter } = {}) {
       display: flex;
       flex-wrap: wrap;
       gap: 10px;
-      align-items: center;
+      align-items: flex-end;
       justify-content: flex-end;
     }
     .review-mode-field {
@@ -522,6 +522,10 @@ export function renderHtml({ adapter } = {}) {
     p { text-wrap: pretty; }
     .muted { color: var(--text-color-muted, #8b949e); }
     .scope {
+      display: inline-flex;
+      align-items: center;
+      min-height: 40px;
+      box-sizing: border-box;
       padding: 5px 9px;
       border: 1px solid var(--true-color-blue, #58a6ff);
       border-radius: 999px;
