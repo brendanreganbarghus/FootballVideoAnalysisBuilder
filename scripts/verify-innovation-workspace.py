@@ -58,6 +58,23 @@ def main() -> None:
             f"Innovation Day prerequisites are missing:\n{details}"
         )
 
+    if args.require_alfheim:
+        # Alfheim processing reads the v41 profile config from the ignored
+        # local window-555 directory.
+        shared_config = root / "30-shared-baselines" / "v41" / "alfheim-config"
+        local_config = PROJECT_ROOT / "benchmarks" / "alfheim" / "window-555"
+        missing_config = [
+            local_config / name
+            for name in ("goalkeeper-affiliations.json", "pitch-calibration.json")
+            if not (local_config / name).is_file()
+        ]
+        if missing_config:
+            details = "\n".join(f"- {path}" for path in missing_config)
+            raise FileNotFoundError(
+                f"Alfheim processing config is missing:\n{details}\n"
+                f"Copy it from {shared_config}."
+            )
+
     model = resolve_detector_model(PROJECT_ROOT)
     print(f"Artifact root: {root}")
     print(f"Detector model: {model}")

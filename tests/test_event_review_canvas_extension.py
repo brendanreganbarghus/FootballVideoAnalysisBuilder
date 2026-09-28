@@ -405,6 +405,58 @@ def test_innovation_published_segments_offer_exact_output_regression() -> None:
     assert "selectedEngine.seconds * Number(ballTrack.fps" in renderer
 
 
+def test_innovation_regression_uses_publication_hash_and_ignores_key_order() -> None:
+    extension = EXTENSION.read_text(encoding="utf-8")
+    shared = (
+        EXTENSION.path.parent / "shared" / "review-extension.mjs"
+    ).read_text(encoding="utf-8")
+
+    # The registry publication hash is the baseline; stored snapshots are
+    # fallbacks only.
+    assert "publishedOutputHash\n    || review.state.publishedReference?.outputHash" in extension
+    assert "entry.segment === segment" in extension
+    # An exact match restores the rebuilt output, not a reordered copy.
+    assert "exactOutputMatch ? current : null," in extension
+    assert "const passed = exactOutputMatch || matchStateMetadataOnly;" in extension
+
+    helpers = shared[
+        shared.index("function eventRegressionSummary("):
+        shared.index("function matchStateBehavior(")
+    ]
+    script = """
+      import assert from "node:assert/strict";
+      const canonicalType = (value) => value;
+      %s
+
+      const published = {
+        team: "black", details: {b: 2, a: 1}, event_type: "completed_pass",
+        clip_seconds: 4.6, completion_seconds: 4.8,
+      };
+      const reordered = {
+        details: {a: 1, b: 2}, completion_seconds: 4.8, clip_seconds: 4.6,
+        event_type: "completed_pass", team: "black",
+      };
+      assert.equal(canonicalJson(published), canonicalJson(reordered));
+      assert.deepEqual(
+        eventRegressionDifferences([published], [reordered]),
+        {addedEvents: [], missingEvents: []},
+      );
+
+      const moved = {...reordered, completion_seconds: 5.0};
+      const differences = eventRegressionDifferences([published], [moved]);
+      assert.equal(differences.addedEvents.length, 1);
+      assert.equal(differences.missingEvents.length, 1);
+      assert.equal(differences.addedEvents[0].seconds, 5.0);
+    """ % helpers
+    result = subprocess.run(
+        ["node", "--input-type=module"],
+        input=script,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+
+
 def test_innovation_canvas_is_alfheim_only_and_uses_shared_calibration() -> None:
     extension = EXTENSION.read_text(encoding="utf-8")
     renderer = RENDERER.read_text(encoding="utf-8")
@@ -810,7 +862,7 @@ def test_canvas_uses_a_stable_session_instance_port() -> None:
     assert 'process.env.SESSION_ID || "copilot"' in extension
     assert "const preferredPort = 52_000 +" in extension
     assert "await listen(preferredPort)" in extension
-    assert 'error?.code !== "EADDRINUSE"' in extension
+    assert '!["EADDRINUSE", "EACCES"].includes(error?.code)' in extension
 
 
 def test_passed_segments_use_locked_references_and_remain_reviewable() -> None:

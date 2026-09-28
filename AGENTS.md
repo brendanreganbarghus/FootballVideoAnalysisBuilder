@@ -63,6 +63,27 @@ Retained conversation identity is not active work. A completed final response
 must close the modal automatically and refresh M#/E# while keeping the
 conversation available.
 
+## Review Canvas agent host
+
+The Innovation review Canvas is a GitHub Copilot CLI extension, and its
+Copilot handovers run in that Copilot session. To use Claude Code instead,
+run the Canvas with the Claude review host in
+[`scripts\claude-review-host`](scripts/claude-review-host/README.md):
+
+```powershell
+cd scripts\claude-review-host
+npm install
+node host.mjs --segment segment-0120-020
+```
+
+The host loads the same extension, runs each handover as a Claude Agent SDK
+request in this repository, and exposes the Canvas actions to Claude as
+`mcp__football-event-review__<action>` tools. Where a handover prompt or this
+file says Copilot, it means the agent that hosts the Canvas. Every rule in this
+file applies unchanged, including the single Autopilot request and the
+working-status contract. The port-8080 local app must be running first, and
+only the Innovation workflow is hosted.
+
 ## Working rules
 
 - Treat the architecture document and implementation/tests as authoritative;
