@@ -1,0 +1,95 @@
+{
+  "count": 190,
+  "sample": [
+    {
+      "control_ratio": 0.6977,
+      "frame": 20,
+      "seconds": 0.8,
+      "team": "black",
+      "track": 15
+    },
+    {
+      "control_ratio": 0.3915,
+      "frame": 25,
+      "seconds": 1.0,
+      "team": "black",
+      "track": 15
+    },
+    {
+      "control_ratio": 0.3435,
+      "frame": 30,
+      "seconds": 1.2,
+      "team": "black",
+      "track": 15
+    },
+    {
+      "control_ratio": 0.5078,
+      "frame": 35,
+      "seconds": 1.4,
+      "team": "black",
+      "track": 15
+    },
+    {
+      "control_ratio": 0.5179,
+      "frame": 40,
+      "seconds": 1.6,
+      "team": "black",
+      "track": 15
+    },
+    {
+      "control_ratio": 0.4535,
+      "frame": 45,
+      "seconds": 1.8,
+      "team": "black",
+      "track": 15
+    },
+    {
+      "control_ratio": 0.2663,
+      "frame": 50,
+      "seconds": 2.0,
+      "team": "black",
+      "track": 15
+    },
+    {
+      "control_ratio": 0.1304,
+      "frame": 90,
+      "seconds": 3.6,
+      "team": "black",
+      "track": 6
+    }
+  ],
+  "stage": "ball_control_touch",
+  "teams": [
+    "black",
+    "red"
+  ],
+  "tracks": [
+    6,
+    7,
+    8,
+    11,
+    14,
+    15,
+    58,
+    87,
+    94,
+    104,
+    107,
+    111,
+    113,
+    115,
+    126,
+    143,
+    150,
+    171,
+    173,
+    190,
+    194,
+    195,
+    200,
+    206,
+    229,
+    254,
+    258
+  ]
+}

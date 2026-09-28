@@ -1,0 +1,87 @@
+{
+  "count": 134,
+  "sample": [
+    {
+      "control_ratio": 1.2782,
+      "frame": 340,
+      "seconds": 13.6,
+      "team": "black",
+      "track": 75
+    },
+    {
+      "control_ratio": 1.7038,
+      "frame": 350,
+      "seconds": 14.0,
+      "team": "black",
+      "track": 61
+    },
+    {
+      "control_ratio": 0.2739,
+      "frame": 360,
+      "seconds": 14.4,
+      "team": "black",
+      "track": 61
+    },
+    {
+      "control_ratio": 0.5036,
+      "frame": 365,
+      "seconds": 14.6,
+      "team": "black",
+      "track": 61
+    },
+    {
+      "control_ratio": 0.4813,
+      "frame": 375,
+      "seconds": 15.0,
+      "team": "black",
+      "track": 61
+    },
+    {
+      "control_ratio": 0.612,
+      "frame": 380,
+      "seconds": 15.2,
+      "team": "black",
+      "track": 61
+    },
+    {
+      "control_ratio": 0.648,
+      "frame": 385,
+      "seconds": 15.4,
+      "team": "black",
+      "track": 61
+    },
+    {
+      "control_ratio": 0.4179,
+      "frame": 395,
+      "seconds": 15.8,
+      "team": "red",
+      "track": 36
+    }
+  ],
+  "stage": "ball_control_touch",
+  "teams": [
+    "black",
+    "red"
+  ],
+  "tracks": [
+    8,
+    36,
+    61,
+    72,
+    75,
+    93,
+    125,
+    131,
+    158,
+    165,
+    168,
+    174,
+    176,
+    190,
+    262,
+    276,
+    287,
+    295,
+    309
+  ]
+}

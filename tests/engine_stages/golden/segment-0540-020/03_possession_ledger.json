@@ -1,0 +1,46 @@
+{
+  "player_order": [
+    38,
+    32,
+    42,
+    183
+  ],
+  "segment_count": 4,
+  "segments": [
+    {
+      "end_seconds": 1.8,
+      "observation_count": 9,
+      "player_track_id": 38,
+      "start_seconds": 0.2,
+      "team": "red"
+    },
+    {
+      "end_seconds": 3.8,
+      "observation_count": 7,
+      "player_track_id": 32,
+      "start_seconds": 2.4,
+      "team": "black"
+    },
+    {
+      "end_seconds": 17.4,
+      "observation_count": 13,
+      "player_track_id": 42,
+      "start_seconds": 15.0,
+      "team": "black"
+    },
+    {
+      "end_seconds": 19.8,
+      "observation_count": 6,
+      "player_track_id": 183,
+      "start_seconds": 18.4,
+      "team": "black"
+    }
+  ],
+  "stage": "possession_ledger",
+  "team_order": [
+    "red",
+    "black",
+    "black",
+    "black"
+  ]
+}

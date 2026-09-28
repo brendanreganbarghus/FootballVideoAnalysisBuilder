@@ -127,7 +127,10 @@ fabricated referee decision.
 ### Layer C: analytics definitions
 
 Implemented primarily in
-[`src\football_poc\possession.py`](..\src\football_poc\possession.py).
+[`src\football_poc\engine`](..\src\football_poc\engine). The legacy
+`src\football_poc\possession.py` path is a thin compatibility shim that
+re-exports the engine package API, including private helpers still imported by
+existing tests.
 These are project definitions, not IFAB Laws:
 
 - **Completed pass:** a player deliberately plays the ball and the first
@@ -170,6 +173,25 @@ event timestamp. A pass and a later turnover are separate events even when they
 occur close together.
 
 An event must satisfy both its analytics definition and the match-state gate.
+
+#### Stage modules
+
+The cached event-inference path is split into readable Python stage modules.
+Each stage owns a frozen settings dataclass with the current threshold defaults,
+and the stage-golden test records JSON-serialisable outputs from the current
+published segment artifacts.
+
+| Order | Stage | Module(s) | Inputs | Output |
+| --- | --- | --- | --- | --- |
+| 1 | Ball-evidence annotation | `engine.ball_evidence` | Cached ball tracks plus optional ball-state estimates selected by `has_ball_state_estimates` | Evidence provenance summary and event-eligible ball samples |
+| 2 | Ball control and touch candidates | `engine.ball_control`, `_control_observations` in `engine.ball_evidence` | Player tracks, ball evidence, flyby/contact settings | Control observations keyed by frame, team, player, and control ratio |
+| 3 | Possession ledger | `engine.possession_ledger`, `engine.contact_helpers` | Control observations, smoothing, player continuity, jersey evidence | Chronological team/player possession segments |
+| 4 | Completed-pass inference | `engine.completed_pass`, `engine.pass_reconciliation`, `engine.flight_receptions`, `engine.advanced_passes`, `engine.pass_cleanup`, `engine.pass_recovery`, `engine.pass_recovery_extra` | Possession segments, ball flight/deceleration evidence, receiver continuity | Completed pass candidates with release and controlled-reception evidence |
+| 5 | Turnover inference | `engine.turnover`, `engine.turnover_refinement` | Possession segments, pass candidates, opponent-control evidence | Turnover candidates attributed to the team losing controlled possession |
+| 6 | Boundary and restart reconciliation | `engine.boundary_restart` | Boundary candidates, restart release evidence, ownership lookback | Boundary turnovers, restart passes, and rejected boundary diagnostics |
+| 7 | Shot inference | `engine.shot` | Possession/player continuity, ball motion, calibrated goal context and runtime shot evidence | Shot and shots-on-target analytics candidates where evidence is available |
+| 8 | Live/detected ball-state variants | `engine.live_segments`, `engine.live_turnovers`, `engine.live_refinement`, `engine.live_recovery`, `engine.live_helpers` | Earlier stage inputs plus detected-source ball-state estimates | Detected-source variants that preserve direct-coordinate evidence gating |
+| 9 | Match-state glue/export | `engine.match_state_export`, `engine.pipeline` | Analytics candidates, boundary/restart evidence, `MATCH_LAW_PROFILE` timeline | `predicted-events.json`, `match-state-events.json`, and possession-stage export |
 
 ## 3. Law-derived transition contracts
 
