@@ -4991,6 +4991,7 @@ export function renderHtml({ adapter } = {}) {
       reviewerCorrectedDemoLayer: adapter.reviewerCorrectedDemoLayer,
       evidencePreparationEnabled: adapter.evidencePreparationEnabled,
       shotsOnTargetCapable: Boolean(adapter.shotsOnTargetCapable),
+      manualReferenceEnabled: Boolean(adapter.manualReferenceEnabled),
     })};
     const stateUrl = "/api/state";
     const hostInstanceId =

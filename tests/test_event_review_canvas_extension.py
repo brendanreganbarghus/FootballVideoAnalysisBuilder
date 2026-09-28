@@ -311,3 +311,17 @@ def test_edited_mjs_files_have_valid_syntax() -> None:
             text=True,
         )
         assert result.returncode == 0, result.stderr
+
+
+def test_client_review_workflow_injects_every_property_the_page_reads() -> None:
+    import re
+
+    renderer = read(SHARED_RENDERER)
+    block = re.search(
+        r"const reviewWorkflow = \$\{JSON\.stringify\(\{([\s\S]*?)\}\)\};",
+        renderer,
+    )
+    assert block, "client reviewWorkflow injection block not found"
+    injected = set(re.findall(r"(\w+):", block.group(1)))
+    used = set(re.findall(r"reviewWorkflow\.([A-Za-z]+)", renderer))
+    assert used <= injected, f"not injected into the page: {sorted(used - injected)}"
