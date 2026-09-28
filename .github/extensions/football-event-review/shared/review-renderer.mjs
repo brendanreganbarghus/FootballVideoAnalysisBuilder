@@ -11505,14 +11505,29 @@ export function renderHtml({ adapter } = {}) {
         const publishPassed = document.getElementById(
           "publish-passed-segment"
         );
+        // Publishing runs the protected regressions itself, so a stale
+        // regression receipt must not block the button.
+        const prePublishBlockers = (state.publication?.blockers || []).filter(
+          blocker => !blocker.includes("regressions")
+            && !blocker.includes("fresh engine receipt")
+        );
+        const publishable = Boolean(
+          state.publication?.reviewComplete
+          && !state.publication?.published
+          && !lockedReference
+          && prePublishBlockers.length === 0
+        );
         publishPassed.hidden = false;
-        publishPassed.disabled =
-          reviewBusy || !Boolean(state.publication?.ready);
-        publishPassed.title = state.publication?.ready
-          ? "Run the final publication gate and lock this Passed segment"
+        publishPassed.disabled = reviewBusy || !publishable;
+        publishPassed.title = publishable
+          ? "Run protected regressions and the final publication gate, then lock this Passed segment"
           : (state.publication?.blockers || []).join(" ");
         const goldenStatus = document.getElementById("golden-workflow-status");
         goldenStatus.dataset.referenceState = referenceState;
+        if (goldenStatus.dataset.segment !== selectedSegmentKey()) {
+          goldenStatus.dataset.segment = selectedSegmentKey();
+          goldenStatus.textContent = "";
+        }
         if (!goldenStatus.textContent.trim()) {
           goldenStatus.textContent = state.publication?.published
             ? "Passed segment published and locked. Select an unpublished "
@@ -13677,8 +13692,16 @@ export function renderHtml({ adapter } = {}) {
     }
 
     async function requestReferencePublication() {
-      const button = document.getElementById("publish-reference");
-      const status = document.getElementById("publication-status");
+      const button = document.getElementById(
+        reviewWorkflow.manualReferenceEnabled
+          ? "publish-passed-segment"
+          : "publish-reference"
+      );
+      const status = document.getElementById(
+        reviewWorkflow.manualReferenceEnabled
+          ? "golden-workflow-status"
+          : "publication-status"
+      );
       button.disabled = true;
       status.textContent =
         "Running protected regressions and the final exact-match gate…";
@@ -13694,7 +13717,7 @@ export function renderHtml({ adapter } = {}) {
         }
 
         await loadState();
-        document.getElementById("publication-status").textContent =
+        status.textContent =
           "Final publication handover started. Copilot is running the "
           + "validation gate…";
       } catch (error) {
