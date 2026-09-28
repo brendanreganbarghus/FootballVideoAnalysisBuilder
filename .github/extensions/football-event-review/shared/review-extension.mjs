@@ -1847,6 +1847,43 @@ async function readJson(path, fallback) {
   }
 }
 
+// Segment-list badges for segments other than the open one are cached briefly
+// so a segment switch does not re-read every segment from the database.
+const SEGMENT_REVIEW_SUMMARY_TTL_MS = 60_000;
+const segmentReviewSummaries = new Map();
+
+function segmentReviewSummaryKey(segment, currentEngine) {
+  return [
+    segment.key,
+    currentEngine?.fingerprint || "",
+    segment.validated ? "validated" : "open",
+  ].join("|");
+}
+
+function cachedSegmentReviewSummary(segment, currentEngine) {
+  const entry = segmentReviewSummaries.get(segment.key);
+  if (
+    !entry
+    || entry.key !== segmentReviewSummaryKey(segment, currentEngine)
+    || Date.now() - entry.at > SEGMENT_REVIEW_SUMMARY_TTL_MS
+  ) {
+    return null;
+  }
+  return entry.summary;
+}
+
+function rememberSegmentReviewSummary(segment, currentEngine, summary) {
+  if (summary?.integrityError) {
+    segmentReviewSummaries.delete(segment.key);
+    return;
+  }
+  segmentReviewSummaries.set(segment.key, {
+    key: segmentReviewSummaryKey(segment, currentEngine),
+    at: Date.now(),
+    summary,
+  });
+}
+
 async function coordinationOutputRecord(segment) {
   try {
     return await localJson(
@@ -4728,6 +4765,15 @@ export async function publicState(
     selected.validationStatus = "in_review";
   }
   const sharedReviewStatus = await Promise.all(segments.map(async (segment) => {
+    if (segment.key !== selected.key) {
+      const cached = cachedSegmentReviewSummary(segment, currentEngine);
+      if (cached) return cached;
+    }
+    const summary = await segmentReviewSummary(segment);
+    rememberSegmentReviewSummary(segment, currentEngine, summary);
+    return summary;
+  }));
+  async function segmentReviewSummary(segment) {
     let stored;
     try {
       if (segment.key === selected.key) {
@@ -4875,7 +4921,7 @@ export async function publicState(
       blockers: plan.blockers,
       updatedAt: stored.updatedAt || null,
     };
-  }));
+  }
   const workflowRegression = workflow.manualReferenceEnabled
     ? (
         await readJson(regressionRegistryPath, {
