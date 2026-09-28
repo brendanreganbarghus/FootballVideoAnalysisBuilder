@@ -33,6 +33,14 @@
       "engine_content_hash": "220f72f832e7c49fcf7618ee703390c7f6d587f4b1193e0d754dccc658b199e8",
       "output_hash": "1d61460530b88ed77041065634bcd1013022b65a8070e3ac5f6b80b0d53ef3ec",
       "ball_source": "bac"
+    },
+    {
+      "segment": "segment-0540-020",
+      "published_at": "2026-09-28T14:01:06.043Z",
+      "event_count": 6,
+      "engine_content_hash": "a1632e86e85fdb9532ec556b225c277e083ef9a9f177c06d94cd2cb3f3f93e9c",
+      "output_hash": "df352af90762ba73399604d8253b53f6ff63477b780af5b2142fd8e0bfb72045",
+      "ball_source": "detected"
     }
   ]
 }
