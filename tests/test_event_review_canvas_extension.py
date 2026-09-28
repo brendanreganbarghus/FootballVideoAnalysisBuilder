@@ -79,12 +79,16 @@ def test_engine_fingerprints_and_regression_contract() -> None:
         'tests/test_possession_regression.py',
         'tests/test_match_state_regression.py',
         'tests/test_review_regressions.py',
+        'tests/rules',
+        'tests/tracking',
+        'tests/test_rule_index.py',
     ]:
         assert test in adapter
     assert 'rulesRegressionScopeFiles: [' in adapter
     assert 'trackerRegressionTests: [\n    "tests/test_ball_tracking.py",\n    "tests/ball_stages",' in adapter
     extension = read(SHARED_EXTENSION)
-    assert "fullReceipt.rulesScopeHash === rulesScopeHash" in extension
+    assert 'coverage: "rule_unit_tests"' in extension
+    assert "queuePublishedReviewRegression(\n          publishedSegment.key" not in extension
 
 
 def test_ball_source_selector_and_analyze_payload() -> None:

@@ -98,11 +98,19 @@ working-status contract. The port-8080 local app must be running first.
   segment-, track-, player-, team-, or label-specific exceptions.
 - Keep fresh raw-video benchmarks distinct from cache rebuilds and report
   provenance and timing honestly.
-- After an accepted rule-engine change, rebuild cached output for every
-  published segment, with its recorded ball source, and require exact publication-hash
-  matches plus all protected tests. A failure keeps the accepted requirement
-  pending, identifies each affected segment and event difference, and blocks
-  synchronization/publication until a general fix passes the complete gate.
+- After an accepted rule-engine change, add a unit test for that rule under
+  `tests\rules` (rules engine) or `tests\tracking` (ball/player tracking),
+  named with a UTC millisecond timestamp suffix
+  (`test_<rule>_YYYYMMDDTHHMMSSmmmZ`), regenerate `tests\RULE_INDEX.md` with
+  `python scripts\generate-rule-index.py`, rebuild cached output for the
+  current segment only, and run the fast rule unit-test gate
+  (`regressionTests` in the workflow adapter). A failing test names the broken
+  rule; keep the accepted requirement pending until a general fix passes.
+  Re-running every published segment against its publication hash is an
+  on-demand check (Canvas segment regression and publication), not a
+  per-change gate; a segment failure there must be fixed by adding a new
+  timestamped unit test for the missed interaction. Run the slow ball-tracker
+  goldens (`tests\ball_stages`) only when ball-tracker code changes.
 - Read the current worktree and test state; do not assume conversation history
   is available.
 - Preserve unrelated working-tree changes and use the smallest relevant

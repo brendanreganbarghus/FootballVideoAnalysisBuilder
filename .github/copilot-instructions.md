@@ -243,15 +243,20 @@ Acceptance must follow the guarded review workflow in
 - make no engine change when the fresh, exact engine version already agrees;
 - otherwise implement a general evidence-based rule, never a timestamp,
   frame, segment, track-ID, or manual-label exception;
-- rerun cached event building and the focused and protected regressions;
-- rebuild every published segment in the selected workflow from its own cached
-  detector/tracker inputs and require an exact match with each output hash
-  recorded at publication;
-- if any published segment or protected test fails, do not record engine
-  synchronization or publish;
-  keep the accepted review requirement pending, report every affected segment
-  and its added, missing, retimed, or reclassified E# events, revise the general
-  rule without weakening the new requirement, and repeat the complete gate;
+- rerun cached event building for the current segment only;
+- add a unit test for the new or changed rule under `tests\rules` or
+  `tests\tracking`, named with a UTC millisecond timestamp suffix
+  (`test_<rule>_YYYYMMDDTHHMMSSmmmZ`), and regenerate `tests\RULE_INDEX.md`
+  with `python scripts\generate-rule-index.py`;
+- run the fast rule unit-test gate; a failing test names the broken rule;
+- if any unit test fails, do not record engine synchronization or publish;
+  keep the accepted review requirement pending, revise the general rule
+  without weakening the new requirement, and repeat the gate;
+- re-running every published segment against its publication hash is an
+  on-demand check (Canvas segment regression and publication), not a
+  per-change gate; fix any failure there by adding a new timestamped unit test;
+- run the slow ball-tracker goldens (`tests\ball_stages`) only when
+  ball-tracker code changes;
 - record synchronization only after the accepted behavior appears in engine
   output and all required tests pass.
 

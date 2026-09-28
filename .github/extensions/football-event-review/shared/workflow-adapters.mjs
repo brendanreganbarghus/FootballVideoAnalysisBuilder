@@ -90,14 +90,23 @@ export const reviewWorkflow = Object.freeze({
     "src/football_poc/shot_evidence_adapter.py",
     "scripts/process-alfheim-segment.py",
   ],
+  // Routine acceptance gate: fast rule unit tests (seconds). New rules add a
+  // timestamped test under tests/rules or tests/tracking (see
+  // tests/RULE_INDEX.md). Published-segment reruns are on demand only.
   regressionTests: [
+    "tests/rules",
+    "tests/tracking",
+    "tests/test_rule_index.py",
+    "tests/test_possession.py",
+    "tests/test_match_state.py",
+    "tests/test_player_tracking.py",
     "tests/test_shots_on_target.py",
     "tests/test_shot_evidence.py",
     "tests/test_possession_regression.py",
     "tests/test_match_state_regression.py",
     "tests/test_review_regressions.py",
   ],
-  // Run only when ball-tracker code changes (tests/ball_stages takes ~18 min).
+  // Slow ball-tracker goldens: run only when ball-tracker code changes.
   trackerRegressionTests: [
     "tests/test_ball_tracking.py",
     "tests/ball_stages",

@@ -35,12 +35,15 @@ Retained conversation identity is not active work. A completed final response
 must close the modal automatically and refresh M#/E# while preserving the
 conversation.
 
-After an accepted rule-engine change, rebuild cached output for every published
-segment, with its recorded ball source, and compare it exactly with its publication hash
-before completing engine synchronization. Any mismatch keeps the accepted
-review requirement pending: report each affected segment and its event
-differences, revise the general rule without weakening the new requirement,
-and repeat the complete protected regression gate. Never reset unrelated work.
+After an accepted rule-engine change, add a timestamped unit test for that rule
+(`tests\rules` or `tests\tracking`, named `test_<rule>_YYYYMMDDTHHMMSSmmmZ`),
+regenerate `tests\RULE_INDEX.md`, rebuild cached output for the current
+segment only, and run the fast rule unit-test gate. A failing test names the
+broken rule and keeps the accepted requirement pending until a general fix
+passes. Re-running every published segment against its publication hash is an
+on-demand check (Canvas segment regression and publication); any failure there
+is fixed by adding a new timestamped unit test. Run the slow ball-tracker
+goldens only when ball-tracker code changes. Never reset unrelated work.
 
 **Current boundary:** there is one review workflow (`football_review`), one
 Canvas (`football-event-review`) and one rules engine. Each segment records its

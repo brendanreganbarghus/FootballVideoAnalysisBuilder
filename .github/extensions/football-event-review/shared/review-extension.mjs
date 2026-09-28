@@ -2136,104 +2136,20 @@ function withheldEngineSnapshot() {
   };
 }
 
+// Routine acceptance gate: the fast rule unit-test suite only. Each implemented
+// rule has its own timestamped unit test, so a failure names the broken rule.
+// Re-running every published segment does not scale and is available on
+// demand (Canvas segment regression button) and at publication.
 async function ensureReviewRegressionsCurrent(segment, state) {
   if (!workflow.manualReferenceEnabled) return null;
-  const current = await captureEngineSnapshot(segment);
-  const publishedSegments = (await loadPreparedSegments()).filter(
-    (candidate) => candidate.validated,
-  );
-  const publishedSegmentKeys = publishedSegments
-    .map((candidate) => candidate.key)
-    .sort();
   const registry = await readJson(regressionRegistryPath, {
     schema_version: 1,
     workflow: workflowId,
     segments: [],
   });
-  const fullReceipt = registry.last_full_regression;
   const rulesScopeHash = await rulesRegressionScopeHash();
-  if (
-    fullReceipt?.passed
-    && (
-      fullReceipt.rulesScopeHash === rulesScopeHash
-      || fullReceipt.engineContentHash === current.fingerprint.contentHash
-    )
-    && JSON.stringify(fullReceipt.segments || [])
-      === JSON.stringify(publishedSegmentKeys)
-  ) {
-    state.engineAfter = current;
-    state.regression = {
-      passed: true,
-      summary: fullReceipt.summary,
-      fingerprint: current.fingerprint,
-      outputHash: current.outputHash,
-      recordedAt: fullReceipt.recordedAt,
-      suite: "innovation",
-      trigger: "reused_workflow_receipt",
-      coverage: "all_published_segments",
-      segmentResults: fullReceipt.segmentResults,
-    };
-    return {current, reused: true, stale: false, passed: true};
-  }
-
-  const segmentResults = await Promise.all(
-    publishedSegments.map(async (publishedSegment) => {
-      try {
-        return await queuePublishedReviewRegression(
-          publishedSegment.key,
-          {reuseActive: true},
-        );
-      } catch (error) {
-        return {
-          segment: publishedSegment.key,
-          timeLabel: publishedSegment.timeLabel,
-          passed: false,
-          summary: error.message || String(error),
-          addedEvents: [],
-          missingEvents: [],
-        };
-      }
-    }),
-  );
-  const segmentFailures = segmentResults.filter((result) => !result.passed);
-  if (segmentFailures.length) {
-    const refreshedCurrent = await captureEngineSnapshot(segment);
-    const recordedAt = new Date().toISOString();
-    state.engineAfter = refreshedCurrent;
-    state.regression = {
-      passed: false,
-      summary: "Acceptance pending: "
-        + segmentFailures.map((result) =>
-          `${result.timeLabel || result.segment} (${result.summary})`
-        ).join("; "),
-      fingerprint: refreshedCurrent.fingerprint,
-      outputHash: refreshedCurrent.outputHash,
-      recordedAt,
-      suite: "innovation",
-      trigger: "acceptance",
-      coverage: "all_published_segments",
-      segmentResults,
-    };
-    registry.last_full_regression = {
-      passed: false,
-      summary: state.regression.summary,
-      engineContentHash: refreshedCurrent.fingerprint.contentHash,
-      rulesScopeHash,
-      recordedAt,
-      segments: publishedSegmentKeys,
-      segmentResults,
-    };
-    await writeJsonAtomically(regressionRegistryPath, registry);
-    return {
-      current: refreshedCurrent,
-      reused: false,
-      stale: true,
-      passed: false,
-      segmentFailures,
-    };
-  }
-
-  let output;
+  let output = "";
+  let passed = true;
   try {
     const result = await execFileAsync(
       "python",
@@ -2253,72 +2169,50 @@ async function ensureReviewRegressionsCurrent(segment, state) {
     );
     output = String(result.stdout || "").trim();
   } catch (error) {
-    const refreshedCurrent = await captureEngineSnapshot(segment);
-    const recordedAt = new Date().toISOString();
-    state.engineAfter = refreshedCurrent;
-    state.regression = {
-      passed: false,
-      summary: "Acceptance pending because protected tests failed: "
-        + String(error.stdout || error.message || error).trim(),
-      fingerprint: refreshedCurrent.fingerprint,
-      outputHash: refreshedCurrent.outputHash,
-      recordedAt,
-      suite: "innovation",
-      trigger: "acceptance",
-      coverage: "all_published_segments",
-      segmentResults,
-    };
-    registry.last_full_regression = {
-      passed: false,
-      summary: state.regression.summary,
-      engineContentHash: refreshedCurrent.fingerprint.contentHash,
-      rulesScopeHash,
-      recordedAt,
-      segments: publishedSegmentKeys,
-      segmentResults,
-    };
-    await writeJsonAtomically(regressionRegistryPath, registry);
-    return {
-      current: refreshedCurrent,
-      reused: false,
-      stale: true,
-      passed: false,
-      segmentFailures: [],
-    };
+    passed = false;
+    output = String(error.stdout || error.message || error).trim();
   }
   const refreshedCurrent = await captureEngineSnapshot(segment);
+  const recordedAt = new Date().toISOString();
+  const lastLine = output.split(/\r?\n/).at(-1) || "";
+  const failedTests = [...output.matchAll(/^FAILED (\S+)/gm)]
+    .map((match) => match[1]);
+  const summary = passed
+    ? `Rule unit tests passed: ${lastLine || "ok"}`
+    : "Acceptance pending because rule unit tests failed: "
+      + (failedTests.length ? failedTests.join(", ") : lastLine || output);
   state.engineAfter = refreshedCurrent;
   state.regression = {
-    passed: true,
-    summary: `${segmentResults.length} published Review segment(s) `
-      + "matched exactly; "
-      + (output.split(/\r?\n/).at(-1) || "protected tests passed"),
+    passed,
+    summary,
     fingerprint: refreshedCurrent.fingerprint,
     outputHash: refreshedCurrent.outputHash,
-    recordedAt: new Date().toISOString(),
-    suite: "innovation",
+    recordedAt,
+    suite: "rule_unit_tests",
     trigger: "acceptance",
-    coverage: "all_published_segments",
-    segmentResults,
+    coverage: "rule_unit_tests",
+    failedTests,
+    segmentResults: [],
   };
   registry.last_full_regression = {
-    passed: true,
-    summary: state.regression.summary,
+    passed,
+    summary,
     engineContentHash: refreshedCurrent.fingerprint.contentHash,
     rulesScopeHash,
-    recordedAt: state.regression.recordedAt,
-    segments: publishedSegmentKeys,
-    segmentResults,
+    recordedAt,
+    coverage: "rule_unit_tests",
+    failedTests,
+    segmentResults: [],
   };
   await writeJsonAtomically(regressionRegistryPath, registry);
   return {
     current: refreshedCurrent,
     reused: false,
-    stale: false,
-    passed: true,
+    stale: !passed,
+    passed,
+    segmentFailures: [],
   };
 }
-
 function eventRegressionSummary(event) {
   return {
     eventType: canonicalType(event.event_type),
@@ -5307,14 +5201,20 @@ const projectRulesInstruction =
   + "docs\\RULES_ENGINE_ARCHITECTURE.md. The proposal's Rule basis is "
   + "event-specific context, not a replacement for those global rules. "
   + "Regression scope: ball coordinates are already gated before the rules "
-  + "engine runs, so rules-engine work is validated only against cached ball "
-  + "tracks. Run cached event rebuilding and the protected rules regressions "
-  + `(python -m pytest ${workflow.regressionTests.join(" ")} -q) only after `
-  + "you edit a rules-engine file ("
+  + "engine runs, so rules-engine work is validated only by the fast rule "
+  + "unit-test suite. Every new or changed rule, event-validation fix, or "
+  + "tracking fix must add its own unit test under tests\\rules (rules "
+  + "engine) or tests\\tracking (ball/player tracking), named with a UTC "
+  + "millisecond timestamp suffix, e.g. "
+  + "test_<rule>_YYYYMMDDTHHMMSSmmmZ, then regenerate tests\\RULE_INDEX.md "
+  + "with python scripts\\generate-rule-index.py. After editing a rules-engine "
+  + "file ("
   + (workflow.rulesRegressionScopeFiles || workflow.rulesEngineVersionFiles)
     .join(", ")
-  + "). If you made no such edit, do not rebuild or run pytest; the Canvas "
-  + "reuses the current passing regression receipt. Run "
+  + "), rebuild cached events for this segment only and run "
+  + `python -m pytest ${workflow.regressionTests.join(" ")} -q. `
+  + "Do not rebuild other published segments; that regression is on demand. "
+  + "If you made no engine edit, do not rebuild or run pytest. Run "
   + (workflow.trackerRegressionTests || []).join(" and ")
   + " only when ball-tracker code changes, never for a rules-engine review.";
 
