@@ -1144,18 +1144,20 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
                 )
             if not re.fullmatch(r"segment-\d{4}-\d{3}", cache_key):
                 raise ValueError("Invalid segment cache key")
+            # Process the same prepared folder the Canvas reads: the shared
+            # copy wins, and a local generated folder is only a fallback.
+            shared = find_prepared_segment(cache_key, SHARED_ARTIFACT_ROOT)
             segment = (
-                Path.cwd()
+                shared.root
+                if shared is not None
+                else Path.cwd()
                 / "benchmarks"
                 / "alfheim"
                 / "generated"
                 / cache_key
             )
             if not (segment / "manifest.json").is_file():
-                shared = find_prepared_segment(cache_key, SHARED_ARTIFACT_ROOT)
-                if shared is None:
-                    raise FileNotFoundError(f"Prepared segment not found: {cache_key}")
-                segment = shared.root
+                raise FileNotFoundError(f"Prepared segment not found: {cache_key}")
             prepared = json.loads(
                 (segment / "manifest.json").read_text(encoding="utf-8")
             )
