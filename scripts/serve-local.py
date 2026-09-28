@@ -477,9 +477,8 @@ class CoordinationService:
                 isinstance(timestamp_ms, bool)
                 or not isinstance(timestamp_ms, int)
                 or timestamp_ms < 0
-                or timestamp_ms > 60_000
             ):
-                raise ValueError("timestampMs must be an integer from 0 to 60000")
+                raise ValueError("timestampMs must be a non-negative integer")
             if team not in {"black", "red"}:
                 raise ValueError("Unknown manual event team")
             if event_type not in {"completed_pass", "turnover", "shot_on_target"}:
@@ -490,7 +489,13 @@ class CoordinationService:
                     ordinal,
                     key,
                     timestamp_ms,
-                    min(1499, round(timestamp_ms * 25 / 1000)),
+                    (
+                        item["sourceFrame"]
+                        if isinstance(item.get("sourceFrame"), int)
+                        and not isinstance(item.get("sourceFrame"), bool)
+                        and item["sourceFrame"] >= 0
+                        else min(1499, round(timestamp_ms * 25 / 1000))
+                    ),
                     {
                         "team": team,
                         "type": event_type,

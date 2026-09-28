@@ -339,6 +339,10 @@ export const manualReferenceSeed = [
 
 function manualEvent(input, key, revision = 1) {
   const timestampMs = Math.round(Number(input.timestampMs ?? input.seconds * 1000));
+  const durationSeconds = Number(input.durationSeconds) > 0
+    ? Number(input.durationSeconds)
+    : 60;
+  const lastFrame = Math.max(0, Math.round(durationSeconds * 25) - 1);
   const reviewStatus = input.reviewStatus === "rejected"
     ? "rejected"
     : "active";
@@ -346,7 +350,7 @@ function manualEvent(input, key, revision = 1) {
     key,
     timestampMs,
     seconds: timestampMs / 1000,
-    sourceFrame: Math.min(1499, Math.round(timestampMs * 25 / 1000)),
+    sourceFrame: Math.min(lastFrame, Math.round(timestampMs * 25 / 1000)),
     team: input.team,
     type: input.type ?? input.eventType,
     revision,
@@ -8648,12 +8652,10 @@ async function handleRequest(request, response, serverInstanceId) {
       }
       if (
         action === "approve"
-        && ![20_000, 30_000, 60_000].includes(
-          Math.round(review.selected.durationSeconds * 1000)
-        )
+        && !(Number(review.selected.durationSeconds) > 0)
       ) {
         sendJson(response, 400, {
-          error: "Golden approval is available only for a complete 20-, 30-, or 60-second segment",
+          error: "Golden approval needs a segment with a known duration",
         });
         return;
       }
@@ -8701,6 +8703,7 @@ async function handleRequest(request, response, serverInstanceId) {
           timestampMs,
           team: String(body.team || ""),
           eventType: String(body.eventType || ""),
+          durationSeconds: review.selected.durationSeconds,
         });
         await persistNormalizedManualReference(
           segment,

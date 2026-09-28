@@ -69,12 +69,12 @@ def test_manual_draft_uses_append_only_m_events_and_exact_positions() -> None:
         "football_review", "segment-1", "M1", 1
     ) == first
     assert draft.members == (ManualReferenceMember(0, "M1", 2),)
-    with pytest.raises(ValueError, match="0 to 60000"):
+    with pytest.raises(ValueError, match="non-negative integer"):
         repository.append_manual_event(
             "football_review",
             "segment-1",
             "M2",
-            60_001,
+            -1,
             1500,
             {},
             "reviewer",

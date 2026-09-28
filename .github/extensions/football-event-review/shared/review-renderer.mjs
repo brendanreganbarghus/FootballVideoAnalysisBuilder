@@ -11491,9 +11491,7 @@ export function renderHtml({ adapter } = {}) {
         approveMinute.hidden = false;
         approveMinute.disabled =
           approved
-          || ![20000, 30000, 60000].includes(
-            Math.round(Number(state.segment.durationSeconds) * 1000)
-          );
+          || !(Number(state.segment.durationSeconds) > 0);
         approveMinute.dataset.referenceState = referenceState;
         approveMinute.textContent = referenceState === "published"
           ? "Passed segment locked"

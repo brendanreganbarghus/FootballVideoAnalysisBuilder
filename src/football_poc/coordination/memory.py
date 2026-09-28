@@ -764,9 +764,9 @@ class InMemoryCoordinationRepository:
         if (
             isinstance(timestamp_ms, bool)
             or not isinstance(timestamp_ms, int)
-            or not 0 <= timestamp_ms <= 60_000
+            or timestamp_ms < 0
         ):
-            raise ValueError("timestamp_ms must be an integer from 0 to 60000")
+            raise ValueError("timestamp_ms must be a non-negative integer")
         if (
             isinstance(source_frame, bool)
             or not isinstance(source_frame, int)
