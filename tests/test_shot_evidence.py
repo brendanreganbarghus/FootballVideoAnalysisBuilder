@@ -5,14 +5,14 @@ from pathlib import Path
 
 import pytest
 
-from football_poc.innovation_day_snapshot import shots_on_target as sot
-from football_poc.innovation_day_snapshot.goal_calibration import (
+from football_poc import shots_on_target as sot
+from football_poc.goal_calibration import (
     GoalCalibrationError,
     MONOCULAR_DEPTH_MARGIN_M,
     build_goal_face,
     load_goal_faces,
 )
-from football_poc.innovation_day_snapshot.shot_evidence_adapter import (
+from football_poc.shot_evidence_adapter import (
     attacking_goals,
     build_evidence,
 )

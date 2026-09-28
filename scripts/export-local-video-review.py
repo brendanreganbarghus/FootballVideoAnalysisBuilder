@@ -290,7 +290,7 @@ def main() -> None:
         source_root = Path(__file__).resolve().parents[1] / "src"
         if str(source_root) not in sys.path:
             sys.path.insert(0, str(source_root))
-        from football_poc.innovation_day_snapshot.bac_ball_tracks import (
+        from football_poc.bac_ball_tracks import (
             load_alfheim_bac_coordinates,
         )
 

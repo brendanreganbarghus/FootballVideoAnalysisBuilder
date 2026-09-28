@@ -18,7 +18,7 @@ from football_poc.artifact_store import (
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Verify the shared and local Innovation Day prerequisites."
+        description="Verify the shared and local review prerequisites."
     )
     parser.add_argument(
         "--require-alfheim",
@@ -55,7 +55,7 @@ def main() -> None:
     if missing:
         details = "\n".join(f"- {path}" for path in missing)
         raise FileNotFoundError(
-            f"Innovation Day prerequisites are missing:\n{details}"
+            f"Review prerequisites are missing:\n{details}"
         )
 
     if args.require_alfheim:

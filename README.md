@@ -132,17 +132,23 @@ it, the existing local `pano\` folder remains the default. OneDrive Files On
 Demand must make every source file available locally before processing. The
 application reads the extracted `pano\` directory, not the archive.
 
-Football Event Review decisions, conversations, engine snapshots, and output
-hashes are stored in workflow-specific directories under
-`30-shared-baselines`: `event-review-state-innovation` for the BAC-assisted
-Innovation Canvas and `event-review-state-live` for the raw-video Live Canvas.
-The extensions use `FOOTBALL_ARTIFACT_ROOT` when set, otherwise they discover
-`Innovationday Artifacts` under the configured commercial OneDrive folder.
-State documents carry their workflow and Canvas identities and cannot be loaded
-by the other workflow. Each state save also updates its SHA-256 entry in
-`00-governance\checksums.sha256`, so another developer can restore and verify
-the same review status. If no shared artifact root is available, review state
-falls back to the current Copilot session workspace.
+Football Event Review uses one workflow, `football_review`, and one Canvas,
+`football-event-review` (display name **Football Event Review**). Prepared
+segment artifacts are flat under each segment root; `segment.json` and
+`analysis-status.json` record the selected `ball_source` (`bac` or `live`).
+A BAC run uses frozen Alfheim BAC coordinates as a BAC-assisted diagnostic of
+the downstream football engine, never raw-video ball inference or a valid
+ball-tracking performance benchmark. A Live run uses raw-video ball tracking;
+its minimum 90% direct-coordinate provenance gate measures evidence coverage,
+not coordinate correctness or calibrated confidence.
+
+Review state, conversations, decisions, engine snapshots, output hashes, and
+append-only engine output JSON live only in PostgreSQL (`FOOTBALL_DATABASE_URL`).
+There is no mutable JSON review-state fallback and no startup historical import
+from retired `30-shared-baselines\event-review-state-*` folders. If
+coordination is unavailable, the Canvas is read-only. Media, prepared segments,
+binary caches, and result bundles remain in the configured OneDrive/Xebia
+artifact root, whose folder is still named `Innovationday Artifacts`.
 
 ### Optional shared PostgreSQL coordination
 
@@ -165,7 +171,7 @@ python .\scripts\serve-local.py --bind 127.0.0.1 --port 8080
 
 The configured database must already exist. Startup applies checked,
 forward-only table migrations and verifies the migration ledger, constraints,
-indexes, workflow identities, and imported history before enabling shared
+indexes, workflow identities, and schema compatibility before enabling shared
 writes. If a configured database is unavailable, shared state remains
 read-only; the application does not silently create conflicting local changes.
 
@@ -173,8 +179,9 @@ PostgreSQL stores only coordination and history: logical segment/artifact
 references, identities, assignments, leases, jobs, C#/E#/M# revisions,
 decisions, hashes, receipts, regressions, publications, and audit records.
 Videos, prepared segments, coordinates, caches, and result bundles remain in
-the configured OneDrive/Xebia shared artifact root. Innovation and Live records
-use separate workflow identities even when they reference the same media.
+the configured OneDrive/Xebia shared artifact root. All review records use the
+single `football_review` workflow identity and retain each segment's recorded
+`ball_source`.
 
 Authorized raw footage, custom-camera samples, camera calibration, approved
 model packages, and passed baselines belong in the governed OneDrive store.
@@ -188,14 +195,14 @@ Verify a second developer's machine before use:
 ```powershell
 $env:FOOTBALL_ARTIFACT_ROOT = `
   "C:\Users\<name>\OneDrive - Xebia\Innovationday Artifacts"
-python .\scripts\verify-innovation-workspace.py --require-alfheim
+python .\scripts\verify-workspace.py --require-alfheim
 & "$env:FOOTBALL_ARTIFACT_ROOT\00-governance\Verify-Artifacts.ps1"
 ```
 
-See [the developer guide](docs/DEVELOPER_GUIDE.md#innovation-day-reproducible-developer-workspace)
+See [the developer guide](docs/DEVELOPER_GUIDE.md#football-review-reproducible-developer-workspace)
 for the complete Git/shared/local ownership matrix and promotion gate. See
 [the manual football pipeline guide](docs/MANUAL_PIPELINE_COMMANDS.md#choose-the-workflow-first)
-for the separate Innovation and Live commands, artifacts, and Canvas identities.
+for the single review workflow commands, ball-source selection, artifacts, and Canvas identity.
 
 ## SoccerTrack v2 benchmark
 

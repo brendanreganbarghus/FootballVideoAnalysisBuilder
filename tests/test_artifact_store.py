@@ -52,33 +52,41 @@ def test_explicit_detector_override_wins(
     assert resolve_detector_model(tmp_path / "repo") == model.resolve()
 
 
+def _write_publishable_segment(source: Path, ball_source: str = "bac") -> None:
+    source.mkdir(parents=True)
+    (source / "alfheim-window-playable.mp4").write_bytes(b"video")
+    (source / "alfheim-window.mp4").write_bytes(b"duplicate-video")
+    (source / "copilot-review.json").write_text("{}", encoding="utf-8")
+    (source / "manual-reference.json").write_text(
+        '{"events":[]}',
+        encoding="utf-8",
+    )
+    (source / "analysis-status.json").write_text(
+        json.dumps({"stage": "ready", "ball_source": ball_source}),
+        encoding="utf-8",
+    )
+    (source / "manifest.json").write_text(
+        json.dumps(
+            {
+                "video": "alfheim-window-playable.mp4",
+                "playable_video": "alfheim-window-playable.mp4",
+                "source_start_seconds": 360.0,
+                "duration_seconds": 60.0,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
 def test_published_prepared_segment_is_discoverable_and_checksummed(
     tmp_path: Path,
 ) -> None:
     source = tmp_path / "generated" / "segment-0120-020"
-    workflow = source / "innovation"
-    workflow.mkdir(parents=True)
-    (source / "alfheim-window-playable.mp4").write_bytes(b"video")
-    (source / "alfheim-window.mp4").write_bytes(b"duplicate-video")
-    (source / "copilot-review.json").write_text("{}", encoding="utf-8")
-    (workflow / "manual-reference.json").write_text(
-        '{"events":[]}',
-        encoding="utf-8",
-    )
-    (source / "manifest.json").write_text(
-        (
-            '{"video":"absolute-original.mp4",'
-            '"playable_video":"absolute-playable.mp4",'
-            '"source_start_seconds":360.0,"duration_seconds":60.0,'
-            '"review_workflows":["innovation_day_bac"]}'
-        ),
-        encoding="utf-8",
-    )
+    _write_publishable_segment(source)
     artifact_root = tmp_path / "artifacts"
 
     published = publish_prepared_segment(
         source,
-        workflow_id="innovation_day_bac",
         artifact_root=artifact_root,
         source_metadata={
             "camera_id": "camera-1",
@@ -92,6 +100,7 @@ def test_published_prepared_segment_is_discoverable_and_checksummed(
     assert json.loads(published.manifest.read_text(encoding="utf-8"))[
         "video"
     ] == "segment.mp4"
+    assert published.ball_source == "bac"
     assert discover_prepared_segments(artifact_root) == (published,)
     assert find_prepared_segment(
         "segment-0120-020",
@@ -100,7 +109,6 @@ def test_published_prepared_segment_is_discoverable_and_checksummed(
 
     republished = publish_prepared_segment(
         published.root,
-        workflow_id="innovation_day_bac",
         artifact_root=artifact_root,
         source_metadata={
             "camera_id": "camera-1",
@@ -111,78 +119,42 @@ def test_published_prepared_segment_is_discoverable_and_checksummed(
     assert republished.video.read_bytes() == b"video"
 
 
-def test_publishing_second_workflow_preserves_first_workflow(
+def test_publishing_flat_segment_replaces_previous_bundle(
     tmp_path: Path,
 ) -> None:
     source = tmp_path / "generated" / "segment-0540-060"
-    source.mkdir(parents=True)
-    (source / "alfheim-window-playable.mp4").write_bytes(b"video")
-    manifest_path = source / "manifest.json"
-    manifest = {
-        "video": "alfheim-window-playable.mp4",
-        "source_start_seconds": 1620.0,
-        "duration_seconds": 60.0,
-        "review_workflows": ["innovation_day_bac", "live_iteration_25"],
-    }
-    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
-    (source / "innovation").mkdir()
-    (source / "innovation" / "output.json").write_text(
-        '{"innovation":true}',
-        encoding="utf-8",
-    )
-    (source / "live").mkdir()
-    (source / "live" / "output.json").write_text(
-        '{"live":true}',
+    _write_publishable_segment(source, "live")
+    (source / "analytics-data").mkdir()
+    (source / "analytics-data" / "predicted-events.json").write_text(
+        "[]",
         encoding="utf-8",
     )
     artifact_root = tmp_path / "artifacts"
     metadata = {"camera_id": "camera-1", "recording_id": "recording-1"}
 
-    publish_prepared_segment(
-        source,
-        workflow_id="innovation_day_bac",
-        artifact_root=artifact_root,
-        source_metadata=metadata,
-    )
     published = publish_prepared_segment(
         source,
-        workflow_id="live_iteration_25",
         artifact_root=artifact_root,
         source_metadata=metadata,
     )
 
     verify_prepared_segment(published)
-    assert (published.root / "innovation" / "output.json").is_file()
-    assert (published.root / "live" / "output.json").is_file()
-    assert published.workflows == (
-        "innovation_day_bac",
-        "live_iteration_25",
-    )
-    assert json.loads(published.manifest.read_text(encoding="utf-8"))[
-        "review_workflows"
-    ] == ["innovation_day_bac", "live_iteration_25"]
+    assert (published.root / "analytics-data" / "predicted-events.json").is_file()
+    assert published.ball_source == "live"
+    assert json.loads((published.root / "segment.json").read_text(encoding="utf-8"))[
+        "ball_source"
+    ] == "live"
 
 
 def test_publication_rejects_unsafe_catalog_identifiers(
     tmp_path: Path,
 ) -> None:
     source = tmp_path / "segment-0120-020"
-    (source / "innovation").mkdir(parents=True)
-    (source / "alfheim-window-playable.mp4").write_bytes(b"video")
-    (source / "manifest.json").write_text(
-        json.dumps(
-            {
-                "source_start_seconds": 360.0,
-                "duration_seconds": 60.0,
-            }
-        ),
-        encoding="utf-8",
-    )
+    _write_publishable_segment(source)
 
     with pytest.raises(ValueError, match="safe path identifiers"):
         publish_prepared_segment(
             source,
-            workflow_id="innovation_day_bac",
             artifact_root=tmp_path / "artifacts",
             source_metadata={
                 "camera_id": "../another-camera",

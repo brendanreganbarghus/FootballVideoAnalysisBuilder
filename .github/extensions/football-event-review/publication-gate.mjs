@@ -7,7 +7,7 @@ export function buildPublicationPlan({
   snapshotMatches,
   verificationIsCurrent,
   regressionFresh,
-  analyticsTypes: analyticsTypeList = ["completed_pass", "turnover"],
+  analyticsTypes: analyticsTypeList = ["completed_pass", "turnover", "shot_on_target"],
   shotsOnTarget = null,
 }) {
   const analyticsTypes = new Set(analyticsTypeList);
@@ -17,6 +17,10 @@ export function buildPublicationPlan({
   const usedEngineIndexes = new Set();
   const referenceEvents = [];
   const blockers = [];
+  const isManualReview = (draft) =>
+    ["manual_review", "user_reported"].includes(draft.source);
+  const referenceLabel = (draft, index) =>
+    `${isManualReview(draft) ? "M" : "C"}${index + 1}`;
   if (shotsOnTarget && shotsOnTarget.analysis_status !== "complete") {
     blockers.push(
       `Shots-on-target analysis is ${shotsOnTarget.analysis_status}; complete `
@@ -26,55 +30,77 @@ export function buildPublicationPlan({
   const reviewComplete = drafts.every((_, index) =>
     ["accepted", "rejected"].includes(decisions[String(index)]?.status)
   );
-  if (!reviewComplete) {
-    blockers.push("Every proposal must be accepted or rejected.");
-  }
+  if (!reviewComplete) blockers.push("Every proposal must be accepted or rejected.");
   if (!snapshotMatches) {
     blockers.push(
       "The current engine code and cached output must match a reviewed snapshot.",
     );
   }
-  drafts.forEach((draft, index) => {
-    const decision = decisions[String(index)];
-    if (decision?.status !== "accepted") return;
+  const acceptedAnalytics = drafts
+    .map((draft, index) => ({draft, index, decision: decisions[String(index)]}))
+    .filter(({draft, decision}) =>
+      decision?.status === "accepted" && analyticsTypes.has(draft.type)
+    );
+  acceptedAnalytics.forEach(({draft, index, decision}) => {
     if (!verificationIsCurrent(decision.engineVerification, current)) {
-      blockers.push(`Accepted C${index + 1} does not have a fresh engine receipt.`);
+      blockers.push(
+        `Accepted ${referenceLabel(draft, index)} does not have a fresh engine receipt.`,
+      );
     }
     if (decision.engineVerification?.status !== "already_agrees") {
-      blockers.push(`Accepted C${index + 1} does not agree with current engine output.`);
-      return;
+      blockers.push(
+        `Accepted ${referenceLabel(draft, index)} does not agree with current engine output.`,
+      );
     }
-    if (!analyticsTypes.has(draft.type)) return;
-    const match = analyticsEngineEvents
-      .map((event, engineIndex) => ({ event, engineIndex }))
-      .filter(({ event, engineIndex }) =>
-        !usedEngineIndexes.has(engineIndex)
-        && event.type === draft.type
-        && event.team === draft.team
-        && Math.abs(event.seconds - draft.seconds) <= 1
-      )
-      .sort((left, right) =>
-        Math.abs(left.event.seconds - draft.seconds)
-        - Math.abs(right.event.seconds - draft.seconds)
-      )[0];
-    if (!match) {
-      blockers.push(`Accepted C${index + 1} has no unique matching engine event.`);
-      return;
-    }
-    usedEngineIndexes.add(match.engineIndex);
-    referenceEvents.push({
-      clip_seconds: Number(draft.seconds),
-      team: draft.team,
-      event_type: draft.type,
-    });
   });
+  const matchedDrafts = [];
+  acceptedAnalytics
+    .sort((left, right) =>
+      Number(isManualReview(right.draft)) - Number(isManualReview(left.draft))
+    )
+    .forEach(({draft, index, decision}) => {
+      if (decision.engineVerification?.status !== "already_agrees") return;
+      const sameFrameRequired = isManualReview(draft) || draft.sameFrameEngineReview;
+      const match = analyticsEngineEvents
+        .map((event, engineIndex) => ({event, engineIndex}))
+        .filter(({event, engineIndex}) =>
+          !usedEngineIndexes.has(engineIndex)
+          && event.type === draft.type
+          && event.team === draft.team
+          && (
+            sameFrameRequired
+              ? Math.round(event.seconds * 25) === Math.round(draft.seconds * 25)
+              : Math.abs(event.seconds - draft.seconds) <= 1
+          )
+        )
+        .sort((left, right) =>
+          Math.abs(left.event.seconds - draft.seconds)
+          - Math.abs(right.event.seconds - draft.seconds)
+        )[0];
+      if (!match) {
+        const duplicatesManual = !isManualReview(draft)
+          && matchedDrafts.some(({draft: matchedDraft}) =>
+            isManualReview(matchedDraft)
+            && matchedDraft.type === draft.type
+            && matchedDraft.team === draft.team
+            && Math.abs(matchedDraft.seconds - draft.seconds) <= 1
+          );
+        if (duplicatesManual) return;
+        blockers.push(
+          `Accepted ${referenceLabel(draft, index)} has no unique matching engine event.`,
+        );
+        return;
+      }
+      usedEngineIndexes.add(match.engineIndex);
+      matchedDrafts.push({draft, index, engineIndex: match.engineIndex});
+      referenceEvents.push({
+        clip_seconds: Number(draft.seconds),
+        team: draft.team,
+        event_type: draft.type,
+      });
+    });
   drafts.forEach((draft, index) => {
-    if (
-      decisions[String(index)]?.status !== "rejected"
-      || !analyticsTypes.has(draft.type)
-    ) {
-      return;
-    }
+    if (decisions[String(index)]?.status !== "rejected" || !analyticsTypes.has(draft.type)) return;
     const rejectedMatch = analyticsEngineEvents.findIndex((event) =>
       event.type === draft.type
       && event.team === draft.team
@@ -83,7 +109,7 @@ export function buildPublicationPlan({
     if (rejectedMatch >= 0) {
       usedEngineIndexes.add(rejectedMatch);
       blockers.push(
-        `Rejected C${index + 1} is still emitted by current engine output.`,
+        `Rejected ${referenceLabel(draft, index)} is still emitted by current engine output.`,
       );
     }
   });
@@ -96,9 +122,7 @@ export function buildPublicationPlan({
       && review.outputHash === current.outputHash
     );
     if (!fresh) {
-      blockers.push(
-        `Unmatched E${engineIndex + 1} must be independently confirmed.`,
-      );
+      blockers.push(`Unmatched E${engineIndex + 1} must be independently confirmed.`);
       return;
     }
     referenceEvents.push({
@@ -107,17 +131,11 @@ export function buildPublicationPlan({
       event_type: event.type,
     });
   });
-  referenceEvents.sort((left, right) =>
-    left.clip_seconds - right.clip_seconds
-  );
+  referenceEvents.sort((left, right) => left.clip_seconds - right.clip_seconds);
   if (referenceEvents.length !== analyticsEngineEvents.length) {
-    blockers.push(
-      "The publishable reference and current engine output counts differ.",
-    );
+    blockers.push("The publishable reference and current engine output counts differ.");
   }
-  if (!regressionFresh) {
-    blockers.push("Protected regressions need a fresh passing receipt.");
-  }
+  if (!regressionFresh) blockers.push("Protected regressions need a fresh passing receipt.");
   return {
     reviewComplete,
     regressionFresh,

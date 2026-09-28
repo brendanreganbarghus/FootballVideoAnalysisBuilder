@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import os
@@ -55,6 +56,8 @@ from football_poc.alfheim_segments import (
 )
 from football_poc.event_comparison import compare_manual_events
 from football_poc.artifact_store import (
+    BALL_SOURCES,
+    REVIEW_WORKFLOW_ID,
     discover_prepared_segments,
     find_prepared_segment,
 )
@@ -73,20 +76,28 @@ from football_poc.coordination import (
     bootstrap_coordination,
     load_or_create_machine_identity,
 )
-from football_poc.coordination.history_import import build_reconciliation_hook
+from football_poc.engine_fingerprint import engine_fingerprint
 
 
-WORKFLOW_IDS = frozenset({"innovation_day_bac", "live_iteration_25"})
-RETIRED_INNOVATION_SEGMENTS = frozenset(
-    {
-        "segment-0060-020",
-        "segment-0300-020",
-        "segment-0540-020",
-        "segment-0540-060",
-        "segment-0575-020",
-        "segment-0595-020",
-        "segment-0615-020",
-    }
+WORKFLOW_IDS = frozenset({REVIEW_WORKFLOW_ID})
+ENGINE_OUTPUT_FILES = (
+    "analytics-data/predicted-events.json",
+    "analytics-data/match-state-events.json",
+    "analytics-data/possession.json",
+    "analytics-data/shots-on-target.json",
+    "analytics-data/chunk-simulation.json",
+    "analytics-data/player-tracking-summary.json",
+    "analytics-data/run-provenance.json",
+)
+DERIVED_ANALYSIS_ARTIFACTS = (
+    "analysis-status.json",
+    "analysis.log",
+    "runtime-manifest.json",
+    "analytics-cache",
+    "analytics-data",
+    "reviewer-coordinate-layer.json",
+    "boundary-events.json",
+    "shot-evidence.json",
 )
 
 
@@ -124,26 +135,7 @@ class CoordinationService:
     def bootstrap(cls) -> "CoordinationService":
         try:
             config = CoordinationConfig.from_environment()
-            artifact_root = shared_artifact_root()
-            reconciliation_hook = (
-                build_reconciliation_hook(
-                    artifact_root,
-                    regression_paths={
-                        "live_iteration_25": (
-                            PROJECT_ROOT
-                            / "benchmarks"
-                            / "alfheim"
-                            / "live-regressions.json"
-                        )
-                    },
-                )
-                if artifact_root
-                else None
-            )
-            result = bootstrap_coordination(
-                config,
-                reconciliation_hook=reconciliation_hook,
-            )
+            result = bootstrap_coordination(config)
         except Exception as error:
             repository = UnavailableCoordinationRepository(
                 "Coordination startup configuration failed: "
@@ -434,8 +426,6 @@ class CoordinationService:
         self, workflow: str, segment: str
     ) -> dict[str, object]:
         workflow_id, segment_id = self.validate_key(workflow, segment)
-        if workflow_id != "innovation_day_bac":
-            raise ValueError("Manual references are available only for Innovation")
         self.require_available()
         with self._repository_lock:
             draft = self.repository.get_manual_reference_set(
@@ -462,8 +452,6 @@ class CoordinationService:
         workflow, segment = self.validate_key(
             body.get("workflow"), body.get("segment")
         )
-        if workflow != "innovation_day_bac":
-            raise ValueError("Manual references are available only for Innovation")
         token = str(body.get("leaseToken") or "").strip()
         events = body.get("events")
         mappings = body.get("mappings", {})
@@ -599,6 +587,58 @@ class CoordinationService:
             ),
         }
 
+    def get_segment_ball_source(self, segment: str) -> str | None:
+        workflow, segment_id = self.validate_key(REVIEW_WORKFLOW_ID, segment)
+        self.require_available()
+        with self._repository_lock:
+            return self.repository.get_segment_ball_source(
+                workflow, segment_id
+            )
+
+    def set_segment_ball_source(
+        self, segment: str, ball_source: str
+    ) -> None:
+        workflow, segment_id = self.validate_key(REVIEW_WORKFLOW_ID, segment)
+        if ball_source not in BALL_SOURCES:
+            raise ValueError("Invalid ball source")
+        self.require_available()
+        with self._repository_lock:
+            self.repository.set_segment_ball_source(
+                workflow, segment_id, ball_source
+            )
+
+    def read_outputs(self, workflow: str, segment: str) -> object | None:
+        workflow_id, segment_id = self.validate_key(workflow, segment)
+        self.require_available()
+        with self._repository_lock:
+            return self.repository.get_segment_outputs(
+                workflow_id, segment_id
+            )
+
+    def record_outputs(
+        self,
+        segment: str,
+        *,
+        ball_source: str,
+        engine_sha256: str,
+        output_sha256: str,
+        files: dict[str, object],
+    ) -> int:
+        workflow, segment_id = self.validate_key(REVIEW_WORKFLOW_ID, segment)
+        if ball_source not in BALL_SOURCES:
+            raise ValueError("Invalid ball source")
+        self.require_available()
+        with self._repository_lock:
+            return self.repository.record_segment_outputs(
+                workflow,
+                segment_id,
+                ball_source=ball_source,
+                engine_sha256=engine_sha256,
+                output_sha256=output_sha256,
+                files=files,
+                actor_id=self.identity.developer_id,
+            )
+
     def close(self) -> None:
         with self._repository_lock:
             self.repository.close()
@@ -684,9 +724,44 @@ def workspace_environment(workspace: Path) -> dict[str, str]:
     return environment
 
 
+def _json_stringify_normalize(value: object) -> object:
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    if isinstance(value, list):
+        return [_json_stringify_normalize(item) for item in value]
+    if isinstance(value, dict):
+        return {
+            str(key): _json_stringify_normalize(item)
+            for key, item in value.items()
+        }
+    return value
+
+
+def canvas_output_sha256(
+    predictions: object, match_state: object
+) -> str:
+    payload = {
+        "predictions": _json_stringify_normalize(predictions),
+        "matchState": _json_stringify_normalize(match_state),
+    }
+    encoded = json.dumps(
+        payload,
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def read_json_if_present(path: Path) -> object | None:
+    if not path.is_file():
+        return None
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
 class RangeRequestHandler(SimpleHTTPRequestHandler):
     range_to_send: tuple[int, int] | None = None
     analysis_processes: dict[str, subprocess.Popen[bytes]] = {}
+    recorded_output_hashes: set[tuple[str, str]] = set()
 
     @property
     def coordination(self) -> CoordinationService:
@@ -783,16 +858,11 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
             return
         if request.path == "/api/alfheim/segments":
             try:
-                workflow = parse_qs(request.query).get("workflow", [""])[0]
-                if workflow not in {"", "innovation", "live"}:
-                    raise ValueError("Invalid Alfheim workflow")
+                if "workflow" in parse_qs(request.query):
+                    raise ValueError("Alfheim segments no longer accept workflow")
                 self._send_json(
                     200,
-                    {
-                        "segments": self._alfheim_review_segments(
-                            namespace=workflow or None
-                        )
-                    },
+                    {"segments": self._alfheim_review_segments()},
                 )
             except (FileNotFoundError, KeyError, TypeError, ValueError) as error:
                 self._send_json(400, {"error": str(error)})
@@ -803,19 +873,11 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
             except (FileNotFoundError, KeyError, TypeError, ValueError) as error:
                 self._send_json(400, {"error": str(error)})
             return
-        if request.path in {
-            "/api/alfheim/status",
-            "/api/alfheim/innovation/status",
-            "/api/alfheim/live/status",
-        }:
+        if request.path == "/api/alfheim/status":
             try:
                 cache_key = parse_qs(request.query).get("cache_key", [""])[0]
                 if not re.fullmatch(r"segment-\d{4}-\d{3}", cache_key):
                     raise ValueError("Invalid segment cache key")
-                namespace = {
-                    "/api/alfheim/innovation/status": "innovation",
-                    "/api/alfheim/live/status": "live",
-                }.get(request.path)
                 local_root = (
                     Path.cwd()
                     / "benchmarks"
@@ -830,24 +892,13 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
                         cache_key,
                         SHARED_ARTIFACT_ROOT,
                     )
-                    workflow_id = {
-                        "innovation": "innovation_day_bac",
-                        "live": "live_iteration_25",
-                    }.get(namespace)
-                    if (
-                        shared is not None
-                        and (
-                            workflow_id is None
-                            or workflow_id in shared.workflows
-                        )
-                    ):
+                    if shared is not None:
                         prepared_root = shared.root
                         url_root = f"/shared-prepared/{cache_key}"
                 self._send_json(
                     200,
                     self._segment_status(
                         cache_key,
-                        namespace=namespace,
                         prepared_root=prepared_root,
                         url_root=url_root,
                     ),
@@ -865,11 +916,8 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
         if request_path == "/api/alfheim/analyze":
             self._start_segment_analysis()
             return
-        if request_path == "/api/alfheim/innovation/analyze":
-            self._start_segment_analysis(workflow="innovation")
-            return
-        if request_path == "/api/alfheim/live/analyze":
-            self._start_segment_analysis(workflow="live")
+        if request_path == "/api/alfheim/switch-ball-source":
+            self._switch_ball_source()
             return
         if request_path == "/api/soccertrack/analyze":
             self._start_soccertrack_analysis()
@@ -888,11 +936,7 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
             if payload.get("source_id") not in {None, "alfheim"}:
                 raise ValueError("This endpoint prepares only the Alfheim source")
             workflow_id = payload.get("workflow_id")
-            if workflow_id not in {
-                None,
-                "innovation_day_bac",
-                "live_iteration_25",
-            }:
+            if workflow_id not in {None, REVIEW_WORKFLOW_ID}:
                 raise ValueError("Unknown review workflow")
             duration_seconds = require_review_duration(
                 float(payload["duration_seconds"])
@@ -995,7 +1039,66 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
         ) as error:
             self._send_json(400, {"error": str(error)})
 
-    def _start_segment_analysis(self, workflow: str = "legacy") -> None:
+    def _record_completed_segment_outputs(
+        self,
+        cache_key: str,
+        run_root: Path,
+        ball_source: str,
+    ) -> None:
+        if self.coordination.mode is not DatabaseMode.AVAILABLE:
+            return
+        predictions = read_json_if_present(
+            run_root / "analytics-data" / "predicted-events.json"
+        )
+        match_state = read_json_if_present(
+            run_root / "analytics-data" / "match-state-events.json"
+        )
+        if predictions is None or match_state is None:
+            return
+        output_sha = canvas_output_sha256(predictions, match_state)
+        record_key = (cache_key, output_sha)
+        if record_key in self.recorded_output_hashes:
+            return
+        files: dict[str, object] = {}
+        for relative in ENGINE_OUTPUT_FILES:
+            value = read_json_if_present(run_root / relative)
+            if value is not None:
+                files[Path(relative).name] = value
+        engine_sha = engine_fingerprint(PROJECT_ROOT)
+        self.coordination.record_outputs(
+            cache_key,
+            ball_source=ball_source,
+            engine_sha256=engine_sha,
+            output_sha256=output_sha,
+            files=files,
+        )
+        self.recorded_output_hashes.add(record_key)
+
+    def _recorded_ball_source(
+        self, cache_key: str, segment_root: Path
+    ) -> str | None:
+        try:
+            coordination = self.coordination
+        except AttributeError:
+            coordination = None
+        if coordination is not None and coordination.mode is DatabaseMode.AVAILABLE:
+            try:
+                source = coordination.get_segment_ball_source(cache_key)
+                if source in BALL_SOURCES:
+                    return source
+            except DatabaseUnavailableError:
+                pass
+        for relative in (
+            "analysis-status.json",
+            "analytics-data/run-provenance.json",
+            "segment.json",
+        ):
+            value = read_json_if_present(segment_root / relative)
+            if isinstance(value, dict) and value.get("ball_source") in BALL_SOURCES:
+                return str(value["ball_source"])
+        return None
+
+    def _start_segment_analysis(self) -> None:
         try:
             content_length = int(self.headers.get("Content-Length", "0"))
             if content_length <= 0 or content_length > 4096:
@@ -1003,23 +1106,21 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
             payload = json.loads(self.rfile.read(content_length))
             cache_key = str(payload["cache_key"])
             events_only = payload.get("events_only", False)
-            if not isinstance(events_only, bool):
-                raise ValueError("events_only must be a boolean")
             evidence_only = payload.get("evidence_only", False)
-            if not isinstance(evidence_only, bool):
-                raise ValueError("evidence_only must be a boolean")
             resume_after_detection = payload.get("resume_after_detection", False)
-            if not isinstance(resume_after_detection, bool):
-                raise ValueError("resume_after_detection must be a boolean")
             focused_recovery = payload.get("focused_recovery", False)
-            if not isinstance(focused_recovery, bool):
-                raise ValueError("focused_recovery must be a boolean")
             coordinates_updated = payload.get("coordinates_updated", False)
-            if not isinstance(coordinates_updated, bool):
-                raise ValueError("coordinates_updated must be a boolean")
             rerun_events = payload.get("rerun_events", True)
-            if not isinstance(rerun_events, bool):
-                raise ValueError("rerun_events must be a boolean")
+            for name, value in (
+                ("events_only", events_only),
+                ("evidence_only", evidence_only),
+                ("resume_after_detection", resume_after_detection),
+                ("focused_recovery", focused_recovery),
+                ("coordinates_updated", coordinates_updated),
+                ("rerun_events", rerun_events),
+            ):
+                if not isinstance(value, bool):
+                    raise ValueError(f"{name} must be a boolean")
             if not coordinates_updated and not rerun_events:
                 raise ValueError(
                     "rerun_events can be false only for a coordinate update"
@@ -1032,16 +1133,8 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
                 coordinates_updated,
             )) > 1:
                 raise ValueError(
-                    "events_only, evidence_only, resume_after_detection, and "
+                    "events_only, evidence_only, resume_after_detection, "
                     "focused_recovery, and coordinates_updated are exclusive"
-                )
-            if coordinates_updated and workflow != "innovation":
-                raise ValueError(
-                    "Reviewer coordinate updates are available only for Innovation"
-                )
-            if evidence_only and workflow != "innovation":
-                raise ValueError(
-                    "Evidence-only preparation is available only for Innovation"
                 )
             if not re.fullmatch(r"segment-\d{4}-\d{3}", cache_key):
                 raise ValueError("Invalid segment cache key")
@@ -1053,7 +1146,10 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
                 / cache_key
             )
             if not (segment / "manifest.json").is_file():
-                raise FileNotFoundError(f"Prepared segment not found: {cache_key}")
+                shared = find_prepared_segment(cache_key, SHARED_ARTIFACT_ROOT)
+                if shared is None:
+                    raise FileNotFoundError(f"Prepared segment not found: {cache_key}")
+                segment = shared.root
             prepared = json.loads(
                 (segment / "manifest.json").read_text(encoding="utf-8")
             )
@@ -1062,31 +1158,35 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
                     "AI can run only on the prepared 20-, 30-, or 60-second "
                     "Alfheim review segments"
                 )
-            process_key = f"{workflow}:{cache_key}"
+            requested_source = payload.get("ball_source")
+            if requested_source is not None:
+                requested_source = str(requested_source)
+            if events_only and requested_source is None:
+                requested_source = self._recorded_ball_source(cache_key, segment)
+            if requested_source not in BALL_SOURCES:
+                raise ValueError("ball_source must be 'bac' or 'live'")
+            ball_source = str(requested_source)
+            if (evidence_only or coordinates_updated) and ball_source != "bac":
+                raise ValueError("evidence_only and coordinates_updated require bac")
+            if (resume_after_detection or focused_recovery) and ball_source != "live":
+                raise ValueError(
+                    "resume_after_detection and focused_recovery require live"
+                )
+            process_key = cache_key
             current = self.analysis_processes.get(process_key)
             if current is not None and current.poll() is None:
                 self._send_json(202, {"state": "processing"})
                 return
-            run_root = (
-                segment / workflow
-                if workflow in {"innovation", "live"}
-                else segment
-            )
-            run_root.mkdir(parents=True, exist_ok=True)
+            run_root = segment
             log_path = run_root / "analysis.log"
             log = log_path.open("ab")
-            script_name = (
-                "process-alfheim-innovation-segment.py"
-                if workflow == "innovation"
-                else "process-alfheim-segment.py"
-            )
             arguments = [
                 sys.executable,
-                str(Path.cwd() / "scripts" / script_name),
+                str(Path.cwd() / "scripts" / "process-alfheim-segment.py"),
                 str(segment),
+                "--ball-source",
+                ball_source,
             ]
-            if workflow == "live":
-                arguments.extend(["--artifact-namespace", "live"])
             if events_only:
                 arguments.append("--events-only")
             if evidence_only:
@@ -1108,7 +1208,10 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
             )
             log.close()
             self.analysis_processes[process_key] = process
-            self._send_json(202, {"state": "processing", "pid": process.pid})
+            self._send_json(
+                202,
+                {"state": "processing", "pid": process.pid, "ball_source": ball_source},
+            )
         except (
             FileNotFoundError,
             KeyError,
@@ -1117,6 +1220,100 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
             json.JSONDecodeError,
         ) as error:
             self._send_json(400, {"error": str(error)})
+
+    def _switch_ball_source(self) -> None:
+        try:
+            content_length = int(self.headers.get("Content-Length", "0"))
+            if content_length <= 0 or content_length > 4096:
+                raise ValueError("Request body must contain a small JSON object")
+            payload = json.loads(self.rfile.read(content_length))
+            cache_key = str(payload.get("cache_key") or "")
+            ball_source = str(payload.get("ball_source") or "")
+            if not re.fullmatch(r"segment-\d{4}-\d{3}", cache_key):
+                raise ValueError("Invalid segment cache key")
+            if ball_source not in BALL_SOURCES:
+                raise ValueError("Invalid ball source")
+            if payload.get("confirm") is not True:
+                raise ValueError("confirm:true is required")
+            current = self.analysis_processes.get(cache_key)
+            if current is not None and current.poll() is None:
+                self._send_json(
+                    409,
+                    {
+                        "error": "An analysis job is running for this segment",
+                        "code": "job_running",
+                    },
+                )
+                return
+            self.coordination.require_available()
+            lease = self.coordination.repository.get_lease(
+                REVIEW_WORKFLOW_ID, cache_key
+            )
+            identity = self.coordination.identity
+            if (
+                lease is not None
+                and identity is not None
+                and lease.owner_id != identity.developer_id
+            ):
+                self._send_json(
+                    409,
+                    {
+                        "error": "Another developer holds the editing lease",
+                        "code": "lease_conflict",
+                    },
+                )
+                return
+            local_root = (
+                Path.cwd()
+                / "benchmarks"
+                / "alfheim"
+                / "generated"
+                / cache_key
+            )
+            shared = None if local_root.is_dir() else find_prepared_segment(
+                cache_key, SHARED_ARTIFACT_ROOT
+            )
+            segment_root = local_root if local_root.is_dir() else (
+                shared.root if shared is not None else None
+            )
+            if segment_root is None:
+                raise FileNotFoundError(f"Prepared segment not found: {cache_key}")
+            current_source = self._recorded_ball_source(cache_key, segment_root)
+            if current_source == ball_source:
+                raise ValueError("Segment already uses that ball source")
+            removed: list[str] = []
+            for relative in DERIVED_ANALYSIS_ARTIFACTS:
+                path = segment_root / relative
+                if path.is_dir():
+                    shutil.rmtree(path)
+                    removed.append(relative)
+                elif path.is_file():
+                    path.unlink()
+                    removed.append(relative)
+            self.coordination.set_segment_ball_source(cache_key, ball_source)
+            segment_metadata = segment_root / "segment.json"
+            if segment_metadata.is_file():
+                metadata = json.loads(segment_metadata.read_text(encoding="utf-8"))
+                metadata["ball_source"] = ball_source
+                segment_metadata.write_text(
+                    json.dumps(metadata, indent=2) + "\n",
+                    encoding="utf-8",
+                )
+            self._send_json(
+                200,
+                {
+                    "cache_key": cache_key,
+                    "ball_source": ball_source,
+                    "removed": removed,
+                },
+            )
+        except (FileNotFoundError, ValueError, json.JSONDecodeError) as error:
+            self._send_json(400, {"error": str(error)})
+        except DatabaseUnavailableError as error:
+            self._send_json(
+                503,
+                {"error": str(error), "code": "coordination_unavailable"},
+            )
 
     def _start_soccertrack_analysis(self) -> None:
         try:
@@ -1264,6 +1461,11 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
                     query.get("workflow", [""])[0],
                     query.get("segment", [""])[0],
                 )
+            elif request.path == "/api/coordination/outputs":
+                payload = self.coordination.read_outputs(
+                    query.get("workflow", [""])[0],
+                    query.get("segment", [""])[0],
+                )
             else:
                 self._send_json(404, {"error": "Coordination API not found"})
                 return
@@ -1353,7 +1555,6 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
     def _segment_status(
         self,
         cache_key: str,
-        namespace: str | None = None,
         *,
         prepared_root: Path | None = None,
         url_root: str | None = None,
@@ -1369,7 +1570,7 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
         if not manifest_path.is_file():
             raise FileNotFoundError(f"Prepared segment not found: {cache_key}")
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        root = segment_root / namespace if namespace else segment_root
+        root = segment_root
         cache_path = root / "analytics-cache" / "detections.jsonl"
         processed_frames = 0
         expected_frames = 0
@@ -1384,12 +1585,11 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
         events = root / "analytics-data" / "predicted-events.json"
         tracking = root / "analytics-data" / "tracking-verification.webm"
         analysis_status, performance = self._analysis_receipt(root)
-        process_key = f"{namespace or 'legacy'}:{cache_key}"
+        ball_source = self._recorded_ball_source(cache_key, segment_root)
+        process_key = cache_key
         current_process = self.analysis_processes.get(process_key)
         relative = (
-            f"{url_root.rstrip('/')}/{namespace}"
-            if url_root and namespace
-            else url_root.rstrip("/")
+            url_root.rstrip("/")
             if url_root
             else f"/{root.relative_to(Path.cwd()).as_posix()}"
         )
@@ -1399,23 +1599,38 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
                 if analysis_status.get("stage") == "detecting"
                 else "building"
             )
-        elif analysis_status.get("stage") == "failed":
-            state = "failed"
-        elif events.is_file():
-            state = "ready"
-        elif analysis_status.get("stage") == "evidence_ready":
-            state = "evidence_ready"
-        elif analysis_status and expected_frames and processed_frames >= expected_frames:
-            state = "building"
-        elif expected_frames and processed_frames >= expected_frames:
-            state = "detections_ready"
-        elif processed_frames:
-            state = "processing"
         else:
-            state = "prepared"
+            if current_process is not None:
+                self.analysis_processes.pop(process_key, None)
+            if (
+                analysis_status.get("stage") == "ready"
+                and events.is_file()
+                and ball_source in BALL_SOURCES
+            ):
+                try:
+                    self._record_completed_segment_outputs(
+                        cache_key, root, ball_source
+                    )
+                except Exception:
+                    pass
+            if analysis_status.get("stage") == "failed":
+                state = "failed"
+            elif events.is_file():
+                state = "ready"
+            elif analysis_status.get("stage") == "evidence_ready":
+                state = "evidence_ready"
+            elif analysis_status and expected_frames and processed_frames >= expected_frames:
+                state = "building"
+            elif expected_frames and processed_frames >= expected_frames:
+                state = "detections_ready"
+            elif processed_frames:
+                state = "processing"
+            else:
+                state = "prepared"
         return {
             "cache_key": cache_key,
-            "workflow": namespace or "legacy",
+            "workflow": REVIEW_WORKFLOW_ID,
+            "ball_source": ball_source,
             "state": state,
             "processed_frames": processed_frames,
             "expected_frames": expected_frames,
@@ -1435,18 +1650,9 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
             ),
         }
 
-    def _shared_prepared_segments(
-        self,
-        namespace: str | None = None,
-    ) -> list[dict[str, object]]:
-        workflow_id = {
-            "innovation": "innovation_day_bac",
-            "live": "live_iteration_25",
-        }.get(namespace)
+    def _shared_prepared_segments(self) -> list[dict[str, object]]:
         items: list[dict[str, object]] = []
         for shared in discover_prepared_segments(SHARED_ARTIFACT_ROOT):
-            if workflow_id and workflow_id not in shared.workflows:
-                continue
             metadata = dict(shared.metadata)
             manifest = json.loads(
                 shared.manifest.read_text(encoding="utf-8")
@@ -1455,10 +1661,9 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
                 int,
                 shared.segment_id.removeprefix("segment-").split("-"),
             )
-            run_root = shared.root / namespace if namespace else shared.root
+            run_root = shared.root
             status = self._segment_status(
                 shared.segment_id,
-                namespace=namespace,
                 prepared_root=shared.root,
                 url_root=f"/shared-prepared/{shared.segment_id}",
             )
@@ -1478,7 +1683,7 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
                     manual,
                     predicted,
                     tolerance_seconds=1.0,
-                    include_shots_on_target=namespace == "innovation",
+                    include_shots_on_target=True,
                 )
                 validated = (
                     len(manual) == len(predicted)
@@ -1529,24 +1734,18 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
                         f"{shared.video.relative_to(shared.root).as_posix()}"
                     ),
                     "prepared_root": str(shared.root),
-                    "review_workflows": list(shared.workflows),
+                    "review_workflows": [REVIEW_WORKFLOW_ID],
                     "labels_url": None,
                 }
             )
         return items
 
-    def _prepared_segments(
-        self,
-        namespace: str | None = None,
-    ) -> list[dict[str, object]]:
+    def _prepared_segments(self) -> list[dict[str, object]]:
         workspace = Path.cwd()
         items: list[dict[str, object]] = []
         baseline = workspace / "benchmarks" / "alfheim" / "window-555"
         baseline_video = baseline / "alfheim-window-playable.mp4"
-        baseline_run_root = baseline / namespace if namespace else baseline
-        baseline_events = (
-            baseline_run_root / "analytics-data" / "predicted-events.json"
-        )
+        baseline_events = baseline / "analytics-data" / "predicted-events.json"
         if baseline_video.is_file():
             baseline_manifest_path = baseline / "manifest.json"
             baseline_manifest = (
@@ -1575,6 +1774,7 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
                         else "prepared"
                     ),
                     "raw_video_only": baseline_raw_only,
+                    "ball_source": self._recorded_ball_source("alfheim-window-555", baseline),
                     "ball_track_available": (
                         baseline / "analytics-cache" / "ball-tracks.json"
                     ).is_file(),
@@ -1595,7 +1795,7 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
             if not video.is_file():
                 continue
             first_segment, segment_count = map(int, match.groups())
-            status = self._segment_status(root.name, namespace=namespace)
+            status = self._segment_status(root.name)
             manifest_path = root / "manifest.json"
             manifest = (
                 json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -1606,10 +1806,10 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
                 "ball_ground_truth" not in manifest
                 and float(manifest.get("duration_seconds", 0)) in {20, 30, 60}
                 and Path(str(manifest.get("video", ""))).name
-                in {"alfheim-window.mp4", "alfheim-window-playable.mp4"}
+                in {"alfheim-window.mp4", "alfheim-window-playable.mp4", "segment.mp4"}
                 and video.is_file()
             )
-            run_root = root / namespace if namespace else root
+            run_root = root
             evidence_ready = (
                 (run_root / "analytics-cache" / "ball-tracks.json").is_file()
                 and (
@@ -1637,7 +1837,7 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
                     manual,
                     predicted,
                     tolerance_seconds=1.0,
-                    include_shots_on_target=namespace == "innovation",
+                    include_shots_on_target=True,
                 )
                 validated = (
                     len(manual) == len(predicted) == report["matched_event_count"]
@@ -1658,6 +1858,7 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
                         status["state"] if raw_video_only else "invalid_input"
                     ),
                     "raw_video_only": raw_video_only,
+                    "ball_source": status.get("ball_source"),
                     "ball_track_available": (
                         run_root / "analytics-cache" / "ball-tracks.json"
                     ).is_file(),
@@ -1671,80 +1872,28 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
                     },
                     "video_url": f"/{relative}/alfheim-window-playable.mp4",
                     "prepared_root": str(root.resolve()),
-                    "review_workflows": [
-                        str(value)
-                        for value in manifest.get("review_workflows", [])
-                    ],
+                    "review_workflows": [REVIEW_WORKFLOW_ID],
                     "labels_url": None,
                 }
             )
         local_keys = {str(item["cache_key"]) for item in items}
         items.extend(
             segment
-            for segment in self._shared_prepared_segments(namespace=namespace)
+            for segment in self._shared_prepared_segments()
             if str(segment["cache_key"]) not in local_keys
         )
         return sorted(items, key=lambda item: str(item["cache_key"]))
 
-    def _alfheim_review_segments(
-        self,
-        namespace: str | None = None,
-    ) -> list[dict[str, object]]:
-        segments = self._prepared_segments(namespace=namespace)
-        def registered_for_workflow(
-            segment: dict[str, object],
-            workflow_id: str,
-        ) -> bool:
-            return workflow_id in {
-                str(value)
-                for value in segment.get("review_workflows", [])
-            }
-
-        if namespace == "innovation":
-            segments = [
-                segment for segment in segments
-                if segment.get("raw_video_only", False)
-                and segment["cache_key"] not in RETIRED_INNOVATION_SEGMENTS
-                and registered_for_workflow(
-                    segment,
-                    "innovation_day_bac",
-                )
-            ]
-        elif namespace == "live":
-            registry_path = (
-                Path.cwd()
-                / "benchmarks"
-                / "alfheim"
-                / "live-regressions.json"
-            )
-            registry = (
-                json.loads(registry_path.read_text(encoding="utf-8"))
-                if registry_path.is_file()
-                else {"segments": []}
-            )
-            live_keys = {
-                "segment-0540-020",
-                "segment-0540-060",
-                *(
-                    str(entry["segment"])
-                    for entry in registry.get("segments", [])
-                ),
-            }
-            segments = [
-                segment for segment in segments
-                if (
-                    segment["cache_key"] in live_keys
-                    or registered_for_workflow(
-                        segment,
-                        "live_iteration_25",
-                    )
-                )
-                and segment.get("raw_video_only", False)
-            ]
+    def _alfheim_review_segments(self) -> list[dict[str, object]]:
+        segments = [
+            segment for segment in self._prepared_segments()
+            if segment.get("raw_video_only", False)
+        ]
         return [
             {
                 **segment,
                 **ALFHEIM_SOURCE,
+                "workflow": REVIEW_WORKFLOW_ID,
                 "dataset_id": "alfheim",
                 "dataset_name": (
                     f"{ALFHEIM_SOURCE['club_name']} · "
@@ -1756,17 +1905,12 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
                 "image_height": 2000,
                 "processing_supported": (
                     segment.get("raw_video_only", False)
-                    and
-                    segment["duration_seconds"] in {20, 30, 60}
-                    and (
-                        namespace != "innovation"
-                        or segment.get("evidence_ready", False)
-                    )
+                    and segment["duration_seconds"] in {20, 30, 60}
                 ),
                 "evidence_preparation_supported": (
-                    namespace == "innovation"
-                    and segment.get("raw_video_only", False)
+                    segment.get("raw_video_only", False)
                     and segment["duration_seconds"] in {20, 30, 60}
+                    and segment.get("ball_source") in {None, "bac"}
                 ),
                 "preparation_supported": True,
                 "attribution": (

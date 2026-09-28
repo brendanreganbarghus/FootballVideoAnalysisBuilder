@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from football_poc.event_comparison import compare_manual_events
-from football_poc.innovation_day_snapshot import shots_on_target as sot
+from football_poc import shots_on_target as sot
 
 
 FPS = 25
@@ -336,7 +336,7 @@ def test_readiness_and_invalid_configuration() -> None:
 
 
 def test_shots_on_target_always_runs_without_opt_in() -> None:
-    from football_poc.innovation_day_snapshot import possession_cli
+    from football_poc import possession_cli
 
     root = Path(__file__).resolve().parents[1]
     assert not hasattr(sot, "SETTING_FILE_NAME")
@@ -348,7 +348,7 @@ def test_shots_on_target_always_runs_without_opt_in() -> None:
     }
     assert "--shots-on-target" not in options
     assert "--shot-evidence" in options
-    runner = (root / "scripts" / "process-alfheim-innovation-segment.py").read_text(
+    runner = (root / "scripts" / "process-alfheim-segment.py").read_text(
         encoding="utf-8"
     )
     assert "shots-on-target-setting" not in runner
@@ -433,7 +433,7 @@ def test_enabled_output_is_deterministic_and_adds_one_event(tmp_path) -> None:
     assert summary["analysis_status"] == "complete"
 
 
-def test_comparison_includes_sot_only_in_innovation_scope() -> None:
+def test_comparison_includes_sot_only_when_enabled() -> None:
     manual = [{"clip_seconds": 4.3, "team": "red", "event_type": "shot_on_target"}]
     predicted = [{"event_type": "shot_on_target", "clip_seconds": 4.0,
                   "completion_seconds": 4.16, "team": "red"}]
@@ -449,7 +449,7 @@ def test_comparison_includes_sot_only_in_innovation_scope() -> None:
     )["matched_event_count"] == 0
 
 
-def test_canvas_scopes_sot_to_innovation_and_blocks_incomplete_publication() -> None:
+def test_canvas_includes_sot_and_blocks_incomplete_publication() -> None:
     import subprocess
 
     root = Path(__file__).resolve().parents[1]
@@ -460,9 +460,8 @@ const base = {drafts: [], decisions: {}, engineEvents: [], engineEventReviews: {
   current: {fingerprint: {contentHash: 'a'}, outputHash: 'b'},
   snapshotMatches: true, verificationIsCurrent: () => true, regressionFresh: true};
 console.log(JSON.stringify({
-  innovation: workflowAdapter('innovation').analyticsEventTypes,
-  live: workflowAdapter('live').analyticsEventTypes,
-  tests: workflowAdapter('innovation').regressionTests.includes('tests/test_innovation_shots.py'),
+  types: workflowAdapter().analyticsEventTypes,
+  tests: workflowAdapter().regressionTests.includes('tests/test_shots_on_target.py'),
   legacy: buildPublicationPlan(base).ready,
   partial: buildPublicationPlan({...base, shotsOnTarget: {analysis_status: 'partial'}}).ready,
   complete: buildPublicationPlan({...base, shotsOnTarget: {analysis_status: 'complete'}}).ready,
@@ -473,8 +472,7 @@ console.log(JSON.stringify({
         cwd=root, capture_output=True, text=True, check=True,
     )
     payload = json.loads(result.stdout)
-    assert payload["innovation"] == ["completed_pass", "turnover", "shot_on_target"]
-    assert payload["live"] == ["completed_pass", "turnover"]
+    assert payload["types"] == ["completed_pass", "turnover", "shot_on_target"]
     assert payload["tests"] is True
     assert payload["legacy"] is True
     assert payload["partial"] is False

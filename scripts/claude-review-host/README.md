@@ -1,6 +1,6 @@
 # Claude review host
 
-Runs the Innovation Day Football Event Review Canvas with a Claude agent in
+Runs the Football Event Review Canvas with a Claude agent in
 place of GitHub Copilot. The host needs no changes to the extension in
 `.github\extensions\football-event-review`: `hooks.mjs` resolves
 its `@github/copilot-sdk/extension` import to `copilot-shim.mjs`, which
@@ -18,7 +18,7 @@ is the connected session, and copied or stale URLs remain read-only.
 
 ## Run
 
-Prerequisites: the port-8080 local app, the Innovation workspace environment
+Prerequisites: the port-8080 local app, the review workspace environment
 (`FOOTBALL_ARTIFACT_ROOT`, `FOOTBALL_ALFHEIM_PANO`), Node.js 20 or later, and
 Claude credentials (a Claude Code login or `ANTHROPIC_API_KEY`).
 
@@ -29,7 +29,7 @@ $env:PATH = "$(Resolve-Path ..\..\.venv\Scripts);$env:PATH"
 node host.mjs --segment segment-0120-020
 ```
 
-Open `http://127.0.0.1:8080/review-canvas?theme=innovation`. Stop the host
+Open `http://127.0.0.1:8080/review-canvas`. Stop the host
 with Ctrl+C.
 
 ## Options
@@ -48,5 +48,4 @@ blocks the Canvas actions that report the answer.
 A request that ends without a completed Canvas reporting action raises
 `session.error`, so the Canvas never stays in the working state.
 
-Only the Innovation workflow is hosted. The Live Canvas remains a separate
-workstream.
+The single Football Event Review workflow is hosted.

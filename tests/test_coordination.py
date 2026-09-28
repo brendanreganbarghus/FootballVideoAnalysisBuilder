@@ -83,7 +83,6 @@ def test_migration_discovery_is_versioned_and_checksummed(
 def test_repository_migrations_cover_claim_lock_and_logical_artifacts() -> None:
     migrations = discover_migrations()
     schema = migrations[0].sql
-    seeds = migrations[1].sql
 
     assert "FOR UPDATE SKIP LOCKED" in (
         Path(__file__).parents[1]
@@ -102,8 +101,9 @@ def test_repository_migrations_cover_claim_lock_and_logical_artifacts() -> None:
     assert "stage text NOT NULL" in editing_lease_schema
     assert "CONSTRAINT editing_lease_machine_fk" in editing_lease_schema
     assert "CONSTRAINT editing_lease_stage_nonempty" in editing_lease_schema
-    assert "'innovation_day_bac'" in seeds
-    assert "'live_iteration_25'" in seeds
+    assert postgres_module.WORKFLOW_SEEDS == (
+        ("football_review", "Football review", ""),
+    )
     for table in (
         "segments",
         "segment_artifacts",
@@ -282,23 +282,23 @@ def test_active_lease_lookup_is_workflow_scoped_and_cleans_expiry() -> None:
     clock = MutableClock()
     repository = InMemoryCoordinationRepository(clock=clock)
     innovation = repository.acquire_lease(
-        "innovation_day_bac", "shared", "alice", MACHINE_A, "review"
+        "workflow-a", "shared", "alice", MACHINE_A, "review"
     )
     live = repository.acquire_lease(
-        "live_iteration_25", "shared", "bob", MACHINE_B, "publication"
+        "workflow-b", "shared", "bob", MACHINE_B, "publication"
     )
 
     assert repository.get_lease(
-        "innovation_day_bac", "shared"
+        "workflow-a", "shared"
     ) == innovation
-    assert repository.list_active_leases("innovation_day_bac") == (
+    assert repository.list_active_leases("workflow-a") == (
         innovation,
     )
-    assert repository.list_active_leases("live_iteration_25") == (live,)
+    assert repository.list_active_leases("workflow-b") == (live,)
 
     clock.advance(301)
-    assert repository.get_lease("innovation_day_bac", "shared") is None
-    assert repository.list_active_leases("innovation_day_bac") == ()
+    assert repository.get_lease("workflow-a", "shared") is None
+    assert repository.list_active_leases("workflow-a") == ()
 
 
 def test_state_mutation_requires_exact_active_owner_lease() -> None:
@@ -379,20 +379,20 @@ def test_state_mutation_is_optimistic_and_workflow_scoped() -> None:
 def test_same_segment_key_has_independent_workflow_coordination() -> None:
     repository = InMemoryCoordinationRepository()
     segment_key = "shared-segment-key"
-    for workflow_id in ("innovation_day_bac", "live_iteration_25"):
+    for workflow_id in ("workflow-a", "workflow-b"):
         repository.upsert_segment(
             Segment(workflow_id, segment_key, "recording/segment", {})
         )
 
     innovation_lease = repository.acquire_lease(
-        "innovation_day_bac",
+        "workflow-a",
         segment_key,
         "innovation-reviewer",
         MACHINE_A,
         "review",
     )
     live_lease = repository.acquire_lease(
-        "live_iteration_25",
+        "workflow-b",
         segment_key,
         "live-reviewer",
         MACHINE_B,
@@ -400,20 +400,20 @@ def test_same_segment_key_has_independent_workflow_coordination() -> None:
     )
     innovation_revision = repository.append_history(
         "C",
-        "innovation_day_bac",
+        "workflow-a",
         segment_key,
         {"event_key": "C1"},
         "innovation-reviewer",
     )
     live_revision = repository.append_history(
         "C",
-        "live_iteration_25",
+        "workflow-b",
         segment_key,
         {"event_key": "C1"},
         "live-reviewer",
     )
     repository.mutate_state(
-        "innovation_day_bac",
+        "workflow-a",
         segment_key,
         0,
         {"review": "innovation"},
@@ -421,7 +421,7 @@ def test_same_segment_key_has_independent_workflow_coordination() -> None:
         innovation_lease.token,
     )
     repository.mutate_state(
-        "live_iteration_25",
+        "workflow-b",
         segment_key,
         0,
         {"review": "live"},
@@ -429,14 +429,14 @@ def test_same_segment_key_has_independent_workflow_coordination() -> None:
         live_lease.token,
     )
     repository.enqueue_job(
-        "innovation_day_bac",
+        "workflow-a",
         "review",
         {},
         segment_id=segment_key,
         priority=2,
     )
     repository.enqueue_job(
-        "live_iteration_25",
+        "workflow-b",
         "review",
         {},
         segment_id=segment_key,
@@ -448,20 +448,20 @@ def test_same_segment_key_has_independent_workflow_coordination() -> None:
     assert innovation_lease.token != live_lease.token
     assert innovation_revision == live_revision == 1
     assert repository.get_state(
-        "innovation_day_bac", segment_key
-    ).state != repository.get_state("live_iteration_25", segment_key).state
+        "workflow-a", segment_key
+    ).state != repository.get_state("workflow-b", segment_key).state
     assert innovation_job is not None
-    assert innovation_job.workflow_id == "innovation_day_bac"
+    assert innovation_job.workflow_id == "workflow-a"
     assert innovation_job.segment_id == segment_key
     assert live_job is not None
-    assert live_job.workflow_id == "live_iteration_25"
+    assert live_job.workflow_id == "workflow-b"
     assert live_job.segment_id == segment_key
     assert repository.get_segment(
-        "innovation_day_bac", segment_key
-    ).workflow_id == "innovation_day_bac"
+        "workflow-a", segment_key
+    ).workflow_id == "workflow-a"
     assert repository.get_segment(
-        "live_iteration_25", segment_key
-    ).workflow_id == "live_iteration_25"
+        "workflow-b", segment_key
+    ).workflow_id == "workflow-b"
 
 
 def test_segment_and_artifact_identity_are_deterministic() -> None:
@@ -487,6 +487,42 @@ def test_segment_and_artifact_identity_are_deterministic() -> None:
     assert repository.list_segments("workflow-a") == (segment,)
     assert first.artifact_id == same.artifact_id
     assert changed.artifact_id != first.artifact_id
+
+
+def test_memory_repository_records_latest_segment_outputs_and_ball_source() -> None:
+    repository = InMemoryCoordinationRepository()
+
+    first = repository.record_segment_outputs(
+        "football_review",
+        "segment-0120-020",
+        ball_source="bac",
+        engine_sha256="a" * 64,
+        output_sha256="b" * 64,
+        files={"predicted-events.json": [{"id": "E1"}]},
+        actor_id="reviewer",
+    )
+    second = repository.record_segment_outputs(
+        "football_review",
+        "segment-0120-020",
+        ball_source="live",
+        engine_sha256="c" * 64,
+        output_sha256="d" * 64,
+        files={"predicted-events.json": [{"id": "E2"}]},
+        actor_id="reviewer",
+    )
+
+    output = repository.get_segment_outputs(
+        "football_review", "segment-0120-020"
+    )
+    assert (first, second) == (1, 2)
+    assert repository.get_segment_ball_source(
+        "football_review", "segment-0120-020"
+    ) == "live"
+    assert output is not None
+    assert output["revision"] == 2
+    assert output["ballSource"] == "live"
+    assert output["outputSha256"] == "d" * 64
+    assert output["files"]["predicted-events.json"] == [{"id": "E2"}]
 
 
 def test_job_claiming_is_exclusive_and_priority_ordered() -> None:
@@ -909,7 +945,7 @@ def test_identity_registration_is_workflow_independent() -> None:
     audit = repository.append_audit(
         "identity.registered",
         identity.developer_id,
-        workflow_id="innovation_day_bac",
+        workflow_id="workflow-a",
         machine_id=identity.machine_id,
     )
     assert repository.health().mode is DatabaseMode.AVAILABLE

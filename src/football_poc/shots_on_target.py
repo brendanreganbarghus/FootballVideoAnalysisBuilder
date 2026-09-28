@@ -1,4 +1,4 @@
-"""Conservative Innovation Day shots-on-target analytics.
+"""Conservative shots-on-target analytics.
 
 Shots on target are a project analytics contract, not an IFAB statistic. An
 intentional scoring attempt counts once when it produces a separately
@@ -230,7 +230,7 @@ def readiness(payload: dict[str, Any] | None) -> Readiness:
         raise ShotEvidenceError("Unsupported shot evidence schema_version")
     if payload.get("source_kind") != EVIDENCE_SOURCE_KIND:
         raise ShotEvidenceError(
-            "Shot evidence must come from the Innovation runtime evidence "
+            "Shot evidence must come from the runtime evidence "
             "adapter, never from manual or provider event labels"
         )
     reasons: list[str] = []
@@ -905,7 +905,7 @@ def apply_shots_on_target(
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
-        description="Check Innovation shots-on-target evidence readiness."
+        description="Check shots-on-target evidence readiness."
     )
     parser.add_argument("command", choices=["readiness"])
     parser.add_argument("evidence", type=Path)

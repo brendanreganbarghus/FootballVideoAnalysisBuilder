@@ -18,7 +18,7 @@ MACHINE_ID = "79b0ab35-063c-44cb-b625-abdb062e7bb2"
 def _repository_with_lease():
     repository = InMemoryCoordinationRepository()
     lease = repository.acquire_lease(
-        "innovation_day_bac",
+        "football_review",
         "segment-1",
         "reviewer",
         MACHINE_ID,
@@ -30,7 +30,7 @@ def _repository_with_lease():
 def test_manual_draft_uses_append_only_m_events_and_exact_positions() -> None:
     repository, lease = _repository_with_lease()
     first = repository.append_manual_event(
-        "innovation_day_bac",
+        "football_review",
         "segment-1",
         "M1",
         60_000,
@@ -40,7 +40,7 @@ def test_manual_draft_uses_append_only_m_events_and_exact_positions() -> None:
         lease.token,
     )
     edited = repository.append_manual_event(
-        "innovation_day_bac",
+        "football_review",
         "segment-1",
         "M1",
         59_875,
@@ -50,10 +50,10 @@ def test_manual_draft_uses_append_only_m_events_and_exact_positions() -> None:
         lease.token,
     )
     draft = repository.create_manual_reference_draft(
-        "innovation_day_bac", "segment-1", "reviewer", lease.token
+        "football_review", "segment-1", "reviewer", lease.token
     )
     draft = repository.replace_manual_reference_membership(
-        "innovation_day_bac",
+        "football_review",
         "segment-1",
         draft.revision,
         (ManualReferenceMember(0, "M1", edited.revision),),
@@ -66,12 +66,12 @@ def test_manual_draft_uses_append_only_m_events_and_exact_positions() -> None:
     assert first.source_frame == 1499
     assert edited.revision == 2
     assert repository.get_manual_event_revision(
-        "innovation_day_bac", "segment-1", "M1", 1
+        "football_review", "segment-1", "M1", 1
     ) == first
     assert draft.members == (ManualReferenceMember(0, "M1", 2),)
     with pytest.raises(ValueError, match="0 to 60000"):
         repository.append_manual_event(
-            "innovation_day_bac",
+            "football_review",
             "segment-1",
             "M2",
             60_001,
@@ -86,7 +86,7 @@ def test_approval_freezes_partial_and_unusual_reviewer_mappings() -> None:
     repository, lease = _repository_with_lease()
     events = tuple(
         repository.append_manual_event(
-            "innovation_day_bac",
+            "football_review",
             "segment-1",
             f"M{index}",
             timestamp,
@@ -102,10 +102,10 @@ def test_approval_freezes_partial_and_unusual_reviewer_mappings() -> None:
         )
     )
     draft = repository.create_manual_reference_draft(
-        "innovation_day_bac", "segment-1", "reviewer", lease.token
+        "football_review", "segment-1", "reviewer", lease.token
     )
     draft = repository.replace_manual_reference_membership(
-        "innovation_day_bac",
+        "football_review",
         "segment-1",
         draft.revision,
         tuple(
@@ -117,7 +117,7 @@ def test_approval_freezes_partial_and_unusual_reviewer_mappings() -> None:
     )
     unusual = ManualEventMapping("M1", "E-different-team-type-time")
     draft = repository.replace_manual_event_mappings(
-        "innovation_day_bac",
+        "football_review",
         "segment-1",
         draft.revision,
         (unusual,),
@@ -125,7 +125,7 @@ def test_approval_freezes_partial_and_unusual_reviewer_mappings() -> None:
         lease.token,
     )
     approved = repository.approve_manual_reference_set(
-        "innovation_day_bac",
+        "football_review",
         "segment-1",
         draft.revision,
         "reviewer",
@@ -137,7 +137,7 @@ def test_approval_freezes_partial_and_unusual_reviewer_mappings() -> None:
     assert len(approved.mappings) < len(approved.members)
     with pytest.raises(ManualReferenceConflictError, match="immutable"):
         repository.replace_manual_event_mappings(
-            "innovation_day_bac",
+            "football_review",
             "segment-1",
             approved.revision,
             (),
@@ -149,7 +149,7 @@ def test_approval_freezes_partial_and_unusual_reviewer_mappings() -> None:
 def test_new_draft_copies_approval_without_mutating_golden_snapshot() -> None:
     repository, lease = _repository_with_lease()
     event = repository.append_manual_event(
-        "innovation_day_bac",
+        "football_review",
         "segment-1",
         "M1",
         5_000,
@@ -159,10 +159,10 @@ def test_new_draft_copies_approval_without_mutating_golden_snapshot() -> None:
         lease.token,
     )
     first = repository.create_manual_reference_draft(
-        "innovation_day_bac", "segment-1", "reviewer", lease.token
+        "football_review", "segment-1", "reviewer", lease.token
     )
     first = repository.replace_manual_reference_membership(
-        "innovation_day_bac",
+        "football_review",
         "segment-1",
         first.revision,
         (ManualReferenceMember(0, "M1", event.revision),),
@@ -170,7 +170,7 @@ def test_new_draft_copies_approval_without_mutating_golden_snapshot() -> None:
         lease.token,
     )
     golden = repository.approve_manual_reference_set(
-        "innovation_day_bac",
+        "football_review",
         "segment-1",
         first.revision,
         "reviewer",
@@ -178,10 +178,10 @@ def test_new_draft_copies_approval_without_mutating_golden_snapshot() -> None:
     )
 
     reopened = repository.create_manual_reference_draft(
-        "innovation_day_bac", "segment-1", "reviewer", lease.token
+        "football_review", "segment-1", "reviewer", lease.token
     )
     reopened = repository.replace_manual_reference_membership(
-        "innovation_day_bac",
+        "football_review",
         "segment-1",
         reopened.revision,
         (),
@@ -193,10 +193,10 @@ def test_new_draft_copies_approval_without_mutating_golden_snapshot() -> None:
     assert reopened.based_on_revision == golden.revision
     assert reopened.members == ()
     assert repository.get_approved_manual_reference_set(
-        "innovation_day_bac", "segment-1"
+        "football_review", "segment-1"
     ) == golden
     assert repository.get_manual_reference_set(
-        "innovation_day_bac", "segment-1", golden.revision
+        "football_review", "segment-1", golden.revision
     ) == golden
 
 
@@ -204,7 +204,7 @@ def test_mapping_uniqueness_is_one_to_one_within_each_revision() -> None:
     repository, lease = _repository_with_lease()
     events = [
         repository.append_manual_event(
-            "innovation_day_bac",
+            "football_review",
             "segment-1",
             key,
             index * 1000,
@@ -216,10 +216,10 @@ def test_mapping_uniqueness_is_one_to_one_within_each_revision() -> None:
         for index, key in enumerate(("M1", "M2"), start=1)
     ]
     draft = repository.create_manual_reference_draft(
-        "innovation_day_bac", "segment-1", "reviewer", lease.token
+        "football_review", "segment-1", "reviewer", lease.token
     )
     repository.replace_manual_reference_membership(
-        "innovation_day_bac",
+        "football_review",
         "segment-1",
         draft.revision,
         tuple(
@@ -232,7 +232,7 @@ def test_mapping_uniqueness_is_one_to_one_within_each_revision() -> None:
 
     with pytest.raises(ManualReferenceConflictError, match="one-to-one"):
         repository.replace_manual_event_mappings(
-            "innovation_day_bac",
+            "football_review",
             "segment-1",
             draft.revision,
             (

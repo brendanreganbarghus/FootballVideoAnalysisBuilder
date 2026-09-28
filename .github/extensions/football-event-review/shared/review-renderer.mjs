@@ -1,4 +1,4 @@
-export const INNOVATION_MARK_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" aria-hidden="true">
+export const REVIEW_MARK_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" aria-hidden="true">
   <defs>
     <linearGradient id="review-brand-gradient" x1="64" y1="40" x2="448" y2="472" gradientUnits="userSpaceOnUse">
       <stop stop-color="#ba4ca6"/>
@@ -14,7 +14,7 @@ export const INNOVATION_MARK_SVG = `<svg xmlns="http://www.w3.org/2000/svg" view
   <path d="m256 235 18 13-7 21h-22l-7-21 18-13Zm-35 9 18 4m34 0 18-4m-61 43 15-18m22 0 15 18" fill="#6c1d5f" stroke="#6c1d5f" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>`;
 
-const INNOVATION_XEBIA_SVG = `<svg viewBox="0 0 612 202.4" aria-hidden="true">
+const REVIEW_XEBIA_SVG = `<svg viewBox="0 0 612 202.4" aria-hidden="true">
   <g fill="#6c1d5f">
     <path d="M296.5,92.8H239.4A28.91,28.91,0,0,1,267,71.4c15.4,0,25.6,7.6,29.5,21.4m-57.4,19.6h83.8v-5.3c0-13.8-3.2-24.9-9.7-34.3-11.1-14.7-27.6-23.7-45.4-23.7-14.3,0-28.1,6.2-38.7,17.3-9.7,10.3-14.7,23.2-14.7,37.8A57,57,0,0,0,230,142.6c10.8,10.8,23.7,16.1,39.3,16.1,23.2,0,41.6-12.9,50.4-35.7H293.4c-5,8.5-14.3,12.9-24.9,12.9-17.1.6-28.2-8.8-29.4-23.5"/>
     <path d="M360.7,105.2c0-17.9,12.9-31.3,29.9-31.3S421,88.2,421,104.7c0,17.3-12.9,30.8-31.7,30.8-15.1.1-28.6-13.3-28.6-30.3m-.9-44.6V18.7h-24V157h24v-8.5a50.45,50.45,0,0,0,32.5,11.1,53.38,53.38,0,0,0,34.3-12,56,56,0,0,0,19.6-42.8c0-15.2-6.2-30.4-17.9-40.7-9.7-9.4-22.3-13.8-36.1-13.8-12.7-.3-23,2.7-32.4,10.3"/>
@@ -33,7 +33,7 @@ export function renderHtml({ adapter } = {}) {
   const homeUrl = adapter.homeUrl;
   const homeLabel = adapter.homeLabel;
   const palette = adapter.palette;
-  const innovationFavicon = adapter.key === "innovation"
+  const reviewFavicon = adapter.manualReferenceEnabled
     ? '<link rel="icon" type="image/svg+xml" sizes="any" href="/favicon.svg?v=pitch-pulse-1">'
     : "";
   return `<!doctype html>
@@ -42,7 +42,7 @@ export function renderHtml({ adapter } = {}) {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="${themeColor}">
-  ${innovationFavicon}
+  ${reviewFavicon}
   <title>${adapter.displayName}</title>
   <style>
     :root { color-scheme: dark; }
@@ -60,10 +60,10 @@ export function renderHtml({ adapter } = {}) {
       --text-color-muted: ${palette.textMuted};
       --true-color-green: ${palette.green};
       --true-color-blue: ${palette.blue};
-      ${adapter.key === "innovation"
+      ${adapter.manualReferenceEnabled
         ? `--true-color-blue-muted: ${palette.blueMuted};
-      --innovation-purple: #a63f98;
-      --innovation-lilac: #e4a5da;`
+      --review-accent-purple: #a63f98;
+      --review-accent-lilac: #e4a5da;`
         : ""}
       --color-focus-outline: ${palette.focus};
     }
@@ -138,7 +138,7 @@ export function renderHtml({ adapter } = {}) {
     @keyframes segment-loading-spin {
       to { transform: rotate(360deg); }
     }
-    html[data-app-theme="${appTheme}"] .innovation-brand {
+    html[data-app-theme="${appTheme}"] .review-brand {
       display: inline-flex;
       align-items: center;
       flex-wrap: wrap;
@@ -534,7 +534,7 @@ export function renderHtml({ adapter } = {}) {
       font-weight: var(--font-weight-semibold, 600);
       white-space: nowrap;
     }
-    .innovation-brand {
+    .review-brand {
       display: flex;
       margin-top: 5px;
       color: #f0b7e6;
@@ -1070,7 +1070,7 @@ export function renderHtml({ adapter } = {}) {
     }
     .video-shell:fullscreen
       > .transport
-      > .innovation-manual-controls {
+      > .manual-reference-controls {
       display: none;
     }
     .transport {
@@ -1635,7 +1635,7 @@ export function renderHtml({ adapter } = {}) {
       margin: 0;
     }
     .manual-review-fields button { grid-column: 1 / -1; }
-    .innovation-manual-controls {
+    .manual-reference-controls {
       display: flex;
       flex: 0 0 auto;
       flex-wrap: wrap;
@@ -1646,7 +1646,7 @@ export function renderHtml({ adapter } = {}) {
       border-radius: 10px;
       background: var(--background-color-subtle, #161b22);
     }
-    .innovation-manual-controls button { min-height: 44px; }
+    .manual-reference-controls button { min-height: 44px; }
     .manual-capture-label {
       flex-basis: 100%;
       color: var(--text-color-muted, #8b949e);
@@ -2839,7 +2839,7 @@ export function renderHtml({ adapter } = {}) {
       overflow-y: auto;
       padding: 6px;
     }
-    .innovation-manual-panel {
+    .manual-reference-panel {
       display: block;
       flex: 0 0 auto;
       min-height: 0;
@@ -2847,10 +2847,10 @@ export function renderHtml({ adapter } = {}) {
       border-top: 1px solid rgb(240 246 252 / 18%);
       background: rgb(13 17 23 / 82%);
     }
-    .innovation-manual-panel:not([open]) {
+    .manual-reference-panel:not([open]) {
       min-height: 34px;
     }
-    .innovation-manual-panel > summary {
+    .manual-reference-panel > summary {
       display: flex;
       justify-content: space-between;
       gap: 10px;
@@ -2859,19 +2859,19 @@ export function renderHtml({ adapter } = {}) {
       list-style: none;
       cursor: pointer;
     }
-    .innovation-manual-panel > summary::-webkit-details-marker {
+    .manual-reference-panel > summary::-webkit-details-marker {
       display: none;
     }
-    .innovation-manual-panel > summary::after {
+    .manual-reference-panel > summary::after {
       color: #c9d1d9;
       content: "Show";
       font-size: 11px;
       font-weight: var(--font-weight-semibold, 600);
     }
-    .innovation-manual-panel[open] > summary::after {
+    .manual-reference-panel[open] > summary::after {
       content: "Hide";
     }
-    .innovation-manual-panel .innovation-manual-controls {
+    .manual-reference-panel .manual-reference-controls {
       border: 0;
       border-radius: 0;
     }
@@ -3421,7 +3421,7 @@ export function renderHtml({ adapter } = {}) {
       .coordinate-round-result.processing::before { animation: none; }
       video { transition: none; }
     }
-    html[data-app-theme="innovation"] {
+    html[data-app-theme="grassroots"] {
       --background-color-default: #100d12;
       --background-color-muted: #2a1c2c;
       --background-color-subtle: #19131b;
@@ -3433,86 +3433,86 @@ export function renderHtml({ adapter } = {}) {
       --true-color-blue: #ba4ca6;
       --true-color-blue-muted: #6c1d5f;
     }
-    html[data-app-theme="innovation"] body {
+    html[data-app-theme="grassroots"] body {
       background:
         radial-gradient(circle at 84% 2%, rgb(108 29 95 / 32%), transparent 34rem),
         linear-gradient(145deg, #100d12, #0c090e 74%);
     }
-    html[data-app-theme="innovation"] header {
+    html[data-app-theme="grassroots"] header {
       border-bottom-color: rgb(186 76 166 / 42%);
       background: rgb(16 13 18 / 92%);
     }
-    html[data-app-theme="innovation"] .scope {
+    html[data-app-theme="grassroots"] .scope {
       border-color: #ba4ca6;
       color: #f0b7e6;
       background: rgb(108 29 95 / 18%);
     }
-    html[data-app-theme="innovation"] .innovation-brand {
+    html[data-app-theme="grassroots"] .review-brand {
       display: inline-flex;
       align-items: center;
       gap: 8px;
     }
-    html[data-app-theme="innovation"] .innovation-brand::before {
+    html[data-app-theme="grassroots"] .review-brand::before {
       width: 18px;
       height: 3px;
       content: "";
       background: linear-gradient(90deg, #ba4ca6 0 46%, transparent 46% 54%, #68e0c1 54%);
     }
-    html[data-app-theme="innovation"] button {
-      --innovation-hover-border: #cf6fbe;
-      --innovation-hover-background: rgb(108 29 95 / 44%);
-      --innovation-hover-glow: rgb(186 76 166 / 24%);
+    html[data-app-theme="grassroots"] button {
+      --review-hover-border: #cf6fbe;
+      --review-hover-background: rgb(108 29 95 / 44%);
+      --review-hover-glow: rgb(186 76 166 / 24%);
     }
-    html[data-app-theme="innovation"]
+    html[data-app-theme="grassroots"]
       :is(#approve-manual-minute[data-reference-state="unfrozen"],
         #reopen-manual-minute, #validate-engine-reference, .adjust) {
-      --innovation-hover-border: #ffa657;
-      --innovation-hover-background: rgb(240 136 62 / 32%);
-      --innovation-hover-glow: rgb(240 136 62 / 28%);
+      --review-hover-border: #ffa657;
+      --review-hover-background: rgb(240 136 62 / 32%);
+      --review-hover-glow: rgb(240 136 62 / 28%);
     }
-    html[data-app-theme="innovation"]
+    html[data-app-theme="grassroots"]
       :is(#confirm-engine-without-copilot, #accept-copilot-decision,
         #publish-passed-segment, .accept, .segment-replay-action) {
-      --innovation-hover-border: #7ee787;
-      --innovation-hover-background: rgb(46 160 67 / 30%);
-      --innovation-hover-glow: rgb(46 160 67 / 28%);
+      --review-hover-border: #7ee787;
+      --review-hover-background: rgb(46 160 67 / 30%);
+      --review-hover-glow: rgb(46 160 67 / 28%);
     }
-    html[data-app-theme="innovation"]
+    html[data-app-theme="grassroots"]
       :is(#reject-copilot-decision, .reject, .coordinate-undefined-action) {
-      --innovation-hover-border: #ff7b72;
-      --innovation-hover-background: rgb(218 54 51 / 28%);
-      --innovation-hover-glow: rgb(218 54 51 / 26%);
+      --review-hover-border: #ff7b72;
+      --review-hover-background: rgb(218 54 51 / 28%);
+      --review-hover-glow: rgb(218 54 51 / 26%);
     }
-    html[data-app-theme="innovation"]
+    html[data-app-theme="grassroots"]
       :is(#ask-copilot-engine-review, .regression-action, .publish-reference) {
-      --innovation-hover-border: #79c0ff;
-      --innovation-hover-background: rgb(31 111 235 / 34%);
-      --innovation-hover-glow: rgb(31 111 235 / 28%);
+      --review-hover-border: #79c0ff;
+      --review-hover-background: rgb(31 111 235 / 34%);
+      --review-hover-glow: rgb(31 111 235 / 28%);
     }
-    html[data-app-theme="innovation"] button:not(:disabled):hover,
-    html[data-app-theme="innovation"] .comparison-event:hover,
-    html[data-app-theme="innovation"] .comparison-event:focus-visible {
-      border-color: var(--innovation-hover-border, #cf6fbe) !important;
+    html[data-app-theme="grassroots"] button:not(:disabled):hover,
+    html[data-app-theme="grassroots"] .comparison-event:hover,
+    html[data-app-theme="grassroots"] .comparison-event:focus-visible {
+      border-color: var(--review-hover-border, #cf6fbe) !important;
       background: var(
-        --innovation-hover-background,
+        --review-hover-background,
         rgb(108 29 95 / 44%)
       ) !important;
       color: #fff !important;
       box-shadow:
-        0 0 0 1px var(--innovation-hover-glow, rgb(186 76 166 / 24%)),
-        0 0 16px var(--innovation-hover-glow, rgb(186 76 166 / 24%));
+        0 0 0 1px var(--review-hover-glow, rgb(186 76 166 / 24%)),
+        0 0 16px var(--review-hover-glow, rgb(186 76 166 / 24%));
     }
-    html[data-app-theme="innovation"] .comparison-event.current,
-    html[data-app-theme="innovation"] .comparison-row.matched .comparison-event {
+    html[data-app-theme="grassroots"] .comparison-event.current,
+    html[data-app-theme="grassroots"] .comparison-row.matched .comparison-event {
       border-color: #ba4ca6;
       background: rgb(108 29 95 / 38%);
     }
-    html[data-app-theme="innovation"] .comparison-number,
-    html[data-app-theme="innovation"] .current-event-label,
-    html[data-app-theme="innovation"] .event-source {
+    html[data-app-theme="grassroots"] .comparison-number,
+    html[data-app-theme="grassroots"] .current-event-label,
+    html[data-app-theme="grassroots"] .event-source {
       color: #df8fd2;
     }
-    html[data-app-theme="innovation"] .video-shell {
+    html[data-app-theme="grassroots"] .video-shell {
       border-color: rgb(186 76 166 / 58%);
       box-shadow: 0 0 0 1px rgb(186 76 166 / 18%),
         0 18px 50px rgb(0 0 0 / 34%);
@@ -3786,7 +3786,7 @@ export function renderHtml({ adapter } = {}) {
       </div>
     </form>
   </dialog>
-  ${adapter.key === "innovation" ? `
+  ${adapter.manualReferenceEnabled ? `
   <dialog class="engine-verification-modal manual-ledger-audit-modal"
     id="manual-ledger-audit-modal"
     aria-labelledby="manual-ledger-audit-title">
@@ -3818,20 +3818,41 @@ export function renderHtml({ adapter } = {}) {
     </form>
   </dialog>
   ` : ""}
+  <dialog class="engine-verification-modal" id="ball-source-switch-modal"
+    aria-labelledby="ball-source-switch-title">
+    <form method="dialog">
+      <header>
+        <h2 id="ball-source-switch-title">Change ball source</h2>
+        <p class="muted" id="ball-source-switch-target"></p>
+      </header>
+      <p id="ball-source-switch-warning"></p>
+      <p class="muted">
+        Only the M# golden set and the prepared video remain. Detection is
+        rerun because BAC and Live use different ball-coordinate pipelines.
+      </p>
+      <p class="muted" id="ball-source-switch-status" aria-live="polite"></p>
+      <div class="engine-verification-actions">
+        <button id="cancel-ball-source-switch" type="button">Cancel</button>
+        <button id="confirm-ball-source-switch" type="button">
+          Confirm source change
+        </button>
+      </div>
+    </form>
+  </dialog>
   <header>
     <div class="review-heading">
-      ${adapter.key === "innovation" ? `
+      ${adapter.manualReferenceEnabled ? `
       <div class="review-brand-lockup"
         aria-label="Grassroots Football Intelligence and Xebia">
-        ${INNOVATION_MARK_SVG}
-        <span class="review-brand-xebia">${INNOVATION_XEBIA_SVG}</span>
+        ${REVIEW_MARK_SVG}
+        <span class="review-brand-xebia">${REVIEW_XEBIA_SVG}</span>
       </div>` : ""}
       <div>
         <h1 id="page-title">${adapter.displayName}</h1>
         <div class="muted" id="page-subtitle">
           Prepared segment → reference review → engine check
         </div>
-        <div class="innovation-brand">
+        <div class="review-brand">
           ${adapter.brandLead ? `<strong>${adapter.brandLead}</strong>` : ""}
           <span>${adapter.brandDetail}</span>
           <span class="component-version" id="tracker-version">
@@ -3847,17 +3868,6 @@ export function renderHtml({ adapter } = {}) {
       </div>
     </div>
     <div class="header-actions">
-      <label class="review-mode-field" for="workflow-adapter">
-        Workflow
-        <select id="workflow-adapter">
-          <option value="innovation"${
-            adapter.key === "innovation" ? " selected" : ""
-          }>Innovation Day — Frozen BAC</option>
-          <option value="live"${
-            adapter.key === "live" ? " selected" : ""
-          }>Live — Raw-video pipeline</option>
-        </select>
-      </label>
       <label class="review-mode-field" for="review-audience">
         Review mode
         <select id="review-audience">
@@ -3898,7 +3908,7 @@ export function renderHtml({ adapter } = {}) {
         aria-label="Football statistics from cached engine output">
         <div class="stadium-scoreboard-head">
           <span class="stadium-scoreboard-live">Replay statistics</span>
-          <strong>Innovation Day Match Centre</strong>
+          <strong>Football Review Match Centre</strong>
           <div class="stadium-scoreboard-brand">
             <span>Powered by</span>
             <span class="stadium-scoreboard-logo">
@@ -3971,10 +3981,16 @@ export function renderHtml({ adapter } = {}) {
               </select>
             </label>
             <button id="prepare-segment" type="button">Prepare Segment</button>
-            <button id="prepare-innovation-evidence" type="button" hidden>
+            <button id="prepare-bac-evidence" type="button" hidden>
               Prepare BAC + player context
             </button>
-            <button id="process-segment" type="button">Start AI</button>
+            <label for="ball-source-select">Ball-coordinate source
+              <select id="ball-source-select" name="ball-source-select">
+                <option value="bac">BAC coordinates (frozen Alfheim BAC, diagnostic)</option>
+                <option value="live">Live ball tracker (raw video)</option>
+              </select>
+            </label>
+            <button id="process-segment" type="button">Run ball coordinates</button>
           </div>
           <progress class="segment-progress" id="segment-progress"
             max="1" value="0" hidden></progress>
@@ -4075,6 +4091,12 @@ export function renderHtml({ adapter } = {}) {
           <select id="segment-select" autocomplete="off"></select>
         </label>
         <span class="segment-status" id="segment-status">Loading</span>
+        <span class="ball-source-actions">
+          <span class="ball-source-badge" id="segment-ball-source" hidden></span>
+          <button id="change-ball-source" type="button" hidden>
+            Change ball source
+          </button>
+        </span>
         <p class="muted" id="source-attribution"></p>
         <div class="coordination-status copilot-session-status"
           id="copilot-session-status" role="status" aria-live="polite" hidden>
@@ -4243,9 +4265,9 @@ export function renderHtml({ adapter } = {}) {
           <aside class="fullscreen-events" id="fullscreen-events"
             aria-label="Segment events">
             <div class="fullscreen-events-head">
-              <span>${adapter.key === "innovation" ? "Manual M#" : "Review proposal"}</span>
+              <span>${adapter.manualReferenceEnabled ? "Manual M#" : "Review proposal"}</span>
               <span>Seconds</span>
-              <span>${adapter.key === "innovation" ? "Rules engine E#" : "Rules engine output"}</span>
+              <span>${adapter.manualReferenceEnabled ? "Rules engine E#" : "Rules engine output"}</span>
               <button class="fullscreen-events-drag"
                 id="move-event-panel" type="button"
                 aria-label="Drag the Events panel; use arrow keys to move it"
@@ -4290,16 +4312,16 @@ export function renderHtml({ adapter } = {}) {
               </div>
             </details>
             <div class="fullscreen-event-items" id="fullscreen-event-items"></div>
-            ${adapter.key === "innovation" ? `
-            <details class="innovation-manual-panel"
-              id="innovation-manual-panel" open
-              aria-labelledby="innovation-manual-panel-title">
+            ${adapter.manualReferenceEnabled ? `
+            <details class="manual-reference-panel"
+              id="manual-reference-panel" open
+              aria-labelledby="manual-reference-panel-title">
               <summary>
-                <strong id="innovation-manual-panel-title">
+                <strong id="manual-reference-panel-title">
                   Manual event and publication controls
                 </strong>
               </summary>
-              <div class="innovation-manual-controls">
+              <div class="manual-reference-controls">
                 <span class="manual-capture-label">
                   Add M# at the current video time:
                 </span>
@@ -4479,8 +4501,8 @@ export function renderHtml({ adapter } = {}) {
             Ball frames
           </button>
           <button id="zoom-action" type="button">Zoom to Action</button>
-          ${adapter.key === "innovation" ? `
-          <div class="innovation-manual-controls"
+          ${adapter.manualReferenceEnabled ? `
+          <div class="manual-reference-controls"
             aria-label="Quick capture manual football events">
             <button type="button" data-manual-team="black"
               data-manual-type="completed_pass">Black completed pass</button>
@@ -4675,7 +4697,7 @@ export function renderHtml({ adapter } = {}) {
               ${adapter.reviewerCorrectedDemoLayer
                 ? "Frozen BAC remains unchanged. Applying this batch creates "
                   + "a shared, versioned reviewer-coordinate layer used by "
-                  + "the Innovation rules engine for this segment."
+                  + "the rules engine for this segment."
                 : "Review decisions remain evaluation-only and never become "
                   + "inference inputs."}
             </div>
@@ -4973,8 +4995,6 @@ export function renderHtml({ adapter } = {}) {
     const stateUrl = "/api/state";
     const hostInstanceId =
       new URLSearchParams(window.location.search).get("hostInstanceId") || "";
-    const workflowAdapterSelect =
-      document.getElementById("workflow-adapter");
     const workflowSegmentStorageKey = workflowKey =>
       "football-review-last-segment-" + workflowKey;
     const REVIEW_FPS = 25;
@@ -5071,8 +5091,12 @@ export function renderHtml({ adapter } = {}) {
     const segmentDuration = document.getElementById("segment-duration");
     const prepareButton = document.getElementById("prepare-segment");
     const processButton = document.getElementById("process-segment");
+    const ballSourceSelect = document.getElementById("ball-source-select");
+    const changeBallSourceButton = document.getElementById("change-ball-source");
+    const ballSourceSwitchModal = document.getElementById("ball-source-switch-modal");
+    let pendingBallSourceSwitch = null;
     const prepareEvidenceButton =
-      document.getElementById("prepare-innovation-evidence");
+      document.getElementById("prepare-bac-evidence");
     const cameraName = document.getElementById("camera-name");
     const cameraClub = document.getElementById("camera-club");
     const cameraVenue = document.getElementById("camera-venue");
@@ -5212,7 +5236,7 @@ export function renderHtml({ adapter } = {}) {
       setSegmentLoading(false);
     }
 
-    function innovationAnalysisMode(segment) {
+    function reviewAnalysisMode(segment) {
       if (
         ["bac_coordinates", "player_detection", "player_tracking"]
           .includes(segment.stage)
@@ -5226,7 +5250,7 @@ export function renderHtml({ adapter } = {}) {
       return analysisModalMode;
     }
 
-    function innovationAnalysisDetail(segment, mode) {
+    function reviewAnalysisDetail(segment, mode) {
       const timeLabel = segment.timeLabel || segment.key;
       if (mode === "rules") {
         const eventsStatus = segment.state === "ready"
@@ -5239,7 +5263,7 @@ export function renderHtml({ adapter } = {}) {
           "Playable segment: Complete",
           "Frozen BAC coordinates: Complete",
           "YOLO player context: Complete",
-          "Innovation rules engine: " + eventsStatus,
+          "rules engine: " + eventsStatus,
           segment.statusMessage || "Building football events."
         ].join("\\n");
       }
@@ -5269,12 +5293,12 @@ export function renderHtml({ adapter } = {}) {
         "Frozen BAC coordinates: " + stageStatus(0),
         "YOLO player context: " + stageStatus(1) + detectionProgress,
         "Player tracking: " + stageStatus(2),
-        segment.statusMessage || "Preparing Innovation evidence."
+        segment.statusMessage || "Preparing BAC evidence."
       ].join("\\n");
     }
 
-    function syncInnovationAnalysisModal(segment) {
-      if (reviewWorkflow.key !== "innovation") return;
+    function syncReviewAnalysisModal(segment) {
+      if (!reviewWorkflow.manualReferenceEnabled) return;
       if (
         segment.stage === "events"
         || (segment.state === "ready" && analysisModalMode === "evidence")
@@ -5284,13 +5308,13 @@ export function renderHtml({ adapter } = {}) {
       const active = ["processing", "detections_ready", "building"]
         .includes(segment.state);
       if (active) {
-        analysisModalMode = innovationAnalysisMode(segment);
+        analysisModalMode = reviewAnalysisMode(segment);
         setSegmentLoading(
           true,
           analysisModalMode === "rules"
-            ? "Processing Innovation rules engine"
+            ? "Processing rules engine"
             : "Preparing BAC + player context",
-          innovationAnalysisDetail(segment, analysisModalMode),
+          reviewAnalysisDetail(segment, analysisModalMode),
           segment.runProvenance?.elapsed_seconds
         );
         return;
@@ -5298,17 +5322,17 @@ export function renderHtml({ adapter } = {}) {
       if (analysisModalMode === "evidence" && segment.state === "evidence_ready") {
         completeSegmentLoading(
           "BAC + player context complete",
-          innovationAnalysisDetail(segment, "evidence")
+          reviewAnalysisDetail(segment, "evidence")
         );
       } else if (analysisModalMode === "rules" && segment.state === "ready") {
         completeSegmentLoading(
-          "Innovation AI processing complete",
-          innovationAnalysisDetail(segment, "rules")
+          "Review AI processing complete",
+          reviewAnalysisDetail(segment, "rules")
         );
       } else if (analysisModalMode && segment.state === "failed") {
         finishSegmentLoading(
-          "Innovation processing failed",
-          innovationAnalysisDetail(segment, analysisModalMode)
+          "Review processing failed",
+          reviewAnalysisDetail(segment, analysisModalMode)
         );
       }
     }
@@ -5726,11 +5750,11 @@ export function renderHtml({ adapter } = {}) {
         layout.x + point[0] * layout.width / geometry.image_width,
         layout.y + point[1] * layout.height / geometry.image_height,
       ];
-      const innovation =
-        document.documentElement.dataset.appTheme === "innovation";
-      const touchlineColor = innovation ? "#a63f98" : "#ffd33d";
-      const goalLineColor = innovation ? "#a63f98" : "#ff9f1c";
-      const goalFrameColor = innovation ? "#e4a5da" : "#00e5ff";
+      const reviewTheme =
+        document.documentElement.dataset.appTheme === "grassroots";
+      const touchlineColor = reviewTheme ? "#78bfff" : "#ffd33d";
+      const goalLineColor = reviewTheme ? "#78bfff" : "#ff9f1c";
+      const goalFrameColor = reviewTheme ? "#adbecd" : "#00e5ff";
       const drawLine = (
         points,
         color,
@@ -5950,7 +5974,7 @@ export function renderHtml({ adapter } = {}) {
         return "Ball coordinates need review";
       }
       if (
-        reviewWorkflow.key === "innovation"
+        reviewWorkflow.manualReferenceEnabled
         && ["processing", "detections_ready", "building"].includes(status)
       ) {
         return {
@@ -5958,7 +5982,7 @@ export function renderHtml({ adapter } = {}) {
           player_detection: "Detecting player context",
           player_tracking: "Building player tracks",
           events: "Building events"
-        }[segment?.stage] || "Innovation processing";
+        }[segment?.stage] || "Review processing";
       }
       return {
         passed: "Passed",
@@ -6280,7 +6304,6 @@ export function renderHtml({ adapter } = {}) {
         "#validate-engine-reference",
         ".ball-frame-open",
         "#ball-frame-filter",
-        "#workflow-adapter",
         "#refresh-copilot-session",
         "#start-segment-work",
         "#view-regression-runs"
@@ -6334,7 +6357,7 @@ export function renderHtml({ adapter } = {}) {
 
     function syncCoordinationTimers() {
       const leaseKey = coordinationLeaseHeld()
-        ? reviewWorkflow.key + ":" + state.segment.key
+        ? "review:" + state.segment.key
         : null;
       if (leaseKey === coordinationTimerLeaseKey) return;
       clearInterval(coordinationHeartbeatTimer);
@@ -6442,7 +6465,6 @@ export function renderHtml({ adapter } = {}) {
         ".shared-review-table button",
         ".segment-replay-modal button",
         "#ball-frame-filter",
-        "#workflow-adapter",
         ...(regressionCandidateReviewActive()
           ? [
               ".comparison-action",
@@ -6543,17 +6565,10 @@ export function renderHtml({ adapter } = {}) {
         running || !segment.processingSupported || referenceLocked();
       processButton.textContent = referenceLocked()
         ? "Passed Segment Locked"
-        : reviewWorkflow.evidencePreparationEnabled
-          ? segment.state === "ready"
-            ? "Rerun AI"
-            : "Process AI"
-        : segment.state === "ready"
-          ? "Rerun Segment from Start"
-          : segment.state === "failed" && segment.recoveryAvailable
-            ? "Resume from Saved Detections"
-          : segment.state === "failed"
-            ? "Retry Segment from Start"
-            : "Start AI";
+        : "Run ball coordinates";
+      if (ballSourceSelect && segment.ballSource && !ballSourceSelect.dataset.userChanged) {
+        ballSourceSelect.value = segment.ballSource;
+      }
       segmentProgress.hidden = !running;
       if (running && segment.expectedFrames > 0) {
         segmentProgress.max = segment.expectedFrames;
@@ -6593,9 +6608,9 @@ export function renderHtml({ adapter } = {}) {
           "Frozen BAC coordinates and YOLO player context are ready. "
           + "No events exist yet; process the AI rules engine when ready.";
       } else if (segment.state === "processing") {
-        if (reviewWorkflow.key === "innovation") {
+        if (reviewWorkflow.manualReferenceEnabled) {
           segmentRunStatus.textContent =
-            segment.statusMessage || "Starting Innovation processing.";
+            segment.statusMessage || "Starting Review processing.";
         } else {
           const provenance = segment.runProvenance;
           const elapsed = Number(provenance?.elapsed_seconds || 0);
@@ -6613,7 +6628,7 @@ export function renderHtml({ adapter } = {}) {
           "Step 1 of 6 complete — detections are ready. " +
           "Next: build ball coordinates.";
       } else if (segment.state === "building") {
-        if (reviewWorkflow.key === "innovation") {
+        if (reviewWorkflow.manualReferenceEnabled) {
           segmentRunStatus.textContent = (
             segment.stage === "player_detection" && segment.expectedFrames
               ? "Preparing YOLO player context: " +
@@ -6621,10 +6636,10 @@ export function renderHtml({ adapter } = {}) {
                 Number(segment.expectedFrames) + " sampled frames. "
               : ""
           ) + (
-            segment.statusMessage || "Innovation processing is still running."
+            segment.statusMessage || "Review processing is still running."
           );
           applySegmentProcessingLock();
-          syncInnovationAnalysisModal(segment);
+          syncReviewAnalysisModal(segment);
           scheduleStatusRefresh();
           return;
         }
@@ -6687,7 +6702,7 @@ export function renderHtml({ adapter } = {}) {
           : "AI failed: " + friendlyRunFailure(segment.statusMessage);
       } else if (!segment.processingSupported) {
         segmentRunStatus.textContent = (
-          reviewWorkflow.key === "innovation"
+          reviewWorkflow.manualReferenceEnabled
           && segment.evidencePreparationSupported
         )
           ? "Video preparation complete. No football events exist. "
@@ -6695,13 +6710,13 @@ export function renderHtml({ adapter } = {}) {
           : "Calibrate this camera first. AI remains disabled until its own "
             + "saved calibration is ready.";
       } else {
-        segmentRunStatus.textContent = reviewWorkflow.key === "innovation"
+        segmentRunStatus.textContent = reviewWorkflow.manualReferenceEnabled
           ? "Evidence preparation complete. No football events exist. "
-            + "Run the Innovation rules engine when ready."
+            + "Run the rules engine when ready."
           : "Preparation complete. No AI has run. Next: click Start AI.";
       }
       applySegmentProcessingLock();
-      syncInnovationAnalysisModal(segment);
+      syncReviewAnalysisModal(segment);
       scheduleStatusRefresh();
     }
 
@@ -6710,7 +6725,7 @@ export function renderHtml({ adapter } = {}) {
         state.segment.validated
         || state.segment.validationStatus === "in_review"
         || (
-          reviewWorkflow.key === "innovation"
+          reviewWorkflow.manualReferenceEnabled
           && state.segment.state === "evidence_ready"
         )
         || (
@@ -6740,6 +6755,20 @@ export function renderHtml({ adapter } = {}) {
         ? "Saved pitch edges and goal frames"
         : "Prepare a video segment first";
       if (!available) geometryPanel.open = false;
+    }
+
+    function ballSourceLabel(source) {
+      return {bac: "BAC", live: "Live"}[source] || "";
+    }
+
+    function ballSourceDescription(source) {
+      return source === "live"
+        ? "Live ball tracker (raw video)"
+        : "BAC coordinates (frozen Alfheim BAC, diagnostic)";
+    }
+
+    function alternateBallSource(source) {
+      return source === "live" ? "bac" : "live";
     }
 
     function renderSegments() {
@@ -6780,6 +6809,7 @@ export function renderHtml({ adapter } = {}) {
         const segmentSummary = summaries.get(segment.key) || {};
         const labels = [
           segment.timeLabel,
+          ballSourceLabel(segment.ballSource),
           segmentSummary.regression === "failed"
             ? "Passed · Current rules differ"
             : statusLabel(segment.validationStatus, segment),
@@ -6815,8 +6845,19 @@ export function renderHtml({ adapter } = {}) {
       badge.textContent = selectedSummary.regression === "failed"
         ? "Passed · Current rules differ"
         : statusLabel(selected.validationStatus, selected);
+      const sourceBadge = document.getElementById("segment-ball-source");
+      const sourceLabel = ballSourceLabel(selected.ballSource);
+      sourceBadge.hidden = !sourceLabel;
+      sourceBadge.textContent = sourceLabel;
+      sourceBadge.className = "ball-source-badge " + (selected.ballSource || "");
+      changeBallSourceButton.hidden = !(
+        selected.ballSource && selected.coordinationLease?.heldByCurrent
+      );
+      changeBallSourceButton.textContent = selected.ballSource
+        ? "Change ball source"
+        : "Choose ball source";
       document.getElementById("tracker-version").textContent =
-        selected.coordinateMode === "frozen_bac"
+        (selected.ballSource || "bac") === "bac"
           ? "BAC coordinates: frozen"
           : "Ball tracker: " + trackerIteration(selected) + " · " +
             shortVersion(state.componentVersions?.tracker);
@@ -6834,7 +6875,7 @@ export function renderHtml({ adapter } = {}) {
         selected.attribution || "";
       const regressionBatchActions =
         document.getElementById("regression-batch-actions");
-      regressionBatchActions.hidden = reviewWorkflow.key !== "innovation";
+      regressionBatchActions.hidden = !reviewWorkflow.manualReferenceEnabled;
       const selectableRegressionSegments = state.segments.filter(segment => {
         const summary = summaries.get(segment.key) || {};
         return segment.validated && summary.published;
@@ -6871,7 +6912,7 @@ export function renderHtml({ adapter } = {}) {
           const matched = Number(summary.matched || 0);
           const values = [
             segment.datasetName + " · " + segment.timeLabel,
-            reviewWorkflow.key === "innovation" && proposalCount
+            reviewWorkflow.manualReferenceEnabled && proposalCount
               ? matched + "/" + proposalCount + " M# matched · "
                 + Number(summary.accepted || 0) + " accepted · "
                 + Number(summary.rejected || 0) + " rejected"
@@ -6898,7 +6939,7 @@ export function renderHtml({ adapter } = {}) {
           const row = document.createElement("tr");
           const selectCell = document.createElement("td");
           if (
-            reviewWorkflow.key === "innovation"
+            reviewWorkflow.manualReferenceEnabled
             && segment.validated
             && summary.published
           ) {
@@ -6952,7 +6993,7 @@ export function renderHtml({ adapter } = {}) {
             }
             if (
               columnIndex === 2
-              && reviewWorkflow.key === "innovation"
+              && reviewWorkflow.manualReferenceEnabled
               && segment.validated
               && summary.published
             ) {
@@ -7039,7 +7080,7 @@ export function renderHtml({ adapter } = {}) {
         )
       );
       regressionQueue.hidden = !(
-        reviewWorkflow.key === "innovation"
+        reviewWorkflow.manualReferenceEnabled
         && (workflowHasNonSegmentFailure || failedRegressions.length)
       );
       if (!regressionQueue.hidden) {
@@ -7094,7 +7135,7 @@ export function renderHtml({ adapter } = {}) {
       openRegressionDashboard(segmentKeys);
       try {
         const results = await Promise.all(segments.map(async segment => {
-          const response = await fetch("/api/innovation/regression", {
+          const response = await fetch("/api/review/regression", {
             method: "POST",
             headers: {"Content-Type": "application/json"},
             body: JSON.stringify({segment: segment.key})
@@ -7276,7 +7317,7 @@ export function renderHtml({ adapter } = {}) {
     }
 
     function ballStateLabel(point) {
-      if (state?.segment?.coordinateMode === "frozen_bac") {
+      if ((state?.segment?.ballSource || "bac") === "bac") {
         return "Frozen BAC";
       }
       return point.direct ? "Direct" : "Estimated";
@@ -7307,7 +7348,7 @@ export function renderHtml({ adapter } = {}) {
     }
 
     function loadBallFrameFlags() {
-      if (state?.segment?.coordinateMode === "frozen_bac") {
+      if ((state?.segment?.ballSource || "bac") === "bac") {
         selectedCoordinateBatchId = "all";
         ballCoordinateObservations = {
           ...(state.trajectoryAudit?.observations || {})
@@ -7428,7 +7469,7 @@ export function renderHtml({ adapter } = {}) {
           ballCoordinateObservationStorageKey(),
           JSON.stringify(ballCoordinateObservations)
         );
-        if (state?.segment?.coordinateMode === "frozen_bac") {
+        if ((state?.segment?.ballSource || "bac") === "bac") {
           const response = await fetch("/api/trajectory-audit-draft", {
             method: "POST",
             headers: {"Content-Type": "application/json"},
@@ -7816,7 +7857,7 @@ export function renderHtml({ adapter } = {}) {
         && selectedBatch?.status === "ready";
       const reviewerCorrectionView = Boolean(
         reviewWorkflow.reviewerCorrectedDemoLayer
-        && state?.segment?.coordinateMode === "frozen_bac"
+        && (state?.segment?.ballSource || "bac") === "bac"
       );
       const inspectionOnly = !activeRoundView && !reviewerCorrectionView;
       const yoloCandidateActions = document.getElementById(
@@ -7870,7 +7911,7 @@ export function renderHtml({ adapter } = {}) {
       }
       document.getElementById("ball-frame-review-target").textContent =
         (
-          state?.segment?.coordinateMode === "frozen_bac"
+          (state?.segment?.ballSource || "bac") === "bac"
             ? "Inspect frame "
             : "Review frame "
         ) + selectedBallTargetFrame;
@@ -7896,7 +7937,7 @@ export function renderHtml({ adapter } = {}) {
           : "Coordinate review · red ring: engine · blue rings: YOLO";
       document.getElementById("ball-frame-overlay-controls").hidden = false;
       const frozenBac =
-        state?.segment?.coordinateMode === "frozen_bac";
+        (state?.segment?.ballSource || "bac") === "bac";
       const reviewerChangeStatus = reviewerCoordinateChangeStatus(
         selectedBallTargetFrame,
         observation
@@ -7982,7 +8023,7 @@ export function renderHtml({ adapter } = {}) {
       if (reviewerCorrectionView) {
         decisionStatus.textContent =
           "Frozen BAC remains unchanged. Your confirmed coordinate is saved "
-          + "in the separate reviewer-corrected Innovation demo layer.";
+          + "in the separate reviewer-corrected Review demo layer.";
       } else if (inspectionOnly) {
         decisionStatus.textContent =
           selectedBatch?.status === "done"
@@ -8210,9 +8251,9 @@ export function renderHtml({ adapter } = {}) {
       renderBallFrames();
       showRawBallFrame(reviewedFrame, true);
       document.getElementById("ball-coordinate-review-status").textContent =
-        state?.segment?.coordinateMode === "frozen_bac"
+        (state?.segment?.ballSource || "bac") === "bac"
           ? "Frame " + reviewedFrame + ": " + description
-            + ". Saved in the separate reviewer-corrected Innovation demo "
+            + ". Saved in the separate reviewer-corrected Review demo "
             + "layer; frozen BAC is unchanged."
           : "Frame " + reviewedFrame + ": " + description
             + ". Saved locally for the single Copilot batch. Use Next review "
@@ -8236,7 +8277,7 @@ export function renderHtml({ adapter } = {}) {
         selectedCoordinateBatchId === "all" || batch?.status === "done";
       const reviewerCorrectionView = Boolean(
         reviewWorkflow.reviewerCorrectedDemoLayer
-        && state?.segment?.coordinateMode === "frozen_bac"
+        && (state?.segment?.ballSource || "bac") === "bac"
       );
       const activeBatchId = state.coordinateReview?.activeBatchId || null;
       const latestReviewSelected = Boolean(
@@ -8267,7 +8308,7 @@ export function renderHtml({ adapter } = {}) {
         : "Open batch review (" + flaggedBallFrames.size + " flagged)";
       document.getElementById("ball-coordinate-review-mode").textContent =
         reviewerCorrectionView
-          ? "Reviewer-corrected Innovation demo layer"
+          ? "Reviewer-corrected Review demo layer"
         : finalized
           ? "Query mode · review finalized"
           : "Coordinate recovery mode";
@@ -8490,7 +8531,7 @@ export function renderHtml({ adapter } = {}) {
                   "confirmed"
                 ]
             : savedDecisionPresentation || (
-                  state?.segment?.coordinateMode === "frozen_bac"
+                  (state?.segment?.ballSource || "bac") === "bac"
                     ? ["BAC imported · confirmed", "confirmed"]
                     : ["Not reviewed yet", "pending"]
                 );
@@ -8899,7 +8940,7 @@ export function renderHtml({ adapter } = {}) {
               ? ["Regressed", "undefined"]
               : result === "unresolved" || carryForward
                 ? ["Unresolved", "checking"]
-                : state?.segment?.coordinateMode === "frozen_bac"
+                : (state?.segment?.ballSource || "bac") === "bac"
                   ? ["BAC imported · confirmed", "confirmed"]
                   : point.direct
                     ? ["Direct coordinate · Not reviewed yet", "pending"]
@@ -9018,7 +9059,7 @@ export function renderHtml({ adapter } = {}) {
         + "player tracking and events…";
       try {
         const response = await fetch(
-          "/api/innovation/approve-coordinate-layer",
+          "/api/approve-coordinate-layer",
           {
             method: "POST",
             headers: {"Content-Type": "application/json"},
@@ -9035,8 +9076,8 @@ export function renderHtml({ adapter } = {}) {
           "Coordinate revision " + result.revision + " saved. Existing YOLO "
           + "detections are being reused while player tracking rebuilds."
           + (result.eventsRerun
-            ? " The previously run Innovation engine will then rerun."
-            : " The Innovation engine has not run yet and will remain waiting.");
+            ? " The previously run Review engine will then rerun."
+            : " The Review engine has not run yet and will remain waiting.");
         await loadState();
       } catch (error) {
         status.textContent = error.message;
@@ -9831,7 +9872,7 @@ export function renderHtml({ adapter } = {}) {
       return review && engine ? "matched" : "off";
     }
 
-    function innovationComparisonRows() {
+    function manualComparisonRows() {
       const manualEvents = state?.manualEvents || [];
       const rejectedManualEvents = state?.rejectedManualEvents || [];
       const engineEvents = state?.engineEvents || [];
@@ -9885,8 +9926,8 @@ export function renderHtml({ adapter } = {}) {
     }
 
     function comparisonRows() {
-      if (reviewWorkflow.key === "innovation") {
-        return innovationComparisonRows();
+      if (reviewWorkflow.manualReferenceEnabled) {
+        return manualComparisonRows();
       }
       const engineEvents = state?.engineEvents || [];
       const usedEngine = new Set();
@@ -10147,7 +10188,7 @@ export function renderHtml({ adapter } = {}) {
     }
 
     function renderManualLedgerAudit() {
-      if (reviewWorkflow.key !== "innovation") return;
+      if (!reviewWorkflow.manualReferenceEnabled) return;
       const audit = state?.manualReference?.ledgerAudit || {
         findings: [],
         acknowledgedCount: 0
@@ -10436,7 +10477,7 @@ export function renderHtml({ adapter } = {}) {
           row.reviewIndex
         )
       );
-      if (reviewWorkflow.key === "innovation") {
+      if (reviewWorkflow.manualReferenceEnabled) {
         if (!state.manualReference?.approved) {
           cell.append(manualControls(row));
         } else if (
@@ -10468,7 +10509,7 @@ export function renderHtml({ adapter } = {}) {
       } else if (!referenceLocked()) {
         const actions = document.createElement("div");
         actions.className = "comparison-actions";
-        if (reviewWorkflow.key === "innovation") {
+        if (reviewWorkflow.manualReferenceEnabled) {
           const decideButton = document.createElement("button");
           decideButton.type = "button";
           decideButton.className = "comparison-action icon-action";
@@ -10616,7 +10657,7 @@ export function renderHtml({ adapter } = {}) {
           event.stopPropagation();
           selectedEngineIndex = row.engineIndex;
           render();
-          if (reviewWorkflow.key === "innovation") {
+          if (reviewWorkflow.manualReferenceEnabled) {
             openEngineVerificationModal(row.engineIndex);
           } else {
             await requestEngineEventVerification(
@@ -10634,7 +10675,7 @@ export function renderHtml({ adapter } = {}) {
         agreement.className = row.review.decision?.status === "rejected"
           ? "comparison-rejected"
           : "comparison-reviewed";
-        agreement.textContent = reviewWorkflow.key === "innovation"
+        agreement.textContent = reviewWorkflow.manualReferenceEnabled
           ? "M and E match within one second"
           : row.review.decision?.status === "rejected"
             ? "C↔E conflict"
@@ -10705,7 +10746,7 @@ export function renderHtml({ adapter } = {}) {
       const automaticMatchCount = Object.keys(
         state?.manualReference?.suggestions || {}
       ).length;
-      const summaryItems = reviewWorkflow.key === "innovation"
+      const summaryItems = reviewWorkflow.manualReferenceEnabled
         ? [
             ["matched", "Black: "
               + (manualCounts["black:completed_pass"] || 0) + " passes, "
@@ -11409,7 +11450,7 @@ export function renderHtml({ adapter } = {}) {
       document.getElementById("next-event").hidden = !hasDraft;
       document.querySelector(".event-position").hidden = !hasDraft;
       const acceptAll = document.getElementById("accept-all-events");
-      acceptAll.hidden = reviewWorkflow.key === "innovation"
+      acceptAll.hidden = reviewWorkflow.manualReferenceEnabled
         || !hasDraft || lockedReference || remainingCount === 0;
       acceptAll.disabled = reviewBusy || remainingCount === 0;
       acceptAll.textContent = remainingCount
@@ -11418,7 +11459,7 @@ export function renderHtml({ adapter } = {}) {
       document.getElementById("proposal").hidden = !hasDraft;
       document.getElementById("empty-review").hidden = hasDraft;
       document.getElementById("composer").hidden = !hasDraft;
-      if (reviewWorkflow.key === "innovation") {
+      if (reviewWorkflow.manualReferenceEnabled) {
         document.getElementById("proposal").hidden = true;
         document.getElementById("composer").hidden = true;
         const approved = Boolean(state.manualReference?.approved);
@@ -11493,7 +11534,7 @@ export function renderHtml({ adapter } = {}) {
       const publishReference = document.getElementById("publish-reference");
       publishReference.hidden = !canPublish;
       publishReference.disabled = reviewBusy;
-      publishReference.textContent = reviewWorkflow.key === "innovation"
+      publishReference.textContent = reviewWorkflow.manualReferenceEnabled
         ? "Publish Passed segment"
         : "Publish Validated Reference (Autopilot)";
       publishReference.title = state.publication?.regressionFresh
@@ -11504,12 +11545,12 @@ export function renderHtml({ adapter } = {}) {
         ? null
         : state.engineEvents?.[selectedEngineIndex];
       document.getElementById("proposal").hidden =
-        reviewWorkflow.key === "innovation"
+        reviewWorkflow.manualReferenceEnabled
         || !hasDraft || Boolean(selectedEngine);
       document.getElementById("empty-review").hidden =
         hasDraft || Boolean(selectedEngine);
       document.getElementById("composer").hidden =
-        reviewWorkflow.key === "innovation"
+        reviewWorkflow.manualReferenceEnabled
         || !hasDraft || Boolean(selectedEngine);
       const matchedEngineIndex = hasDraft ? matchingEngineIndex(draft) : -1;
       const matchedEngine = matchedEngineIndex >= 0
@@ -11537,13 +11578,13 @@ export function renderHtml({ adapter } = {}) {
           : message.eventIndex === selectedIndex
       );
       document.getElementById("fullscreen-event-chat").hidden =
-        reviewWorkflow.key === "innovation"
+        reviewWorkflow.manualReferenceEnabled
         && !selectedEngine
         && selectedConversation.length === 0;
       document.getElementById("fullscreen-send-message").hidden =
-        reviewWorkflow.key === "innovation" && !selectedEngine;
+        reviewWorkflow.manualReferenceEnabled && !selectedEngine;
       document.getElementById("fullscreen-message").hidden =
-        reviewWorkflow.key === "innovation" && !selectedEngine;
+        reviewWorkflow.manualReferenceEnabled && !selectedEngine;
       document.getElementById("fullscreen-send-message").disabled =
         selectedEngine
           ? reviewBusy
@@ -11557,7 +11598,7 @@ export function renderHtml({ adapter } = {}) {
       const fullscreenPrimary =
         document.getElementById("fullscreen-primary-action");
       fullscreenPrimary.hidden =
-        (reviewWorkflow.key === "innovation" && !selectedEngine)
+        (reviewWorkflow.manualReferenceEnabled && !selectedEngine)
         || (referenceLocked() && !regressionCandidateReviewActive())
         || (
           selectedEngine
@@ -11599,7 +11640,7 @@ export function renderHtml({ adapter } = {}) {
           + " (Autopilot)";
       }
       const fullscreenAdjust = document.getElementById("fullscreen-adjust");
-      fullscreenAdjust.hidden = reviewWorkflow.key === "innovation"
+      fullscreenAdjust.hidden = reviewWorkflow.manualReferenceEnabled
         || Boolean(selectedEngine) || !hasDraft;
       fullscreenAdjust.disabled = !hasDraft || reviewBusy;
       fullscreenAdjust.textContent =
@@ -11686,10 +11727,10 @@ export function renderHtml({ adapter } = {}) {
             "The rules engine did not produce event candidates for this minute.";
         } else {
           emptyTitle.textContent = "No AI events yet";
-          emptyDetail.textContent = reviewWorkflow.key === "innovation"
+          emptyDetail.textContent = reviewWorkflow.manualReferenceEnabled
             ? state.segment.evidenceReady
               ? "Frozen BAC coordinates and YOLO player context are ready. "
-                + "Run the Innovation rules engine when you want event "
+                + "Run the rules engine when you want event "
                 + "processing to begin."
               : "The video is prepared. Prepare frozen BAC coordinates and "
                 + "YOLO player context first; preparation alone never creates "
@@ -11971,7 +12012,7 @@ export function renderHtml({ adapter } = {}) {
             )
           );
           localStorage.setItem(
-            workflowSegmentStorageKey(reviewWorkflow.key),
+            workflowSegmentStorageKey("review"),
             state.segment.key
           );
           if (
@@ -12550,14 +12591,14 @@ export function renderHtml({ adapter } = {}) {
         "Use this only when the E# completion time is wrong. Previewing does "
         + "not change M# or E#; the time is sent to Copilot with the "
         + "correction request.";
-      const reviewableEngineIndices = reviewWorkflow.key === "innovation"
+      const reviewableEngineIndices = reviewWorkflow.manualReferenceEnabled
         ? new Set(
-            innovationComparisonRows()
+            manualComparisonRows()
               .filter(row => row.engine && !row.review)
               .map(row => row.engineIndex)
           )
         : new Set();
-      const similarChoices = reviewWorkflow.key === "innovation"
+      const similarChoices = reviewWorkflow.manualReferenceEnabled
         ? (state.engineEvents || [])
             .map((candidate, index) => ({candidate, index}))
             .filter(({candidate, index}) =>
@@ -12861,7 +12902,7 @@ export function renderHtml({ adapter } = {}) {
       cancel.hidden = true;
       cancel.disabled = false;
       const suggestions = state.manualReference?.suggestions || {};
-      const similarChoices = reviewWorkflow.key === "innovation"
+      const similarChoices = reviewWorkflow.manualReferenceEnabled
         ? (state.manualEvents || [])
         .map((candidate, index) => ({candidate, index}))
         .filter(({candidate, index}) =>
@@ -13442,7 +13483,7 @@ export function renderHtml({ adapter } = {}) {
     }
 
     function openCopilotDecisionModal(reviewIndex) {
-      if (reviewWorkflow.key === "innovation") return;
+      if (reviewWorkflow.manualReferenceEnabled) return;
       const draft = state.drafts?.[reviewIndex];
       if (!draft || draft.decision) return;
       decisionModalReviewIndex = reviewIndex;
@@ -13513,7 +13554,7 @@ export function renderHtml({ adapter } = {}) {
     }
 
     async function requestCopilotAcceptance(targetIndex = selectedIndex) {
-      if (reviewWorkflow.key === "innovation") return;
+      if (reviewWorkflow.manualReferenceEnabled) return;
       const draft = state.drafts[targetIndex];
       if (!draft || draft.decision) return;
       const button = document.getElementById("copilot-accept");
@@ -13610,7 +13651,7 @@ export function renderHtml({ adapter } = {}) {
     }
 
     async function requestCopilotAcceptanceAll() {
-      if (reviewWorkflow.key === "innovation") return;
+      if (reviewWorkflow.manualReferenceEnabled) return;
       const button = document.getElementById("accept-all-events");
       const status = document.getElementById("missing-event-status");
       button.disabled = true;
@@ -13672,7 +13713,7 @@ export function renderHtml({ adapter } = {}) {
         }
         validateGoldenAfterEngineRun = true;
         status.textContent =
-          "Running the Innovation engine before golden-reference validation…";
+          "Running the Review engine before golden-reference validation…";
         void startSegmentAnalysis();
         return;
       }
@@ -13821,7 +13862,7 @@ export function renderHtml({ adapter } = {}) {
 
     function showEventTrigger(source, index) {
       const event = source === "copilot"
-        ? reviewWorkflow.key === "innovation"
+        ? reviewWorkflow.manualReferenceEnabled
           ? state.copilotEvents?.[index]
           : state.drafts[index]
         : state.engineEvents[index];
@@ -13840,14 +13881,14 @@ export function renderHtml({ adapter } = {}) {
       const button = document.querySelector(
         '[data-event-source="' + (
           source === "copilot"
-            ? reviewWorkflow.key === "innovation"
+            ? reviewWorkflow.manualReferenceEnabled
               ? "copilot-reference"
               : "review"
             : "engine"
         ) + '"][data-event-index="' + index + '"]'
       );
       if (button) {
-        if (source === "copilot" && reviewWorkflow.key === "innovation") {
+        if (source === "copilot" && reviewWorkflow.manualReferenceEnabled) {
           selectedCopilotReferenceIndex = index;
           document.querySelectorAll(".copilot-reference-event.current")
             .forEach(item => item.classList.remove("current"));
@@ -13892,7 +13933,7 @@ export function renderHtml({ adapter } = {}) {
         clearEventTriggers();
         previousPlaybackSeconds = seconds;
       }
-      const crossedManual = reviewWorkflow.key === "innovation"
+      const crossedManual = reviewWorkflow.manualReferenceEnabled
         ? state?.manualEvents
           ?.map((event, index) => ({event, index}))
           .filter(({event}) =>
@@ -13903,7 +13944,7 @@ export function renderHtml({ adapter } = {}) {
       for (const event of crossedManual || []) {
         pulseManualEvent(event.index);
       }
-      const copilotTimeline = reviewWorkflow.key === "innovation"
+      const copilotTimeline = reviewWorkflow.manualReferenceEnabled
         ? state?.copilotEvents
         : state?.drafts;
       const crossedCopilot = copilotTimeline
@@ -13913,7 +13954,7 @@ export function renderHtml({ adapter } = {}) {
           && draft.seconds <= seconds + 0.02
         );
       for (const event of crossedCopilot || []) {
-          if (reviewWorkflow.key !== "innovation") {
+          if (!reviewWorkflow.manualReferenceEnabled) {
             selectEvent(event.index, {seek: false, pause: false});
           }
           showEventTrigger("copilot", event.index);
@@ -13970,7 +14011,7 @@ export function renderHtml({ adapter } = {}) {
         document.getElementById("activity-detail").textContent = error.message;
       } finally {
         setSegmentLoading(false);
-        if (state?.segment) syncInnovationAnalysisModal(state.segment);
+        if (state?.segment) syncReviewAnalysisModal(state.segment);
       }
     });
     sourceSelect.addEventListener("change", async () => {
@@ -14126,6 +14167,10 @@ export function renderHtml({ adapter } = {}) {
       control.addEventListener("input", renderRunControls);
       control.addEventListener("change", renderRunControls);
     });
+    ballSourceSelect?.addEventListener("change", () => {
+      ballSourceSelect.dataset.userChanged = "true";
+      renderRunControls();
+    });
     prepareEvidenceButton.addEventListener("click", async () => {
       const segment = selectedSegmentKey();
       analysisModalMode = "evidence";
@@ -14145,7 +14190,7 @@ export function renderHtml({ adapter } = {}) {
         "Preparing frozen BAC coordinates and YOLO player context. "
         + "No football events will be generated.";
       try {
-        const response = await fetch("/api/innovation/prepare-evidence", {
+        const response = await fetch("/api/prepare-evidence", {
           method: "POST",
           headers: {"Content-Type": "application/json"},
           body: JSON.stringify({segment})
@@ -14165,23 +14210,77 @@ export function renderHtml({ adapter } = {}) {
           error.message
         );
         segmentRunStatus.textContent =
-          "Could not prepare Innovation evidence: " + error.message;
+          "Could not prepare BAC evidence: " + error.message;
         renderRunControls();
         renderAiGate();
       }
     });
+    function openBallSourceSwitchModal() {
+      const current = state.segment.ballSource;
+      if (!current) return;
+      const next = alternateBallSource(current);
+      pendingBallSourceSwitch = next;
+      document.getElementById("ball-source-switch-target").textContent =
+        "Switch " + state.segment.timeLabel + " from "
+        + ballSourceDescription(current) + " to "
+        + ballSourceDescription(next) + ".";
+      document.getElementById("ball-source-switch-warning").textContent =
+        "Switching to " + ballSourceLabel(next)
+        + " removes this segment's current artifacts (E# output, "
+        + "ball/player/possession caches, C# proposals and decisions, "
+        + "E# confirmations, M↔E links and Passed status); only the M# "
+        + "golden set and the prepared video remain.";
+      document.getElementById("ball-source-switch-status").textContent = "";
+      ballSourceSwitchModal.showModal();
+    }
+
+    async function confirmBallSourceSwitch() {
+      if (!pendingBallSourceSwitch) return;
+      const status = document.getElementById("ball-source-switch-status");
+      const confirm = document.getElementById("confirm-ball-source-switch");
+      confirm.disabled = true;
+      status.textContent = "Switching ball source and clearing derived review state…";
+      try {
+        const response = await fetch("/api/switch-ball-source", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({
+            segment: state.segment.key,
+            ball_source: pendingBallSourceSwitch,
+            confirm: true,
+          }),
+        });
+        const result = await response.json();
+        if (!response.ok) {
+          throw new Error(result.error || "Could not switch ball source");
+        }
+        ballSourceSelect.value = pendingBallSourceSwitch;
+        ballSourceSelect.dataset.userChanged = "true";
+        ballSourceSwitchModal.close();
+        pendingBallSourceSwitch = null;
+        await loadState();
+        renderRunControls();
+        segmentRunStatus.textContent =
+          "Ball source changed. Review state was reset to the M# golden set; click Run ball coordinates.";
+      } catch (error) {
+        status.textContent = error.message;
+      } finally {
+        confirm.disabled = false;
+      }
+    }
+
     async function startSegmentAnalysis() {
       const segment = selectedSegmentKey();
-      if (reviewWorkflow.key === "innovation") {
+      if (reviewWorkflow.manualReferenceEnabled) {
         analysisModalMode = "rules";
         setSegmentLoading(
           true,
-          "Processing Innovation rules engine",
+          "Processing rules engine",
           "Target: " + (state.segment.timeLabel || segment) + "\\n"
             + "Playable segment: Complete\\n"
             + "Frozen BAC coordinates: Complete\\n"
             + "YOLO player context: Complete\\n"
-            + "Innovation rules engine: Waiting"
+            + "rules engine: Waiting"
         );
       }
       runStartPending = true;
@@ -14200,6 +14299,7 @@ export function renderHtml({ adapter } = {}) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             segment,
+            ball_source: ballSourceSelect?.value || state.segment.ballSource || "bac",
             resumeAfterDetection: state.segment.recoveryAvailable
           })
         });
@@ -14214,18 +14314,23 @@ export function renderHtml({ adapter } = {}) {
       } catch (error) {
         runStartPending = false;
         validateGoldenAfterEngineRun = false;
-        if (reviewWorkflow.key === "innovation") {
-          finishSegmentLoading(
-            "Could not start Innovation rules engine",
-            error.message
-          );
-        }
+        finishSegmentLoading(
+          "Could not start ball-coordinate run",
+          error.message
+        );
         segmentRunStatus.textContent =
           "Could not start AI: " + error.message;
         renderRunControls();
         renderAiGate();
       }
     }
+    changeBallSourceButton.addEventListener("click", openBallSourceSwitchModal);
+    document.getElementById("cancel-ball-source-switch").addEventListener(
+      "click", () => ballSourceSwitchModal.close()
+    );
+    document.getElementById("confirm-ball-source-switch").addEventListener(
+      "click", confirmBallSourceSwitch
+    );
     processButton.addEventListener("click", startSegmentAnalysis);
     document.getElementById("next-event").addEventListener(
       "click", () => selectEvent(selectedIndex + 1)
@@ -14890,40 +14995,6 @@ export function renderHtml({ adapter } = {}) {
     events.addEventListener("state", loadState);
     events.addEventListener("conversation", loadState);
     events.addEventListener("activity", loadState);
-    workflowAdapterSelect.addEventListener("change", async () => {
-      const targetWorkflow = workflowAdapterSelect.value;
-      if (targetWorkflow === reviewWorkflow.key) return;
-      setSegmentLoading(
-        true,
-        "Switching review workflow",
-        "Loading the selected adapter, segment catalog, and isolated review state."
-      );
-      try {
-        await releaseCoordinationLease();
-        const response = await fetch("/api/switch-workflow", {
-          method: "POST",
-          headers: {"Content-Type": "application/json"},
-          body: JSON.stringify({
-            workflow: targetWorkflow,
-            segment: localStorage.getItem(
-              workflowSegmentStorageKey(targetWorkflow)
-            ),
-            hostInstanceId
-          })
-        });
-        const result = await response.json();
-        if (!response.ok) {
-          throw new Error(result.error || "Could not switch workflow");
-        }
-        window.location.assign(result.url);
-      } catch (error) {
-        workflowAdapterSelect.value = reviewWorkflow.key;
-        setSegmentLoading(false);
-        document.getElementById("activity-label").textContent =
-          "Could not switch workflow";
-        document.getElementById("activity-detail").textContent = error.message;
-      }
-    });
     window.setInterval(() => {
       if (document.visibilityState === "visible") {
         loadState(false).catch(() => {});
@@ -14948,7 +15019,7 @@ export function renderHtml({ adapter } = {}) {
       document.getElementById("decision-status").textContent = error.message;
     }).finally(() => {
       setSegmentLoading(false);
-      if (state?.segment) syncInnovationAnalysisModal(state.segment);
+      if (state?.segment) syncReviewAnalysisModal(state.segment);
     });
   </script>
 </body>

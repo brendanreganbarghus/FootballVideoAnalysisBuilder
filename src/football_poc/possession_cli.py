@@ -4,7 +4,16 @@ import argparse
 from pathlib import Path
 from typing import Any
 
-from football_poc.possession import infer_cached_possession
+from football_poc.benchmark import BenchmarkManifest
+from football_poc.possession import (
+    infer_cached_possession,
+)
+from football_poc.shots_on_target import (
+    apply_shots_on_target,
+)
+from football_poc.shot_evidence_adapter import (
+    write_evidence as write_shot_evidence,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -50,6 +59,27 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Disable shot inference when goal geometry is not calibrated.",
     )
+    parser.add_argument(
+        "--shot-evidence",
+        type=Path,
+        default=None,
+        help=(
+            "Runtime shots-on-target evidence. Shots on target are always "
+            "analysed; missing evidence yields an 'unavailable' summary and "
+            "no events."
+        ),
+    )
+    parser.add_argument(
+        "--shot-goal-calibration",
+        type=Path,
+        default=None,
+        help=(
+            "Camera goal-frame calibration. With --shot-goalkeeper-affiliations, "
+            "the runtime shot-evidence adapter rebuilds --shot-evidence from "
+            "cached ball, player, and match-state artifacts."
+        ),
+    )
+    parser.add_argument("--shot-goalkeeper-affiliations", type=Path, default=None)
     parser.add_argument("--control-radius-heights", type=float, default=1.2)
     parser.add_argument(
         "--identity-switch-radius-heights",
@@ -130,12 +160,43 @@ def main() -> None:
 
 
 def run(args: Any) -> Path:
+    destination = _infer(args)
+    manifest = BenchmarkManifest.load(args.manifest)
+    calibration = getattr(args, "shot_goal_calibration", None)
+    affiliations = getattr(args, "shot_goalkeeper_affiliations", None)
+    evidence_path = getattr(args, "shot_evidence", None)
+    if calibration is not None and affiliations is not None:
+        if evidence_path is None:
+            evidence_path = args.output / "shot-evidence.json"
+        write_shot_evidence(
+            evidence_path,
+            ball_tracks=args.ball_tracks,
+            player_tracks=args.player_tracks,
+            goal_calibration=calibration,
+            goalkeeper_affiliations=affiliations,
+            match_state=args.output / "match-state-events.json",
+            fps=manifest.fps,
+        )
+    apply_shots_on_target(
+        args.output,
+        evidence_path,
+        duration_seconds=manifest.source_frame_count / manifest.fps,
+    )
+    return destination
+
+
+def _infer(args: Any) -> Path:
+    ball_state_estimates = args.ball_state_estimates
+    if ball_state_estimates is None:
+        candidate = args.ball_tracks.parent / "ball-state-estimates.json"
+        if candidate.is_file():
+            ball_state_estimates = candidate
     return infer_cached_possession(
         manifest_path=args.manifest,
         player_tracks_path=args.player_tracks,
         ball_tracks_path=args.ball_tracks,
         output=args.output,
-        ball_state_estimates_path=args.ball_state_estimates,
+        ball_state_estimates_path=ball_state_estimates,
         infer_shots=not args.no_shots,
         control_radius_heights=args.control_radius_heights,
         identity_switch_radius_heights=args.identity_switch_radius_heights,

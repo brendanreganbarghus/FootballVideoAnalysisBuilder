@@ -162,8 +162,8 @@ if (-not $health) {
 
     $logDirectory = Join-Path $env:LOCALAPPDATA "FootballVideoPOC\logs"
     New-Item -ItemType Directory -Path $logDirectory -Force | Out-Null
-    $stdout = Join-Path $logDirectory "innovation-review-server.log"
-    $stderr = Join-Path $logDirectory "innovation-review-server-error.log"
+    $stdout = Join-Path $logDirectory "review-server.log"
+    $stderr = Join-Path $logDirectory "review-server-error.log"
     $arguments = @(
         (Join-Path $RepositoryRoot "scripts\serve-local.py"),
         "--bind", "127.0.0.1",
@@ -187,6 +187,6 @@ Wait-Until `
     -FailureMessage "Review server did not reach writable coordination mode."
 
 Write-Output (
-    "Innovation review environment ready at http://127.0.0.1:$Port " +
+    "Review environment ready at http://127.0.0.1:$Port " +
     "(authority: $($script:health.deployment.authorityId))."
 )

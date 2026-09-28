@@ -122,6 +122,10 @@ REQUIRED_MANUAL_REFERENCE_INDEXES = {
         "manual_reference_memberships",
         ("workflow_id", "segment_id", "set_revision", "ordinal"),
     ),
+    "segment_outputs_latest_idx": IndexRequirement(
+        "segment_outputs",
+        ("workflow_id", "segment_id", "revision DESC"),
+    ),
 }
 
 
@@ -288,6 +292,7 @@ def verify_schema(connection: Any) -> None:
             "manual_event_mappings",
             "manual_event_mapping_member_fk",
         ),
+        ("segment_outputs", "segment_output_segment_fk"),
     )
     index_rows = connection.execute(
         "SELECT ix.relname, tbl.relname, i.indisvalid, i.indisready, "

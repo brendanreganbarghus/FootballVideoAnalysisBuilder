@@ -155,25 +155,3 @@ class JobTerminalResult:
     finished_at: datetime
 
 
-@dataclass(frozen=True)
-class HistoricalImportSource:
-    workflow_id: str
-    provider: str
-    logical_key: str
-    source_sha256: str
-    segment_id: str
-    state: Mapping[str, Any]
-    source_size: int
-    original_state: Mapping[str, Any] | None = None
-    canonicalized_fields: tuple[str, ...] = ()
-
-
-@dataclass(frozen=True)
-class HistoricalImportOutcome:
-    status: str
-    workflow_id: str
-    provider: str
-    logical_key: str
-    source_sha256: str
-    segment_id: str | None
-    details: Mapping[str, Any] = field(default_factory=dict)

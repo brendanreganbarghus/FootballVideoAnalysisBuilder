@@ -11,7 +11,7 @@ the project architecture.
 Use the smallest appropriate layer:
 
 1. **Canonical rules and architecture** define football law, analytics
-   contracts, evidence boundaries, workflow separation, review, and
+   contracts, evidence boundaries, ball-source boundaries, review, and
    publication.
 2. **Implementation and tests** enforce those contracts and reveal the exact
    current behavior.
@@ -41,7 +41,7 @@ Every new developer or coding agent should:
 4. Read [`DEVELOPER_GUIDE.md`](DEVELOPER_GUIDE.md) for ownership, code paths,
    storage tiers, and dependency-aware validation.
 5. Read [`MANUAL_PIPELINE_COMMANDS.md`](MANUAL_PIPELINE_COMMANDS.md) before
-   running Innovation or Live processing.
+   running review processing or switching ball sources.
 6. Inspect the relevant implementation, current git changes, and focused tests.
    Repository documentation does not contain private conversation history or
    guarantee that a generated local artifact is current.
@@ -52,9 +52,9 @@ Every new developer or coding agent should:
 | --- | --- | --- |
 | [`README.md`](../README.md) | Repository overview, installation, limitations, data setup, benchmark entry points, and knowledge-pack links | First contact with the project |
 | [`PROJECT_DOCUMENTATION.md`](PROJECT_DOCUMENTATION.md) | Maintained inventory, authority model, takeover checklist, and task-based reading paths | Choosing which documentation controls a task |
-| [`RULES_ENGINE_ARCHITECTURE.md`](RULES_ENGINE_ARCHITECTURE.md) | Canonical law profile, analytics definitions, raw-video/evaluation boundary, match-state contracts, C#/E# independence, Innovation/Live isolation, guarded acceptance, regression, and publication | Any football-event or rules-engine decision |
+| [`RULES_ENGINE_ARCHITECTURE.md`](RULES_ENGINE_ARCHITECTURE.md) | Canonical law profile, analytics definitions, raw-video/evaluation boundary, match-state contracts, C#/E# independence, ball-source boundaries, guarded acceptance, regression, and publication | Any football-event or rules-engine decision |
 | [`DEVELOPER_GUIDE.md`](DEVELOPER_GUIDE.md) | Target architecture, package ownership, module map, shared/local storage, development setup, rerun matrix, and safe tuning | Implementing or validating code |
-| [`MANUAL_PIPELINE_COMMANDS.md`](MANUAL_PIPELINE_COMMANDS.md) | Exact Innovation and Live commands, artifact namespaces, provenance, Canvas identities, cache/cold-run distinction, and troubleshooting | Running or rebuilding a pipeline |
+| [`MANUAL_PIPELINE_COMMANDS.md`](MANUAL_PIPELINE_COMMANDS.md) | Exact single-workflow commands, ball-source selection, flat artifacts, provenance, Canvas identity, cache/cold-run distinction, and troubleshooting | Running or rebuilding a pipeline |
 | [`GRASSROOTS_PILOT.md`](GRASSROOTS_PILOT.md) | Pilot stack, licensing, camera/team/pitch calibration, outputs, and pilot acceptance gates | Pilot deployment or camera configuration |
 | [`benchmarks\alfheim\README.md`](../benchmarks/alfheim/README.md) | Alfheim non-commercial restrictions, raw-video benchmark preparation, evaluation-label separation, and Match Lab behavior | Using Alfheim footage or benchmark artifacts |
 
@@ -86,8 +86,8 @@ boundary changes, update all three entry points in the same change.
 | --- | --- |
 | Review a pass, turnover, foul, restart, shot, or goal | `AGENTS.md`, rules architecture, relevant implementation/tests |
 | Review or accept C#/E# events | Rules architecture Sections 7–10, applicable Canvas instructions, protected review regressions |
-| Work on Innovation Day | `AGENTS.md`, rules architecture Section 7.1, manual pipeline guide's workflow table and Innovation commands |
-| Work on Live ball tracking | Confirm the task explicitly targets the separate Live workstream, then read the three agent entry points plus the Live sections of the architecture/manual guide |
+| Run or review BAC-assisted segments | `AGENTS.md`, rules architecture Section 7.1, manual pipeline guide's ball-source commands |
+| Run or review Live ball tracking | `AGENTS.md`, rules architecture Section 7.1, manual pipeline guide's Live ball-source commands |
 | Run a benchmark | Rules architecture hard input boundary, manual pipeline guide, dataset-specific benchmark README |
 | Change possession or event inference | Rules architecture, developer guide module map/rerun matrix, focused and protected tests |
 | Configure a pilot or camera | Grassroots pilot profile, developer guide, dataset/camera provenance |

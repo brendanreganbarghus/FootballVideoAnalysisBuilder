@@ -14,11 +14,13 @@ replay. The two-camera RTSP ingestion, frame synchronization, GPU optimization,
 operator review UI, and stadium-screen output are the next architecture stage;
 they are not yet implemented.
 
-The active Innovation Day workflow uses frozen BAC ball coordinates, cached
-player evidence, the frozen Innovation engine, and
-`event-review-state-innovation`. Live ball tracking and the Live review
-workflow are frozen and separate; do not run or reuse them for Innovation
-work.
+The active review system uses one workflow, `football_review`, one Canvas,
+`football-event-review`, and one rules engine in `srcootball_poc`. Each
+segment records `ball_source`: `bac` uses frozen Alfheim BAC coordinates as a
+BAC-assisted diagnostic of the downstream football engine, never raw-video ball
+inference or a valid ball-tracking benchmark; `live` uses raw-video ball
+tracking, whose minimum 90% direct-coordinate provenance gate measures evidence
+coverage, not coordinate correctness or calibrated confidence.
 
 ## 1. Target home-ground architecture
 
@@ -115,7 +117,7 @@ FootballVideoAnalysisBuilder\
 `-- README.md               Main setup, benchmark and operational reference
 ```
 
-### Innovation Day: reproducible developer workspace
+### Football Review: reproducible developer workspace
 
 Use three storage tiers. Do not put raw footage, model weights, detection
 caches, track files, rendered videos, or archives in Git.
@@ -148,11 +150,13 @@ Innovationday Artifacts\
 |   |-- manifest.json
 |   |-- segment.mp4
 |   |-- checksums.sha256
-|   `-- <innovation|live>\...
+|   |-- analysis-status.json
+|   |-- analytics-cache\
+|   |-- analytics-data\
+|   |-- runtime-manifest.json
+|   `-- shot-evidence.json
 |-- 20-approved-models\<scope>\<model>\
 |-- 30-shared-baselines\
-|   |-- event-review-state-innovation\
-|   |-- event-review-state-live\
 |   `-- <baseline-version>\...
 `-- 40-team-runs\<dataset>\<segment>\<run-id>\
     |-- run.json
@@ -173,13 +177,14 @@ version, and relationships to workflow-scoped segments and runs.
 The first shared authority may be Brendan's local Docker PostgreSQL instance.
 The endpoint is selected through deployment configuration and the secret
 connection URL remains outside Git. The same code later points to Xebia
-PostgreSQL. Innovation and Live use separate workflow identities, leases,
-review histories, engine/tracker fingerprints, jobs, regressions, receipts, and
-publications even when they reference the same prepared media.
+PostgreSQL. All review records use the single `football_review` workflow identity. Leases,
+review histories, engine/tracker fingerprints, jobs, regressions, receipts,
+publications, and append-only `segment_outputs` records retain each segment's
+recorded `ball_source`.
 
 `15-prepared-segments` is the inherited review catalogue. Each active dropdown
 segment has one canonical playable video, immutable provenance metadata, the
-selected workflow's runtime artifacts, and a complete checksum inventory.
+segment's runtime artifacts, and a complete checksum inventory.
 The local server merges this shared catalogue with any disposable local
 generated runs; a local run with the same segment ID takes precedence while it
 is being developed. The Canvas receives the resolved prepared root, so a fresh
@@ -191,7 +196,7 @@ Publish or refresh one selected workflow bundle with:
 ```powershell
 python .\scripts\publish-prepared-segment.py `
   .\benchmarks\alfheim\generated\segment-0120-020 `
-  --workflow innovation_day_bac `
+  --workflow football_review `
   --camera-id f7a5f35d-9c61-5e9c-b6f3-795742c2c8f1 `
   --recording-id alfheim-pano-camera-setting-2
 ```
@@ -205,7 +210,7 @@ absent from the review dropdown.
 The configured database must already exist. Backend startup obtains a
 PostgreSQL advisory migration lock, applies checked forward-only migrations,
 and verifies migration checksums, constraints, indexes, workflow seeds, and
-historical reconciliation before enabling shared mutations. A configured but
+schema compatibility before enabling shared mutations. A configured but
 unavailable or inconsistent database makes shared state read-only; it never
 creates an offline mutation queue or silently falls back to mutable JSON.
 
@@ -216,48 +221,34 @@ minutes without keyboard, pointer, touch, or review activity and releases the
 editing lease at 20 minutes. Analysis and regression jobs use separate worker
 leases and continue after an editing lease is released.
 
-The Innovation review must also be opened from an active Copilot project
+Football Event Review must also be opened from an active Copilot project
 session for the same repository worktree. A standalone, copied, or stale local
 URL remains available for viewing but is read-only and cannot acquire a lease
 or invoke any mutation endpoint. The Canvas explains the missing connection
-and provides **Refresh connection**; if the instance is stale, reopen the
-Innovation review from its Copilot project session and retry.
+and provides **Refresh connection**; if the instance is stale, reopen
+Football Event Review from its Copilot project session and retry.
 
 After PostgreSQL is enabled, it is authoritative for mutable review state.
-Checksummed OneDrive review JSON is imported idempotently and retained as
-immutable source/export receipts. Before moving from local Docker to Xebia
-PostgreSQL, pause writes, take a PostgreSQL-native consistent backup, restore
-it, run migrations/reconciliation, compare deterministic row counts/digests
-and all workflow history, then switch the configured authority. The retired
-local database remains read-only and clients reject it as a writable authority.
+There is no startup import or reconciliation from retired JSON review-state
+directories. Before moving from local Docker to Xebia PostgreSQL, pause writes,
+take a PostgreSQL-native consistent backup, restore it, run migrations, compare
+deterministic row counts/digests and all workflow history, then switch the
+configured authority. The retired local database remains read-only and clients
+reject it as a writable authority.
 
-The two review-state directories are intentionally incompatible. Innovation
-state uses workflow ID `innovation_day_bac`, frozen BAC coordinates, and the
-frozen Innovation engine. Live state uses workflow ID `live_iteration_25` for
-the separate active ball-tracking R&D workstream. Do not rename, merge, or use
-either directory as a fallback for the other.
+`football-event-review` is the only review Canvas. It controls the segment
+catalog, recorded `ball_source`, processing API, regression suite, publication
+gate, prompts, and theme as one unit. Theme never selects inference behavior.
+The **Change ball source** action requires confirmation and removes derived
+artifacts and review work except the M# golden set; it is blocked while a job
+runs or another user holds the lease.
 
-`football-event-review` is the active Innovation review screen. The
-`football-event-review-live` provider is used only by explicitly requested Live
-work; do not open or use it for Innovation work. The shared implementation
-remains in `.github\extensions\football-event-review\shared`, but each workflow
-keeps its own adapter, state, artifacts, fingerprints, and publication gates.
-
-The selected adapter controls the segment catalog, artifact namespace, state
-directory, engine files, processing API, permitted actions, regression suite,
-publication gate, prompts, and theme as one unit. Never select workflow
-behavior from the theme or move state or artifacts between adapters.
-Innovation hides `segment-0540-020` from its review catalog because it is an
-exact regression prefix of the passed `segment-0540-060` run, not an
-independent published Innovation reference. Its artifacts remain available to
-the protected regression suite. Live catalog behavior is unchanged.
-
-Each published Innovation row exposes **Run regression**. This action rebuilds
-only cached event and match-state output with the current frozen Innovation
-engine, then compares its combined output hash with the hash recorded when that
-segment was published. The blocking modal reports the elapsed time and remains
-open with an explicit pass, mismatch, or execution-failure result. It does not
-run detection, use evaluation labels as inference input, or affect Live.
+Each published row exposes **Run regression**. This action rebuilds only cached
+event and match-state output with the segment's recorded `ball_source`, then
+compares its combined output hash with the hash recorded when that segment was
+published. The blocking modal reports the elapsed time and remains open with
+an explicit pass, mismatch, or execution-failure result. It does not run
+detection or use evaluation labels as inference input.
 
 The source hierarchy is:
 
@@ -358,7 +349,7 @@ generated caches.
      $artifactRoot "10-master-data\alfheim\pano"
 
    & "$artifactRoot\00-governance\Verify-Artifacts.ps1"
-   .\.venv\Scripts\python .\scripts\verify-innovation-workspace.py --require-alfheim
+   .\.venv\Scripts\python .\scripts\verify-workspace.py --require-alfheim
    ```
 
 5. Configure PostgreSQL without putting credentials in the repository. The
@@ -416,31 +407,15 @@ generated caches.
 
    The expected result is `"mode": "available"` and `"writable": true`.
    Server startup repeats this migration, index, authority, and checksummed
-   history-reconciliation gate. A configured but unavailable or inconsistent
+   schema-compatibility gate. A configured but unavailable or inconsistent
    database starts read-only; it does not silently write JSON.
-
-   Only the administrator performing the initial migration should run the
-   explicit import. Always dry-run first:
-
-   ```powershell
-   .\.venv\Scripts\python -m football_poc.coordination.history_import `
-     --source-root $env:FOOTBALL_ARTIFACT_ROOT `
-     --provider xebia-shared `
-     --dry-run
-
-   .\.venv\Scripts\python -m football_poc.coordination.history_import `
-     --source-root $env:FOOTBALL_ARTIFACT_ROOT `
-     --provider xebia-shared `
-     --apply
-   ```
 
 7. Run the workstation readiness checks and start the loopback backend:
 
    ```powershell
    .\.venv\Scripts\python -m pytest `
      tests\test_coordination.py `
-     tests\test_coordination_import.py `
-     tests\test_local_server.py `
+          tests\test_local_server.py `
      tests\test_event_review_canvas_extension.py -q
 
    .\.venv\Scripts\python .\scripts\serve-local.py `
@@ -449,25 +424,19 @@ generated caches.
    ```
 
    Keep that terminal running. In a GitHub Copilot project session for this
-   repository, start the Innovation Canvas once with:
+   repository, start Football Event Review once with:
 
    ```text
-   Open the Innovation Day Football Event Review Canvas for segment-0120-020.
+   Open Football Event Review for segment-0120-020.
    ```
 
    Opening the Canvas starts its temporary loopback UI and registers that
    address in the repository's Git common directory, so the port-8080 server
-   can find it from `main` or any worktree in the same clone. Open the stable
-   Innovation landing page:
+   can find it from `main` or any worktree in the same clone. The stable
+   launcher is:
 
    ```text
-   http://127.0.0.1:8080/showcase/innovation-day/
-   ```
-
-   Its **Review Canvas** button opens the stable launcher:
-
-   ```text
-   http://127.0.0.1:8080/review-canvas?theme=innovation
+   http://127.0.0.1:8080/review-canvas?theme=default
    ```
 
    Repeat the Canvas-opening prompt after Copilot restarts or reloads its
@@ -479,15 +448,17 @@ generated caches.
    | Component | Purpose |
    | --- | --- |
    | Port-8080 local app | Stable developer entry point; serves the landing page, segment catalogue, prepared video, workflow status APIs, and Canvas redirect |
-   | Innovation review Canvas | Copilot side-panel workspace for reviewing prepared video, frozen-BAC diagnostic evidence, E# engine output, independent M# decisions, mappings, conversations, regression results, and publication state |
+   | Football Event Review Canvas | Copilot side-panel workspace for reviewing prepared video, selected ball-source evidence, E# engine output, independent M# decisions, mappings, conversations, regression results, and publication state |
    | Temporary Canvas server | Hosts one running Canvas UI on an OS-assigned localhost port; its current address is registered under Git's common directory so all worktrees in the clone can find it |
-   | Shared prepared-segment storage | Supplies prepared media and immutable/checksummed Innovation workflow artifacts |
+   | Shared prepared-segment storage | Supplies prepared media and immutable/checksummed review artifacts |
    | PostgreSQL coordination store | Preserves mutable decisions, conversations, mappings, leases, fingerprints, regression receipts, and publication history |
 
-   The Canvas exists to diagnose and validate the frozen downstream Innovation
-   football engine against independently reviewed evidence. It is a
-   frozen-BAC-assisted review workflow, not raw-video ball inference and not a
-   valid Live ball-tracking performance benchmark. The temporary Canvas URL is
+   The Canvas exists to diagnose and validate the downstream football engine
+   against independently reviewed evidence. BAC runs are BAC-assisted
+   diagnostics, not raw-video ball inference or valid ball-tracking
+   performance benchmarks. Live runs use raw-video ball tracking; their 90%
+   direct-coordinate provenance gate measures evidence coverage, not
+   coordinate correctness or calibrated confidence. The temporary Canvas URL is
    only a local transport address; it does not contain the authoritative media
    or review history.
 
@@ -514,7 +485,7 @@ coordination authority ID, and result of each check.
 2. Verify the OneDrive checksum inventory before opening any segment.
 3. Confirm the coordination health endpoint is `available` and identifies the
    expected shared authority, not a retired or accidental local database.
-4. Open the same Innovation segment on both laptops. Confirm both can browse it
+4. Open the same review segment on both laptops. Confirm both can browse it
    without a lease, the first **Start working** succeeds, and the second laptop
    becomes read-only with the correct developer, machine, stage, and heartbeat.
 5. Release the first lease with **Stop working**, acquire it from the second
@@ -588,7 +559,7 @@ baseline folder.
 ### Parallel event-rule development
 
 Use one branch, one worktree/session, and one pull request per event family.
-Suggested Innovation Day ownership:
+Suggested review ownership:
 
 | Workstream | Owns | Must not own |
 | --- | --- | --- |

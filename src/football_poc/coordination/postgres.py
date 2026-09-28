@@ -19,8 +19,6 @@ from football_poc.coordination.models import (
     EnvironmentIdentity,
     Identity,
     JobTerminalResult,
-    HistoricalImportOutcome,
-    HistoricalImportSource,
     ManualEventMapping,
     ManualEventRevision,
     ManualReferenceMember,
@@ -96,14 +94,9 @@ ReconciliationHook = Callable[
 
 WORKFLOW_SEEDS = (
     (
-        "innovation_day_bac",
-        "Innovation Day - Frozen BAC",
-        "innovation",
-    ),
-    (
-        "live_iteration_25",
-        "Live - Raw-video pipeline",
-        "live",
+        "football_review",
+        "Football review",
+        "",
     ),
 )
 
@@ -228,6 +221,124 @@ class PostgresCoordinationRepository:
             (workflow_id,),
         ).fetchall()
         return tuple(_segment(row) for row in rows)
+
+    @staticmethod
+    def _validate_ball_source(ball_source: str) -> str:
+        if ball_source not in {"bac", "live"}:
+            raise ValueError("ball_source must be 'bac' or 'live'")
+        return ball_source
+
+    def get_segment_ball_source(
+        self, workflow_id: str, segment_id: str
+    ) -> str | None:
+        row = self._connection.execute(
+            "SELECT ball_source FROM segments "
+            "WHERE workflow_id = %s AND segment_id = %s",
+            (workflow_id, segment_id),
+        ).fetchone()
+        return row[0] if row else None
+
+    def set_segment_ball_source(
+        self,
+        workflow_id: str,
+        segment_id: str,
+        ball_source: str,
+        *,
+        logical_key: str | None = None,
+        metadata: Mapping[str, Any] | None = None,
+    ) -> None:
+        source = self._validate_ball_source(ball_source)
+        with self._connection.transaction():
+            self._connection.execute(
+                "INSERT INTO segments "
+                "(workflow_id, segment_id, logical_key, metadata, ball_source) "
+                "VALUES (%s, %s, %s, %s::jsonb, %s) "
+                "ON CONFLICT (workflow_id, segment_id) DO UPDATE SET "
+                "ball_source = EXCLUDED.ball_source, "
+                "updated_at = clock_timestamp()",
+                (
+                    workflow_id,
+                    segment_id,
+                    logical_key or segment_id,
+                    _json(metadata or {}),
+                    source,
+                ),
+            )
+
+    def record_segment_outputs(
+        self,
+        workflow_id: str,
+        segment_id: str,
+        *,
+        ball_source: str,
+        engine_sha256: str,
+        output_sha256: str,
+        files: Mapping[str, Any],
+        actor_id: str,
+    ) -> int:
+        source = self._validate_ball_source(ball_source)
+        with self._connection.transaction():
+            self._connection.execute(
+                "INSERT INTO segments "
+                "(workflow_id, segment_id, logical_key, metadata, ball_source) "
+                "VALUES (%s, %s, %s, %s::jsonb, %s) "
+                "ON CONFLICT (workflow_id, segment_id) DO UPDATE SET "
+                "ball_source = EXCLUDED.ball_source, "
+                "updated_at = clock_timestamp()",
+                (workflow_id, segment_id, segment_id, "{}", source),
+            )
+            self._connection.execute(
+                "SELECT 1 FROM segments WHERE workflow_id = %s "
+                "AND segment_id = %s FOR UPDATE",
+                (workflow_id, segment_id),
+            )
+            row = self._connection.execute(
+                "SELECT COALESCE(MAX(revision), 0) + 1 "
+                "FROM segment_outputs "
+                "WHERE workflow_id = %s AND segment_id = %s",
+                (workflow_id, segment_id),
+            ).fetchone()
+            revision = int(row[0])
+            self._connection.execute(
+                "INSERT INTO segment_outputs "
+                "(workflow_id, segment_id, revision, ball_source, "
+                "engine_sha256, output_sha256, files, created_by) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb, %s)",
+                (
+                    workflow_id,
+                    segment_id,
+                    revision,
+                    source,
+                    engine_sha256,
+                    output_sha256,
+                    _json(files),
+                    actor_id,
+                ),
+            )
+        return revision
+
+    def get_segment_outputs(
+        self, workflow_id: str, segment_id: str
+    ) -> dict[str, Any] | None:
+        row = self._connection.execute(
+            "SELECT revision, ball_source, engine_sha256, output_sha256, "
+            "files, created_by, created_at "
+            "FROM segment_outputs "
+            "WHERE workflow_id = %s AND segment_id = %s "
+            "ORDER BY revision DESC LIMIT 1",
+            (workflow_id, segment_id),
+        ).fetchone()
+        if row is None:
+            return None
+        return {
+            "revision": int(row[0]),
+            "ballSource": row[1],
+            "engineSha256": row[2],
+            "outputSha256": row[3],
+            "files": dict(row[4]),
+            "createdBy": row[5],
+            "createdAt": row[6].isoformat() if hasattr(row[6], "isoformat") else row[6],
+        }
 
     def acquire_lease(
         self,
@@ -899,534 +1010,6 @@ class PostgresCoordinationRepository:
                 workflow_id,
                 segment_id,
                 _json(payload),
-            ),
-        )
-
-    def import_historical_state(
-        self,
-        source: HistoricalImportSource,
-        *,
-        apply: bool,
-    ) -> HistoricalImportOutcome:
-        from football_poc.coordination.history_import import (
-            canonical_json_hash,
-            derive_history_records,
-        )
-
-        state_hash = canonical_json_hash(source.state)
-        history_records = derive_history_records(source.state)
-        with self._connection.transaction():
-            ledger = self._connection.execute(
-                "SELECT status, details FROM historical_review_imports "
-                "WHERE workflow_id = %s AND provider_id = %s "
-                "AND logical_key = %s AND source_sha256 = %s",
-                (
-                    source.workflow_id,
-                    source.provider,
-                    source.logical_key,
-                    source.source_sha256,
-                ),
-            ).fetchone()
-            if ledger and ledger[0] == "inserted":
-                return HistoricalImportOutcome(
-                    "unchanged",
-                    source.workflow_id,
-                    source.provider,
-                    source.logical_key,
-                    source.source_sha256,
-                    source.segment_id,
-                    {
-                        **ledger[1],
-                        "reason": "source digest already imported",
-                    },
-                )
-            segment = self._connection.execute(
-                "SELECT logical_key FROM segments WHERE workflow_id = %s "
-                "AND segment_id = %s FOR UPDATE",
-                (source.workflow_id, source.segment_id),
-            ).fetchone()
-            snapshot = self._connection.execute(
-                "SELECT state FROM state_snapshots WHERE workflow_id = %s "
-                "AND segment_id = %s ORDER BY version DESC LIMIT 1",
-                (source.workflow_id, source.segment_id),
-            ).fetchone()
-            conflict = (
-                segment is not None and segment[0] != source.logical_key
-            ) or (
-                snapshot is not None
-                and canonical_json_hash(snapshot[0]) != state_hash
-            )
-            status = (
-                "conflicting"
-                if conflict
-                else "unchanged"
-                if snapshot is not None
-                else "inserted"
-            )
-            details = {
-                "state_sha256": state_hash,
-                "history_records": len(history_records),
-                "dry_run": not apply,
-                "canonicalized_fields": list(source.canonicalized_fields),
-                **(
-                    {"source_state": dict(source.original_state)}
-                    if source.canonicalized_fields
-                    and source.original_state is not None
-                    else {}
-                ),
-            }
-            outcome = HistoricalImportOutcome(
-                status,
-                source.workflow_id,
-                source.provider,
-                source.logical_key,
-                source.source_sha256,
-                source.segment_id,
-                details,
-            )
-            if not apply:
-                return outcome
-
-            self._connection.execute(
-                "INSERT INTO artifact_providers (provider_id) VALUES (%s) "
-                "ON CONFLICT (provider_id) DO NOTHING",
-                (source.provider,),
-            )
-            self._connection.execute(
-                "INSERT INTO developers "
-                "(developer_id, domain_name, username) "
-                "VALUES ('historical-import', 'system', 'historical-import') "
-                "ON CONFLICT (developer_id) DO NOTHING"
-            )
-            if status == "conflicting":
-                self._write_import_ledger(source, status, details, state_hash)
-                return outcome
-            if status == "unchanged":
-                self._write_import_ledger(source, status, details, state_hash)
-                return outcome
-            self._connection.execute(
-                "INSERT INTO segments "
-                "(workflow_id, segment_id, logical_key, metadata) "
-                "VALUES (%s, %s, %s, %s::jsonb) "
-                "ON CONFLICT (workflow_id, segment_id) DO NOTHING",
-                (
-                    source.workflow_id,
-                    source.segment_id,
-                    source.logical_key,
-                    _json(
-                        {
-                            "historical_source_sha256": source.source_sha256,
-                            "historical_provider": source.provider,
-                        }
-                    ),
-                ),
-            )
-            self._connection.execute(
-                "INSERT INTO state_snapshots "
-                "(workflow_id, segment_id, version, state, author_id) "
-                "VALUES (%s, %s, 1, %s::jsonb, 'historical-import')",
-                (
-                    source.workflow_id,
-                    source.segment_id,
-                    _json(source.state),
-                ),
-            )
-            for record in history_records:
-                self._insert_imported_history(
-                    record["stream"],
-                    source.workflow_id,
-                    source.segment_id,
-                    record["payload"],
-                )
-            self._insert_supported_control_history(source)
-            self._write_import_ledger(source, status, details, state_hash)
-            return outcome
-
-    def import_historical_states(
-        self,
-        sources: Sequence[HistoricalImportSource],
-        *,
-        apply: bool,
-    ) -> tuple[HistoricalImportOutcome, ...]:
-        with self._connection.transaction():
-            return tuple(
-                self.import_historical_state(source, apply=apply)
-                for source in sources
-            )
-
-    def _write_import_ledger(
-        self,
-        source: HistoricalImportSource,
-        status: str,
-        details: Mapping[str, Any],
-        state_hash: str,
-    ) -> None:
-        self._connection.execute(
-            "INSERT INTO historical_review_imports "
-            "(workflow_id, provider_id, logical_key, source_sha256, "
-            "segment_id, source_size, state_sha256, status, details) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb) "
-            "ON CONFLICT (workflow_id, provider_id, logical_key, source_sha256) "
-            "DO UPDATE SET status = EXCLUDED.status, details = EXCLUDED.details",
-            (
-                source.workflow_id,
-                source.provider,
-                source.logical_key,
-                source.source_sha256,
-                source.segment_id,
-                source.source_size,
-                state_hash,
-                status,
-                _json(details),
-            ),
-        )
-
-    def record_historical_import_outcome(
-        self,
-        outcome: HistoricalImportOutcome,
-        *,
-        source_size: int = 0,
-        state_sha256: str | None = None,
-    ) -> None:
-        digest = state_sha256 or outcome.source_sha256
-        with self._connection.transaction():
-            self._connection.execute(
-                "INSERT INTO artifact_providers (provider_id) VALUES (%s) "
-                "ON CONFLICT (provider_id) DO NOTHING",
-                (outcome.provider,),
-            )
-
-            self._connection.execute(
-                "INSERT INTO historical_review_imports "
-                "(workflow_id, provider_id, logical_key, source_sha256, "
-                "segment_id, source_size, state_sha256, status, details) "
-                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb) "
-                "ON CONFLICT "
-                "(workflow_id, provider_id, logical_key, source_sha256) "
-                "DO UPDATE SET status = EXCLUDED.status, "
-                "details = EXCLUDED.details",
-                (
-                    outcome.workflow_id,
-                    outcome.provider,
-                    outcome.logical_key,
-                    outcome.source_sha256,
-                    outcome.segment_id,
-                    source_size,
-                    digest,
-                    outcome.status,
-                    _json(outcome.details),
-                ),
-            )
-            self._insert_regression_registry_history(outcome)
-
-    def _insert_regression_registry_history(
-        self, outcome: HistoricalImportOutcome
-    ) -> None:
-        if (
-            outcome.status != "inserted"
-            or outcome.details.get("kind") != "regression_registry"
-        ):
-            return
-        registry = outcome.details.get("registry")
-        if not isinstance(registry, Mapping):
-            return
-        receipt = registry.get("last_full_regression")
-        if not isinstance(receipt, Mapping):
-            return
-        engine_hash = str(
-            receipt.get("engineContentHash")
-            or receipt.get("engine_content_hash")
-            or ""
-        )
-        if not engine_hash:
-            return
-        run_id = str(
-            uuid.uuid5(
-                uuid.NAMESPACE_URL,
-                f"football-review-regression:{outcome.workflow_id}:"
-                f"{outcome.source_sha256}",
-            )
-        )
-        inserted = self._connection.execute(
-            "INSERT INTO regression_runs "
-            "(regression_run_id, workflow_id, engine_source_hash, "
-            "completed_at, status, metadata) "
-            "VALUES (%s, %s, %s, clock_timestamp(), %s, %s::jsonb) "
-            "ON CONFLICT (regression_run_id) DO NOTHING "
-            "RETURNING regression_run_id",
-            (
-                run_id,
-                outcome.workflow_id,
-                engine_hash,
-                "passed" if receipt.get("passed") else "failed",
-                _json(dict(receipt)),
-            ),
-        ).fetchone()
-        if inserted is None:
-            return
-        results = receipt.get("segmentResults")
-        if not isinstance(results, list):
-            return
-        for result in results:
-            if not isinstance(result, Mapping):
-                continue
-            segment_id = str(result.get("segment", ""))
-            if not segment_id or self._connection.execute(
-                "SELECT 1 FROM segments WHERE workflow_id = %s "
-                "AND segment_id = %s",
-                (outcome.workflow_id, segment_id),
-            ).fetchone() is None:
-                continue
-            self._connection.execute(
-                "INSERT INTO regression_results "
-                "(regression_run_id, workflow_id, segment_id, passed, "
-                "output_hash, details) VALUES (%s, %s, %s, %s, %s, %s::jsonb)",
-                (
-                    run_id,
-                    outcome.workflow_id,
-                    segment_id,
-                    bool(result.get("passed")),
-                    result.get("outputHash") or result.get("output_hash"),
-                    _json(dict(result)),
-                ),
-            )
-
-    def get_historical_import_outcome(
-        self,
-        workflow_id: str,
-        provider: str,
-        logical_key: str,
-        source_sha256: str,
-    ) -> HistoricalImportOutcome | None:
-        row = self._connection.execute(
-            "SELECT status, segment_id, details "
-            "FROM historical_review_imports WHERE workflow_id = %s "
-            "AND provider_id = %s AND logical_key = %s "
-            "AND source_sha256 = %s",
-            (workflow_id, provider, logical_key, source_sha256),
-        ).fetchone()
-        if row is None:
-            return None
-        return HistoricalImportOutcome(
-            row[0],
-            workflow_id,
-            provider,
-            logical_key,
-            source_sha256,
-            row[1],
-            row[2],
-        )
-
-    def _insert_imported_history(
-        self,
-        stream: str,
-        workflow_id: str,
-        segment_id: str,
-        payload: Mapping[str, Any],
-    ) -> None:
-        if stream in {"C", "E", "M"}:
-            event_key = str(payload["event_key"])
-            self._connection.execute(
-                "INSERT INTO event_revisions "
-                "(workflow_id, segment_id, stream, event_key, revision, "
-                "payload, actor_id) VALUES (%s, %s, %s, %s, 1, %s::jsonb, "
-                "'historical-import')",
-                (workflow_id, segment_id, stream, event_key, _json(payload)),
-            )
-            return
-        if stream == "activity":
-            table = "review_activity"
-            discriminator = "activity_type"
-            extra_column = None
-            extra_value = None
-        elif stream == "decision":
-            table = "review_decisions"
-            discriminator = "decision"
-            extra_column = "proposal_key"
-            extra_value = str(payload["proposal_key"])
-        elif stream == "verdict":
-            table = "engine_verdicts"
-            discriminator = "verdict"
-            extra_column = "event_key"
-            extra_value = str(payload["event_key"])
-        else:
-            raise ValueError(f"Unsupported history stream: {stream}")
-        columns = (
-            f"workflow_id, segment_id, {discriminator}, payload, actor_id"
-            + (f", {extra_column}" if extra_column else "")
-        )
-        values = "%s, %s, %s, %s::jsonb, 'historical-import'" + (
-            ", %s" if extra_column else ""
-        )
-        parameters = (
-            workflow_id,
-            segment_id,
-            str(payload.get("type", stream)),
-            _json(payload),
-        ) + ((extra_value,) if extra_column else ())
-        self._connection.execute(
-            f"INSERT INTO {table} ({columns}) VALUES ({values})", parameters
-        )
-
-    def _insert_supported_control_history(
-        self, source: HistoricalImportSource
-    ) -> None:
-        state = source.state
-        engine_hashes: dict[str, str] = {}
-        for name in ("engineBefore", "engineAfter"):
-            snapshot = state.get(name)
-            if not isinstance(snapshot, Mapping):
-                continue
-            fingerprint = snapshot.get("fingerprint")
-            if isinstance(fingerprint, Mapping) and fingerprint.get("contentHash"):
-                engine_hashes[name] = str(fingerprint["contentHash"])
-                self._connection.execute(
-                    "INSERT INTO output_fingerprints "
-                    "(workflow_id, segment_id, fingerprint_type, content_hash, "
-                    "metadata) VALUES (%s, %s, %s, %s, %s::jsonb)",
-                    (
-                        source.workflow_id,
-                        source.segment_id,
-                        name,
-                        str(fingerprint["contentHash"]),
-                        _json(dict(fingerprint)),
-                    ),
-                )
-            if snapshot.get("outputHash"):
-                self._connection.execute(
-                    "INSERT INTO output_fingerprints "
-                    "(workflow_id, segment_id, fingerprint_type, content_hash, "
-                    "metadata) VALUES (%s, %s, %s, %s, %s::jsonb)",
-                    (
-                        source.workflow_id,
-                        source.segment_id,
-                        f"{name}.output",
-                        str(snapshot["outputHash"]),
-                        _json({"source": "historical-review-state"}),
-                    ),
-                )
-        reviews = state.get("engineEventReviews")
-        if isinstance(reviews, Mapping):
-            for event_key, review in reviews.items():
-                if not isinstance(review, Mapping):
-                    continue
-                engine_hash = str(
-                    review.get("engineContentHash")
-                    or review.get("engineSourceHash")
-                    or ""
-                )
-                output_hash = str(review.get("outputHash") or "")
-                reason = str(review.get("reason") or "")
-                if engine_hash and output_hash and reason:
-                    self._connection.execute(
-                        "INSERT INTO engine_confirmations "
-                        "(workflow_id, segment_id, event_key, "
-                        "engine_source_hash, cached_output_hash, reason, actor_id) "
-                        "VALUES (%s, %s, %s, %s, %s, %s, "
-                        "'historical-import')",
-                        (
-                            source.workflow_id,
-                            source.segment_id,
-                            str(event_key),
-                            engine_hash,
-                            output_hash,
-                            reason,
-                        ),
-                    )
-        regression = state.get("regression")
-        if isinstance(regression, Mapping):
-            engine_hash = str(
-                regression.get("engineContentHash")
-                or engine_hashes.get("engineAfter")
-                or engine_hashes.get("engineBefore")
-                or ""
-            )
-            if engine_hash:
-                run_id = str(
-                    uuid.uuid5(
-                        uuid.NAMESPACE_URL,
-                        f"football-review-state-regression:"
-                        f"{source.workflow_id}:{source.source_sha256}",
-                    )
-                )
-                self._connection.execute(
-                    "INSERT INTO regression_runs "
-                    "(regression_run_id, workflow_id, engine_source_hash, "
-                    "completed_at, status, metadata) VALUES "
-                    "(%s, %s, %s, clock_timestamp(), %s, %s::jsonb)",
-                    (
-                        run_id,
-                        source.workflow_id,
-                        engine_hash,
-                        "passed" if regression.get("passed") else "failed",
-                        _json(dict(regression)),
-                    ),
-                )
-                self._connection.execute(
-                    "INSERT INTO regression_results "
-                    "(regression_run_id, workflow_id, segment_id, passed, "
-                    "output_hash, details) VALUES "
-                    "(%s, %s, %s, %s, %s, %s::jsonb)",
-                    (
-                        run_id,
-                        source.workflow_id,
-                        source.segment_id,
-                        bool(regression.get("passed")),
-                        regression.get("candidateOutputHash")
-                        or regression.get("outputHash"),
-                        _json(dict(regression)),
-                    ),
-                )
-        published = state.get("publishedReference")
-        if not isinstance(published, Mapping):
-            return
-        engine_hash = str(
-            published.get("engineContentHash")
-            or published.get("engineSourceHash")
-            or ""
-        )
-        output_hash = str(
-            published.get("outputHash")
-            or published.get("engineOutputHash")
-            or ""
-        )
-        receipt_id = published.get("receiptId") or str(
-            uuid.uuid5(
-                uuid.NAMESPACE_URL,
-                f"football-review-publication:{source.workflow_id}:"
-                f"{source.source_sha256}",
-            )
-        )
-        try:
-            receipt_uuid = str(uuid.UUID(str(receipt_id)))
-        except (ValueError, TypeError, AttributeError):
-            return
-        if not engine_hash or not output_hash:
-            return
-        self._connection.execute(
-            "INSERT INTO receipts "
-            "(receipt_id, workflow_id, segment_id, receipt_type, "
-            "engine_source_hash, output_hash, payload, actor_id) "
-            "VALUES (%s, %s, %s, 'historical-publication', %s, %s, "
-            "%s::jsonb, 'historical-import')",
-            (
-                receipt_uuid,
-                source.workflow_id,
-                source.segment_id,
-                engine_hash,
-                output_hash,
-                _json(dict(published)),
-            ),
-        )
-        self._connection.execute(
-            "INSERT INTO publication_history "
-            "(workflow_id, segment_id, receipt_id, action, output_hash, actor_id) "
-            "VALUES (%s, %s, %s, 'imported', %s, 'historical-import')",
-            (
-                source.workflow_id,
-                source.segment_id,
-                receipt_uuid,
-                output_hash,
             ),
         )
 

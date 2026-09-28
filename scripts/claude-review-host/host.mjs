@@ -1,4 +1,4 @@
-// Runs the Innovation Day Football Event Review Canvas with a Claude agent in
+// Runs the Football Event Review Canvas with a Claude agent in
 // place of GitHub Copilot.
 //
 // Usage: node host.mjs [--segment segment-0120-020]
@@ -49,7 +49,7 @@ const opened = await canvas.open({
 
 console.log(`${opened.title}: ${opened.status}`);
 console.log(`Canvas:   ${opened.url}`);
-console.log(`Launcher: ${localApp}/review-canvas?theme=innovation`);
+console.log(`Launcher: ${localApp}/review-canvas`);
 console.log("Agent:    Claude (Claude Agent SDK). Press Ctrl+C to stop.");
 
 let closing = false;

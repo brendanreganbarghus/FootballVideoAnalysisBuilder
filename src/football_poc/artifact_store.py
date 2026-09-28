@@ -12,13 +12,17 @@ from pathlib import Path
 from typing import Callable, Mapping
 
 
-PREPARED_SEGMENT_SCHEMA_VERSION = 1
+PREPARED_SEGMENT_SCHEMA_VERSION = 2
 PREPARED_SEGMENT_ID = re.compile(r"segment-\d{4}-\d{3}")
 PREPARED_SEGMENT_CATALOG = "15-prepared-segments"
-WORKFLOW_NAMESPACES = {
-    "innovation_day_bac": "innovation",
-    "live_iteration_25": "live",
-}
+REVIEW_WORKFLOW_ID = "football_review"
+BALL_SOURCES = frozenset({"bac", "live"})
+# Reproducible or local-only files that are never published to the share.
+UNPUBLISHED_FILE_PATTERNS = (
+    re.compile(r"alfheim-window(?:-playable)?\.mp4"),
+    re.compile(r"decoded-sampled-grayscale.*"),
+    re.compile(r".*\.(?:tmp|lock)"),
+)
 
 
 @dataclass(frozen=True)
@@ -27,8 +31,12 @@ class SharedPreparedSegment:
     root: Path
     video: Path
     manifest: Path
-    workflows: tuple[str, ...]
     metadata: Mapping[str, object]
+
+    @property
+    def ball_source(self) -> str | None:
+        value = self.metadata.get("ball_source")
+        return str(value) if value in BALL_SOURCES else None
 
 
 def discover_artifact_root() -> Path | None:
@@ -88,13 +96,8 @@ def _load_shared_segment(path: Path) -> SharedPreparedSegment:
         raise ValueError(f"Invalid prepared segment ID in {path}")
     if path.parent.name != segment_id:
         raise ValueError(f"Prepared segment directory does not match {segment_id}")
-    workflows = tuple(
-        sorted({str(value) for value in metadata.get("workflows", [])})
-    )
-    if not workflows or any(
-        workflow not in WORKFLOW_NAMESPACES for workflow in workflows
-    ):
-        raise ValueError(f"Invalid prepared-segment workflows in {path}")
+    if metadata.get("ball_source") not in (None, *BALL_SOURCES):
+        raise ValueError(f"Invalid prepared-segment ball source in {path}")
     root = path.parent.resolve()
     video = (
         root / _safe_relative_path(metadata.get("video"), field="video")
@@ -111,7 +114,6 @@ def _load_shared_segment(path: Path) -> SharedPreparedSegment:
         root=root,
         video=video,
         manifest=manifest,
-        workflows=workflows,
         metadata=metadata,
     )
 
@@ -152,15 +154,18 @@ def find_prepared_segment(
     )
 
 
+def _is_published_file(relative: Path) -> bool:
+    return not any(
+        pattern.fullmatch(relative.name) for pattern in UNPUBLISHED_FILE_PATTERNS
+    )
+
+
 def publish_prepared_segment(
     source: Path,
     *,
-    workflow_id: str,
     artifact_root: Path | None = None,
     source_metadata: Mapping[str, str],
 ) -> SharedPreparedSegment:
-    if workflow_id not in WORKFLOW_NAMESPACES:
-        raise ValueError(f"Unsupported prepared-segment workflow: {workflow_id}")
     source = source.resolve()
     if PREPARED_SEGMENT_ID.fullmatch(source.name) is None:
         raise ValueError(f"Invalid prepared segment directory: {source.name}")
@@ -168,8 +173,6 @@ def publish_prepared_segment(
     if root is None:
         raise FileNotFoundError("Set FOOTBALL_ARTIFACT_ROOT before publication")
     manifest_path = source / "manifest.json"
-    namespace = WORKFLOW_NAMESPACES[workflow_id]
-    workflow_root = source / namespace
     if not manifest_path.is_file():
         raise FileNotFoundError(f"Prepared segment is incomplete: {source}")
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -184,14 +187,17 @@ def publish_prepared_segment(
         ).resolve()
     if not video_path.is_relative_to(source) or not video_path.is_file():
         raise FileNotFoundError(f"Prepared segment is incomplete: {source}")
-    if not workflow_root.is_dir():
-        raise FileNotFoundError(
-            f"{workflow_id} artifacts are missing: {workflow_root}"
+    status_path = source / "analysis-status.json"
+    status = (
+        json.loads(status_path.read_text(encoding="utf-8"))
+        if status_path.is_file()
+        else {}
+    )
+    ball_source = status.get("ball_source")
+    if ball_source not in BALL_SOURCES:
+        raise ValueError(
+            "Prepared segment has no completed run with a recorded ball source"
         )
-    source_workflows = {
-        str(value) for value in manifest.get("review_workflows", [])
-    }
-    source_workflows.add(workflow_id)
 
     camera_id = str(source_metadata.get("camera_id") or "").strip()
     recording_id = str(source_metadata.get("recording_id") or "").strip()
@@ -215,44 +221,31 @@ def publish_prepared_segment(
     )
     backup = destination.with_name(f".{destination.name}.previous")
     try:
-        existing_workflows: set[str] = set()
-        if destination.is_dir():
-            shutil.copytree(
-                destination,
-                staging,
-                dirs_exist_ok=True,
-                ignore=lambda directory, names: (
-                    {namespace, "checksums.sha256"} & set(names)
-                    if Path(directory).resolve() == destination.resolve()
-                    else set()
-                ),
-            )
-            existing_metadata_path = destination / "segment.json"
-            if existing_metadata_path.is_file():
-                existing = json.loads(
-                    existing_metadata_path.read_text(encoding="utf-8")
-                )
-                existing_workflows.update(
-                    str(value) for value in existing.get("workflows", [])
-                )
-        workflows = existing_workflows | source_workflows
+        for path in sorted(source.rglob("*")):
+            relative = path.relative_to(source)
+            if (
+                not path.is_file()
+                or path == manifest_path
+                or path == video_path
+                or not _is_published_file(relative)
+            ):
+                continue
+            target = staging / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(path, target)
         shutil.copy2(video_path, staging / "segment.mp4")
         copied_manifest = {
-            **manifest,
-            "video": "segment.mp4",
-            "playable_video": "segment.mp4",
-            "review_workflows": sorted(workflows),
+            key: value
+            for key, value in manifest.items()
+            if key != "review_workflows"
         }
+        copied_manifest.update(
+            {"video": "segment.mp4", "playable_video": "segment.mp4"}
+        )
         (staging / "manifest.json").write_text(
             json.dumps(copied_manifest, indent=2) + "\n",
             encoding="utf-8",
         )
-        common_review = source / "copilot-review.json"
-        if common_review.is_file():
-            shutil.copy2(common_review, staging / common_review.name)
-        target_workflow = staging / namespace
-        shutil.copytree(workflow_root, target_workflow)
-        existing_workflows.add(workflow_id)
         metadata = {
             "schema_version": PREPARED_SEGMENT_SCHEMA_VERSION,
             "segment_id": source.name,
@@ -261,34 +254,14 @@ def publish_prepared_segment(
             "duration_seconds": float(manifest["duration_seconds"]),
             "video": "segment.mp4",
             "manifest": "manifest.json",
-            "workflows": sorted(existing_workflows),
-            "workflow_artifacts": {
-                **(
-                    json.loads((destination / "segment.json").read_text(
-                        encoding="utf-8"
-                    )).get("workflow_artifacts", {})
-                    if (destination / "segment.json").is_file()
-                    else {}
-                ),
-                workflow_id: namespace,
-            },
+            "ball_source": ball_source,
             **dict(source_metadata),
         }
         (staging / "segment.json").write_text(
             json.dumps(metadata, indent=2) + "\n",
             encoding="utf-8",
         )
-        files = sorted(
-            path for path in staging.rglob("*")
-            if path.is_file() and path.name != "checksums.sha256"
-        )
-        (staging / "checksums.sha256").write_text(
-            "".join(
-                f"{_sha256(path)} *{path.relative_to(staging).as_posix()}\n"
-                for path in files
-            ),
-            encoding="utf-8",
-        )
+        write_checksum_manifest(staging)
         if backup.exists():
             _remove_tree(backup)
         if destination.exists():
@@ -303,6 +276,20 @@ def publish_prepared_segment(
             backup.rename(destination)
         raise
     return _load_shared_segment(destination / "segment.json")
+
+
+def write_checksum_manifest(bundle: Path) -> None:
+    files = sorted(
+        path for path in bundle.rglob("*")
+        if path.is_file() and path.name != "checksums.sha256"
+    )
+    (bundle / "checksums.sha256").write_text(
+        "".join(
+            f"{_sha256(path)} *{path.relative_to(bundle).as_posix()}\n"
+            for path in files
+        ),
+        encoding="utf-8",
+    )
 
 
 def verify_prepared_segment(segment: SharedPreparedSegment) -> None:

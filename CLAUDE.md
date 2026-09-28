@@ -17,7 +17,7 @@ work:
 Use the reviewed IFAB law profile first, project analytics definitions second,
 and available video/tracking/match-state evidence third. Abstain when evidence
 is insufficient. Keep provider annotations and manual labels evaluation-only.
-In Innovation review, treat the independently recorded M# set as golden,
+In review, treat the independently recorded M# set as golden,
 compare it with E#, and keep C# optional and diagnostic-only. Follow the
 guarded approval, fingerprinting, regression, and publication workflow.
 
@@ -36,25 +36,27 @@ must close the modal automatically and refresh M#/E# while preserving the
 conversation.
 
 After an accepted rule-engine change, rebuild cached output for every published
-segment in that workflow and compare it exactly with its publication hash
+segment, with its recorded ball source, and compare it exactly with its publication hash
 before completing engine synchronization. Any mismatch keeps the accepted
 review requirement pending: report each affected segment and its event
 differences, revise the general rule without weakening the new requirement,
 and repeat the complete protected regression gate. Never reset unrelated work.
 
-**Current boundary:** Live ball tracking is an active R&D workstream, fully
-separate from Innovation Day. Inspect, run, or edit Live code, state, artifacts,
-or the Live review Canvas only when the current task explicitly targets Live
-work. Its current minimum 90% direct-coordinate provenance gate measures
-evidence coverage, not coordinate correctness or calibrated confidence;
-adaptive thresholding remains future work until implemented and independently
-validated. Innovation Day uses frozen BAC coordinates and only its Innovation
-engine, artifact namespace, review state, and Canvas. Treat Innovation Day as a
-BAC-assisted diagnostic/demo of the frozen downstream football engine. Never
-describe it as raw-video ball inference, a valid ball-tracking performance
-benchmark, or current Live pipeline behavior.
+**Current boundary:** there is one review workflow (`football_review`), one
+Canvas (`football-event-review`) and one rules engine. Each segment records its
+ball-coordinate source, `ball_source`:
+- `bac`: frozen Alfheim BAC coordinates. A BAC run is a BAC-assisted
+  diagnostic of the downstream engine. Never describe it as raw-video ball
+  inference or a valid ball-tracking performance benchmark.
+- `live`: raw-video ball tracking. Its minimum 90% direct-coordinate
+  provenance gate measures evidence coverage, not coordinate correctness or
+  calibrated confidence. Adaptive thresholding remains future work until it is
+  implemented and independently validated.
+
+Review state and engine output JSON live only in the PostgreSQL coordination
+database; there is no JSON review-state fallback.
 
 Do not copy all repository documentation into this file. The documentation map
 is the maintained index; the linked documents and code remain authoritative.
 
-Innovation shots on target is an always-analysed, evidence-gated project statistic (no opt-in setting) that requires a runtime `innovation\shot-evidence.json` built by `shot_evidence_adapter.py` from frozen runtime inputs only (height comes only from monocular goal-face arrests; thresholds are provisional until validated across segments); unavailable evidence reports unavailable rather than zero.
+Shots on target is an always-analysed, evidence-gated project statistic (no opt-in setting) that requires a runtime `shot-evidence.json` in the segment root built by `shot_evidence_adapter.py` from frozen runtime inputs only (height comes only from monocular goal-face arrests; thresholds are provisional until validated across segments); unavailable evidence reports unavailable rather than zero.

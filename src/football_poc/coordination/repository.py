@@ -16,8 +16,6 @@ from football_poc.coordination.models import (
     ManualEventRevision,
     ManualReferenceMember,
     ManualReferenceSetRevision,
-    HistoricalImportOutcome,
-    HistoricalImportSource,
     Segment,
     StateSnapshot,
 )
@@ -75,6 +73,36 @@ class CoordinationRepository(Protocol):
     ) -> Segment | None: ...
 
     def list_segments(self, workflow_id: str) -> tuple[Segment, ...]: ...
+
+    def get_segment_ball_source(
+        self, workflow_id: str, segment_id: str
+    ) -> str | None: ...
+
+    def set_segment_ball_source(
+        self,
+        workflow_id: str,
+        segment_id: str,
+        ball_source: str,
+        *,
+        logical_key: str | None = None,
+        metadata: Mapping[str, Any] | None = None,
+    ) -> None: ...
+
+    def record_segment_outputs(
+        self,
+        workflow_id: str,
+        segment_id: str,
+        *,
+        ball_source: str,
+        engine_sha256: str,
+        output_sha256: str,
+        files: Mapping[str, Any],
+        actor_id: str,
+    ) -> int: ...
+
+    def get_segment_outputs(
+        self, workflow_id: str, segment_id: str
+    ) -> dict[str, Any] | None: ...
 
     def acquire_lease(
         self,
@@ -180,36 +208,6 @@ class CoordinationRepository(Protocol):
         workflow_id: str,
         segment_id: str,
     ) -> ManualReferenceSetRevision | None: ...
-
-    def import_historical_state(
-        self,
-        source: HistoricalImportSource,
-        *,
-        apply: bool,
-    ) -> HistoricalImportOutcome: ...
-
-    def import_historical_states(
-        self,
-        sources: Sequence[HistoricalImportSource],
-        *,
-        apply: bool,
-    ) -> tuple[HistoricalImportOutcome, ...]: ...
-
-    def record_historical_import_outcome(
-        self,
-        outcome: HistoricalImportOutcome,
-        *,
-        source_size: int = 0,
-        state_sha256: str | None = None,
-    ) -> None: ...
-
-    def get_historical_import_outcome(
-        self,
-        workflow_id: str,
-        provider: str,
-        logical_key: str,
-        source_sha256: str,
-    ) -> HistoricalImportOutcome | None: ...
 
     def register_artifact(
         self,

@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from football_poc.innovation_day_snapshot.possession import (
+from football_poc.possession import (
     PredictedEvent,
     PossessionObservation,
     PossessionSegment,
@@ -67,7 +67,7 @@ from football_poc.innovation_day_snapshot.possession import (
     _event_released_outside,
     _smooth_teams,
 )
-from football_poc.innovation_day_snapshot.match_state import (
+from football_poc.match_state import (
     build_match_state_timeline,
 )
 
@@ -79,7 +79,6 @@ def test_manifest_reference_allows_same_segment_bundle_after_relocation(
         tmp_path
         / "shared"
         / "segment-0120-020"
-        / "innovation"
         / "runtime-manifest.json"
     )
     recorded = (
@@ -94,7 +93,6 @@ def test_manifest_reference_allows_same_segment_bundle_after_relocation(
         recorded,
         expected.parent.parent.parent
         / "segment-0240-020"
-        / "innovation"
         / "runtime-manifest.json",
     )
 
@@ -190,12 +188,12 @@ def test_delayed_turnover_does_not_rewrite_conflicting_intermediary_pass(
         ]
     }
     monkeypatch.setattr(
-        "football_poc.innovation_day_snapshot.possession."
+        "football_poc.possession."
         "_ball_motion_evidence",
         lambda _: {(1, 50): (100.0, -1.0)},
     )
     monkeypatch.setattr(
-        "football_poc.innovation_day_snapshot.possession._nearby_ball_teams",
+        "football_poc.possession._nearby_ball_teams",
         lambda *args, **kwargs: {"black"},
     )
 
@@ -1729,12 +1727,12 @@ def test_terminal_turnover_resolves_earlier_contested_contact(
         "turnover_candidate", 3.0, "black", 2, 3, 0.8, "control", 3.4
     )
     monkeypatch.setattr(
-        "football_poc.innovation_day_snapshot.possession."
+        "football_poc.possession."
         "_receiver_team_evidence",
         lambda *args, **kwargs: ("red", 0.9, 4.0),
     )
     monkeypatch.setattr(
-        "football_poc.innovation_day_snapshot.possession."
+        "football_poc.possession."
         "_contested_contact_seconds",
         lambda *args, **kwargs: 1.0,
     )
@@ -1764,12 +1762,12 @@ def test_deferred_turnover_requires_control_near_contested_contact(
         "turnover_candidate", 3.0, "red", 2, 3, 0.8, "control", 3.4
     )
     monkeypatch.setattr(
-        "football_poc.innovation_day_snapshot.possession."
+        "football_poc.possession."
         "_receiver_team_evidence",
         lambda *args, **kwargs: ("black", 0.9, 4.0),
     )
     monkeypatch.setattr(
-        "football_poc.innovation_day_snapshot.possession."
+        "football_poc.possession."
         "_contested_contact_seconds",
         lambda *args, **kwargs: 1.0,
     )
@@ -1801,14 +1799,14 @@ def test_terminal_turnover_does_not_cross_intervening_team_pass(
         "turnover_candidate", 3.0, "black", 2, 3, 0.8, "control", 3.4
     )
     monkeypatch.setattr(
-        "football_poc.innovation_day_snapshot.possession."
+        "football_poc.possession."
         "_receiver_team_evidence",
         lambda _players, _balls, seconds, **_kwargs: (
             ("red", 0.9, 4.0) if seconds > 3 else ("black", 0.9, 4.0)
         ),
     )
     monkeypatch.setattr(
-        "football_poc.innovation_day_snapshot.possession."
+        "football_poc.possession."
         "_contested_contact_seconds",
         lambda *args, **kwargs: 1.0,
     )
@@ -1835,7 +1833,7 @@ def test_terminal_control_confirms_direction_change_reception(
         observation(2.8, "black", 10, 200, 100, control_ratio=1.2),
     ]
     monkeypatch.setattr(
-        "football_poc.innovation_day_snapshot.possession."
+        "football_poc.possession."
         "_ball_motion_evidence",
         lambda balls: {(1, 50): (100.0, -0.5)},
     )
@@ -1864,12 +1862,12 @@ def test_opponent_jersey_evidence_blocks_false_direction_change_pass(
         observation(2.4, "black", 9, 100, 100, control_ratio=0.3),
     ]
     monkeypatch.setattr(
-        "football_poc.innovation_day_snapshot.possession."
+        "football_poc.possession."
         "_ball_motion_evidence",
         lambda balls: {(1, 50): (100.0, -0.5)},
     )
     monkeypatch.setattr(
-        "football_poc.innovation_day_snapshot.possession."
+        "football_poc.possession."
         "_receiver_team_evidence",
         lambda *args, **kwargs: ("red", 0.8, 3.0),
     )
@@ -1896,7 +1894,7 @@ def test_outgoing_pass_alone_does_not_manufacture_incoming_pass(
         observation(2.8, "red", 45, 200, 100, control_ratio=0.4),
     ]
     monkeypatch.setattr(
-        "football_poc.innovation_day_snapshot.possession."
+        "football_poc.possession."
         "_ball_motion_evidence",
         lambda balls: {(1, 60): (100.0, -0.5)},
     )
@@ -1924,7 +1922,7 @@ def test_retained_owner_direction_change_does_not_manufacture_pass(
         observation(2.6, "black", 2, 200, 100, control_ratio=0.4),
     ]
     monkeypatch.setattr(
-        "football_poc.innovation_day_snapshot.possession."
+        "football_poc.possession."
         "_ball_motion_evidence",
         lambda balls: {(1, controls[0].source_frame): (100.0, -0.5)},
     )

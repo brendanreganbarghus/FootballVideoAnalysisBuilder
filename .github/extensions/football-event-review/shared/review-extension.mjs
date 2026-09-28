@@ -38,25 +38,16 @@ import {
   requiresEngineImplementationChange,
   storedSnapshots,
 } from "../engine-freshness.mjs";
+import { buildPublicationPlan } from "../publication-gate.mjs";
 import {
-  buildPublicationPlan as buildInnovationPublicationPlan,
-} from "../publication-gate.mjs";
-import {
-  buildPublicationPlan as buildLivePublicationPlan,
-} from "../../football-event-review-live/publication-gate.mjs";
-import {
-  INNOVATION_MARK_SVG,
+  REVIEW_MARK_SVG,
   renderHtml,
 } from "./review-renderer.mjs";
-import { workflowAdapter } from "./workflow-adapters.mjs";
+import { reviewWorkflow } from "./workflow-adapters.mjs";
 
 const extensionRoot = dirname(fileURLToPath(import.meta.url));
 const projectRoot = resolve(extensionRoot, "..", "..", "..", "..");
-const workflow = workflowAdapter(globalThis.__footballReviewWorkflowKey);
-delete globalThis.__footballReviewWorkflowKey;
-const buildPublicationPlan = workflow.key === "innovation"
-  ? buildInnovationPublicationPlan
-  : buildLivePublicationPlan;
+const workflow = reviewWorkflow;
 const alfheimRoot = join(projectRoot, "benchmarks", "alfheim");
 const generatedRoot = join(alfheimRoot, "generated");
 const preparedSegmentRoots = new Map();
@@ -74,7 +65,7 @@ const sharedArtifactRoot = (() => {
     process.env.ONEDRIVECOMMERCIAL || process.env.ONEDRIVE || "",
   ).trim();
   const candidate = oneDrive
-    ? join(oneDrive, "Innovationday Artifacts")
+    ? join(oneDrive, "Reviewday Artifacts")
     : "";
   return candidate && existsSync(
     join(candidate, "00-governance", "checksums.sha256"),
@@ -108,12 +99,12 @@ async function directoryNames(root) {
 async function sharedConfigLibraries() {
   const libraries = sharedArtifactRoot ? [sharedArtifactRoot] : [];
   // OneDrive syncs shared SharePoint libraries to
-  // %USERPROFILE%\<Organisation>\<Owner> - Innovationday Artifacts.
+  // %USERPROFILE%\<Organisation>\<Owner> - Reviewday Artifacts.
   for (const organisation of await directoryNames(homedir())) {
     for (const name of await directoryNames(join(homedir(), organisation))) {
       const candidate = join(homedir(), organisation, name);
       if (
-        name.endsWith(" - Innovationday Artifacts")
+        name.endsWith(" - Reviewday Artifacts")
         && existsSync(join(candidate, "00-governance", "checksums.sha256"))
         && !libraries.includes(candidate)
       ) {
@@ -147,6 +138,8 @@ const customCameraRunRoot = join(
 const defaultSegment = workflow.defaultSegment;
 const workflowId = workflow.workflowId;
 const canvasId = workflow.canvasId;
+const LEGACY_WORKFLOW_IDS = new Set(["innovation_day_bac", "live_iteration_25"]);
+const LEGACY_CANVAS_IDS = new Set(["football-event-review-live"]);
 const disabledActions = new Set(workflow.disabledActionNames);
 const localServer = "http://127.0.0.1:8080";
 const reviewDurationSeconds = workflow.reviewDurationSeconds;
@@ -324,7 +317,7 @@ const test3Drafts = [
   },
 ];
 
-export const innovationManualSeed = [
+export const manualReferenceSeed = [
   ...[3.030, 4.920, 8.100, 10.510, 12.950].map((seconds) => (
     {seconds, team: "black", type: "completed_pass"}
   )),
@@ -438,7 +431,7 @@ function manualLedgerFinding(
   };
 }
 
-export function auditInnovationManualLedger(
+export function auditReviewManualLedger(
   reference,
   durationSeconds = 60,
 ) {
@@ -589,14 +582,14 @@ export function auditInnovationManualLedger(
   return findings;
 }
 
-export function updateInnovationManualLedgerAcknowledgement(
+export function updateReviewManualLedgerAcknowledgement(
   reference,
   findingId,
   acknowledged,
   durationSeconds = 60,
 ) {
   ensureManualLedgerAudit(reference);
-  const finding = auditInnovationManualLedger(reference, durationSeconds)
+  const finding = auditReviewManualLedger(reference, durationSeconds)
     .find((candidate) => candidate.id === findingId);
   if (!finding) throw new Error("This ledger finding is no longer current");
   if (acknowledged) {
@@ -609,14 +602,14 @@ export function updateInnovationManualLedgerAcknowledgement(
   return finding;
 }
 
-export function ensureInnovationManualReference(state, segment) {
+export function ensureReviewManualReference(state, segment) {
   if (!state.manualReference) {
     const legacy = (state.additionalProposals || [])
       .filter((proposal) =>
         ["manual_review", "user_reported"].includes(proposal.source)
       );
     const seed = segment === "segment-0080-020" && legacy.length === 0
-      ? innovationManualSeed
+      ? manualReferenceSeed
       : legacy;
     state.manualReference = {
       revision: seed.length ? 1 : 0,
@@ -712,7 +705,7 @@ export function ensureInnovationManualReference(state, segment) {
     && state.manualReference.revision === 0
     && !state.manualReference.approved
   ) {
-    state.manualReference.events = innovationManualSeed.map(
+    state.manualReference.events = manualReferenceSeed.map(
       (event, index) => manualEvent(event, `M${index + 1}`)
     );
     state.manualReference.revision = 1;
@@ -847,7 +840,7 @@ export function publicManualReferenceState(
   engineEvents,
   durationSeconds = 60,
 ) {
-  if (workflowKey !== "innovation") {
+  if (workflowKey !== "football_review" && workflowKey !== "review") {
     return {
       manualEvents: [],
       rejectedManualEvents: [],
@@ -863,7 +856,7 @@ export function publicManualReferenceState(
   ensureManualLedgerAudit(state.manualReference);
   const acknowledgements =
     state.manualReference.ledgerAudit.acknowledgements;
-  const ledgerFindings = auditInnovationManualLedger(
+  const ledgerFindings = auditReviewManualLedger(
     state.manualReference,
     durationSeconds,
   ).map((finding) => ({
@@ -898,7 +891,7 @@ export function publicManualReferenceState(
   };
 }
 
-export function mutateInnovationManualReference(reference, mutation) {
+export function mutateReviewManualReference(reference, mutation) {
   const before = snapshotManualReference(reference);
   const active = activeManualEvents(reference);
   const findEvent = () => reference.events.find(
@@ -1074,7 +1067,7 @@ function startSegmentRegressionProgress(segment) {
       {key: "baseline", label: "Verify published baseline", status: "running"},
       {
         key: "engine",
-        label: "Run cached Innovation rules engine",
+        label: "Run cached rules engine",
         status: "waiting",
       },
       {
@@ -1126,7 +1119,7 @@ function preparedSegmentRoot(segment) {
 }
 
 function segmentRoot(segment) {
-  return join(preparedSegmentRoot(segment), workflow.artifactNamespace);
+  return preparedSegmentRoot(segment);
 }
 
 async function liveStageTiming(selected) {
@@ -1214,7 +1207,7 @@ function formatClock(totalSeconds) {
 
 async function loadPreparedSegments() {
   const response = await fetch(
-    `${localServer}/api/alfheim/segments?workflow=${workflow.segmentCatalogWorkflow}`,
+    `${localServer}/api/alfheim/segments`,
     { cache: "no-store" },
   );
   if (!response.ok) {
@@ -1260,6 +1253,7 @@ async function loadPreparedSegments() {
         imageWidth: Number(segment.image_width || 0),
         imageHeight: Number(segment.image_height || 0),
         attribution: segment.attribution,
+        ballSource: segment.ball_source || null,
         processingSupported: Boolean(segment.processing_supported),
         preparationSupported: Boolean(segment.preparation_supported),
         evidencePreparationSupported: Boolean(
@@ -1276,6 +1270,7 @@ async function loadPreparedSegments() {
         durationSeconds: duration,
         timeLabel: `${formatClock(start)}–${formatClock(start + duration)}`,
         state: segment.state,
+        coordinateMode: segment.ball_source === "live" ? "raw_video" : "frozen_bac",
         rawVideoOnly: Boolean(segment.raw_video_only),
         blindReviewOnly: Boolean(manifest.blind_review_only),
         validationStatus,
@@ -1479,7 +1474,7 @@ async function loadDetectedBallTrack(
     join(segmentRoot(segment.key), "analytics-cache", "ball-tracks.json"),
     null,
   );
-  if (workflow.key === "innovation") {
+  if (segment.ballSource !== "live") {
     if (!payload) return null;
     if (
       payload.source_kind !== "evaluation_only_provider_coordinates"
@@ -1487,7 +1482,7 @@ async function loadDetectedBallTrack(
     ) {
       throw new CanvasError(
         "innovation_ball_source_mismatch",
-        "Innovation Day requires the frozen BAC coordinate artifact.",
+        "Football Review requires the frozen BAC coordinate artifact.",
       );
     }
     const reviewerPayload = await readJson(
@@ -1505,7 +1500,7 @@ async function loadDetectedBallTrack(
       ) {
         throw new CanvasError(
           "innovation_reviewer_coordinate_source_mismatch",
-          "The reviewer-coordinate layer does not have valid Innovation provenance.",
+          "The reviewer-coordinate layer does not have valid Review provenance.",
         );
       }
       payload = reviewerPayload;
@@ -1748,25 +1743,6 @@ function legacyArtifactDirectory() {
   );
 }
 
-function artifactDirectory() {
-  return sharedArtifactRoot
-    ? join(sharedArtifactRoot, "30-shared-baselines", workflow.stateDirectory)
-    : legacyArtifactDirectory();
-}
-
-function statePath(segment) {
-  return join(artifactDirectory(), `${segment}-review-state.json`);
-}
-
-function legacyStatePath(segment) {
-  return join(
-    legacyArtifactDirectory(),
-    segment === defaultSegment
-      ? "test3-review-state.json"
-      : `${segment}-review-state.json`,
-  );
-}
-
 function sharedRelativePath(path) {
   return relative(sharedArtifactRoot, path).replaceAll("\\", "/");
 }
@@ -1855,39 +1831,6 @@ async function updateSharedChecksum(path, content = null) {
   }
 }
 
-async function readReviewState(path, fallback, verifyChecksum = false) {
-  let content;
-  try {
-    content = await readFile(path, "utf8");
-  } catch (error) {
-    if (error?.code === "ENOENT") return fallback;
-    throw error;
-  }
-  if (verifyChecksum) {
-    const relativePath = sharedRelativePath(path);
-    const manifest = await readFile(
-      join(sharedArtifactRoot, "00-governance", "checksums.sha256"),
-      "utf8",
-    );
-    const entry = manifest.split(/\r?\n/).find((line) =>
-      line.endsWith(`*${relativePath}`)
-    );
-    if (!entry) {
-      throw new Error(
-        `Shared review-state checksum is missing for ${relativePath}`,
-      );
-    }
-    const expected = entry.slice(0, 64).toLowerCase();
-    const actual = createHash("sha256").update(content).digest("hex");
-    if (expected !== actual) {
-      throw new Error(
-        `Shared review-state checksum mismatch for ${relativePath}`,
-      );
-    }
-  }
-  return JSON.parse(content);
-}
-
 async function readJson(path, fallback) {
   for (let attempt = 1; attempt <= 4; attempt += 1) {
     try {
@@ -1902,6 +1845,25 @@ async function readJson(path, fallback) {
       );
     }
   }
+}
+
+async function coordinationOutputRecord(segment) {
+  try {
+    return await localJson(
+      "/api/coordination/outputs?workflow="
+        + encodeURIComponent(workflowId)
+        + "&segment=" + encodeURIComponent(segment),
+    );
+  } catch {
+    return null;
+  }
+}
+
+function outputRecordFile(record, name, fallback) {
+  const files = record?.files || {};
+  if (Object.hasOwn(files, name)) return files[name];
+  const pathMatch = Object.entries(files).find(([key]) => key.endsWith("/" + name));
+  return pathMatch ? pathMatch[1] : fallback;
 }
 
 async function writeTextAtomically(path, content) {
@@ -2014,31 +1976,38 @@ async function componentVersions() {
 
 async function captureEngineSnapshot(segment, knownFingerprint = null) {
   const root = segmentRoot(segment);
-  const predictionsPath = join(
-    root,
-    "analytics-data",
-    "predicted-events.json",
-  );
-  const matchStatePath = join(
-    root,
-    "analytics-data",
-    "match-state-events.json",
-  );
-  const predictions = await readJson(predictionsPath, []);
-  const matchState = await readJson(matchStatePath, { intervals: [] });
+  const stored = await coordinationOutputRecord(segment);
+  const predictions = stored
+    ? outputRecordFile(stored, "predicted-events.json", [])
+    : await readJson(
+        join(root, "analytics-data", "predicted-events.json"),
+        [],
+      );
+  const matchState = stored
+    ? outputRecordFile(stored, "match-state-events.json", {intervals: []})
+    : await readJson(
+        join(root, "analytics-data", "match-state-events.json"),
+        {intervals: []},
+      );
   const shotsOnTarget = workflow.shotsOnTargetCapable
-    ? await readJson(
-        join(root, "analytics-data", SHOTS_ON_TARGET_SUMMARY_FILE),
-        null,
-      )
+    ? stored
+      ? outputRecordFile(stored, SHOTS_ON_TARGET_SUMMARY_FILE, null)
+      : await readJson(
+          join(root, "analytics-data", SHOTS_ON_TARGET_SUMMARY_FILE),
+          null,
+        )
     : null;
   const fingerprint = knownFingerprint || await engineFingerprint();
+  if (stored?.engineSha256 || stored?.engine_sha256) {
+    fingerprint.contentHash = stored.engineSha256 || stored.engine_sha256;
+  }
   // SOT events are hashed through predictions; the derived SOT summary is
   // gated separately at publication so pass/turnover-only published hashes
   // remain comparable now that SOT analysis always runs.
-  const outputHash = createHash("sha256")
-    .update(JSON.stringify({ predictions, matchState }))
-    .digest("hex");
+  const outputHash = stored?.outputSha256 || stored?.output_sha256
+    || createHash("sha256")
+      .update(JSON.stringify({predictions, matchState}))
+      .digest("hex");
   return {
     capturedAt: new Date().toISOString(),
     fingerprint,
@@ -2046,6 +2015,9 @@ async function captureEngineSnapshot(segment, knownFingerprint = null) {
     predictions,
     matchState,
     shotsOnTarget,
+    outputRevision: stored?.revision || null,
+    outputBallSource: stored?.ballSource || stored?.ball_source || null,
+    outputSource: stored ? "coordination_outputs" : "artifact_files",
   };
 }
 
@@ -2094,8 +2066,8 @@ function withheldEngineSnapshot() {
   };
 }
 
-async function ensureInnovationRegressionsCurrent(segment, state) {
-  if (workflow.key !== "innovation") return null;
+async function ensureReviewRegressionsCurrent(segment, state) {
+  if (!workflow.manualReferenceEnabled) return null;
   const current = await captureEngineSnapshot(segment);
   const publishedSegments = (await loadPreparedSegments()).filter(
     (candidate) => candidate.validated,
@@ -2133,7 +2105,7 @@ async function ensureInnovationRegressionsCurrent(segment, state) {
   const segmentResults = await Promise.all(
     publishedSegments.map(async (publishedSegment) => {
       try {
-        return await queuePublishedInnovationRegression(
+        return await queuePublishedReviewRegression(
           publishedSegment.key,
           {reuseActive: true},
         );
@@ -2242,7 +2214,7 @@ async function ensureInnovationRegressionsCurrent(segment, state) {
   state.engineAfter = refreshedCurrent;
   state.regression = {
     passed: true,
-    summary: `${segmentResults.length} published Innovation segment(s) `
+    summary: `${segmentResults.length} published Review segment(s) `
       + "matched exactly; "
       + (output.split(/\r?\n/).at(-1) || "protected tests passed"),
     fingerprint: refreshedCurrent.fingerprint,
@@ -2341,18 +2313,18 @@ function describeRegressionEvents(label, events) {
     + ".";
 }
 
-async function executePublishedInnovationRegression(segment, progress) {
-  if (workflow.key !== "innovation") {
+async function executePublishedReviewRegression(segment, progress) {
+  if (!workflow.manualReferenceEnabled) {
     throw new CanvasError(
       "regression_unavailable",
-      "Per-segment cached regression is available only in Innovation Day.",
+      "Per-segment cached regression is available only in Football Review.",
     );
   }
   const review = await reviewContext(segment);
   if (!review.selected.validated) {
     throw new CanvasError(
       "regression_requires_published_segment",
-      "Only a segment with a published Innovation reference can be rerun.",
+      "Only a segment with a published Review reference can be rerun.",
     );
   }
   const before = await captureEngineSnapshot(segment);
@@ -2443,7 +2415,7 @@ async function executePublishedInnovationRegression(segment, progress) {
     review.state.regression = {
       passed,
       summary: exactOutputMatch
-        ? "Current Innovation engine output exactly matches the published output."
+        ? "Current rules engine output exactly matches the published output."
         : matchStateMetadataOnly
           ? "Passed: events and match-state behavior are unchanged; only "
             + "schema and football-law provenance metadata changed."
@@ -2522,7 +2494,7 @@ async function executePublishedInnovationRegression(segment, progress) {
   }
 }
 
-function queuePublishedInnovationRegression(
+function queuePublishedReviewRegression(
   segment,
   {reuseActive = false} = {},
 ) {
@@ -2536,7 +2508,7 @@ function queuePublishedInnovationRegression(
   }
   const progress = startSegmentRegressionProgress(segment);
   activeSegmentRegressions.add(segment);
-  const job = executePublishedInnovationRegression(segment, progress)
+  const job = executePublishedReviewRegression(segment, progress)
     .catch((error) => {
       progress.status = "failed";
       progress.message = error.message || String(error);
@@ -2568,7 +2540,7 @@ async function loadState(segment, segmentInfo, drafts) {
       version: Number(coordinatedSnapshot.version || 0),
     });
     state = coordinatedSnapshot.state;
-    if (workflow.key === "innovation") {
+    if (workflow.manualReferenceEnabled) {
       normalizedManualReference = await localJson(
         "/api/coordination/manual-reference?workflow="
           + encodeURIComponent(workflowId)
@@ -2576,17 +2548,20 @@ async function loadState(segment, segmentInfo, drafts) {
       );
     }
   } else {
-    state = await readReviewState(
-      statePath(segment),
-      null,
-      Boolean(sharedArtifactRoot),
-    );
-    if (!state && sharedArtifactRoot) {
-      state = await readReviewState(legacyStatePath(segment), null);
-    }
+    state = null;
   }
   let changed = false;
   if (state) {
+    // Migration 0005 relabelled database rows but left append-only snapshot
+    // JSON unchanged, so retired workflow and Canvas labels are normalized here.
+    if (LEGACY_WORKFLOW_IDS.has(state.workflowId)) {
+      state.workflowId = workflowId;
+      changed = true;
+    }
+    if (LEGACY_CANVAS_IDS.has(state.canvasId)) {
+      state.canvasId = canvasId;
+      changed = true;
+    }
     if (state.workflowId && state.workflowId !== workflowId) {
       throw new CanvasError(
         "review_workflow_mismatch",
@@ -2660,8 +2635,8 @@ async function loadState(segment, segmentInfo, drafts) {
     state.pendingMissingCandidate ||= null;
     state.pendingClipRequest ||= null;
     state.automaticCopilotReview ||= null;
-    if (workflow.key === "innovation") {
-      changed = ensureInnovationManualReference(state, segment) || changed;
+    if (workflow.manualReferenceEnabled) {
+      changed = ensureReviewManualReference(state, segment) || changed;
       if (normalizedManualReference?.draft || normalizedManualReference?.approved) {
         changed = applyNormalizedManualReference(
           state,
@@ -2781,7 +2756,7 @@ async function loadState(segment, segmentInfo, drafts) {
         changed = true;
       });
     }
-    if (changed && coordination.mode !== "unavailable") {
+    if (changed && coordination.mode === "available") {
       await saveState(segment, state, {allowAutoAcquire: false});
     }
     return state;
@@ -2818,7 +2793,7 @@ async function loadState(segment, segmentInfo, drafts) {
     pendingMissingCandidate: null,
     pendingClipRequest: null,
     automaticCopilotReview: null,
-    manualReference: workflow.key === "innovation"
+    manualReference: workflow.manualReferenceEnabled
       ? {
           revision: 0,
           events: [],
@@ -2865,13 +2840,13 @@ async function loadState(segment, segmentInfo, drafts) {
     publicationAuthorization: null,
     publishedReference: null,
   };
-  if (workflow.key === "innovation") {
-    ensureInnovationManualReference(initial, segment);
+  if (workflow.manualReferenceEnabled) {
+    ensureReviewManualReference(initial, segment);
     if (normalizedManualReference?.draft || normalizedManualReference?.approved) {
       applyNormalizedManualReference(initial, normalizedManualReference);
     }
   }
-  if (coordination.mode !== "unavailable") {
+  if (coordination.mode === "available") {
     await saveState(segment, initial, {allowAutoAcquire: false});
   }
   return initial;
@@ -2883,7 +2858,7 @@ function coordinationKey(segment) {
 
 function canvasSessionConnection(hostInstanceId, serverInstanceId) {
   const repositoryAvailable = existsSync(join(projectRoot, ".git"));
-  if (workflow.key !== "innovation") {
+  if (!workflow.manualReferenceEnabled) {
     return {
       connected: true,
       repositoryAvailable,
@@ -3064,7 +3039,7 @@ function applyNormalizedManualReference(state, payload) {
 }
 
 async function persistNormalizedManualReference(segment, state, approve = false) {
-  if (workflow.key !== "innovation") return null;
+  if (!workflow.manualReferenceEnabled) return null;
   const coordination = await coordinationStatus();
   if (coordination.mode !== "available") return null;
   let coordinated = coordinationSessions.get(coordinationKey(segment));
@@ -3091,6 +3066,61 @@ async function persistNormalizedManualReference(segment, state, approve = false)
   return result.reference;
 }
 
+function preservedManualReferenceForSourceSwitch(reference) {
+  if (!reference) return null;
+  const preserved = structuredClone(reference);
+  preserved.mappings = {};
+  preserved.comparisonValidation = null;
+  preserved.normalizedRevision = reference.normalizedRevision || null;
+  if (preserved.approved) {
+    preserved.approved.mappings = {};
+  }
+  return preserved;
+}
+
+function resetStateForBallSourceSwitch(state, segment, ballSource) {
+  const switchedAt = new Date().toISOString();
+  return {
+    schemaVersion: 1,
+    workflowId,
+    canvasId,
+    segment,
+    decisions: {},
+    engineBefore: withheldEngineSnapshot(),
+    engineAfter: null,
+    regression: null,
+    conversation: [],
+    proposalOverrides: {},
+    additionalProposals: [],
+    sameFrameReviewRequirements: {},
+    copilotAcceptanceAuthorizations: {},
+    engineEventReviews: {},
+    engineEventReviewAuthorizations: {},
+    pendingMissingCandidate: null,
+    pendingClipRequest: null,
+    automaticCopilotReview: null,
+    manualReference: preservedManualReferenceForSourceSwitch(state.manualReference),
+    coordinateReview: {
+      status: "pending",
+      flaggedFrames: [],
+      verifiedAt: null,
+      trackerHash: null,
+      provenanceHash: null,
+      summary: null,
+      batches: [],
+      activeBatchId: null,
+    },
+    trajectoryAudit: {observations: {}, updatedAt: null},
+    publicationAuthorization: null,
+    publishedReference: null,
+    ballSourceSwitch: {
+      ballSource,
+      switchedAt,
+      needsReview: true,
+    },
+  };
+}
+
 async function saveState(
   segment,
   state,
@@ -3106,14 +3136,14 @@ async function saveState(
     );
   }
   const coordination = await coordinationStatus();
-  if (coordination.mode === "unavailable") {
+  if (coordination.mode !== "available") {
     throw new CanvasError(
       "coordination_unavailable",
       coordination.detail
         || "Shared coordination is unavailable; review state is read-only.",
     );
   }
-  if (coordination.mode === "available") {
+  {
     const existing = coordinationSessions.get(coordinationKey(segment));
     if (!allowAutoAcquire && !existing?.leaseToken) return;
     const save = stateSaveQueue.catch(() => {}).then(async () => {
@@ -3145,20 +3175,8 @@ async function saveState(
     await save;
     return;
   }
-  await mkdir(artifactDirectory(), { recursive: true });
-  state.schemaVersion = 1;
-  const save = stateSaveQueue.catch(() => {}).then(async () => {
-    state.workflowId = workflowId;
-    state.canvasId = canvasId;
-    state.updatedAt = new Date().toISOString();
-    const path = statePath(segment);
-    const content = `${JSON.stringify(state, null, 2)}\n`;
-    await writeFile(path, content, "utf8");
-    await updateSharedChecksum(path, content);
-    broadcast("state");
-  });
-  stateSaveQueue = save;
-  await save;
+  // JSON review-state fallback removed; coordination is the only writer.
+
 }
 
 function canonicalType(type) {
@@ -3650,7 +3668,7 @@ function acceptedEngineComparison(draft, state, decision, current) {
 }
 
 function publicationFingerprint(drafts, state) {
-  if (workflow.key === "innovation") {
+  if (workflow.manualReferenceEnabled) {
     return createHash("sha256").update(JSON.stringify({
       approved: state.manualReference?.approved || null,
       comparisonValidation:
@@ -3666,7 +3684,7 @@ function publicationFingerprint(drafts, state) {
   )).digest("hex");
 }
 
-function innovationPublicationPlan(state, current) {
+function reviewPublicationPlan(state, current) {
   const reference = state.manualReference;
   const approved = reference?.approved;
   const validation = reference?.comparisonValidation;
@@ -3694,7 +3712,7 @@ function innovationPublicationPlan(state, current) {
   if (manualHasShots && !sotSummary) {
     blockers.push(
       "The golden M# set records shots on target, but shots-on-target "
-      + "analysis has not run for this engine output. Rerun the Innovation "
+      + "analysis has not run for this engine output. Rerun the Review "
       + "analysis.",
     );
   }
@@ -3788,8 +3806,8 @@ function innovationPublicationPlan(state, current) {
 }
 
 function publicationPlan(drafts, state, current) {
-  if (workflow.key === "innovation") {
-    return innovationPublicationPlan(state, current);
+  if (workflow.manualReferenceEnabled) {
+    return reviewPublicationPlan(state, current);
   }
   const engineEvents = snapshotEvents(current).map((event) => ({
     ...event,
@@ -3851,15 +3869,16 @@ async function reviewContext(requestedSegment = defaultSegment) {
     selected.statusMessage = status.message || null;
     selected.runProvenance = status.run_provenance || null;
     selected.performance = status.performance || null;
-    selected.recoveryAvailable = workflow.key === "live" && Boolean(
+    selected.ballSource = status.ball_source || selected.ballSource || null;
+    selected.recoveryAvailable = selected.ballSource === "live" && Boolean(
       selected.state === "failed"
       && selected.expectedFrames > 0
       && selected.processedFrames >= selected.expectedFrames
     );
-    selected.stageTiming = workflow.key === "live"
+    selected.stageTiming = selected.ballSource === "live"
       ? await liveStageTiming(selected)
       : null;
-    selected.coordinateMode = workflow.coordinateMode;
+    selected.coordinateMode = selected.ballSource === "live" ? "raw_video" : "frozen_bac";
     selected.trackingUrl = status.tracking_url
       ? `${localServer}${status.tracking_url}`
       : null;
@@ -3897,7 +3916,7 @@ async function reviewContext(requestedSegment = defaultSegment) {
       (proposal) => proposal.source !== "manual_review"
     ),
   ];
-  const allDrafts = workflow.key === "innovation"
+  const allDrafts = workflow.manualReferenceEnabled
     ? activeManualEvents(state.manualReference)
     : [...drafts, ...state.additionalProposals];
   const effectiveDrafts = allDrafts.map((draft, index) => {
@@ -3984,19 +4003,19 @@ function displayedActivity(selected, state) {
     };
   }
   if (
-    workflow.key === "innovation"
+    workflow.manualReferenceEnabled
     && selected.state === "prepared"
     && !selected.evidenceReady
   ) {
     return {
       state: "waiting",
-      label: "Innovation segment prepared",
+      label: "Review segment prepared",
       detail: "The playable video is ready. Frozen BAC coordinates and YOLO "
         + "player context have not been prepared, and no football events exist.",
     };
   }
   if (
-    workflow.key === "innovation"
+    workflow.manualReferenceEnabled
     && ["processing", "detections_ready", "building"].includes(selected.state)
   ) {
     const preparingEvidence = [
@@ -4007,8 +4026,8 @@ function displayedActivity(selected, state) {
     return {
         state: "working",
         label: preparingEvidence
-          ? "Preparing Innovation evidence"
-          : "Processing Innovation rules engine",
+          ? "Preparing BAC evidence"
+          : "Processing rules engine",
         detail: selected.statusMessage || (
           preparingEvidence
             ? "Preparing frozen BAC coordinates and YOLO player context."
@@ -4016,22 +4035,22 @@ function displayedActivity(selected, state) {
         ),
     };
   }
-  if (workflow.key === "innovation" && selected.state === "evidence_ready") {
+  if (selected.ballSource !== "live" && selected.state === "evidence_ready") {
     return {
       state: "waiting",
-      label: "Innovation evidence ready",
+      label: "BAC evidence ready",
       detail: "Frozen BAC coordinates and YOLO player context are ready. "
-        + "No football events exist until the Innovation engine is run.",
+        + "No football events exist until the rules engine is run.",
     };
   }
   if (state.coordinateReview?.status === "finalized") {
-    if (workflow.key === "innovation") {
+    if (selected.ballSource !== "live") {
       return {
         state: "ready",
         label: selected.validated
-          ? "Passed Innovation segment"
-          : "Innovation segment ready for review",
-        detail: "Frozen BAC coordinates and Innovation engine output are loaded. "
+          ? "Passed Review segment"
+          : "Review segment ready for review",
+        detail: "Frozen BAC coordinates and rules engine output are loaded. "
           + "No Live ball-tracking gate is required.",
       };
     }
@@ -4042,7 +4061,7 @@ function displayedActivity(selected, state) {
     };
   }
   if (state.coordinateReview?.status === "verified") {
-    if (workflow.key === "innovation") {
+    if (selected.ballSource !== "live") {
       return {
         state: "waiting",
         label: "Frozen BAC coordinates ready",
@@ -4097,7 +4116,7 @@ function displayedActivity(selected, state) {
 }
 
 async function ensureReviewerCoordinateLayer(segment, state, selected) {
-  if (workflow.key !== "innovation") return null;
+  if (!workflow.manualReferenceEnabled) return null;
   const existing = state.reviewerCoordinateLayer;
   if (Array.isArray(existing?.baseCoordinates) && existing.baseCoordinates.length) {
     return existing;
@@ -4191,7 +4210,7 @@ function materializeReviewerCoordinates(layer, observations) {
 async function writeReviewerCoordinateRuntime(segment, layer) {
   const payload = {
     manifest: "reviewer-coordinate-layer",
-    source: "event-review-state-innovation",
+    source: "event-review-state",
     source_kind: "reviewer_corrected_innovation_coordinates",
     base_source_kind: "evaluation_only_provider_coordinates",
     pipeline_mode: "innovation_day_reviewer_corrected_demo",
@@ -4599,7 +4618,7 @@ export async function publicState(
     selected.validationStatus = "published_stale";
   }
   const goldenComparisonAuthorized = Boolean(
-    workflow.key === "innovation"
+    workflow.manualReferenceEnabled
     && state.manualReference?.approved
     && state.manualReference?.comparisonValidation
   );
@@ -4615,7 +4634,7 @@ export async function publicState(
   }
   let ballProvenance;
   let ballRecoveryDiagnostic;
-  if (workflow.key === "innovation") {
+  if (workflow.manualReferenceEnabled) {
     const frozenBallTrack = await loadDetectedBallTrack(selected);
     const frozenCoordinateCount = frozenBallTrack?.states?.length || 0;
     ballProvenance = {
@@ -4683,14 +4702,14 @@ export async function publicState(
         : null,
     };
   });
-  const engineComparisonRevealed = workflow.key !== "innovation"
+  const engineComparisonRevealed = !workflow.manualReferenceEnabled
     || manualComparisonValidationIsCurrent(
       state.manualReference,
       displayedEngine,
     );
   const publicEngineEvents = engineComparisonRevealed ? engineEvents : [];
   const manualPublicState = publicManualReferenceState(
-    workflow.key,
+    workflowId,
     state,
     copilotEvents,
     publicEngineEvents,
@@ -4721,17 +4740,7 @@ export async function publicState(
         );
         stored = snapshot.state;
       } else {
-        stored = await readReviewState(
-          statePath(segment.key),
-          null,
-          Boolean(sharedArtifactRoot),
-        );
-        if (!stored && sharedArtifactRoot) {
-          stored = await readReviewState(
-            legacyStatePath(segment.key),
-            null,
-          );
-        }
+        stored = null;
       }
     } catch (error) {
       return {
@@ -4776,20 +4785,20 @@ export async function publicState(
     const published = Boolean(
       stored.publishedReference || segment.validated,
     );
-    const innovationManualEvents = workflow.key === "innovation"
+    const manualReferenceEvents = workflow.manualReferenceEnabled
       ? activeManualEvents(stored.manualReference)
       : [];
-    const innovationApprovedEvents = workflow.key === "innovation"
+    const approvedManualEvents = workflow.manualReferenceEnabled
       ? stored.manualReference?.approved?.events || []
       : [];
-    const innovationRejectedEvents = workflow.key === "innovation"
+    const rejectedManualEvents = workflow.manualReferenceEnabled
       ? visibleManualEvents(stored.manualReference).filter(
           (event) => event.reviewStatus === "rejected",
         )
       : [];
-    const innovationValidationCurrent = workflow.key === "innovation"
+    const manualValidationCurrent = workflow.manualReferenceEnabled
       && manualComparisonValidationIsCurrent(stored.manualReference, current);
-    const innovationMatchedCount = innovationValidationCurrent
+    const manualMatchedCount = manualValidationCurrent
       ? Object.keys(
           stored.manualReference?.comparisonValidation?.mappings || {},
         ).length
@@ -4824,27 +4833,27 @@ export async function publicState(
     );
     return {
       segment: segment.key,
-      accepted: workflow.key === "innovation"
-        ? innovationApprovedEvents.length
+      accepted: workflow.manualReferenceEnabled
+        ? approvedManualEvents.length
         : decisions.filter(
             (decision) => decision?.status === "accepted",
           ).length,
-      rejected: workflow.key === "innovation"
-        ? innovationRejectedEvents.length
+      rejected: workflow.manualReferenceEnabled
+        ? rejectedManualEvents.length
         : decisions.filter(
             (decision) => decision?.status === "rejected",
           ).length,
-      reviewed: workflow.key === "innovation"
-        ? innovationApprovedEvents.length
+      reviewed: workflow.manualReferenceEnabled
+        ? approvedManualEvents.length
         : decisions.length,
-      proposalCount: workflow.key === "innovation"
+      proposalCount: workflow.manualReferenceEnabled
         ? Math.max(
-            innovationManualEvents.length,
-            innovationApprovedEvents.length,
+            manualReferenceEvents.length,
+            approvedManualEvents.length,
           )
         : Math.max(storedDrafts.length, decisions.length),
-      matched: workflow.key === "innovation"
-        ? innovationMatchedCount
+      matched: workflow.manualReferenceEnabled
+        ? manualMatchedCount
         : null,
       regression: !stored.regression
         ? "not_run"
@@ -4867,7 +4876,7 @@ export async function publicState(
       updatedAt: stored.updatedAt || null,
     };
   }));
-  const workflowRegression = workflow.key === "innovation"
+  const workflowRegression = workflow.manualReferenceEnabled
     ? (
         await readJson(regressionRegistryPath, {
           last_full_regression: null,
@@ -5117,7 +5126,7 @@ const projectRulesInstruction =
   + "event-specific context, not a replacement for those global rules.";
 
 function joinPrompt(lines) {
-  return lines.join("\n").replaceAll("football-event-review-live", canvasId);
+  return lines.join("\n").replaceAll("football-event-review", canvasId);
 }
 
 function messagePrompt(segment, draft, index, text, allowChanges = false) {
@@ -5150,7 +5159,7 @@ function messagePrompt(segment, draft, index, text, allowChanges = false) {
       ? (
           "The user explicitly selected an action that permits changes. If "
           + "the requested adjustment is supported, use the "
-          + "football-event-review-live update_review_proposal canvas action. Do "
+          + "football-event-review update_review_proposal canvas action. Do "
           + "not say the screen was updated unless that action succeeds."
         )
       : (
@@ -5159,7 +5168,7 @@ function messagePrompt(segment, draft, index, text, allowChanges = false) {
           + "tell the user to use Request Adjustment or Verify, Accept & Sync "
           + "Engine in this event's Copilot panel."
         ),
-    "Before ending, always use the football-event-review-live "
+    "Before ending, always use the football-event-review "
       + "publish_review_response canvas action to place your concise final "
       + `answer in this Canvas for segment ${segment.key}, event index ${index}.`,
     "Minimize latency and AI usage: make one targeted adjudication pass. Start "
@@ -5301,12 +5310,12 @@ function clipConversationPrompt(
       ? "This is coordinate recovery, not event adjudication. Do not create, "
         + "accept, or alter any football event."
       : "If the user is identifying a genuinely missing event, independently "
-        + "determine its team and event type and call football-event-review-live "
+        + "determine its team and event type and call football-event-review "
         + "recommend_missing_event. If an existing event needs correction, "
         + "identify that event and direct the user to its Request Adjustment "
         + "flow. Otherwise answer normally. Do not add or accept an event, edit "
         + "a proposal, or change the algorithm in this Plan step.",
-    "Before ending, always use the football-event-review-live "
+    "Before ending, always use the football-event-review "
       + "publish_review_response canvas action to place your concise final "
       + `answer in this Canvas for segment ${segment.key}.`,
   ]);
@@ -5398,7 +5407,7 @@ function independentClipReviewPrompt(segment) {
       + "evidence that permits the event. Generic statements such as 'the team "
       + "moves the ball' are insufficient.",
     "Inspect the entire prepared clip and adjudicate every supported completed "
-      + "pass and turnover. Shots and fouls are outside the current Innovation "
+      + "pass and turnover. Shots and fouls are outside the current Review "
       + "review scope. Require current-segment evidence for every stoppage or "
       + "restart claim. Abstain where pass or turnover evidence is insufficient.",
     "Call this Canvas's replace_copilot_review action exactly once with "
@@ -5431,7 +5440,7 @@ function confirmMissingEventPrompt(segment, candidate) {
     `Proposed rule: ${candidate.rule}`,
     projectRulesInstruction,
     "The user explicitly approved moving this planned candidate into "
-      + "Autopilot. Call football-event-review-live add_review_proposal using these "
+      + "Autopilot. Call football-event-review add_review_proposal using these "
       + "exact team, event type, and seconds. Then call "
       + "publish_review_response with the returned event index. Do not edit "
       + "the rules engine yet; the newly added event must still pass its own "
@@ -5446,10 +5455,10 @@ function publishValidatedReferencePrompt(segment) {
     projectRulesInstruction,
     "The user explicitly authorized the final validation gate through the "
       + "Publish Validated Reference button. Do not review another segment.",
-    `Run the ${workflow.key === "innovation" ? "Innovation" : "live raw-video and rules-engine"} `
+    `Run the ${workflow.manualReferenceEnabled ? "Review" : "live raw-video and rules-engine"} `
       + "regression tests once with: $env:PYTHONPATH=\"$PWD\\src\"; "
       + `python -m pytest ${workflow.regressionTests.join(" ")} -q`,
-    "If they pass, call football-event-review-live refresh_engine_snapshot for "
+    "If they pass, call football-event-review refresh_engine_snapshot for "
       + `segment ${segment.key} without an event index, then call `
       + "record_regression_result with passed=true, the segment, and the exact "
       + "test summary. Then call publish_validated_reference.",
@@ -5461,7 +5470,7 @@ function publishValidatedReferencePrompt(segment) {
     "Do not rerun detection, tracking, or event building and do not edit the "
       + "rules engine during final publication. If any gate fails, stop and "
       + "report the blocker.",
-    "Before ending, call football-event-review-live publish_review_response with "
+    "Before ending, call football-event-review publish_review_response with "
       + "neither eventIndex nor engineIndex so the result appears in the "
       + "general clip conversation.",
   ]);
@@ -5478,7 +5487,7 @@ function engineEventConversationPrompt(segment, event, index, text) {
     "This is a follow-up discussion in Plan mode. Explain the evidence and "
       + "current review result, but do not confirm the engine event, create or "
       + "accept a Copilot proposal, edit the engine, or rerun any pipeline stage.",
-    "Before ending, call football-event-review-live publish_review_response "
+    "Before ending, call football-event-review publish_review_response "
       + `with engineIndex ${index} and without a C# eventIndex so the reply `
       + `appears in the E${index + 1} event conversation.`,
   ]);
@@ -5546,7 +5555,7 @@ function manualEngineDiscrepancyPrompt(
     "If the video supports M#, determine whether no E# represents it or a "
       + "current E# represents the same play with incorrect timing, team, or "
       + "type. Diagnose the general rules-engine cause, implement only a general "
-      + "evidence-based fix in the Innovation engine, rerun cached event "
+      + "evidence-based fix in the rules engine, rerun cached event "
       + "building, refresh the engine snapshot, and run the focused and "
       + "protected regressions. Do not rerun detection or tracking.",
     "Do not create C#, accept or edit M#, confirm another E#, or publish the "
@@ -5556,7 +5565,7 @@ function manualEngineDiscrepancyPrompt(
       + "response in this single Autopilot "
       + "request. Do not start a separate Plan, adjudication, or follow-up "
       + "Copilot request for this accepted M# decision.",
-    "Before ending, call football-event-review-live publish_review_response "
+    "Before ending, call football-event-review publish_review_response "
       + `with eventIndex ${index} and without an engineIndex so the result `
       + `appears in the M${index + 1} conversation.`,
   ]);
@@ -5704,7 +5713,7 @@ function discrepancyBatchPrompt(segment, batch) {
       + "a segment-, timestamp-, frame-, track-, team-, or reviewer-label "
       + "exception. Manual labels and selected times are evaluation anchors "
       + "only and must not influence inference.",
-    "Apply all supported general Innovation-engine corrections before rebuilding. "
+    "Apply all supported general Review-engine corrections before rebuilding. "
       + "Then perform at most one cached events-only rebuild, one focused test "
       + "run, one protected regression run, and one comparison refresh for the "
       + "whole batch. Do not rerun detection or tracking and do not inspect or "
@@ -5769,7 +5778,7 @@ function copilotAcceptancePrompt(segment, draft, index) {
         + "refresh_engine_snapshot first. Never use this M# as inference input. "
         + "Only after refresh_engine_snapshot returns already_agrees may you "
         + "call accept_review_proposal, followed by record_regression_result."
-      : "If the proposal is correct, call football-event-review-live "
+      : "If the proposal is correct, call football-event-review "
         + "accept_review_proposal with the segment, event index, and concise "
         + "verification reason. Read the returned engineComparison. If it is "
         + "already_agrees, do not edit or rerun the engine. If it is stale, "
@@ -5801,8 +5810,8 @@ function acceptedEngineRecheckPrompt(segment, draft, index, comparison) {
       + "missing or conflicting, implement only a general evidence-based rule; "
       + "never add a timestamp, frame, segment, track-ID, or label exception.",
     "Record refreshed snapshots and regression results through the existing "
-      + "football-event-review-live tools. Before ending, call "
-      + "football-event-review-live publish_review_response with eventIndex "
+      + "football-event-review tools. Before ending, call "
+      + "football-event-review publish_review_response with eventIndex "
       + `${index} so the complete result appears in the C${index + 1} conversation.`,
   ]);
 }
@@ -5823,7 +5832,7 @@ function copilotBulkAcceptancePrompt(segment, drafts, indexes) {
         + `${draft.type}. Evidence: ${draft.evidence} Rule: ${draft.rule}`;
     }),
     "Use cached evidence and the current engine output first. For each "
-      + "supported proposal, call football-event-review-live "
+      + "supported proposal, call football-event-review "
       + "accept_review_proposal with its exact index and a concise reason. "
       + "Leave unsupported or uncertain proposals unaccepted and identify "
       + "them in the final response. Do not silently revise them.",
@@ -5835,7 +5844,7 @@ function copilotBulkAcceptancePrompt(segment, drafts, indexes) {
       + "or segment-specific exception. Rebuild cached events once, run the "
       + "protected regressions once, refresh the engine snapshot, and record "
       + "the regression result.",
-    "Before ending, call football-event-review-live publish_review_response "
+    "Before ending, call football-event-review publish_review_response "
       + `without eventIndex so the batch summary appears only in the general `
       + `clip conversation for ${segment.key}.`,
   ]);
@@ -5873,79 +5882,23 @@ async function localJson(path, options = {}) {
   throw new Error("Local Match Lab request failed");
 }
 
-async function adapterUrl(workflowKey) {
-  const adapter = workflowAdapter(workflowKey);
-  const launchers = await readJson(
-    join(generatedRoot, adapter.launcherRegistry),
-    {},
-  );
-  const candidates = [
-    launchers[workflowKey],
-    ...Object.values(launchers),
-  ].filter(Boolean);
-  for (const candidate of [...new Set(candidates)]) {
-    try {
-      await fetch(candidate, {cache: "no-store"});
-      return candidate;
-    } catch {
-      // Stale loopback URLs are expected briefly while extensions reload.
-    }
-  }
-  return null;
+async function adapterUrl() {
+  return localServer;
 }
 
-async function setActiveAdapter(instanceId, workflowKey) {
-  if (!instanceId) return;
-  const update = adapterRegistryUpdate.then(async () => {
-    const registry = await readJson(activeAdapterRegistryPath, {});
-    registry[instanceId] = workflowKey;
-    await mkdir(dirname(activeAdapterRegistryPath), {recursive: true});
-    await writeJsonAtomically(activeAdapterRegistryPath, registry);
-  });
-  adapterRegistryUpdate = update.catch(() => {});
-  await update;
+async function setActiveAdapter() {
+  return workflow.key;
 }
 
-async function activeAdapter(instanceId) {
-  if (!instanceId) return workflow.key;
-  const registry = await readJson(activeAdapterRegistryPath, {});
-  return registry[instanceId] || workflow.key;
+async function activeAdapter() {
+  return workflow.key;
 }
 
-async function proxyCanvasAction(workflowKey, actionName, context) {
-  const baseUrl = await adapterUrl(workflowKey);
-  if (!baseUrl) {
-    throw new CanvasError(
-      "review_adapter_unavailable",
-      `The ${workflowKey} review adapter is not available.`,
-    );
-  }
-  const response = await fetch(new URL("/api/agent-action", baseUrl), {
-    method: "POST",
-    headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({
-      actionName,
-      input: context.input || {},
-      instanceId: context.instanceId,
-    }),
-  });
-  const payload = await response.json();
-  if (!response.ok) {
-    throw new CanvasError(
-      payload.code || "review_adapter_action_failed",
-      payload.error || "The selected review adapter action failed.",
-    );
-  }
-  return payload.result;
+async function proxyCanvasAction() {
+  throw new CanvasError("workflow_switch_removed", "Workflow switching has been removed.");
 }
 
 async function dispatchCanvasAction(action, context) {
-  const selectedWorkflow = workflow.key === "innovation"
-    ? await activeAdapter(context.instanceId)
-    : workflow.key;
-  if (selectedWorkflow !== workflow.key) {
-    return proxyCanvasAction(selectedWorkflow, action.name, context);
-  }
   if (workflow.disabledActionNames.includes(action.name)) {
     throw new CanvasError(
       "review_action_unavailable",
@@ -5960,14 +5913,14 @@ async function handleRequest(request, response, serverInstanceId) {
   if (
     request.method === "GET"
     && url.pathname === "/favicon.svg"
-    && workflow.key === "innovation"
+    && workflow.manualReferenceEnabled
   ) {
     response.writeHead(200, {
       "Cache-Control": "public, max-age=86400",
       "Content-Type": "image/svg+xml; charset=utf-8",
-      "Content-Length": Buffer.byteLength(INNOVATION_MARK_SVG),
+      "Content-Length": Buffer.byteLength(REVIEW_MARK_SVG),
     });
-    response.end(INNOVATION_MARK_SVG);
+    response.end(REVIEW_MARK_SVG);
     return;
   }
   if (request.method === "GET" && url.pathname === "/") {
@@ -5981,7 +5934,7 @@ async function handleRequest(request, response, serverInstanceId) {
     return;
   }
   if (
-    workflow.key === "innovation"
+    workflow.manualReferenceEnabled
     &&
     request.method !== "GET"
     && url.pathname !== "/api/agent-action"
@@ -6000,47 +5953,7 @@ async function handleRequest(request, response, serverInstanceId) {
     return;
   }
   if (request.method === "POST" && url.pathname === "/api/switch-workflow") {
-    const body = await readBody(request);
-    const target = workflowAdapter(String(body.workflow || ""));
-    const hostInstanceId = String(
-      body.hostInstanceId || serverInstanceId || "",
-    );
-    const targetResponse = await fetch(
-      `${localServer}/api/alfheim/segments?workflow=${
-        target.segmentCatalogWorkflow
-      }`,
-      {cache: "no-store"},
-    );
-    if (!targetResponse.ok) {
-      sendJson(response, 502, {error: "Could not load target segments"});
-      return;
-    }
-    const payload = await targetResponse.json();
-    const hiddenSegments = new Set(target.hiddenSegments || []);
-    const segments = (payload.segments || []).filter(
-      (candidate) => !hiddenSegments.has(candidate.cache_key),
-    );
-    const requested = String(body.segment || "");
-    const segment = segments.some((candidate) => candidate.cache_key === requested)
-      ? requested
-      : target.defaultSegment;
-    const baseUrl = await adapterUrl(target.key);
-    if (!baseUrl) {
-      sendJson(response, 503, {
-        error: `${target.displayName} is not available yet`,
-      });
-      return;
-    }
-    await setActiveAdapter(hostInstanceId, target.key);
-    const targetUrl = new URL(baseUrl);
-    targetUrl.searchParams.set("segment", segment);
-    targetUrl.searchParams.set("theme", target.theme);
-    targetUrl.searchParams.set("hostInstanceId", hostInstanceId);
-    sendJson(response, 200, {
-      workflow: target.key,
-      segment,
-      url: targetUrl.toString(),
-    });
+    sendJson(response, 404, {error: "Workflow switching has been removed."});
     return;
   }
   if (request.method === "POST" && url.pathname === "/api/agent-action") {
@@ -6238,7 +6151,7 @@ async function handleRequest(request, response, serverInstanceId) {
   }
   if (
     request.method === "GET"
-    && url.pathname === "/api/innovation/regression-status"
+    && url.pathname === "/api/review/regression-status"
   ) {
     const segment = requestedSegment(url);
     sendJson(
@@ -6254,12 +6167,12 @@ async function handleRequest(request, response, serverInstanceId) {
   }
   if (
     request.method === "POST"
-    && url.pathname === "/api/innovation/regression"
+    && url.pathname === "/api/review/regression"
   ) {
     try {
       const body = await readBody(request);
       const segment = requestedSegment(url, body);
-      queuePublishedInnovationRegression(segment).catch(() => {
+      queuePublishedReviewRegression(segment).catch(() => {
         // Progress remains available through the status API.
       });
       sendJson(response, 202, {
@@ -6287,7 +6200,7 @@ async function handleRequest(request, response, serverInstanceId) {
     if (
       selected.state !== "ready"
       && !(
-        workflow.key === "innovation"
+        workflow.manualReferenceEnabled
         && selected.state === "evidence_ready"
       )
       && !selected.validated
@@ -6305,7 +6218,7 @@ async function handleRequest(request, response, serverInstanceId) {
     );
     if (!track) {
       sendJson(response, 404, {
-        error: workflow.key === "innovation"
+        error: workflow.manualReferenceEnabled
           ? "No frozen BAC coordinate track is available"
           : "No raw-video-derived ball track is available",
       });
@@ -6396,10 +6309,65 @@ async function handleRequest(request, response, serverInstanceId) {
     );
     return;
   }
+  if (request.method === "POST" && url.pathname === "/api/switch-ball-source") {
+    const body = await readBody(request);
+    const segment = requestedSegment(url, body);
+    const ballSource = String(body.ball_source || "");
+    if (!["bac", "live"].includes(ballSource)) {
+      sendJson(response, 400, {error: "Choose BAC or Live as the ball source."});
+      return;
+    }
+    if (body.confirm !== true) {
+      sendJson(response, 400, {
+        error: "Confirm required before switching ball source.",
+      });
+      return;
+    }
+    const review = await reviewContext(segment);
+    const lease = coordinationSessions.get(coordinationKey(segment));
+    if (!lease?.leaseToken) {
+      sendJson(response, 409, {
+        error: "Start working on this segment before changing its ball source.",
+      });
+      return;
+    }
+    try {
+      const result = await localJson("/api/alfheim/switch-ball-source", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+          cache_key: segment,
+          ball_source: ballSource,
+          confirm: true,
+        }),
+      });
+      const resetState = resetStateForBallSourceSwitch(
+        review.state,
+        segment,
+        ballSource,
+      );
+      await saveState(segment, resetState, {allowAutoAcquire: false});
+      sendJson(response, 200, {
+        ...result,
+        segment,
+        ballSource,
+        reset: true,
+      });
+    } catch (error) {
+      sendJson(response, error.status || 400, {
+        code: error.code || "ball_source_switch_failed",
+        error: error.message,
+      });
+    }
+    return;
+  }
   if (request.method === "POST" && url.pathname === "/api/analyze") {
     const body = await readBody(request);
     const segment = requestedSegment(url, body);
     const resumeAfterDetection = body.resumeAfterDetection === true;
+    const requestedBallSource = ["bac", "live"].includes(body.ball_source)
+      ? body.ball_source
+      : "bac";
     if (!/^segment-\d{4}-\d{3}$/.test(segment)) {
       sendJson(response, 400, {
         error: "Select a generated prepared segment before starting AI",
@@ -6413,32 +6381,28 @@ async function handleRequest(request, response, serverInstanceId) {
       });
       return;
     }
-    if (workflow.key === "innovation" && !review.selected.evidenceReady) {
+    if (requestedBallSource === "bac" && !review.selected.evidenceReady) {
       sendJson(response, 409, {
         code: "innovation_evidence_required",
         error: (
           "Prepare frozen BAC coordinates and YOLO player context before "
-          + "running the Innovation rules engine."
+          + "running the rules engine for BAC diagnostics."
         ),
       });
       return;
     }
     setActivity(
       "working",
-      workflow.key === "innovation"
-        ? "Running BAC-assisted Innovation analysis"
+      requestedBallSource === "bac"
+        ? "Running BAC-assisted diagnostic analysis"
         : resumeAfterDetection
           ? "Recovering from completed detections"
-          : "Running cold raw-video AI",
-      workflow.key === "innovation"
-        ? "YOLO derives player context from the prepared raw video; frozen "
-          + "Alfheim BAC coordinates supply the ball path. The Live ball "
-          + "tracker is not used."
+          : "Running raw-video cold run",
+      requestedBallSource === "bac"
+        ? "Frozen Alfheim BAC coordinates supply the ball path; this is a BAC-assisted diagnostic, not raw-video ball inference or a benchmark."
         : resumeAfterDetection
-          ? "Completed raw-video detections are reused; every downstream "
-            + "artifact is rebuilt. This is not a cold-path benchmark."
-          : "Prior detections, ball tracks, player tracks, events, review labels, "
-            + "and provider annotations are excluded.",
+          ? "Completed raw-video detections are reused; every downstream artifact is rebuilt. This is not a cold-path benchmark."
+          : "This is a raw-video cold run: prior detections, ball tracks, player tracks, events, review labels, and provider annotations are excluded.",
     );
     const result = await localJson(
       workflow.analyzePath,
@@ -6447,29 +6411,31 @@ async function handleRequest(request, response, serverInstanceId) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         cache_key: segment,
-        events_only: workflow.key === "innovation",
-        ...(workflow.key === "live"
+        ball_source: requestedBallSource,
+        events_only: requestedBallSource === "bac",
+        ...(requestedBallSource === "live"
           ? {resume_after_detection: resumeAfterDetection}
           : {}),
       }),
       },
     );
-    if (workflow.key === "innovation") {
+    if (workflow.manualReferenceEnabled) {
       review.state.automaticCopilotReview = null;
       await saveState(segment, review.state);
     }
     sendJson(response, 202, {
       ...result,
       segment,
-      eventsOnly: workflow.key === "innovation",
+      eventsOnly: requestedBallSource === "bac",
+      ballSource: requestedBallSource,
     });
     return;
   }
   if (
     request.method === "POST"
-    && url.pathname === "/api/innovation/start-independent-review"
+    && url.pathname === "/api/start-independent-review"
   ) {
-    if (workflow.key !== "innovation") {
+    if (!workflow.manualReferenceEnabled) {
       sendJson(response, 404, {error: "Not found"});
       return;
     }
@@ -6484,7 +6450,7 @@ async function handleRequest(request, response, serverInstanceId) {
     const review = await reviewContext(segment);
     if (review.selected.state !== "ready") {
       sendJson(response, 409, {
-        error: "The Innovation rules engine must complete before Copilot review",
+        error: "The rules engine must complete before Copilot review",
       });
       return;
     }
@@ -6544,9 +6510,9 @@ async function handleRequest(request, response, serverInstanceId) {
   }
   if (
     request.method === "POST"
-    && url.pathname === "/api/innovation/prepare-evidence"
+    && url.pathname === "/api/prepare-evidence"
   ) {
-    if (workflow.key !== "innovation") {
+    if (!workflow.manualReferenceEnabled) {
       sendJson(response, 404, {error: "Not found"});
       return;
     }
@@ -6558,13 +6524,13 @@ async function handleRequest(request, response, serverInstanceId) {
       || ![20, 30, 60].includes(Number(review.selected.durationSeconds))
     ) {
       sendJson(response, 400, {
-        error: "Select a prepared Innovation segment first",
+        error: "Select a prepared Review segment first",
       });
       return;
     }
     setActivity(
       "working",
-      "Preparing Innovation evidence",
+      "Preparing BAC evidence",
       "Frozen BAC coordinates and YOLO player context are being prepared. "
         + "No football events are being generated.",
     );
@@ -6573,6 +6539,7 @@ async function handleRequest(request, response, serverInstanceId) {
       headers: {"Content-Type": "application/json"},
       body: JSON.stringify({
         cache_key: segment,
+        ball_source: "bac",
         evidence_only: true,
       }),
     });
@@ -6737,9 +6704,9 @@ async function handleRequest(request, response, serverInstanceId) {
     request.method === "POST"
     && url.pathname === "/api/copilot-review-discrepancy-batch"
   ) {
-    if (workflow.key !== "innovation") {
+    if (!workflow.manualReferenceEnabled) {
       sendJson(response, 409, {
-        error: "Grouped M#/E# review is available only in Innovation review",
+        error: "Grouped M#/E# review is available only in Review review",
       });
       return;
     }
@@ -6948,9 +6915,9 @@ async function handleRequest(request, response, serverInstanceId) {
     request.method === "POST"
     && url.pathname === "/api/copilot-review-manual-engine"
   ) {
-    if (workflow.key !== "innovation") {
+    if (!workflow.manualReferenceEnabled) {
       sendJson(response, 409, {
-        error: "Manual M# engine review is available only in Innovation",
+        error: "Manual M# engine review is available only in Review",
       });
       return;
     }
@@ -7189,7 +7156,7 @@ async function handleRequest(request, response, serverInstanceId) {
         : {}),
     };
     const regressionResult = body.status === "accepted"
-      ? await ensureInnovationRegressionsCurrent(segment, state)
+      ? await ensureReviewRegressionsCurrent(segment, state)
       : null;
     const event = context.drafts[index];
     const decisionLabel = {
@@ -7332,9 +7299,9 @@ async function handleRequest(request, response, serverInstanceId) {
     return;
   }
   if (request.method === "POST" && url.pathname === "/api/copilot-accept") {
-    if (workflow.key === "innovation") {
+    if (workflow.manualReferenceEnabled) {
       sendJson(response, 409, {
-        error: "C# acceptance is disabled in the manual-first Innovation workflow",
+        error: "C# acceptance is disabled in the manual-first review workflow",
       });
       return;
     }
@@ -7421,9 +7388,9 @@ async function handleRequest(request, response, serverInstanceId) {
     request.method === "POST"
     && url.pathname === "/api/copilot-accept-all"
   ) {
-    if (workflow.key === "innovation") {
+    if (workflow.manualReferenceEnabled) {
       sendJson(response, 409, {
-        error: "Bulk C# acceptance is disabled in the manual-first Innovation workflow",
+        error: "Bulk C# acceptance is disabled in the manual-first review workflow",
       });
       return;
     }
@@ -7960,7 +7927,7 @@ async function handleRequest(request, response, serverInstanceId) {
   }
   if (
     request.method === "POST"
-    && url.pathname === "/api/innovation/approve-coordinate-layer"
+    && url.pathname === "/api/approve-coordinate-layer"
   ) {
     if (!workflow.reviewerCorrectedDemoLayer) {
       sendJson(response, 404, {error: "Not found"});
@@ -8014,7 +7981,7 @@ async function handleRequest(request, response, serverInstanceId) {
         "Applying reviewer coordinate corrections",
         priorEngineOutput
           ? "Reusing completed YOLO detections while rebuilding dependent player tracking and football events."
-          : "Reusing completed YOLO detections while rebuilding dependent player tracking. The Innovation engine remains unrun.",
+          : "Reusing completed YOLO detections while rebuilding dependent player tracking. The rules engine remains unrun.",
       );
       try {
         const result = await localJson(workflow.analyzePath, {
@@ -8022,6 +7989,7 @@ async function handleRequest(request, response, serverInstanceId) {
           headers: {"Content-Type": "application/json"},
           body: JSON.stringify({
             cache_key: segment,
+            ball_source: "bac",
             coordinates_updated: true,
             rerun_events: priorEngineOutput,
           }),
@@ -8427,9 +8395,9 @@ async function handleRequest(request, response, serverInstanceId) {
     const body = await readBody(request);
     const segment = requestedSegment(url, body);
     const review = await reviewContext(segment);
-    if (workflow.key !== "innovation") {
+    if (!workflow.manualReferenceEnabled) {
       sendJson(response, 400, {
-        error: "Golden-reference validation is available only in Innovation",
+        error: "Golden-reference validation is available only in Review",
       });
       return;
     }
@@ -8460,7 +8428,7 @@ async function handleRequest(request, response, serverInstanceId) {
     const body = await readBody(request);
     const segment = requestedSegment(url, body);
     const review = await reviewContext(segment);
-    if (workflow.key !== "innovation") {
+    if (!workflow.manualReferenceEnabled) {
       sendJson(response, 404, {error: "Not found"});
       return;
     }
@@ -8470,7 +8438,7 @@ async function handleRequest(request, response, serverInstanceId) {
       });
       return;
     }
-    ensureInnovationManualReference(review.state, segment);
+    ensureReviewManualReference(review.state, segment);
     const findingId = String(body.findingId || "");
     const action = String(body.action || "");
     if (!["acknowledge", "reopen"].includes(action)) {
@@ -8478,7 +8446,7 @@ async function handleRequest(request, response, serverInstanceId) {
       return;
     }
     try {
-      const finding = updateInnovationManualLedgerAcknowledgement(
+      const finding = updateReviewManualLedgerAcknowledgement(
         review.state.manualReference,
         findingId,
         action === "acknowledge",
@@ -8503,8 +8471,8 @@ async function handleRequest(request, response, serverInstanceId) {
     const body = await readBody(request);
     const segment = requestedSegment(url, body);
     const review = await reviewContext(segment);
-    if (workflow.key === "innovation") {
-      ensureInnovationManualReference(review.state, segment);
+    if (workflow.manualReferenceEnabled) {
+      ensureReviewManualReference(review.state, segment);
       const reference = review.state.manualReference;
       const action = String(body.action || "create");
       if (reference.approved && action !== "reopen") {
@@ -8560,7 +8528,7 @@ async function handleRequest(request, response, serverInstanceId) {
         }
       }
       try {
-        const result = mutateInnovationManualReference(reference, {
+        const result = mutateReviewManualReference(reference, {
           action,
           manualKey: String(body.manualKey || ""),
           engineKey: String(body.engineKey || ""),
@@ -10563,7 +10531,7 @@ session = await joinSession({
               engineVerification,
             };
             const regressionResult =
-              await ensureInnovationRegressionsCurrent(segment, review.state);
+              await ensureReviewRegressionsCurrent(segment, review.state);
             delete review.state.copilotAcceptanceAuthorizations[String(index)];
             review.state.conversation.push({
               role: "system",
@@ -11144,7 +11112,7 @@ session = await joinSession({
         },
         {
           name: "validate_engine_reference",
-          description: "Refresh the current Innovation E# comparison against the frozen golden M# reference.",
+          description: "Refresh the current Review E# comparison against the frozen golden M# reference.",
           inputSchema: {
             type: "object",
             properties: {
@@ -11153,10 +11121,10 @@ session = await joinSession({
             additionalProperties: false,
           },
           handler: async (context) => {
-            if (workflow.key !== "innovation") {
+            if (!workflow.manualReferenceEnabled) {
               throw new CanvasError(
                 "innovation_only",
-                "Golden-reference validation is available only in Innovation.",
+                "Golden-reference validation is available only in Review.",
               );
             }
             const segment = String(context.input?.segment || defaultSegment);
@@ -11414,3 +11382,4 @@ session.on("session.error", (event) => {
     String(event.data?.message || "The current operation did not complete."),
   );
 });
+

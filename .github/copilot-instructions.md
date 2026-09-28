@@ -5,18 +5,25 @@ review workflow, dataset, benchmark, or publication work. This file supplies
 Copilot-specific persistent instructions; the rules architecture and code/tests
 remain authoritative.
 
-Live ball tracking is an active R&D workstream, fully separate from Innovation
-Day. Inspect, run, or edit `football-event-review-live`, Live tracker code,
-Live state, or `live/` artifacts only when the current task explicitly targets
-Live work. Its current minimum 90% direct-coordinate provenance gate measures
-evidence coverage, not coordinate correctness or calibrated confidence.
-Increasing evidence-backed confidence is the objective; adaptive thresholding
-remains future work until it is implemented and independently validated.
-Innovation uses only frozen BAC coordinates, the frozen Innovation engine,
-`innovation/` artifacts, `event-review-state-innovation`, and Canvas type
-`football-event-review`. It is a BAC-assisted diagnostic/demo of the downstream
-football engine, not raw-video ball inference or a valid ball-tracking
-performance benchmark.
+There is one review workflow, `football_review`, one Canvas type,
+`football-event-review`, and one rules engine. Segment artifacts are flat
+under the segment root. Review state (C#, M#, links, decisions, confirmations)
+and engine output JSON live only in the PostgreSQL coordination database;
+without it, review state is read-only.
+
+Each segment records its ball-coordinate source, `ball_source`:
+
+- `bac`: frozen Alfheim BAC coordinates. A BAC run is a BAC-assisted
+  diagnostic of the downstream football engine, never raw-video ball inference
+  or a valid ball-tracking performance benchmark.
+- `live`: raw-video ball tracking. Its minimum 90% direct-coordinate
+  provenance gate measures evidence coverage, not coordinate correctness or
+  calibrated confidence. Increasing evidence-backed confidence is the
+  objective; adaptive thresholding remains future work until it is
+  implemented and independently validated.
+
+Switching a segment's ball source removes its derived artifacts and review
+work except the M# golden set.
 
 For football-event analysis and rules-engine work, act as a senior football-law
 and analytics adjudicator. Identify relevant events, challenge unsupported
@@ -188,7 +195,7 @@ independent:
 
 1. The prepared segment may cache tracking, possession, match state, and
    rules-engine `E#` events.
-2. In Innovation review, the professional reviewer records the ordered `M#`
+2. The professional reviewer records the ordered `M#`
    golden set independently from the video. `E#` may be compared only after M#
    exists and must never create or rewrite M#.
 3. Automatic `M#`/`E#` links are suggestions. The reviewer may explicitly map,
@@ -309,7 +316,7 @@ labels remain evaluation-only under this future cadence exactly as they are
 today — they never become inference inputs, and a "daily" cadence is a
 scheduling idea, not a license to skip regression protection.
 
-When the Live freeze or another current workstream boundary changes, update
+When the workflow or another current workstream boundary changes, update
 this file, `AGENTS.md`, and `CLAUDE.md` together.
 
-Innovation shots on target is an always-analysed, evidence-gated project statistic (no opt-in setting) that requires a runtime `innovation\shot-evidence.json` built by `shot_evidence_adapter.py` from frozen runtime inputs only (height comes only from monocular goal-face arrests; thresholds are provisional until validated across segments); unavailable evidence reports unavailable rather than zero.
+Shots on target is an always-analysed, evidence-gated project statistic (no opt-in setting) that requires a runtime `shot-evidence.json` in the segment root built by `shot_evidence_adapter.py` from frozen runtime inputs only (height comes only from monocular goal-face arrests; thresholds are provisional until validated across segments); unavailable evidence reports unavailable rather than zero.

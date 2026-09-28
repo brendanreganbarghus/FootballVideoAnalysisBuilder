@@ -1,4 +1,4 @@
-from football_poc.innovation_day_snapshot.match_state import (
+from football_poc.match_state import (
     MATCH_LAW_PROFILE,
     RESTART_LAW_REFERENCES,
     LawReference,

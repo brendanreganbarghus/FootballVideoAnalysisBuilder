@@ -1,34 +1,46 @@
 {
-  "schema_version": 1,
-  "workflow": "innovation_day_bac",
+  "schema_version": 2,
+  "workflow": "football_review",
   "segments": [
     {
       "segment": "segment-0080-020",
       "published_at": "2026-09-20T20:38:20.593Z",
       "event_count": 24,
       "engine_content_hash": "c3fba9c595142434b14d396de9f27569c9c3bf21fdbd48a1f7c7df137a5582a9",
-      "output_hash": "583eb070eff039afc06faf9653fe918091e0dd09d47cb28d97192ea4ce0eb6fd"
+      "output_hash": "583eb070eff039afc06faf9653fe918091e0dd09d47cb28d97192ea4ce0eb6fd",
+      "ball_source": "bac"
     },
     {
       "segment": "segment-0120-020",
       "published_at": "2026-09-21T07:17:09.585Z",
       "event_count": 12,
       "engine_content_hash": "fee3784ed1a0646fb65601959d85cdfec8cbe746d453a3dad5a8f56fa8647f11",
-      "output_hash": "7a10927f613aea40b8e3b07525ae0c1580f4b5338815f50d28a65df25b555a91"
+      "output_hash": "7a10927f613aea40b8e3b07525ae0c1580f4b5338815f50d28a65df25b555a91",
+      "ball_source": "bac"
     },
     {
       "segment": "segment-0240-020",
       "published_at": "2026-09-21T02:23:58.732Z",
       "event_count": 20,
       "engine_content_hash": "b96b544621fb4cc9ae9929cf64d390d9f70bff6286adbb004de0fc4e07590981",
-      "output_hash": "b65ebf85e815db5c4d25f9c97fc5309242ea67e5fd7c51cd19d095f15bb65383"
+      "output_hash": "b65ebf85e815db5c4d25f9c97fc5309242ea67e5fd7c51cd19d095f15bb65383",
+      "ball_source": "bac"
     },
     {
       "segment": "segment-0260-020",
       "published_at": "2026-09-20T15:47:10.163Z",
       "event_count": 15,
       "engine_content_hash": "220f72f832e7c49fcf7618ee703390c7f6d587f4b1193e0d754dccc658b199e8",
-      "output_hash": "1d61460530b88ed77041065634bcd1013022b65a8070e3ac5f6b80b0d53ef3ec"
+      "output_hash": "1d61460530b88ed77041065634bcd1013022b65a8070e3ac5f6b80b0d53ef3ec",
+      "ball_source": "bac"
+    },
+    {
+      "segment": "segment-0540-020",
+      "published_at": "2026-09-13T17:34:43.586Z",
+      "event_count": 6,
+      "engine_content_hash": "b48133350c267e7d8044b30e97b42584de58b72d0c3c05d99431b539ec81f592",
+      "output_hash": "df352af90762ba73399604d8253b53f6ff63477b780af5b2142fd8e0bfb72045",
+      "ball_source": "live"
     }
   ]
 }

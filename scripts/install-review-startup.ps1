@@ -11,7 +11,7 @@ if (-not $RepositoryRoot) {
 }
 $startupScript = Join-Path `
     $RepositoryRoot `
-    "scripts\start-innovation-review.ps1"
+    "scripts\start-review.ps1"
 
 if (-not (Test-Path -LiteralPath $startupScript)) {
     throw "Startup script not found: $startupScript"
@@ -19,7 +19,7 @@ if (-not (Test-Path -LiteralPath $startupScript)) {
 
 $configHome = Join-Path $env:LOCALAPPDATA "FootballVideoPOC"
 New-Item -ItemType Directory -Path $configHome -Force | Out-Null
-$launcher = Join-Path $configHome "start-innovation-review.ps1"
+$launcher = Join-Path $configHome "start-review.ps1"
 $escapedStartupScript = $startupScript.Replace("'", "''")
 $escapedRepositoryRoot = $RepositoryRoot.Replace("'", "''")
 $launcherContent = @"
@@ -38,7 +38,7 @@ $startupDirectory = Join-Path `
 New-Item -ItemType Directory -Path $startupDirectory -Force | Out-Null
 $startupCommand = Join-Path `
     $startupDirectory `
-    "FootballVideoAnalysisBuilder-InnovationReview.cmd"
+    "FootballVideoAnalysisBuilder-Review.cmd"
 $commandContent = (
     '@start "" powershell.exe -NoProfile -ExecutionPolicy Bypass ' +
     '-WindowStyle Hidden -File "' + $launcher + '"' +

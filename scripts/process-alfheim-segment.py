@@ -19,10 +19,36 @@ if str(LOCAL_SOURCE) not in sys.path:
     sys.path.insert(0, str(LOCAL_SOURCE))
 
 from football_poc.alfheim_profile import ALFHEIM_POSSESSION_ARGUMENTS
+from football_poc.alfheim_segments import resolve_alfheim_pano
+from football_poc.artifact_store import (
+    BALL_SOURCES,
+    discover_artifact_root,
+    resolve_detector_model,
+)
 from football_poc.ball_provenance import validate_ball_provenance
+from football_poc.bac_ball_tracks import write_bac_ball_tracks
+from football_poc.engine_fingerprint import engine_fingerprint
 from football_poc.run_performance import build_performance_report
+from football_poc.shots_on_target import (
+    EVIDENCE_FILE_NAME as SHOT_EVIDENCE_FILE_NAME,
+    SUMMARY_FILE_NAME as SHOTS_SUMMARY_FILE_NAME,
+)
 
-
+# The BAC path pairs frozen provider ball coordinates with frozen YOLO11n
+# player context; the Live path runs the raw-video YOLO26 ball tracker.
+BAC_DETECTOR_MODEL_SHA256 = (
+    "0ebbc80d4a7680d14987a577cd21342b65ecfd94632bd9a8da63ae6417644ee1"
+)
+BAC_DETECTOR_PROFILE = {
+    "model": "yolo11n.pt",
+    "confidence": 0.12,
+    "image_size": 960,
+    "stride": 5,
+    "tile_width": 1484,
+    "tile_height": None,
+    "overlap": 0.1,
+    "nms_iou": 0.5,
+}
 LIVE_DETECTOR_MODEL_SHA256 = (
     "9b09cc8bf347f0fc8a5f7657480587f25db09b34bf33b0652110fb03a8ad4fef"
 )
@@ -37,6 +63,65 @@ LIVE_DETECTOR_PROFILE = {
     "nms_iou": 0.5,
     "frame_batch_size": 2,
 }
+BAC_SOURCE_KINDS = frozenset(
+    {
+        "evaluation_only_provider_coordinates",
+        "reviewer_corrected_innovation_coordinates",
+    }
+)
+FORBIDDEN_MANIFEST_FIELDS = frozenset(
+    {
+        "actions",
+        "action_counts",
+        "annotations",
+        "ball_ground_truth",
+        "events",
+        "ground_truth",
+        "labels",
+        "manual_reference",
+    }
+)
+
+
+def sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def alfheim_config_path(name: str) -> Path:
+    local_path = PROJECT_ROOT / "benchmarks" / "alfheim" / "window-555" / name
+    if local_path.is_file():
+        return local_path
+    artifact_root = discover_artifact_root()
+    if artifact_root is not None:
+        candidates = sorted(
+            (artifact_root / "30-shared-baselines").glob(
+                f"*/alfheim-config/{name}"
+            )
+        )
+        if len(candidates) == 1:
+            return candidates[0]
+        if len(candidates) > 1:
+            raise FileNotFoundError(
+                f"Multiple shared {name} configurations found; "
+                "select one explicitly."
+            )
+    raise FileNotFoundError(
+        f"Alfheim configuration {name} was not found locally or in the "
+        "shared artifact store."
+    )
+
+
+def validate_bac_detector_model(model: Path) -> None:
+    model_hash = sha256(model)
+    if (
+        model.name.lower() != BAC_DETECTOR_PROFILE["model"]
+        or model_hash != BAC_DETECTOR_MODEL_SHA256
+    ):
+        raise ValueError(
+            "BAC-path player detection requires the frozen YOLO11n checkpoint "
+            f"{BAC_DETECTOR_MODEL_SHA256}; got {model.name} "
+            f"with SHA-256 {model_hash}. Refusing detector configuration drift."
+        )
 
 
 def resolve_live_detector_model(project_root: Path) -> Path:
@@ -53,10 +138,9 @@ def resolve_live_detector_model(project_root: Path) -> Path:
         )
     if model.name.lower() != LIVE_DETECTOR_PROFILE["model"]:
         raise ValueError(
-            "Live processing requires yolo26n.pt, "
-            f"got {model.name!r}."
+            f"Live ball tracking requires yolo26n.pt, got {model.name!r}."
         )
-    model_hash = hashlib.sha256(model.read_bytes()).hexdigest()
+    model_hash = sha256(model)
     if model_hash != LIVE_DETECTOR_MODEL_SHA256:
         raise ValueError(
             "Live YOLO26 checkpoint hash does not match the approved model: "
@@ -65,91 +149,151 @@ def resolve_live_detector_model(project_root: Path) -> Path:
     return model
 
 
-def main() -> None:
+def recorded_ball_source(run_root: Path) -> str | None:
+    for path in (
+        run_root / "analytics-data" / "run-provenance.json",
+        run_root / "analysis-status.json",
+    ):
+        if path.is_file():
+            value = json.loads(path.read_text(encoding="utf-8")).get(
+                "ball_source"
+            )
+            if value in BALL_SOURCES:
+                return str(value)
+    return None
+
+
+def ball_track_source_kind(path: Path) -> str:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    return str(payload.get("source_kind") or "")
+
+
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Build cached player tracking and events for an Alfheim segment."
+        description=(
+            "Build ball coordinates, player tracks, and football events for a "
+            "prepared Alfheim segment."
+        )
     )
     parser.add_argument("segment", type=Path)
     parser.add_argument(
+        "--ball-source",
+        choices=sorted(BALL_SOURCES),
+        help=(
+            "bac imports frozen Alfheim BAC coordinates (evaluation-only "
+            "provider coordinates; diagnostic, never a raw-video benchmark). "
+            "live runs the raw-video ball tracker. Required for full runs; "
+            "cached modes default to the recorded source."
+        ),
+    )
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
         "--events-only",
         action="store_true",
-        help="Rerun possession and event inference from existing tracking data.",
+        help="Rerun possession and event inference from cached tracking data.",
     )
-    parser.add_argument(
+    mode.add_argument(
+        "--evidence-only",
+        action="store_true",
+        help="BAC only: prepare ball coordinates and player context, no events.",
+    )
+    mode.add_argument(
+        "--coordinates-updated",
+        action="store_true",
+        help="BAC only: rebuild from the approved reviewer-coordinate layer.",
+    )
+    mode.add_argument(
         "--resume-after-detection",
         action="store_true",
         help=(
-            "Recover an interrupted run from its completed raw-video detection "
-            "cache. This is not a cold-path performance benchmark."
+            "Live only: recover an interrupted run from its completed "
+            "raw-video detection cache. Not a cold-path benchmark."
         ),
     )
-    parser.add_argument(
+    mode.add_argument(
         "--focused-recovery",
         action="store_true",
         help=(
-            "Apply bounded focused ball-coordinate recovery to the persisted "
-            "runtime track. This is not a cold-path performance benchmark."
+            "Live only: apply bounded focused ball-coordinate recovery to the "
+            "persisted runtime track. Not a cold-path benchmark."
         ),
     )
-    parser.add_argument(
-        "--artifact-namespace",
-        choices=("live",),
-        default=None,
-        help="Write runtime artifacts below the selected segment namespace.",
-    )
+    parser.add_argument("--skip-events", action="store_true")
     parser.add_argument(
         "--runtime-mode",
         choices=("validation", "production"),
         default="validation",
         help=(
-            "Validation blocks below the ball-provenance threshold; "
+            "Live only: validation blocks below the ball-provenance threshold; "
             "production records degraded coverage and continues."
         ),
     )
+    parser.add_argument("--pano", type=Path, default=None)
+    return parser
+
+
+def main() -> None:
+    parser = build_parser()
     args = parser.parse_args()
-    selected_modes = sum(
-        (args.events_only, args.resume_after_detection, args.focused_recovery)
-    )
-    if selected_modes > 1:
-        parser.error(
-            "--events-only, --resume-after-detection, and --focused-recovery "
-            "are exclusive"
-        )
+    if args.skip_events and not args.coordinates_updated:
+        parser.error("--skip-events requires --coordinates-updated")
     segment = args.segment.resolve()
-    prepared_manifest = segment / "manifest.json"
-    run_root = (
-        segment / args.artifact_namespace
-        if args.artifact_namespace
-        else segment
+    run_root = segment
+    cached_mode = args.events_only or args.coordinates_updated
+    ball_source = args.ball_source or (
+        recorded_ball_source(run_root) if cached_mode else None
     )
-    run_root.mkdir(parents=True, exist_ok=True)
-    manifest = run_root / "runtime-manifest.json"
+    if ball_source is None:
+        parser.error(
+            "--ball-source is required (no recorded ball source to reuse)"
+        )
+    if cached_mode and args.ball_source:
+        recorded = recorded_ball_source(run_root)
+        if recorded is not None and recorded != ball_source:
+            parser.error(
+                f"Cached artifacts were built with ball source {recorded!r}; "
+                f"run a full {ball_source!r} analysis instead."
+            )
+    if ball_source == "live" and (
+        args.evidence_only or args.coordinates_updated
+    ):
+        parser.error(
+            "--evidence-only and --coordinates-updated require --ball-source bac"
+        )
+    if ball_source == "bac" and (
+        args.resume_after_detection or args.focused_recovery
+    ):
+        parser.error(
+            "--resume-after-detection and --focused-recovery require "
+            "--ball-source live"
+        )
+
+    prepared_manifest = segment / "manifest.json"
+    runtime_manifest = run_root / "runtime-manifest.json"
     cache = run_root / "analytics-cache"
     results = run_root / "analytics-data"
+    status_path = run_root / "analysis-status.json"
     ball_tracks = cache / "ball-tracks.json"
     ball_state_estimates = cache / "ball-state-estimates.json"
-    status_path = run_root / "analysis-status.json"
-    workspace = PROJECT_ROOT
-    model = resolve_live_detector_model(workspace)
+    reviewer_ball_tracks = run_root / "reviewer-coordinate-layer.json"
+    player_tracks = results / "player-tracks.json"
     run_id = str(uuid4())
     started_at_utc = datetime.now(timezone.utc)
 
     prepared = json.loads(prepared_manifest.read_text(encoding="utf-8"))
-    forbidden_manifest_fields = {
-        "annotations",
-        "ball_ground_truth",
-        "events",
-        "ground_truth",
-        "labels",
-        "manual_reference",
-    }
-    leaked_fields = sorted(forbidden_manifest_fields.intersection(prepared))
-    if leaked_fields:
+    leaked = sorted(
+        field
+        for field in FORBIDDEN_MANIFEST_FIELDS
+        if prepared.get(field) not in (None, "", [], {})
+    )
+    if leaked:
         raise ValueError(
-            "Live raw-video manifest contains evaluation fields: "
-            + ", ".join(leaked_fields)
+            "Prepared manifest contains evaluation inputs: " + ", ".join(leaked)
         )
-    video = Path(str(prepared.get("live_video", prepared["video"]))).resolve()
+    video = Path(str(prepared["video"]))
+    if not video.is_absolute():
+        video = segment / video
+    video = video.resolve()
     capture = cv2.VideoCapture(str(video))
     try:
         if not capture.isOpened():
@@ -161,13 +305,13 @@ def main() -> None:
     declared_start_frame = int(prepared.get("start_frame", 0))
     declared_end_frame = int(prepared.get("end_frame", frame_count))
     declared_frame_count = declared_end_frame - declared_start_frame
-    declared_duration = float(
+    duration = float(
         prepared.get(
             "duration_seconds",
             declared_frame_count / fps if fps else 0.0,
         )
     )
-    duration_frame_count = round(declared_duration * fps)
+    duration_frame_count = round(duration * fps)
     if (
         declared_start_frame < 0
         or declared_frame_count <= 0
@@ -175,15 +319,16 @@ def main() -> None:
         or declared_frame_count != duration_frame_count
     ):
         raise ValueError(
-            "Prepared live media does not match its raw-only manifest: "
+            "Prepared media does not match its raw-only manifest: "
             f"video has {frame_count} frames at {fps:.3f} fps, while the "
             f"manifest declares frames {declared_start_frame}:"
             f"{declared_end_frame} ({declared_frame_count} frames) and "
-            f"{declared_duration:.3f} seconds "
-            f"({duration_frame_count} frames). Refusing to process an "
-            "ambiguous segment."
+            f"{duration:.3f} seconds ({duration_frame_count} frames). "
+            "Refusing to process an ambiguous segment."
         )
-    manifest.write_text(
+    source_start = float(prepared.get("source_start_seconds", 0.0))
+    run_root.mkdir(parents=True, exist_ok=True)
+    runtime_manifest.write_text(
         json.dumps(
             {
                 "dataset": "Simula Alfheim Camera Setting 2",
@@ -192,6 +337,7 @@ def main() -> None:
                 "fps": fps,
                 "start_frame": declared_start_frame,
                 "end_frame": declared_end_frame,
+                "start_seconds": source_start,
                 "starts_at_kickoff": False,
             },
             indent=2,
@@ -200,39 +346,39 @@ def main() -> None:
         encoding="utf-8",
     )
 
+    run_mode = (
+        "cached_event_rebuild"
+        if args.events_only
+        else "reviewer_coordinate_rebuild"
+        if args.coordinates_updated
+        else "evidence_preparation"
+        if args.evidence_only
+        else "focused_interrupted_run_recovery"
+        if args.focused_recovery
+        else "interrupted_run_recovery"
+        if args.resume_after_detection
+        else "full_run"
+    )
+    cache_reuse = run_mode != "full_run" and run_mode != "evidence_preparation"
+
     def status(stage: str, message: str) -> None:
-        status_path.write_text(
+        temporary = status_path.with_suffix(".json.tmp")
+        temporary.write_text(
             json.dumps(
                 {
                     "run_id": run_id,
+                    "started_at_utc": started_at_utc.isoformat(),
                     "stage": stage,
                     "message": message,
-                    "mode": (
-                        "cached_event_rebuild"
-                        if args.events_only
-                        else "focused_interrupted_run_recovery"
-                        if args.focused_recovery
-                        else "interrupted_run_recovery"
-                        if args.resume_after_detection
-                        else "cold_raw_video"
+                    "mode": run_mode,
+                    "workflow": "football_review",
+                    "ball_source": ball_source,
+                    "bac_assisted": ball_source == "bac",
+                    "raw_video_ball_inference": ball_source == "live",
+                    "performance_benchmark_valid": (
+                        ball_source == "live" and run_mode == "full_run"
                     ),
-                    "workflow": (
-                        "live_iteration_25"
-                        if args.artifact_namespace == "live"
-                        else "legacy"
-                    ),
-                    "artifact_namespace": args.artifact_namespace,
-                    "cache_reuse": (
-                        args.events_only
-                        or args.resume_after_detection
-                        or args.focused_recovery
-                    ),
-                    "prior_artifacts_used": (
-                        args.events_only
-                        or args.resume_after_detection
-                        or args.focused_recovery
-                    ),
-                    "started_at_utc": started_at_utc.isoformat(),
+                    "cache_reuse": cache_reuse,
                     "elapsed_seconds": round(
                         (
                             datetime.now(timezone.utc) - started_at_utc
@@ -241,9 +387,11 @@ def main() -> None:
                     ),
                 },
                 indent=2,
-            ),
+            )
+            + "\n",
             encoding="utf-8",
         )
+        temporary.replace(status_path)
 
     stage_seconds: dict[str, float] = {}
 
@@ -251,18 +399,14 @@ def main() -> None:
         started = time.perf_counter()
         environment = os.environ.copy()
         environment["PYTHONPATH"] = os.pathsep.join(
-            filter(
-                None,
-                (
-                    str(LOCAL_SOURCE),
-                    environment.get("PYTHONPATH"),
-                ),
-            )
+            part
+            for part in (str(LOCAL_SOURCE), environment.get("PYTHONPATH", ""))
+            if part
         )
         try:
             subprocess.run(
                 [sys.executable, *arguments],
-                cwd=workspace,
+                cwd=PROJECT_ROOT,
                 env=environment,
                 check=True,
             )
@@ -274,43 +418,161 @@ def main() -> None:
             ) from error
         stage_seconds[stage] = round(time.perf_counter() - started, 3)
 
+    def track_players(active_ball_tracks: Path) -> None:
+        run(
+            "player_tracking",
+            "-m",
+            "football_poc.player_tracking_cli",
+            str(runtime_manifest),
+            "--player-cache",
+            str(cache / "detections.jsonl"),
+            "--ball-tracks",
+            str(active_ball_tracks),
+            "--output",
+            str(results),
+            "--confidence",
+            "0.2",
+            "--max-gap",
+            "0.5",
+            "--max-speed",
+            "700",
+            "--minimum-track-points",
+            "3",
+            "--team-profile",
+            "red-black",
+            "--goalkeeper-affiliations",
+            str(alfheim_config_path("goalkeeper-affiliations.json")),
+            "--no-video",
+        )
+
+    downstream = (
+        player_tracks,
+        results / "match-initialization.json",
+        results / "ball-provenance.json",
+        results / "possession.json",
+        results / "match-state-events.json",
+        results / "predicted-events.json",
+        results / "chunk-simulation.json",
+        results / "chunk-simulation-state.json",
+        results / "run-provenance.json",
+        results / "performance-report.json",
+    )
+    live_model: Path | None = None
     pipeline_started = time.perf_counter()
     try:
-        if args.events_only:
-            required = [
-                results / "player-tracks.json",
-                ball_tracks,
-                ball_state_estimates,
-            ]
+        cache.mkdir(parents=True, exist_ok=True)
+        results.mkdir(parents=True, exist_ok=True)
+        active_ball_tracks = (
+            reviewer_ball_tracks
+            if ball_source == "bac" and reviewer_ball_tracks.is_file()
+            else ball_tracks
+        )
+        if cached_mode:
+            required = [active_ball_tracks, cache / "detections.jsonl"]
+            if args.events_only:
+                required.append(player_tracks)
+            if ball_source == "live":
+                required.append(ball_state_estimates)
             missing = [path.name for path in required if not path.is_file()]
             if missing:
                 raise FileNotFoundError(
-                    "Cannot rerun event logic without " + ", ".join(missing)
+                    "Cannot rebuild from cached artifacts without "
+                    + ", ".join(missing)
                 )
-            ball_track_payload = json.loads(ball_tracks.read_text(encoding="utf-8"))
-            ball_track_source = json.dumps(
-                ball_track_payload.get("source", {}),
-                sort_keys=True,
-            ).lower()
-            if any(
-                marker in ball_track_source
-                for marker in ("bac", "ground_truth", "provider_coordinates")
-            ):
+            kind = ball_track_source_kind(active_ball_tracks)
+            if ball_source == "live" and kind in BAC_SOURCE_KINDS:
                 raise ValueError(
-                    "Live event rebuild rejected BAC/evaluation-derived ball tracks"
+                    "Live event rebuild rejected BAC/evaluation-derived "
+                    "ball tracks"
                 )
-        else:
-            downstream_paths = (
-                ball_tracks,
-                ball_state_estimates,
-                results / "player-tracks.json",
-                results / "match-initialization.json",
-                results / "ball-provenance.json",
-                results / "possession.json",
-                results / "predicted-events.json",
-                results / "chunk-simulation.json",
-                results / "performance-report.json",
+            if ball_source == "bac" and kind not in BAC_SOURCE_KINDS:
+                raise ValueError(
+                    "BAC event rebuild requires BAC-derived ball tracks"
+                )
+            if args.coordinates_updated:
+                reviewer_payload = json.loads(
+                    reviewer_ball_tracks.read_text(encoding="utf-8")
+                )
+                if (
+                    reviewer_payload.get("source_kind")
+                    != "reviewer_corrected_innovation_coordinates"
+                    or reviewer_payload.get("base_source_kind")
+                    != "evaluation_only_provider_coordinates"
+                ):
+                    raise ValueError(
+                        "The approved reviewer-coordinate layer has invalid "
+                        "BAC provenance."
+                    )
+                status(
+                    "player_tracking",
+                    "Rebuilding player context from approved reviewer "
+                    "coordinates while reusing cached YOLO detections.",
+                )
+                track_players(active_ball_tracks)
+                if args.skip_events:
+                    status(
+                        "evidence_ready",
+                        "Approved reviewer coordinates and dependent player "
+                        "tracking are ready. Events have not been rebuilt.",
+                    )
+                    return
+        elif ball_source == "bac":
+            for path in downstream:
+                path.unlink(missing_ok=True)
+            status("bac_coordinates", "Importing frozen BAC ball coordinates.")
+            pano = (args.pano or resolve_alfheim_pano(PROJECT_ROOT)).resolve()
+            write_bac_ball_tracks(
+                runtime_manifest=runtime_manifest,
+                pano=pano,
+                output=ball_tracks,
+                source_start_seconds=source_start,
+                duration_seconds=duration,
             )
+            active_ball_tracks = (
+                reviewer_ball_tracks
+                if reviewer_ball_tracks.is_file()
+                else ball_tracks
+            )
+            model = resolve_detector_model(PROJECT_ROOT)
+            validate_bac_detector_model(model)
+            status(
+                "player_detection",
+                "Running frozen YOLO player detection from the prepared video.",
+            )
+            run(
+                "detection",
+                "-m",
+                "football_poc.bac_player_detector",
+                str(runtime_manifest),
+                "--output",
+                str(cache),
+                "--model",
+                str(model),
+                "--confidence",
+                str(BAC_DETECTOR_PROFILE["confidence"]),
+                "--image-size",
+                str(BAC_DETECTOR_PROFILE["image_size"]),
+                "--stride",
+                str(BAC_DETECTOR_PROFILE["stride"]),
+                "--tile-width",
+                str(BAC_DETECTOR_PROFILE["tile_width"]),
+                "--overlap",
+                str(BAC_DETECTOR_PROFILE["overlap"]),
+            )
+            status(
+                "player_tracking",
+                "Building player tracks against the frozen BAC ball path.",
+            )
+            track_players(active_ball_tracks)
+            if args.evidence_only:
+                status(
+                    "evidence_ready",
+                    "Frozen BAC coordinates and YOLO player context are "
+                    "ready. No football events have been generated.",
+                )
+                return
+        else:
+            live_model = resolve_live_detector_model(PROJECT_ROOT)
             if args.focused_recovery:
                 required = [
                     cache / "detections.jsonl",
@@ -323,15 +585,7 @@ def main() -> None:
                         "Cannot run focused recovery without "
                         + ", ".join(missing)
                     )
-                for path in (
-                    results / "player-tracks.json",
-                    results / "match-initialization.json",
-                    results / "ball-provenance.json",
-                    results / "possession.json",
-                    results / "predicted-events.json",
-                    results / "chunk-simulation.json",
-                    results / "performance-report.json",
-                ):
+                for path in downstream:
                     path.unlink(missing_ok=True)
                 status(
                     "focused_ball_recovery",
@@ -340,16 +594,19 @@ def main() -> None:
                 )
                 run(
                     "focused_ball_recovery",
-                    str(PROJECT_ROOT / "scripts" / "recover-focused-ball-coordinates.py"),
+                    str(
+                        PROJECT_ROOT
+                        / "scripts"
+                        / "recover-focused-ball-coordinates.py"
+                    ),
                     str(run_root),
                 )
             elif args.resume_after_detection:
-                detection_cache = cache / "detections.jsonl"
-                if not detection_cache.is_file():
+                if not (cache / "detections.jsonl").is_file():
                     raise FileNotFoundError(
                         "Cannot resume without completed raw-video detections"
                     )
-                for path in downstream_paths:
+                for path in (ball_tracks, ball_state_estimates, *downstream):
                     path.unlink(missing_ok=True)
                 status(
                     "ball_track",
@@ -360,7 +617,9 @@ def main() -> None:
                 for path in (
                     cache / "detections.jsonl",
                     cache / "detection-summary.json",
-                    *downstream_paths,
+                    ball_tracks,
+                    ball_state_estimates,
+                    *downstream,
                 ):
                     path.unlink(missing_ok=True)
                 status(
@@ -372,11 +631,11 @@ def main() -> None:
                     "detection",
                     "-m",
                     "football_poc.benchmark_cli",
-                    str(manifest),
+                    str(runtime_manifest),
                     "--output",
                     str(cache),
                     "--model",
-                    str(model),
+                    str(live_model),
                     "--device",
                     "cpu",
                     "--confidence",
@@ -405,7 +664,7 @@ def main() -> None:
                     "ball_tracking",
                     "-m",
                     "football_poc.ball_tracking_cli",
-                    str(manifest),
+                    str(runtime_manifest),
                     "--cache",
                     str(cache / "detections.jsonl"),
                     "--output",
@@ -420,83 +679,111 @@ def main() -> None:
                 "tracking",
                 "Associating players and inferring teams from visible kits.",
             )
-            run(
-                "player_tracking",
-                "-m",
-                "football_poc.player_tracking_cli",
-                str(manifest),
-                "--player-cache",
-                str(cache / "detections.jsonl"),
-                "--ball-tracks",
-                str(ball_tracks),
-                "--output",
-                str(results),
-                "--confidence",
-                "0.2",
-                "--max-gap",
-                "0.5",
-                "--max-speed",
-                "700",
-                "--minimum-track-points",
-                "3",
-                "--team-profile",
-                "red-black",
-                "--goalkeeper-affiliations",
-                str(
-                    PROJECT_ROOT
-                    / "benchmarks"
-                    / "alfheim"
-                    / "window-555"
-                    / "goalkeeper-affiliations.json"
-                ),
-                "--no-video",
+            track_players(ball_tracks)
+
+        if ball_source == "live":
+            status(
+                "provenance_gate",
+                "Validating direct ball-evidence coverage before event "
+                "inference.",
+            )
+            validate_ball_provenance(
+                ball_tracks,
+                ball_state_estimates,
+                output=results / "ball-provenance.json",
+                enforce_threshold=args.runtime_mode == "validation",
             )
         status(
-            "provenance_gate",
-            "Validating direct ball-evidence coverage before event inference.",
-        )
-        validate_ball_provenance(
-            ball_tracks,
-            ball_state_estimates,
-            output=results / "ball-provenance.json",
-            enforce_threshold=args.runtime_mode == "validation",
-        )
-        status(
             "events",
-            "Inferring match state, possession, passes, and turnovers.",
+            "Inferring match state, possession, passes, turnovers, and shots.",
         )
+        boundary_events = run_root / "boundary-events.json"
+        shot_evidence = run_root / SHOT_EVIDENCE_FILE_NAME
         run(
             "event_inference",
             "-m",
             "football_poc.possession_cli",
-            str(manifest),
+            str(runtime_manifest),
             "--player-tracks",
-            str(results / "player-tracks.json"),
+            str(player_tracks),
             "--ball-tracks",
-            str(ball_tracks),
+            str(active_ball_tracks),
             "--output",
             str(results),
             *ALFHEIM_POSSESSION_ARGUMENTS,
+            *(
+                ["--boundary-events", str(boundary_events)]
+                if boundary_events.is_file()
+                else []
+            ),
+            "--shot-evidence",
+            str(shot_evidence),
+            "--shot-goal-calibration",
+            str(alfheim_config_path("pitch-calibration.json")),
+            "--shot-goalkeeper-affiliations",
+            str(alfheim_config_path("goalkeeper-affiliations.json")),
         )
-        status("publishing", "Preparing live event chunks.")
+        chunk_state = results / "chunk-simulation-state.json"
+        if args.events_only:
+            chunk_state.unlink(missing_ok=True)
+        status("publishing", "Preparing event chunks.")
         run(
             "chunk_publication",
             "-m",
             "football_poc.chunk_simulator_cli",
-            str(manifest),
+            str(runtime_manifest),
             "--events",
             str(results / "predicted-events.json"),
             "--output",
             str(results / "chunk-simulation.json"),
+            "--state",
+            str(chunk_state),
         )
-        if not args.events_only and not args.resume_after_detection:
+        provenance: dict[str, object] = {
+            "schema_version": 2,
+            "workflow": "football_review",
+            "ball_source": ball_source,
+            "mode": run_mode,
+            "created_at_utc": datetime.now(timezone.utc).isoformat(),
+            "runtime_manifest_sha256": sha256(runtime_manifest),
+            "engine_sha256": engine_fingerprint(PROJECT_ROOT),
+            "ball_tracks_sha256": sha256(active_ball_tracks),
+            "ball_track_source_kind": ball_track_source_kind(
+                active_ball_tracks
+            ),
+            "events_sha256": sha256(results / "predicted-events.json"),
+            "performance_benchmark_valid": (
+                ball_source == "live" and run_mode == "full_run"
+            ),
+            "shots_on_target": {
+                "evidence_sha256": (
+                    sha256(shot_evidence) if shot_evidence.is_file() else None
+                ),
+                "summary_sha256": (
+                    sha256(results / SHOTS_SUMMARY_FILE_NAME)
+                    if (results / SHOTS_SUMMARY_FILE_NAME).is_file()
+                    else None
+                ),
+            },
+        }
+        if ball_source == "bac":
+            provenance["detector_profile"] = BAC_DETECTOR_PROFILE
+            provenance["detector_model_sha256"] = BAC_DETECTOR_MODEL_SHA256
+        else:
+            provenance["detector_profile"] = LIVE_DETECTOR_PROFILE
+            provenance["detector_model_sha256"] = LIVE_DETECTOR_MODEL_SHA256
+        (results / "run-provenance.json").write_text(
+            json.dumps(provenance, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        if ball_source == "live" and run_mode == "full_run" and live_model:
             elapsed = time.perf_counter() - pipeline_started
             report = build_performance_report(
                 run_id=run_id,
                 video=video,
-                manifest=manifest,
-                model=model,
-                source_duration_seconds=declared_duration,
+                manifest=runtime_manifest,
+                model=live_model,
+                source_duration_seconds=duration,
                 source_fps=fps,
                 sampled_frames=(declared_frame_count + 4) // 5,
                 wall_time_seconds=elapsed,
@@ -511,13 +798,19 @@ def main() -> None:
                 f"Cold raw-video run completed in {elapsed:.1f}s on the "
                 "current CPU.",
             )
-        elif args.events_only:
-            status("ready", "Cached event logic rebuild completed.")
+        elif cached_mode:
+            status("ready", "Cached event rebuild completed.")
+        elif ball_source == "bac":
+            status(
+                "ready",
+                "BAC-assisted analysis is ready (diagnostic; not raw-video "
+                "ball inference).",
+            )
         else:
             status(
                 "ready",
-                "Interrupted-run recovery completed from preserved raw-video "
-                "detections. No cold-path performance claim was produced.",
+                "Recovery completed from preserved raw-video detections. "
+                "No cold-path performance claim was produced.",
             )
     except Exception as error:
         status("failed", str(error))

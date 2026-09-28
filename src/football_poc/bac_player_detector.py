@@ -12,7 +12,7 @@ from typing import Any, Iterable
 import cv2
 from ultralytics import YOLO
 
-from football_poc.innovation_day_snapshot.benchmark import BenchmarkManifest
+from football_poc.benchmark import BenchmarkManifest
 
 
 @dataclass(frozen=True)
@@ -125,7 +125,7 @@ def run_detection_cache(
         range(manifest.start_frame, manifest.end_frame, stride)
     )
     print(
-        f"Loading {model_name}. Caching {len(pending_frames)} new Innovation "
+        f"Loading {model_name}. Caching {len(pending_frames)} new BAC-path "
         f"frames with horizontal {tile_width}px tiles."
     )
     model = YOLO(model_name)
@@ -370,7 +370,7 @@ def _write_summary(
             round(frames_with_ball / frame_count, 4) if frame_count else 0.0
         ),
         "next_stage": (
-            "Innovation player tracking and event inference consume this "
+            "BAC-path player tracking and event inference consume this "
             "cache without evaluation labels."
         ),
     }
@@ -402,7 +402,7 @@ def _validate_run_options(
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Run the frozen sequential Innovation detector."
+        description="Run the frozen sequential BAC-path player detector."
     )
     parser.add_argument("manifest", type=Path)
     parser.add_argument("--output", type=Path, required=True)

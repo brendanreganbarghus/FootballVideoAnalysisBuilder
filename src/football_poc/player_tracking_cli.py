@@ -3,7 +3,9 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from football_poc.player_tracking import track_cached_players
+from football_poc.player_tracking import (
+    track_cached_players,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:

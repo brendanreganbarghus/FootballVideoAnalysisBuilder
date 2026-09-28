@@ -77,6 +77,25 @@ def invoke_coordination(
     return int(captured["status"]), captured["payload"]
 
 
+def invoke_post(
+    service: object,
+    path: str,
+    body: dict[str, object],
+) -> tuple[int, dict[str, object]]:
+    handler = object.__new__(SERVE_LOCAL.RangeRequestHandler)
+    handler.coordination_service = service
+    handler.path = path
+    raw = json.dumps(body).encode("utf-8")
+    handler.headers = {"Content-Length": str(len(raw))}
+    handler.rfile = io.BytesIO(raw)
+    captured: dict[str, object] = {}
+    handler._send_json = lambda status, payload: captured.update(
+        status=status, payload=payload
+    )
+    handler.do_POST()
+    return int(captured["status"]), captured["payload"]
+
+
 def test_coordination_handlers_use_injected_repository_and_hide_token() -> None:
     service, repository = coordination_service()
 
@@ -85,7 +104,7 @@ def test_coordination_handlers_use_injected_repository_and_hide_token() -> None:
         "POST",
         "/api/coordination/acquire",
         {
-            "workflow": "innovation_day_bac",
+            "workflow": "football_review",
             "segment": "segment-0300-020",
             "stage": "event-review",
         },
@@ -96,7 +115,7 @@ def test_coordination_handlers_use_injected_repository_and_hide_token() -> None:
     status, catalogue = invoke_coordination(
         service,
         "GET",
-        "/api/coordination/segments?workflow=innovation_day_bac",
+        "/api/coordination/segments?workflow=football_review",
     )
     assert status == 200
     assert catalogue["segments"][0]["segment"] == "segment-0300-020"
@@ -107,7 +126,7 @@ def test_coordination_handlers_use_injected_repository_and_hide_token() -> None:
         "POST",
         "/api/coordination/state",
         {
-            "workflow": "innovation_day_bac",
+            "workflow": "football_review",
             "segment": "segment-0300-020",
             "leaseToken": token,
             "expectedVersion": 0,
@@ -117,13 +136,13 @@ def test_coordination_handlers_use_injected_repository_and_hide_token() -> None:
     assert status == 200
     assert saved["version"] == 1
     assert repository.get_state(
-        "innovation_day_bac", "segment-0300-020"
+        "football_review", "segment-0300-020"
     ).state == {"decisions": {}}
 
     status, read = invoke_coordination(
         service,
         "GET",
-        "/api/coordination/state?workflow=innovation_day_bac"
+        "/api/coordination/state?workflow=football_review"
         "&segment=segment-0300-020",
     )
     assert status == 200
@@ -138,13 +157,13 @@ def test_manual_reference_endpoints_populate_normalized_coordination_state() -> 
         "POST",
         "/api/coordination/acquire",
         {
-            "workflow": "innovation_day_bac",
+            "workflow": "football_review",
             "segment": "segment-0080-020",
         },
     )
     token = acquired["lease"]["leaseToken"]
     body = {
-        "workflow": "innovation_day_bac",
+        "workflow": "football_review",
         "segment": "segment-0080-020",
         "leaseToken": token,
         "events": [
@@ -179,7 +198,7 @@ def test_manual_reference_endpoints_populate_normalized_coordination_state() -> 
     assert saved["reference"]["events"][0]["sourceFrame"] == 1499
     assert saved["reference"]["mappings"] == {"M1": "E9"}
     assert repository.get_manual_event_revision(
-        "innovation_day_bac", "segment-0080-020", "M2"
+        "football_review", "segment-0080-020", "M2"
     ).timestamp_ms == 60000
 
     status, approved = invoke_coordination(
@@ -194,7 +213,7 @@ def test_manual_reference_endpoints_populate_normalized_coordination_state() -> 
     status, loaded = invoke_coordination(
         service,
         "GET",
-        "/api/coordination/manual-reference?workflow=innovation_day_bac"
+        "/api/coordination/manual-reference?workflow=football_review"
         "&segment=segment-0080-020",
     )
     assert status == 200
@@ -209,7 +228,7 @@ def test_manual_reference_endpoint_requires_lease_and_one_to_one_mapping() -> No
         "POST",
         "/api/coordination/acquire",
         {
-            "workflow": "innovation_day_bac",
+            "workflow": "football_review",
             "segment": "segment-0080-020",
         },
     )
@@ -227,7 +246,7 @@ def test_manual_reference_endpoint_requires_lease_and_one_to_one_mapping() -> No
         "POST",
         "/api/coordination/manual-reference",
         {
-            "workflow": "innovation_day_bac",
+            "workflow": "football_review",
             "segment": "segment-0080-020",
             "events": events,
             "mappings": {},
@@ -240,7 +259,7 @@ def test_manual_reference_endpoint_requires_lease_and_one_to_one_mapping() -> No
         "POST",
         "/api/coordination/manual-reference",
         {
-            "workflow": "innovation_day_bac",
+            "workflow": "football_review",
             "segment": "segment-0080-020",
             "leaseToken": acquired["lease"]["leaseToken"],
             "events": events,
@@ -258,7 +277,7 @@ def test_coordination_handlers_map_conflicts_and_validation() -> None:
         "POST",
         "/api/coordination/acquire",
         {
-            "workflow": "innovation_day_bac",
+            "workflow": "football_review",
             "segment": "segment-0300-020",
         },
     )
@@ -267,7 +286,7 @@ def test_coordination_handlers_map_conflicts_and_validation() -> None:
         "POST",
         "/api/coordination/acquire",
         {
-            "workflow": "innovation_day_bac",
+            "workflow": "football_review",
             "segment": "segment-0300-020",
         },
     )
@@ -285,7 +304,7 @@ def test_coordination_handlers_map_conflicts_and_validation() -> None:
         "POST",
         "/api/coordination/acquire",
         {
-            "workflow": "innovation_day_bac",
+            "workflow": "football_review",
             "segment": "segment-0300-020",
         },
     )
@@ -298,7 +317,7 @@ def test_coordination_handlers_map_conflicts_and_validation() -> None:
         "POST",
         "/api/coordination/state",
         {
-            "workflow": "innovation_day_bac",
+            "workflow": "football_review",
             "segment": "segment-0300-020",
             "leaseToken": token,
             "expectedVersion": 0,
@@ -310,7 +329,7 @@ def test_coordination_handlers_map_conflicts_and_validation() -> None:
         "POST",
         "/api/coordination/state",
         {
-            "workflow": "innovation_day_bac",
+            "workflow": "football_review",
             "segment": "segment-0300-020",
             "leaseToken": token,
             "expectedVersion": 0,
@@ -348,7 +367,7 @@ def test_coordination_unavailable_stays_read_only() -> None:
         "POST",
         "/api/coordination/acquire",
         {
-            "workflow": "innovation_day_bac",
+            "workflow": "football_review",
             "segment": "segment-0300-020",
         },
     )
@@ -376,6 +395,38 @@ def test_coordination_bootstrap_exception_returns_unavailable(
         "deployment": None,
     }
     service.close()
+
+
+def test_coordination_bootstrap_does_not_install_reconciliation_hook(
+    monkeypatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_bootstrap(config, **kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(
+            repository=UnavailableRepositoryForBootstrap(),
+            health=DatabaseHealth(DatabaseMode.DISABLED, "disabled"),
+        )
+
+    class UnavailableRepositoryForBootstrap:
+        def health(self) -> DatabaseHealth:
+            return DatabaseHealth(DatabaseMode.DISABLED, "disabled")
+
+        def register_identity(self, _identity) -> None:
+            raise AssertionError("identity registration should not run")
+
+    monkeypatch.setattr(
+        SERVE_LOCAL.CoordinationConfig,
+        "from_environment",
+        staticmethod(lambda: SimpleNamespace(machine_id_path=Path("machine.json"))),
+    )
+    monkeypatch.setattr(SERVE_LOCAL, "bootstrap_coordination", fake_bootstrap)
+
+    service = SERVE_LOCAL.CoordinationService.bootstrap()
+
+    assert service.mode is DatabaseMode.DISABLED
+    assert "reconciliation_hook" not in captured
 
 
 def test_main_bootstraps_once_attaches_service_and_closes(
@@ -473,6 +524,7 @@ def test_prepared_segment_list_reports_times_protection_and_ai_state(
             "duration_seconds": 60,
             "state": "ready",
             "raw_video_only": True,
+            "ball_source": None,
             "ball_track_available": False,
             "evidence_ready": False,
             "validated": False,
@@ -484,7 +536,7 @@ def test_prepared_segment_list_reports_times_protection_and_ai_state(
             "prepared_root": str(
                 (generated / "segment-0575-020").resolve()
             ),
-            "review_workflows": [],
+            "review_workflows": ["football_review"],
             "labels_url": None,
         },
         {
@@ -493,6 +545,7 @@ def test_prepared_segment_list_reports_times_protection_and_ai_state(
             "duration_seconds": 30,
             "state": "prepared",
             "raw_video_only": True,
+            "ball_source": None,
             "ball_track_available": False,
             "evidence_ready": False,
             "validated": False,
@@ -504,10 +557,216 @@ def test_prepared_segment_list_reports_times_protection_and_ai_state(
             "prepared_root": str(
                 (generated / "segment-0700-010").resolve()
             ),
-            "review_workflows": [],
+            "review_workflows": ["football_review"],
             "labels_url": None,
         },
     ]
+
+
+def test_output_hash_matches_canvas_json_stringify(tmp_path: Path) -> None:
+    predictions = [{"x": 12.0, "label": "é"}]
+    match_state = {"frame": 25.0, "nested": [1.0, 1.25]}
+    python_hash = SERVE_LOCAL.canvas_output_sha256(predictions, match_state)
+    script = (
+        "const crypto=require('crypto');"
+        "const payload={predictions:[{x:12.0,label:'é'}],"
+        "matchState:{frame:25.0,nested:[1.0,1.25]}};"
+        "process.stdout.write(crypto.createHash('sha256')"
+        ".update(JSON.stringify(payload),'utf8').digest('hex'));"
+    )
+    try:
+        result = SERVE_LOCAL.subprocess.run(
+            ["node", "-e", script],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError:
+        pytest.skip("node is not available")
+
+    assert python_hash == result.stdout
+
+
+def test_ready_status_records_outputs_to_coordination(
+    tmp_path: Path, monkeypatch
+) -> None:
+    generated = tmp_path / "benchmarks" / "alfheim" / "generated"
+    root = generated / "segment-0120-020"
+    write_prepared_segment(root, ai_ready=False)
+    (root / "analysis-status.json").write_text(
+        json.dumps({"stage": "ready", "ball_source": "bac"}),
+        encoding="utf-8",
+    )
+    analytics = root / "analytics-data"
+    analytics.mkdir(exist_ok=True)
+    (analytics / "predicted-events.json").write_text(
+        json.dumps([{"id": "E1", "time": 12.0}]),
+        encoding="utf-8",
+    )
+    (analytics / "match-state-events.json").write_text(
+        json.dumps([{"state": "live"}]),
+        encoding="utf-8",
+    )
+    (analytics / "run-provenance.json").write_text(
+        json.dumps({"ball_source": "bac"}),
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+    service, repository = coordination_service()
+    handler = object.__new__(SERVE_LOCAL.RangeRequestHandler)
+    handler.coordination_service = service
+
+    status = handler._segment_status("segment-0120-020")
+    output = repository.get_segment_outputs(
+        "football_review", "segment-0120-020"
+    )
+
+    assert status["state"] == "ready"
+    assert output is not None
+    assert output["ballSource"] == "bac"
+    assert output["files"]["predicted-events.json"] == [
+        {"id": "E1", "time": 12.0}
+    ]
+
+
+def test_switch_ball_source_requires_confirmation_and_removes_only_derived_artifacts(
+    tmp_path: Path, monkeypatch
+) -> None:
+    generated = tmp_path / "benchmarks" / "alfheim" / "generated"
+    root = generated / "segment-0120-020"
+    write_prepared_segment(root, ai_ready=False)
+    for relative in (
+        "analysis-status.json",
+        "analysis.log",
+        "runtime-manifest.json",
+        "reviewer-coordinate-layer.json",
+        "boundary-events.json",
+        "shot-evidence.json",
+    ):
+        (root / relative).write_text("{}", encoding="utf-8")
+    for relative in ("analytics-cache", "analytics-data"):
+        (root / relative).mkdir(exist_ok=True)
+        (root / relative / "file.json").write_text("{}", encoding="utf-8")
+    (root / "manual-reference.json").write_text("{}", encoding="utf-8")
+    (root / "segment.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "segment_id": "segment-0120-020",
+                "video": "alfheim-window-playable.mp4",
+                "manifest": "manifest.json",
+                "ball_source": "bac",
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+    service, repository = coordination_service()
+    repository.set_segment_ball_source(
+        "football_review", "segment-0120-020", "bac"
+    )
+
+    status, missing_confirm = invoke_post(
+        service,
+        "/api/alfheim/switch-ball-source",
+        {"cache_key": "segment-0120-020", "ball_source": "live"},
+    )
+    assert status == 400
+    status, unchanged = invoke_post(
+        service,
+        "/api/alfheim/switch-ball-source",
+        {
+            "cache_key": "segment-0120-020",
+            "ball_source": "bac",
+            "confirm": True,
+        },
+    )
+    assert status == 400
+    SERVE_LOCAL.RangeRequestHandler.analysis_processes["segment-0120-020"] = (
+        SimpleNamespace(poll=lambda: None)
+    )
+    status, running = invoke_post(
+        service,
+        "/api/alfheim/switch-ball-source",
+        {
+            "cache_key": "segment-0120-020",
+            "ball_source": "live",
+            "confirm": True,
+        },
+    )
+    SERVE_LOCAL.RangeRequestHandler.analysis_processes.clear()
+    assert (status, running["code"]) == (409, "job_running")
+    other_lease = repository.acquire_lease(
+        "football_review",
+        "segment-0120-020",
+        "example\\someone-else",
+        "79b0ab35-063c-44cb-b625-abdb062e7bb3",
+        "review",
+    )
+    status, leased = invoke_post(
+        service,
+        "/api/alfheim/switch-ball-source",
+        {
+            "cache_key": "segment-0120-020",
+            "ball_source": "live",
+            "confirm": True,
+        },
+    )
+    assert (status, leased["code"]) == (409, "lease_conflict")
+    repository.release_lease(other_lease.token)
+
+    status, switched = invoke_post(
+        service,
+        "/api/alfheim/switch-ball-source",
+        {
+            "cache_key": "segment-0120-020",
+            "ball_source": "live",
+            "confirm": True,
+        },
+    )
+
+    assert status == 200
+    assert set(switched["removed"]) == set(SERVE_LOCAL.DERIVED_ANALYSIS_ARTIFACTS)
+    assert (root / "manual-reference.json").is_file()
+    assert (root / "manifest.json").is_file()
+    assert (root / "segment.json").is_file()
+    assert repository.get_segment_ball_source(
+        "football_review", "segment-0120-020"
+    ) == "live"
+
+
+def test_analyze_rejects_wrong_source_modes(
+    tmp_path: Path, monkeypatch
+) -> None:
+    generated = tmp_path / "benchmarks" / "alfheim" / "generated"
+    root = generated / "segment-0120-020"
+    write_prepared_segment(root, ai_ready=False)
+    monkeypatch.chdir(tmp_path)
+    service, _ = coordination_service()
+
+    status, evidence = invoke_post(
+        service,
+        "/api/alfheim/analyze",
+        {
+            "cache_key": "segment-0120-020",
+            "ball_source": "live",
+            "evidence_only": True,
+        },
+    )
+    status_live, live_mode = invoke_post(
+        service,
+        "/api/alfheim/analyze",
+        {
+            "cache_key": "segment-0120-020",
+            "ball_source": "bac",
+            "resume_after_detection": True,
+        },
+    )
+
+    assert status == 400
+    assert "require bac" in evidence["error"]
+    assert status_live == 400
+    assert "require live" in live_mode["error"]
 
 
 def test_review_segment_list_keeps_datasets_and_calibrations_separate(
@@ -545,37 +804,36 @@ def test_review_segment_list_keeps_datasets_and_calibrations_separate(
     assert segments[1]["labels_url"] is None
 
 
-def test_dynamic_prepared_segments_stay_in_their_registered_workflow(
+def test_dynamic_prepared_segments_use_single_review_workflow(
     tmp_path: Path, monkeypatch
 ) -> None:
     generated = tmp_path / "benchmarks" / "alfheim" / "generated"
     write_prepared_segment(
         generated / "segment-0080-020",
         ai_ready=False,
-        review_workflows=("innovation_day_bac",),
+        review_workflows=("football_review",),
     )
     write_prepared_segment(
         generated / "segment-0060-020",
         ai_ready=True,
-        review_workflows=("innovation_day_bac",),
+        review_workflows=("football_review",),
     )
     write_prepared_segment(
         generated / "segment-0100-020",
         ai_ready=False,
-        review_workflows=("live_iteration_25",),
+        review_workflows=("football_review",),
     )
     monkeypatch.chdir(tmp_path)
 
     handler = object.__new__(SERVE_LOCAL.RangeRequestHandler)
-    innovation = handler._alfheim_review_segments(namespace="innovation")
-    live = handler._alfheim_review_segments(namespace="live")
+    segments = handler._alfheim_review_segments()
 
-    assert [segment["cache_key"] for segment in innovation] == [
-        "segment-0080-020"
+    assert [segment["cache_key"] for segment in segments] == [
+        "segment-0060-020",
+        "segment-0080-020",
+        "segment-0100-020",
     ]
-    assert [segment["cache_key"] for segment in live] == [
-        "segment-0100-020"
-    ]
+    assert {segment["workflow"] for segment in segments} == {"football_review"}
 
 
 def test_shared_prepared_segments_are_listed_without_local_generated_copy(
@@ -589,7 +847,7 @@ def test_shared_prepared_segments_are_listed_without_local_generated_copy(
         / "recording-1"
         / "segment-0120-020"
     )
-    run_root = shared / "innovation"
+    run_root = shared
     (run_root / "analytics-cache").mkdir(parents=True)
     (run_root / "analytics-data").mkdir()
     (shared / "segment.mp4").write_bytes(b"video")
@@ -601,7 +859,6 @@ def test_shared_prepared_segments_are_listed_without_local_generated_copy(
                 "end_frame": 1500,
                 "source_start_seconds": 360.0,
                 "duration_seconds": 60.0,
-                "review_workflows": ["innovation_day_bac"],
             }
         ),
         encoding="utf-8",
@@ -609,17 +866,14 @@ def test_shared_prepared_segments_are_listed_without_local_generated_copy(
     (shared / "segment.json").write_text(
         json.dumps(
             {
-                "schema_version": 1,
+                "schema_version": 2,
                 "segment_id": "segment-0120-020",
                 "dataset_id": "alfheim",
                 "source_start_seconds": 360.0,
                 "duration_seconds": 60.0,
                 "video": "segment.mp4",
                 "manifest": "manifest.json",
-                "workflows": ["innovation_day_bac"],
-                "workflow_artifacts": {
-                    "innovation_day_bac": "innovation"
-                },
+                "ball_source": "bac",
                 "camera_id": "camera-1",
                 "recording_id": "recording-1",
             }
@@ -649,15 +903,14 @@ def test_shared_prepared_segments_are_listed_without_local_generated_copy(
     )
     handler = object.__new__(SERVE_LOCAL.RangeRequestHandler)
 
-    innovation = handler._alfheim_review_segments(namespace="innovation")
-    live = handler._alfheim_review_segments(namespace="live")
+    segments = handler._alfheim_review_segments()
 
-    assert [segment["cache_key"] for segment in innovation] == [
+    assert [segment["cache_key"] for segment in segments] == [
         "segment-0120-020"
     ]
-    assert live == []
-    segment = innovation[0]
+    segment = segments[0]
     assert segment["validated"] is True
+    assert segment["ball_source"] == "bac"
     assert segment["prepared_root"] == str(shared.resolve())
     assert segment["video_url"] == (
         "/shared-prepared/segment-0120-020/segment.mp4"

@@ -18,22 +18,16 @@ from football_poc.artifact_store import (
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
-            "Publish one prepared segment and its selected workflow artifacts "
-            "to the checksummed shared catalogue."
+            "Publish one prepared segment and its runtime artifacts to the "
+            "checksummed shared catalogue."
         )
     )
     parser.add_argument("segment_root", type=Path)
-    parser.add_argument(
-        "--workflow",
-        required=True,
-        choices=("innovation_day_bac", "live_iteration_25"),
-    )
     parser.add_argument("--camera-id", required=True)
     parser.add_argument("--recording-id", required=True)
     args = parser.parse_args()
     segment = publish_prepared_segment(
         args.segment_root,
-        workflow_id=args.workflow,
         source_metadata={
             "camera_id": args.camera_id,
             "recording_id": args.recording_id,

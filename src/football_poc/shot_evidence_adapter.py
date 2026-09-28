@@ -1,6 +1,6 @@
-"""Build Innovation runtime shot evidence from cached runtime artifacts only.
+"""Build runtime shot evidence from cached runtime artifacts only.
 
-Inputs are the frozen Innovation ball track, cached player tracks (with their
+Inputs are the runtime ball track (frozen BAC or Live tracker), cached player tracks (with their
 runtime goalkeeper roles), the engine's match-state timeline, and the
 camera-specific goal-face calibration. Manual labels, M#/C#, provider events,
 and reviewer outcomes are never read.
@@ -23,11 +23,11 @@ from typing import Any, Iterable
 
 import numpy as np
 
-from football_poc.innovation_day_snapshot.goal_calibration import (
+from football_poc.goal_calibration import (
     GoalFace,
     load_goal_faces,
 )
-from football_poc.innovation_day_snapshot.shots_on_target import (
+from football_poc.shots_on_target import (
     EVIDENCE_FILE_NAME,
     EVIDENCE_SOURCE_KIND,
     SCHEMA_VERSION,
@@ -379,7 +379,7 @@ def write_evidence(
 
 
 def discover_artifact_root() -> Path | None:
-    """Same lookup as the shared artifact store, kept local to the frozen engine."""
+    """Same lookup as the shared artifact store, kept local to the engine."""
     configured = os.environ.get("FOOTBALL_ARTIFACT_ROOT", "").strip()
     if configured:
         root = Path(configured).expanduser().resolve()
@@ -421,18 +421,18 @@ def resolve_alfheim_config(name: str, project_root: Path) -> Path:
     )
 
 
-def build_for_segment(innovation_root: Path, project_root: Path) -> Path:
-    """Rebuild <innovation>/shot-evidence.json from cached runtime artifacts."""
-    output = innovation_root / EVIDENCE_FILE_NAME
+def build_for_segment(segment_root: Path, project_root: Path) -> Path:
+    """Rebuild <segment>/shot-evidence.json from cached runtime artifacts."""
+    output = segment_root / EVIDENCE_FILE_NAME
     write_evidence(
         output,
-        ball_tracks=innovation_root / "analytics-cache" / "ball-tracks.json",
-        player_tracks=innovation_root / "analytics-data" / "player-tracks.json",
+        ball_tracks=segment_root / "analytics-cache" / "ball-tracks.json",
+        player_tracks=segment_root / "analytics-data" / "player-tracks.json",
         goal_calibration=resolve_alfheim_config("pitch-calibration.json", project_root),
         goalkeeper_affiliations=resolve_alfheim_config(
             "goalkeeper-affiliations.json", project_root
         ),
-        match_state=innovation_root / "analytics-data" / "match-state-events.json",
+        match_state=segment_root / "analytics-data" / "match-state-events.json",
     )
     return output
 
@@ -440,7 +440,7 @@ def build_for_segment(innovation_root: Path, project_root: Path) -> Path:
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--segment-innovation-root",
+        "--segment-root",
         type=Path,
         help="Build evidence for a prepared segment and print its readiness.",
     )
@@ -452,10 +452,10 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--fps", type=float, default=25.0)
     parser.add_argument("--output", type=Path)
     args = parser.parse_args(argv)
-    if args.segment_innovation_root is not None:
+    if args.segment_root is not None:
         try:
             path = build_for_segment(
-                args.segment_innovation_root, Path(__file__).resolve().parents[3]
+                args.segment_root, Path(__file__).resolve().parents[2]
             )
             result = readiness(json.loads(path.read_text(encoding="utf-8")))
             print(json.dumps(result.to_dict()))

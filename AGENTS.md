@@ -7,18 +7,22 @@ publication behavior.
 
 ## Current workstream boundary
 
-- Live ball tracking is an active R&D workstream, fully separate from
-  Innovation Day. Inspect, run, or edit `football-event-review-live`, Live
-  tracker code, Live review state, or `live\` artifacts only when the current
-  task explicitly targets Live work.
-- Innovation Day uses frozen BAC coordinates, the frozen Innovation engine,
-  `innovation\` artifacts, `event-review-state-innovation`, and Canvas type
-  `football-event-review`. It is a BAC-assisted diagnostic/demo of the
-  downstream football engine, not raw-video ball inference or a valid
-  ball-tracking performance benchmark.
-- Never move artifacts, state, decisions, thresholds, or fixes between the
-  Innovation and Live workflows.
-- Live development currently has a fixed minimum 90% direct-coordinate
+- There is one review workflow, `football_review`, one Canvas type,
+  `football-event-review`, and one rules engine in `src\football_poc`.
+  Prepared segment artifacts are flat under the segment root.
+- Each segment run records its ball-coordinate source, `ball_source`:
+  - `bac`: frozen Alfheim BAC coordinates. A BAC run is a BAC-assisted
+    diagnostic of the downstream football engine, never raw-video ball
+    inference or a valid ball-tracking performance benchmark.
+  - `live`: raw-video ball tracking (`ball_tracking.py`).
+- Switching a segment's ball source removes its derived artifacts and review
+  work except the M# golden set; never reuse outputs, decisions, thresholds,
+  or fixes from one ball source as evidence for the other.
+- Review state (C#, M#, links, decisions, confirmations) lives only in the
+  PostgreSQL coordination database, together with the engine output JSON. The
+  share holds media and caches. There is no JSON-file review-state fallback;
+  without the database, review state is read-only.
+- Live ball tracking has a fixed minimum 90% direct-coordinate
   provenance gate. That measures evidence coverage, not 90% coordinate
   correctness or calibrated confidence. Increasing evidence-backed confidence
   is the objective; adaptive thresholding remains future work until it is
@@ -44,7 +48,7 @@ Use this authority order:
 Provider events, dataset annotations, manual review labels, and user-supplied
 coordinates are evaluation-only. They must never influence detection,
 tracking, classification, possession, match state, event generation,
-thresholds, or performance results. In Innovation review, build the M# golden
+thresholds, or performance results. In review, build the M# golden
 set independently, compare it with E#, and keep C# optional and
 diagnostic-only. Follow the guarded approval and publication workflow in the
 architecture document.
@@ -65,7 +69,7 @@ conversation available.
 
 ## Review Canvas agent host
 
-The Innovation review Canvas is a GitHub Copilot CLI extension, and its
+The review Canvas is a GitHub Copilot CLI extension, and its
 Copilot handovers run in that Copilot session. To use Claude Code instead,
 run the Canvas with the Claude review host in
 [`scripts\claude-review-host`](scripts/claude-review-host/README.md):
@@ -81,8 +85,7 @@ request in this repository, and exposes the Canvas actions to Claude as
 `mcp__football-event-review__<action>` tools. Where a handover prompt or this
 file says Copilot, it means the agent that hosts the Canvas. Every rule in this
 file applies unchanged, including the single Autopilot request and the
-working-status contract. The port-8080 local app must be running first, and
-only the Innovation workflow is hosted.
+working-status contract. The port-8080 local app must be running first.
 
 ## Working rules
 
@@ -93,7 +96,7 @@ only the Innovation workflow is hosted.
 - Keep fresh raw-video benchmarks distinct from cache rebuilds and report
   provenance and timing honestly.
 - After an accepted rule-engine change, rebuild cached output for every
-  published segment in that workflow and require exact publication-hash
+  published segment, with its recorded ball source, and require exact publication-hash
   matches plus all protected tests. A failure keeps the accepted requirement
   pending, identifies each affected segment and event difference, and blocks
   synchronization/publication until a general fix passes the complete gate.
@@ -102,7 +105,7 @@ only the Innovation workflow is hosted.
 - Preserve unrelated working-tree changes and use the smallest relevant
   validation before broader protected regressions.
 
-When the Live freeze or another current workstream boundary changes, update
+When the workflow or another current workstream boundary changes, update
 this file, `CLAUDE.md`, and `.github\copilot-instructions.md` together.
 
-Innovation shots on target is an always-analysed, evidence-gated project statistic (no opt-in setting) that requires a runtime `innovation\shot-evidence.json` built by `shot_evidence_adapter.py` from frozen runtime inputs only (height comes only from monocular goal-face arrests; thresholds are provisional until validated across segments); unavailable evidence reports unavailable rather than zero.
+Shots on target is an always-analysed, evidence-gated project statistic (no opt-in setting) that requires a runtime `shot-evidence.json` in the segment root built by `shot_evidence_adapter.py` from frozen runtime inputs only (height comes only from monocular goal-face arrests; thresholds are provisional until validated across segments); unavailable evidence reports unavailable rather than zero.

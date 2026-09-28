@@ -1,4 +1,4 @@
-"""Camera-specific goal-face calibration for Innovation shots on target.
+"""Camera-specific goal-face calibration for shots on target.
 
 The Alfheim panorama is stitched, so a single pitch homography is not valid
 across the image. Each goal is therefore calibrated locally: the four

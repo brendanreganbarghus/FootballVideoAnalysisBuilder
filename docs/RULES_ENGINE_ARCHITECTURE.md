@@ -329,7 +329,7 @@ The Innovation **Football Event Review** canvas is manual-first:
 5. Approval freezes an immutable, fingerprinted golden revision. A later
    correction creates a new draft revision.
 6. Historical `C#` proposals remain optional, read-only diagnostic state and
-   are not rendered in the active Innovation review UI. They never control M#
+   are not rendered in the active review UI. They never control M#
    creation, counts, mappings, approval, publication, or inference.
 7. Investigate only selected missing, extra, mistyped, mis-teamed, mistimed, or
    misordered E# discrepancies. An unmatched M# exposes a review guide where
@@ -445,38 +445,40 @@ mapping M# to E#, approving the golden minute, confirming an already-existing
 correct E#, asking a Plan-mode question, or cancelling a review does not run
 regressions.
 
-### Fast independent Innovation review
+### Fast independent review
 
-An authorized Innovation review should complete as one bounded manual
+An authorized review should complete as one bounded manual
 adjudication pass, not as a frame-export or engineering investigation. Watch
 the prepared 30–60-second Canvas video and use the quick-capture actions
 to record completed passes, turnovers, and shots on target at the
 playhead. Review the ordered
 list and team/type counts, make corrections, map useful E# comparisons, then
-approve the complete minute as golden. The Innovation scope is completed passes,
+approve the complete minute as golden. The current scope is completed passes,
 turnovers, and shots on target (always analysed; see below); shots and fouls
-otherwise remain disabled. Use frozen BAC and prepared player context only to
-clarify an uncertain moment. Do not replace continuous viewing with
+otherwise remain disabled. Use the segment's selected ball source and prepared
+player context only to clarify an uncertain moment. Do not replace continuous viewing with
 frame-by-frame export, exhaustive coordinate analysis, an automatic Copilot
 pre-review, or a new inference run.
 
-### Innovation shots on target (always analysed, evidence-gated)
+### Shots on target (always analysed, evidence-gated)
 
-`innovation_day_snapshot\shots_on_target.py` implements the SOT analytics
-contract above (definition `innovation-sot-v1`, a project statistic, not an
-IFAB statistic). Every Innovation engine run analyses shots on target; there
-is no opt-in setting. The runner rebuilds the runtime evidence file
-`innovation\shot-evidence.json`
-(`source_kind: innovation_runtime_shot_evidence`) before every event build and
-applies the classifier only when that evidence passes its readiness check.
+`src\football_poc\shots_on_target.py` implements the SOT analytics
+contract above. The persisted definition name remains the frozen identifier
+`innovation-sot-v1`; it is a project statistic, not an IFAB statistic. Every
+review engine run analyses shots on target; there is no opt-in setting. The
+runner rebuilds the runtime evidence file `shot-evidence.json` in the segment
+root (`source_kind: innovation_runtime_shot_evidence`, also a frozen persisted
+identifier) before every event build and applies the classifier only when that
+evidence passes its readiness check.
 That file must
 supply calibrated goal geometry (goal line, posts, crossbar, uncertainty),
 team attacking directions, observed 3-D ball samples, deliberate-release
 intent records, contact roles (goalkeeper, last-line defender, outfield,
 woodwork), and separately supported valid-goal facts. Frozen BAC image
 coordinates alone cannot establish height, so the runtime adapter
-`innovation_day_snapshot\shot_evidence_adapter.py`
-(`innovation-shot-evidence-v1`) builds the file from frozen runtime inputs
+`src\football_poc\shot_evidence_adapter.py`
+(`innovation-shot-evidence-v1`, a frozen persisted identifier) builds the file
+from frozen runtime inputs
 only: BAC ball tracks, cached player tracks and goalkeeper roles, the
 goalkeeper-affiliation config (attacking directions), engine match state,
 and the calibrated goal mouths in `pitch-calibration.json`.
@@ -528,8 +530,7 @@ that fails the published-segment regression. Publication is blocked unless
 SOT status is `complete`, or when golden M# includes SOT that the engine
 output does not analyse.
 
-The **Process AI** action runs only the cached BAC-assisted Innovation rules
-engine. It does not automatically launch the optional independent C# protocol.
+The **Process AI** action runs only the cached rules engine for the segment's recorded `ball_source`. It does not automatically launch the optional independent C# protocol.
 The M# Ledger Audit remains a separate optional local-code check and is not an
 independent visual review.
 
@@ -569,7 +570,7 @@ including an approved zero-event set when no event is supported. This fast path
 never permits E#, C#, provider labels, or earlier decisions to create or alter
 the manual reference.
 
-The Innovation Canvas enforces that separation as a visible three-stage gate:
+The Canvas enforces that separation as a visible three-stage gate:
 **Freeze manual M# reference as golden**, then **Validate engine against golden
 reference**, and finally **Publish Passed segment**. E# output and automatic
 M↔E suggestions remain hidden until validation fingerprints the frozen M# set
@@ -588,249 +589,61 @@ Engine snapshots contain:
 This proves whether an accepted rule was already present, still pending, or
 implemented by a later engine version.
 
-### 7.1 Separate Innovation and live review lines
+### 7.1 Single review workflow and ball-source boundary
 
-Alfheim review has two deliberately isolated workflows. They may read the same
-raw-only prepared video manifest, camera calibration, and immutable
-`copilot-review.json` produced from that video before either engine is exposed.
-This keeps the evidence-scoped `C#` proposals identical while each Canvas
-matches them independently. The workflows never share runtime manifests,
-detections, tracks, `E#` events, decisions, fingerprints, regression receipts,
-manual references, or publication locks.
+Alfheim review now has one workflow, `football_review`, one Canvas,
+`football-event-review`, and one rules engine in `src\football_poc`. Runtime
+artifacts are flat under the prepared segment root. Each processed segment
+records its `ball_source` in `segment.json`, `analysis-status.json`,
+`analytics-data\run-provenance.json`, PostgreSQL segment metadata, and the
+append-only `segment_outputs` history.
 
-- **Innovation Day** uses explicitly labelled BAC provider coordinates with
-  the separately versioned engine under
-  `src/football_poc/innovation_day_snapshot`. Its artifacts live under each
-  segment's `innovation/` directory. BAC is resolved only by
-  `process-alfheim-innovation-segment.py`; it never enters the shared prepared
-  manifest. Its possible out-of-bounds intervals are derived by comparing BAC
-  positions with the shared Alfheim pitch calibration; they are evidence
-  candidates, not camera calibration data or assumed referee decisions. This
-  is a diagnostic/demo workflow and cannot produce raw-video performance
-  claims. Player detection is also frozen to the trusted Innovation profile:
-  the approved YOLO11n checkpoint (verified by SHA-256), confidence `0.12`,
-  image size `960`, stride `5`, tile width `1484`, full-height horizontal
-  tiles, overlap `0.1`, and NMS IoU `0.5`. The runner rejects a model override
-  with any other filename or checkpoint hash. Detection executes through the
-  Innovation-only `football_poc.innovation_day_detector` module, preserving
-  the showcase pipeline's sequential frame inference. It does not import or
-  execute the mutable live `benchmark_cli` detector path.
-  After evidence preparation, the Canvas stores a complete segment-scoped copy
-  of the frozen BAC coordinates in shared review state. Reviewer changes are
-  versioned against that immutable base and do not modify the BAC artifact.
-  Once a correction batch is approved, its materialized coordinate layer
-  becomes the current Innovation input for that segment. Existing YOLO player
-  detections are always reused. Player tracking is rebuilt when it has already
-  run because it consumes ball coordinates; if the Innovation event engine has
-  also already run, possession and event outputs are rebuilt afterward. An
-  engine that has not yet run remains an explicit separate action after player
-  tracking is refreshed.
-  Exact-prefix comparisons may declare namespace-specific `innovation_video`
-  and `live_video` sources while retaining a separate `playable_video`. Both
-  inference sources must cover the declared frame range; this avoids
-  re-encoding drift without sharing runtime artifacts.
-  Player-team stabilization and terminal possession reconciliation are causal
-  at a segment boundary: a shorter segment must preserve all player evidence
-  and completed events supported before its final frame. A terminal,
-  confidently controlled turnover may resolve an earlier contested contact,
-  and repeated strong control at the boundary may confirm a direction-change
-  reception, but neither rule may inspect frames outside the declared segment.
-- **Live** uses raw-video detector output, iteration-25 ball tracking, and the
-  current engine. Its artifacts live under each segment's `live/` directory.
-  BAC, manual references, and provider event annotations are rejected as
-  inference inputs. When trustworthy ball coordinates resume after a long
-  tracking gap, a reception may be recovered only from a real local closest
-  approach, consistent team control before the gap, and a following same-team
-  release. This degraded-evidence rule never creates a coordinate or fills a
-  missing frame. A reviewed segment enters `live-regressions.json` only after
-  the live publication gate passes.
+- **BAC (`ball_source: bac`)** uses frozen Alfheim BAC coordinates. BAC is a
+  BAC-assisted diagnostic of the downstream football engine, never raw-video
+  ball inference and never a valid ball-tracking performance benchmark. Its
+  ball-track artifacts intentionally retain frozen identifiers such as
+  `evaluation_only_provider_coordinates`, `innovation_day_bac_assisted`,
+  `reviewer_corrected_innovation_coordinates`,
+  `detector_implementation: innovation_showcase_sequential_v1`, reason codes
+  such as `innovation_ball_source_mismatch`, and suite name `innovation`.
+  These names are historical output contracts, not separate workflows.
+- **Live (`ball_source: live`)** uses raw-video detector output and
+  `ball_tracking.py`. BAC, manual references, and provider event annotations
+  are rejected as inference inputs. Its minimum 90% direct-coordinate
+  provenance gate measures evidence coverage, not coordinate correctness or
+  calibrated confidence. Increasing evidence-backed confidence is the
+  objective; adaptive thresholding remains future work until implemented and
+  independently validated.
 
-The validated live detector profile samples every fifth source frame. A
-stride-1 diagnostic must be reported separately and must not replace the
-validated profile merely because it yields more points: denser detections also
-require possession and event inference to remain sampling-rate invariant.
+The Canvas **Run ball coordinates** action chooses the source for a segment.
+**Change ball source** requires confirmation, is blocked while a job runs or
+another developer holds the lease, and deletes the segment's derived artifacts
+and review work except the M# golden set. The previous `segment_outputs`
+revisions remain as append-only database history.
 
-#### Ball Time Machine
+Review state lives only in PostgreSQL under workflow `football_review`. The
+retired `30-shared-baselines\event-review-state-*` JSON files are not read or
+written as mutable state, and there is no JSON fallback. When coordination is
+unavailable, review state is read-only. Media and binary caches stay in the
+OneDrive artifact share.
 
-**Ball Time Machine** is the user-facing name for **Temporal Ball Coordinate
-Recovery**. When the detector cannot establish a ball coordinate for a sampled
-frame, the tracker examines the preceding and following raw-video frames,
-moving backward and forward through the local temporal window to determine
-whether the missing coordinate can be recovered from a consistent trajectory.
-It uses only raw-video detections and tracking evidence; dataset event labels,
-manual review labels, and provider coordinates are forbidden inputs.
-
-A coordinate produced by this process remains a bidirectional or forward
-trajectory estimate with its uncertainty and source-frame provenance intact.
-It is not a direct detector observation, does not count toward the minimum 90%
-direct-coordinate requirement, and must not be presented as a ball that was
-visibly detected in the missing frame.
-
-Recovery is finalized in a deterministic order. The tracker first establishes
-trusted sampled anchors, then resolves gaps from the nearest trusted anchor on
-each side, and finally applies a whole-trajectory integrity pass before state
-publication. A lone recovered point is discarded when stable support exists
-on both sides and that point creates an unsupported out-and-back excursion.
-Discarded points are not reused as recovery anchors. Long vertical gaps may
-use a bounded acceleration-aware curve when an adjacent trusted velocity
-supports it; otherwise they remain linear estimates with their uncertainty.
-Neither form of interpolation becomes direct event evidence. A single missing
-sample between stationary direct YOLO or focused-redetection anchors may become
-evidence-backed recovery only when independent templates from both endpoints
-match the same raw-video pixels with strict score and spatial-agreement gates.
-The recovered point then passes the whole-trajectory integrity check again.
-
-The 90% provenance threshold is a blocking development and localhost
-validation gate. Production live processing records the same provenance
-result and degraded-evidence status but does not pause the match pipeline for
-human review. Production continuation never promotes estimated coordinates:
-event inference must preserve and enforce each coordinate's evidence class.
-
-#### Planned ball-coordinate auto-verification contract
-
-This contract is required after the current YOLO and ball-coordinate
-investigation is complete; it is not implemented by the current 90% provenance
-gate. Direct coverage measures how many coordinates were produced, not whether
-they are correct. Production must ultimately require each coordinate to earn
-an evidence-based `auto_verified`, `ambiguous`, or `unresolved` result without
-routine frame-by-frame human approval.
-
-An `auto_verified` coordinate must pass the complete, versioned gate stack:
-
-1. exact-frame visual evidence from broad detection, focused redetection, or
-   validated raw motion;
-2. pitch and player context, including feet support and upper-body/static-object
-   rejection;
-3. temporal support from nearby past and future raw-video evidence;
-4. a sufficient winning margin over every credible competing candidate;
-5. bidirectional confirmation when the evidence class requires it;
-6. final trajectory-integrity checks with no silent removal or replacement.
-
-The runtime must persist a per-frame trace before any evaluation reference is
-loaded. Each gate entry records a stable gate ID and version, pass/fail result,
-measured score, threshold, evidence source, candidate coordinate, competing
-candidate or margin where applicable, and a reason. The trace also records the
-detector weight hash, detector/runtime versions, tracker source hash,
-configuration hash, input-cache hash, final evidence class, and final
-verification result. For example:
-
-```text
-Broad YOLO candidate       PASS
-Pitch/player context       PASS
-Temporal support           PASS
-Competing-path margin      FAIL (0.03 < 0.08)
-Bidirectional confirmation FAIL
-Final result               AMBIGUOUS — not auto-verified
-```
-
-A fresh `auto_verified` receipt remains valid without another human review only
-while all recorded hashes and gate versions match. Any mismatch makes the
-receipt stale. An ambiguous or unresolved frame is never converted into a
-success-shaped coordinate merely to improve coverage.
-
-Ball-coordinate development is fail-forward:
-
-- an independently confirmed `PASS` becoming `FAIL`, `AMBIGUOUS`, missing, or
-  materially moved is a blocking regression;
-- `FAIL` or `AMBIGUOUS` becoming `PASS` is a potential gain and is accepted
-  only after evaluation confirms it;
-- a new rule must not silently remove, move, weaken, or change the evidence
-  path of a previously confirmed passing coordinate;
-- a previously auto-verified result later proven false must be corrected, not
-  preserved for a green regression; its old receipt is invalidated and the
-  intentional correction is recorded;
-- insufficient or contradictory evidence fails forward to `AMBIGUOUS` or
-  `UNRESOLVED`, never backward to an assumed coordinate.
-
-Runtime traces and reviewed expectations are physically and logically
-separate. Detection, tracking, gate execution, scoring, and trace publication
-finish and freeze before the protected evaluation reference is loaded. The
-reference may classify a failure as a missing general rule, insufficient
-visual evidence, or a correct rejection, but it must never select a candidate,
-set a threshold, or otherwise influence inference.
-
-The live rules engine may consume the complete generated ball-state timeline
-for continuity, but it must preserve the evidence class of every sample:
-
-- direct detector and evidence-backed recovery states may provide proximity,
-  speed, and direction evidence;
-- bidirectional and forward trajectory estimates may provide continuity and
-  proximity evidence only;
-- estimated states must never be reclassified as detector observations;
-- every emitted event records whether its interval used direct, mixed, or
-  estimated ball evidence, including the estimated source-frame numbers and
-  maximum uncertainty radius;
-- the possession artifact records all input frames grouped by state so a
-  reviewer can distinguish complete processing coverage from direct-evidence
-  coverage.
-
-Human review may validate whether an estimate is visually acceptable, but that
-decision remains evaluation-only. It cannot selectively promote that frame or
-change its runtime evidence class.
-
-Coordinate-review decisions have explicit visual meanings. Agreeing says the
-proposed coordinate is visually supported. Confirming a custom coordinate says
-the reviewer can see the ball at that supplied location. `Ball undefined / not
-visible` says the current camera cannot visually locate the ball, including
-player occlusion. `YOLO candidate N is correct` says the reviewer can see the
-ball at that numbered raw detection but the selector or tracker did not choose
-it. `Needs more checking` records unresolved ambiguity. A custom or selected
-YOLO coordinate must never be reinterpreted as an uncertain or invisible-ball
-decision. It is a diagnostic lead only, never a reference coordinate, ground
-truth, or expected engine target. A selected YOLO candidate directs
-investigation toward general candidate-selection logic but must not be
-force-selected. None of these review observations may become inference input
-or be used to calculate success against the supplied coordinate.
-
-Each submitted ball-coordinate batch is one durable review round. While
-Copilot reviews evidence, implements a general correction, and runs focused
-tests, the batch modal remains open and reports timestamped progress. Passing
-tests automatically start one whole-segment recovery run from the saved raw
-detections; no second user authorization is required for that rerun. The modal
-remains open through the rerun and then changes from progress notifications to
-the persisted result. The round records each reviewed frame as fixed,
-unresolved, or regressed, captures before/after provenance and completion time,
-preserves the user's decision in the durable review-state artifact, and becomes
-read-only. A closed-round frame may show only its prior decision, rerun result,
-raw-frame navigation, review-frame navigation, and zoom controls; it cannot
-accept a new decision.
-If direct coverage remains below the configured gate, unresolved and regressed
-frames form a required new review round. Once direct coverage reaches the
-configured gate, the Canvas shows the measured result and asks the user either
-to continue to event inference or explicitly create another round from the
-remaining unresolved and regressed frames. Only the user may submit that round
-or finalize the segment after the gate is met.
-
-Both engines may evolve, but only independently. Every Innovation acceptance,
-whether recorded by the user or Copilot, checks the Innovation regression
-receipt against the exact engine and cached-output hashes. A fresh matching
-receipt is reused without rerunning the engine or tests. A missing receipt runs
-the Innovation suite once; a changed signature is stale and requires cached
-event rebuilding for every published Innovation segment, exact comparison with
-each publication hash, and the protected suite. Any mismatch blocks acceptance.
-The accepted review requirement remains pending while the agent reports each
-affected segment and its event differences, then adjusts the general rule and
-repeats the full gate. It must not silently discard the new requirement or
-weaken an old reference. A successful all-segment receipt is keyed by the exact
-engine content hash and published-segment set, so later review-only decisions
-reuse it without rerunning every segment. A new engine hash or newly published
-segment invalidates that receipt. Live acceptance and publication use the live
-suite and live registry; neither regression runner discovers the other
-workflow's cases.
+A known transitional limitation remains in `src\football_poc\possession.py`:
+Live-derived rule variants (`_live_*` functions) are selected when
+`analytics-cache\ball-state-estimates.json` exists, because that file is the
+Live tracker output. This preserves every published segment's exact output
+hash during the consolidation. Converging to one code path is a planned
+follow-up performed function-by-function, with re-review of any affected
+published segments and the complete protected regression gate.
 
 The workflow identity is carried and checked at every review boundary:
 
-| Workflow | Canvas ID | State `workflowId` | Artifact namespace |
+| Workflow | Canvas ID | State `workflowId` | Artifact layout |
 | --- | --- | --- | --- |
-| Innovation Day BAC diagnostic | `football-event-review` | `innovation_day_bac` | `innovation/` and `event-review-state-innovation/` |
-| Raw-video iteration-25 live | `football-event-review-live` | `live_iteration_25` | `live/` and `event-review-state-live/` |
+| Football review | `football-event-review` | `football_review` | flat segment root with recorded `ball_source` |
 
-Each persisted review-state document stores both its `workflowId` and
-`canvasId`. Loading or saving a document owned by the other workflow is a hard
-error. Every Canvas-to-Copilot prompt repeats both identifiers and explicitly
-forbids the other workflow's actions, state, and engine output. These checks,
-rather than the visual theme or selected segment alone, determine which
-pipeline the Canvas refers to.
+Every Canvas-to-Copilot prompt repeats the single workflow identity and the
+segment's ball source. Theme, display name, or segment ID must never select
+inference behavior.
 
 ## 8. Fast regression contract
 
@@ -858,39 +671,27 @@ evidence path is not sufficient. Independently confirmed passing receipts are
 protected by the fail-forward rules in Section 7; runtime traces remain
 separate from evaluation expectations.
 
-Run the Innovation engine contracts:
+Run the review engine contracts:
 
 ```powershell
 $env:PYTHONPATH="$PWD\src"
 python -m pytest -q `
-  tests\test_innovation_day_snapshot.py `
-  tests\test_innovation_match_state_regression.py `
-  tests\test_innovation_possession_regression.py `
-  tests\test_innovation_review_regressions.py
-```
-
-Run the live ball-coordinate and engine contracts:
-
-```powershell
-$env:PYTHONPATH="$PWD\src"
-python -m pytest -q `
+  tests\test_shots_on_target.py `
+  tests\test_shot_evidence.py `
+  tests\test_possession_regression.py `
+  tests\test_match_state_regression.py `
+  tests\test_review_regressions.py `
   tests\test_ball_tracking.py `
   tests\test_match_state.py `
-  tests\test_possession.py `
-  tests\test_live_review_regressions.py
+  tests\test_possession.py
 ```
 
-Refresh cached event logic only in the intended workflow:
+Refresh cached event logic only for the segment's recorded ball source:
 
 ```powershell
 $env:PYTHONPATH="$PWD\src"
-python scripts\process-alfheim-innovation-segment.py `
-  benchmarks\alfheim\generated\segment-0180-020 `
-  --events-only
-
 python scripts\process-alfheim-segment.py `
   benchmarks\alfheim\generated\segment-0180-020 `
-  --artifact-namespace live `
   --events-only
 ```
 
@@ -911,7 +712,7 @@ The release gate is:
 
 ### Developer-mode review contract
 
-The live review Canvas may expose an opt-in Developer mode to reduce repeated
+The review Canvas may expose an opt-in Developer mode to reduce repeated
 AI handovers. It is an implementation aid, not a second adjudication path:
 
 - code locations, focused tests, cached event-rebuild commands, protected

@@ -17,8 +17,6 @@ from football_poc.coordination.models import (
     EnvironmentIdentity,
     Identity,
     JobTerminalResult,
-    HistoricalImportOutcome,
-    HistoricalImportSource,
     ManualEventMapping,
     ManualEventRevision,
     ManualReferenceMember,
@@ -56,6 +54,8 @@ class InMemoryCoordinationRepository:
         self._lock = threading.RLock()
         self._identities: dict[tuple[str, str], Identity] = {}
         self._segments: dict[tuple[str, str], Segment] = {}
+        self._segment_ball_sources: dict[tuple[str, str], str] = {}
+        self._segment_outputs: dict[tuple[str, str], list[dict[str, Any]]] = {}
         self._leases: dict[tuple[str, str], EditingLease] = {}
         self._lease_keys: dict[str, tuple[str, str]] = {}
         self._states: dict[tuple[str, str], list[StateSnapshot]] = {}
@@ -71,9 +71,6 @@ class InMemoryCoordinationRepository:
         self._jobs: dict[str, dict[str, Any]] = {}
         self._job_leases: dict[str, dict[str, Any]] = {}
         self._job_counter = 0
-        self._historical_imports: dict[
-            tuple[str, str, str, str], HistoricalImportOutcome
-        ] = {}
 
     @property
     def mode(self) -> DatabaseMode:
@@ -124,6 +121,88 @@ class InMemoryCoordinationRepository:
             )
             self._segments[key] = stored
             return stored
+
+    @staticmethod
+    def _validate_ball_source(ball_source: str) -> str:
+        if ball_source not in {"bac", "live"}:
+            raise ValueError("ball_source must be 'bac' or 'live'")
+        return ball_source
+
+    def get_segment_ball_source(
+        self, workflow_id: str, segment_id: str
+    ) -> str | None:
+        with self._lock:
+            return self._segment_ball_sources.get((workflow_id, segment_id))
+
+    def set_segment_ball_source(
+        self,
+        workflow_id: str,
+        segment_id: str,
+        ball_source: str,
+        *,
+        logical_key: str | None = None,
+        metadata: Mapping[str, Any] | None = None,
+    ) -> None:
+        source = self._validate_ball_source(ball_source)
+        with self._lock:
+            key = (workflow_id, segment_id)
+            if key not in self._segments:
+                self.upsert_segment(
+                    Segment(
+                        workflow_id,
+                        segment_id,
+                        logical_key or segment_id,
+                        dict(metadata or {}),
+                    )
+                )
+            self._segment_ball_sources[key] = source
+
+    def record_segment_outputs(
+        self,
+        workflow_id: str,
+        segment_id: str,
+        *,
+        ball_source: str,
+        engine_sha256: str,
+        output_sha256: str,
+        files: Mapping[str, Any],
+        actor_id: str,
+    ) -> int:
+        source = self._validate_ball_source(ball_source)
+        with self._lock:
+            key = (workflow_id, segment_id)
+            if key not in self._segments:
+                self.upsert_segment(
+                    Segment(workflow_id, segment_id, segment_id, {})
+                )
+            self._segment_ball_sources[key] = source
+            revisions = self._segment_outputs.setdefault(key, [])
+            revision = len(revisions) + 1
+            revisions.append(
+                {
+                    "revision": revision,
+                    "ballSource": source,
+                    "engineSha256": engine_sha256,
+                    "outputSha256": output_sha256,
+                    "files": copy.deepcopy(dict(files)),
+                    "createdBy": actor_id,
+                    "createdAt": self._clock(),
+                }
+            )
+            return revision
+
+    def get_segment_outputs(
+        self, workflow_id: str, segment_id: str
+    ) -> dict[str, Any] | None:
+        with self._lock:
+            revisions = self._segment_outputs.get((workflow_id, segment_id), ())
+            if not revisions:
+                return None
+            latest = copy.deepcopy(revisions[-1])
+            created_at = latest.get("createdAt")
+            if hasattr(created_at, "isoformat"):
+                latest["createdAt"] = created_at.isoformat()
+            return latest
 
     def get_segment(
         self, workflow_id: str, segment_id: str
@@ -301,216 +380,6 @@ class InMemoryCoordinationRepository:
         with self._lock:
             snapshots = self._states.get((workflow_id, segment_id), ())
             return snapshots[-1] if snapshots else None
-
-    def import_historical_state(
-        self,
-        source: HistoricalImportSource,
-        *,
-        apply: bool,
-    ) -> HistoricalImportOutcome:
-        from football_poc.coordination.history_import import (
-            canonical_json_hash,
-            derive_history_records,
-        )
-
-        ledger_key = (
-            source.workflow_id,
-            source.provider,
-            source.logical_key,
-            source.source_sha256,
-        )
-        segment_key = (source.workflow_id, source.segment_id)
-        history_records = derive_history_records(source.state)
-        with self._lock:
-            prior = self._historical_imports.get(ledger_key)
-            if prior and prior.status == "inserted":
-                return HistoricalImportOutcome(
-                    "unchanged",
-                    source.workflow_id,
-                    source.provider,
-                    source.logical_key,
-                    source.source_sha256,
-                    source.segment_id,
-                    {
-                        **prior.details,
-                        "reason": "source digest already imported",
-                    },
-                )
-            existing_segment = self._segments.get(segment_key)
-            existing_state = self.get_state(*segment_key)
-            expected_hash = canonical_json_hash(source.state)
-            source_details = {
-                "state_sha256": expected_hash,
-                "canonicalized_fields": list(source.canonicalized_fields),
-                **(
-                    {"source_state": copy.deepcopy(source.original_state)}
-                    if source.canonicalized_fields
-                    and source.original_state is not None
-                    else {}
-                ),
-            }
-            conflict = (
-                existing_segment is not None
-                and existing_segment.logical_key != source.logical_key
-            ) or (
-                existing_state is not None
-                and canonical_json_hash(existing_state.state) != expected_hash
-            )
-            if conflict:
-                outcome = HistoricalImportOutcome(
-                    "conflicting",
-                    source.workflow_id,
-                    source.provider,
-                    source.logical_key,
-                    source.source_sha256,
-                    source.segment_id,
-                    {
-                        **source_details,
-                        "reason": "authoritative database state differs",
-                    },
-                )
-                if apply:
-                    self._historical_imports[ledger_key] = outcome
-                return outcome
-
-            if existing_state is not None:
-                outcome = HistoricalImportOutcome(
-                    "unchanged",
-                    source.workflow_id,
-                    source.provider,
-                    source.logical_key,
-                    source.source_sha256,
-                    source.segment_id,
-                    source_details,
-                )
-                if apply:
-                    self._historical_imports[ledger_key] = outcome
-                return outcome
-            outcome = HistoricalImportOutcome(
-                "inserted",
-                source.workflow_id,
-                source.provider,
-                source.logical_key,
-                source.source_sha256,
-                source.segment_id,
-                {
-                    **source_details,
-                    "history_records": len(history_records),
-                    "dry_run": not apply,
-                },
-            )
-            if not apply:
-                return outcome
-            backup = (
-                copy.deepcopy(self._segments),
-                copy.deepcopy(self._states),
-                copy.deepcopy(self._history),
-                copy.deepcopy(self._historical_imports),
-            )
-            try:
-                self.upsert_segment(
-                    Segment(
-                        source.workflow_id,
-                        source.segment_id,
-                        source.logical_key,
-                        {
-                            "historical_source_sha256": source.source_sha256,
-                            "historical_provider": source.provider,
-                        },
-                    )
-                )
-                self._states[segment_key] = [
-                    StateSnapshot(
-                        source.workflow_id,
-                        source.segment_id,
-                        1,
-                        copy.deepcopy(dict(source.state)),
-                        "historical-import",
-                        self._clock(),
-                    )
-                ]
-                for record in history_records:
-                    key = (
-                        record["stream"],
-                        source.workflow_id,
-                        source.segment_id,
-                    )
-                    entries = self._history.setdefault(key, [])
-                    entries.append(
-                        (
-                            len(entries) + 1,
-                            copy.deepcopy(record["payload"]),
-                            "historical-import",
-                            self._clock(),
-                        )
-                    )
-                self._historical_imports[ledger_key] = outcome
-            except Exception:
-                (
-                    self._segments,
-                    self._states,
-                    self._history,
-                    self._historical_imports,
-                ) = backup
-                raise
-            return outcome
-
-    def import_historical_states(
-        self,
-        sources: Sequence[HistoricalImportSource],
-        *,
-        apply: bool,
-    ) -> tuple[HistoricalImportOutcome, ...]:
-        with self._lock:
-            backup = (
-                copy.deepcopy(self._segments),
-                copy.deepcopy(self._states),
-                copy.deepcopy(self._history),
-                copy.deepcopy(self._historical_imports),
-            )
-            try:
-                return tuple(
-                    self.import_historical_state(source, apply=apply)
-                    for source in sources
-                )
-            except Exception:
-                (
-                    self._segments,
-                    self._states,
-                    self._history,
-                    self._historical_imports,
-                ) = backup
-                raise
-
-    def record_historical_import_outcome(
-        self,
-        outcome: HistoricalImportOutcome,
-        *,
-        source_size: int = 0,
-        state_sha256: str | None = None,
-    ) -> None:
-        del source_size, state_sha256
-        with self._lock:
-            self._historical_imports[
-                (
-                    outcome.workflow_id,
-                    outcome.provider,
-                    outcome.logical_key,
-                    outcome.source_sha256,
-                )
-            ] = outcome
-
-    def get_historical_import_outcome(
-        self,
-        workflow_id: str,
-        provider: str,
-        logical_key: str,
-        source_sha256: str,
-    ) -> HistoricalImportOutcome | None:
-        with self._lock:
-            return self._historical_imports.get(
-                (workflow_id, provider, logical_key, source_sha256)
-            )
 
     def register_artifact(
         self,
