@@ -8,7 +8,7 @@ ball-coordinate source as `ball_source`:
 | Source | Meaning | Benchmark claim boundary |
 | --- | --- | --- |
 | `bac` | Frozen Alfheim BAC coordinates feeding the downstream football engine | BAC-assisted diagnostic only; never raw-video ball inference or a valid ball-tracking benchmark |
-| `live` | Raw-video detector and `ball_tracking.py` output | The fixed minimum 90% direct-coordinate provenance gate measures evidence coverage, not coordinate correctness or calibrated confidence |
+| `detected` | Raw-video detector and `ball_tracking.py` output | The fixed minimum 90% direct-coordinate provenance gate measures evidence coverage, not coordinate correctness or calibrated confidence |
 
 Prepared-segment artifacts are flat under the segment root, not under
 `innovation\` or `live\` subfolders. Runtime outputs include
@@ -26,7 +26,7 @@ $env:PYTHONPATH = "$PWD\src"
 $segment = "benchmarks\alfheim\generated\segment-0540-060"
 
 python scripts\process-alfheim-segment.py $segment --ball-source bac
-python scripts\process-alfheim-segment.py $segment --ball-source live
+python scripts\process-alfheim-segment.py $segment --ball-source detected
 ```
 
 Rebuild cached event output only after the segment already records its
@@ -36,10 +36,10 @@ Rebuild cached event output only after the segment already records its
 python scripts\process-alfheim-segment.py $segment --events-only
 ```
 
-Use Live interrupted-run recovery only for Live runs:
+Use interrupted-run recovery only for detected-ball runs:
 
 ```powershell
-python scripts\process-alfheim-segment.py $segment --ball-source live --resume-after-detection
+python scripts\process-alfheim-segment.py $segment --ball-source detected --resume-after-detection
 ```
 
 The processor rebuilds `shot-evidence.json` automatically for event builds
@@ -200,7 +200,7 @@ The temporary address resembles:
 http://127.0.0.1:<temporary-port>/?segment=segment-0540-060&theme=grassroots
 ```
 
-The same Canvas supports ball-coordinate audit mode for Live runs:
+The same Canvas supports ball-coordinate audit mode for detected-ball runs:
 
 ```json
 {

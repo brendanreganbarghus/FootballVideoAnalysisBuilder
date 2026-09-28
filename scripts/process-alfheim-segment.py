@@ -35,7 +35,7 @@ from football_poc.shots_on_target import (
 )
 
 # The BAC path pairs frozen provider ball coordinates with frozen YOLO11n
-# player context; the Live path runs the raw-video YOLO26 ball tracker.
+# player context; the detected path runs the raw-video YOLO26 ball tracker.
 BAC_DETECTOR_MODEL_SHA256 = (
     "0ebbc80d4a7680d14987a577cd21342b65ecfd94632bd9a8da63ae6417644ee1"
 )
@@ -206,7 +206,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--resume-after-detection",
         action="store_true",
         help=(
-            "Live only: recover an interrupted run from its completed "
+            "Detected ball source only: recover an interrupted run from its completed "
             "raw-video detection cache. Not a cold-path benchmark."
         ),
     )
@@ -214,7 +214,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--focused-recovery",
         action="store_true",
         help=(
-            "Live only: apply bounded focused ball-coordinate recovery to the "
+            "Detected ball source only: apply bounded focused ball-coordinate recovery to the "
             "persisted runtime track. Not a cold-path benchmark."
         ),
     )
@@ -224,7 +224,7 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("validation", "production"),
         default="validation",
         help=(
-            "Live only: validation blocks below the ball-provenance threshold; "
+            "Detected ball source only: validation blocks below the ball-provenance threshold; "
             "production records degraded coverage and continues."
         ),
     )
@@ -254,7 +254,7 @@ def main() -> None:
                 f"Cached artifacts were built with ball source {recorded!r}; "
                 f"run a full {ball_source!r} analysis instead."
             )
-    if ball_source == "live" and (
+    if ball_source == "detected" and (
         args.evidence_only or args.coordinates_updated
     ):
         parser.error(
@@ -265,7 +265,7 @@ def main() -> None:
     ):
         parser.error(
             "--resume-after-detection and --focused-recovery require "
-            "--ball-source live"
+            "--ball-source detected"
         )
 
     prepared_manifest = segment / "manifest.json"
@@ -374,9 +374,9 @@ def main() -> None:
                     "workflow": "football_review",
                     "ball_source": ball_source,
                     "bac_assisted": ball_source == "bac",
-                    "raw_video_ball_inference": ball_source == "live",
+                    "raw_video_ball_inference": ball_source == "detected",
                     "performance_benchmark_valid": (
-                        ball_source == "live" and run_mode == "full_run"
+                        ball_source == "detected" and run_mode == "full_run"
                     ),
                     "cache_reuse": cache_reuse,
                     "elapsed_seconds": round(
@@ -471,7 +471,7 @@ def main() -> None:
             required = [active_ball_tracks, cache / "detections.jsonl"]
             if args.events_only:
                 required.append(player_tracks)
-            if ball_source == "live":
+            if ball_source == "detected":
                 required.append(ball_state_estimates)
             missing = [path.name for path in required if not path.is_file()]
             if missing:
@@ -480,9 +480,9 @@ def main() -> None:
                     + ", ".join(missing)
                 )
             kind = ball_track_source_kind(active_ball_tracks)
-            if ball_source == "live" and kind in BAC_SOURCE_KINDS:
+            if ball_source == "detected" and kind in BAC_SOURCE_KINDS:
                 raise ValueError(
-                    "Live event rebuild rejected BAC/evaluation-derived "
+                    "Detected-ball event rebuild rejected BAC/evaluation-derived "
                     "ball tracks"
                 )
             if ball_source == "bac" and kind not in BAC_SOURCE_KINDS:
@@ -681,7 +681,7 @@ def main() -> None:
             )
             track_players(ball_tracks)
 
-        if ball_source == "live":
+        if ball_source == "detected":
             status(
                 "provenance_gate",
                 "Validating direct ball-evidence coverage before event "
@@ -753,7 +753,7 @@ def main() -> None:
             ),
             "events_sha256": sha256(results / "predicted-events.json"),
             "performance_benchmark_valid": (
-                ball_source == "live" and run_mode == "full_run"
+                ball_source == "detected" and run_mode == "full_run"
             ),
             "shots_on_target": {
                 "evidence_sha256": (
@@ -776,7 +776,7 @@ def main() -> None:
             json.dumps(provenance, indent=2) + "\n",
             encoding="utf-8",
         )
-        if ball_source == "live" and run_mode == "full_run" and live_model:
+        if ball_source == "detected" and run_mode == "full_run" and live_model:
             elapsed = time.perf_counter() - pipeline_started
             report = build_performance_report(
                 run_id=run_id,

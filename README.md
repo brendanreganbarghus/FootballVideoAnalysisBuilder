@@ -135,10 +135,10 @@ application reads the extracted `pano\` directory, not the archive.
 Football Event Review uses one workflow, `football_review`, and one Canvas,
 `football-event-review` (display name **Football Event Review**). Prepared
 segment artifacts are flat under each segment root; `segment.json` and
-`analysis-status.json` record the selected `ball_source` (`bac` or `live`).
+`analysis-status.json` record the selected `ball_source` (`bac` or `detected`).
 A BAC run uses frozen Alfheim BAC coordinates as a BAC-assisted diagnostic of
 the downstream football engine, never raw-video ball inference or a valid
-ball-tracking performance benchmark. A Live run uses raw-video ball tracking;
+ball-tracking performance benchmark. A detected run uses the project's raw-video ball detector and tracker;
 its minimum 90% direct-coordinate provenance gate measures evidence coverage,
 not coordinate correctness or calibrated confidence.
 

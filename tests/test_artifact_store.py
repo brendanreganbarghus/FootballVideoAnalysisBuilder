@@ -123,7 +123,7 @@ def test_publishing_flat_segment_replaces_previous_bundle(
     tmp_path: Path,
 ) -> None:
     source = tmp_path / "generated" / "segment-0540-060"
-    _write_publishable_segment(source, "live")
+    _write_publishable_segment(source, "detected")
     (source / "analytics-data").mkdir()
     (source / "analytics-data" / "predicted-events.json").write_text(
         "[]",
@@ -140,10 +140,10 @@ def test_publishing_flat_segment_replaces_previous_bundle(
 
     verify_prepared_segment(published)
     assert (published.root / "analytics-data" / "predicted-events.json").is_file()
-    assert published.ball_source == "live"
+    assert published.ball_source == "detected"
     assert json.loads((published.root / "segment.json").read_text(encoding="utf-8"))[
         "ball_source"
-    ] == "live"
+    ] == "detected"
 
 
 def test_publication_rejects_unsafe_catalog_identifiers(

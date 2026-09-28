@@ -28,7 +28,7 @@ export const reviewWorkflow = Object.freeze({
   preparationMessage:
     "AI and Copilot conversations are disabled. Next: run ball coordinates.",
   processingMessage:
-    "Starting ball-coordinate processing for the selected source. BAC runs are BAC-assisted diagnostics only; Live runs are raw-video cold runs.",
+    "Starting ball-coordinate processing for the selected source. BAC runs are BAC-assisted diagnostics only; Detected runs are raw-video cold runs.",
   recoveryMessage:
     "Resuming from saved detections for a raw-video run. This is not a cold-path benchmark and does not invoke Copilot.",
   detectionMessage:

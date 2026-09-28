@@ -669,7 +669,7 @@ def test_switch_ball_source_requires_confirmation_and_removes_only_derived_artif
     status, missing_confirm = invoke_post(
         service,
         "/api/alfheim/switch-ball-source",
-        {"cache_key": "segment-0120-020", "ball_source": "live"},
+        {"cache_key": "segment-0120-020", "ball_source": "detected"},
     )
     assert status == 400
     status, unchanged = invoke_post(
@@ -690,7 +690,7 @@ def test_switch_ball_source_requires_confirmation_and_removes_only_derived_artif
         "/api/alfheim/switch-ball-source",
         {
             "cache_key": "segment-0120-020",
-            "ball_source": "live",
+            "ball_source": "detected",
             "confirm": True,
         },
     )
@@ -708,7 +708,7 @@ def test_switch_ball_source_requires_confirmation_and_removes_only_derived_artif
         "/api/alfheim/switch-ball-source",
         {
             "cache_key": "segment-0120-020",
-            "ball_source": "live",
+            "ball_source": "detected",
             "confirm": True,
         },
     )
@@ -720,7 +720,7 @@ def test_switch_ball_source_requires_confirmation_and_removes_only_derived_artif
         "/api/alfheim/switch-ball-source",
         {
             "cache_key": "segment-0120-020",
-            "ball_source": "live",
+            "ball_source": "detected",
             "confirm": True,
         },
     )
@@ -732,7 +732,7 @@ def test_switch_ball_source_requires_confirmation_and_removes_only_derived_artif
     assert (root / "segment.json").is_file()
     assert repository.get_segment_ball_source(
         "football_review", "segment-0120-020"
-    ) == "live"
+    ) == "detected"
 
 
 def test_analyze_rejects_wrong_source_modes(
@@ -749,7 +749,7 @@ def test_analyze_rejects_wrong_source_modes(
         "/api/alfheim/analyze",
         {
             "cache_key": "segment-0120-020",
-            "ball_source": "live",
+            "ball_source": "detected",
             "evidence_only": True,
         },
     )

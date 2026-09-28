@@ -124,8 +124,8 @@ class InMemoryCoordinationRepository:
 
     @staticmethod
     def _validate_ball_source(ball_source: str) -> str:
-        if ball_source not in {"bac", "live"}:
-            raise ValueError("ball_source must be 'bac' or 'live'")
+        if ball_source not in {"bac", "detected"}:
+            raise ValueError("ball_source must be 'bac' or 'detected'")
         return ball_source
 
     def get_segment_ball_source(

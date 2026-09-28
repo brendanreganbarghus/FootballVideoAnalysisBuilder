@@ -48,13 +48,14 @@ ball-coordinate source, `ball_source`:
 - `bac`: frozen Alfheim BAC coordinates. A BAC run is a BAC-assisted
   diagnostic of the downstream engine. Never describe it as raw-video ball
   inference or a valid ball-tracking performance benchmark.
-- `live`: raw-video ball tracking. Its minimum 90% direct-coordinate
+- `detected`: the project's own raw-video ball detector and tracker. Its minimum 90% direct-coordinate
   provenance gate measures evidence coverage, not coordinate correctness or
   calibrated confidence. Adaptive thresholding remains future work until it is
   implemented and independently validated.
 
 Review state and engine output JSON live only in the PostgreSQL coordination
-database; there is no JSON review-state fallback.
+database; there is no JSON review-state fallback. The ball source only
+selects the ball-coordinate input; both sources run the same rules engine.
 
 Do not copy all repository documentation into this file. The documentation map
 is the maintained index; the linked documents and code remain authoritative.

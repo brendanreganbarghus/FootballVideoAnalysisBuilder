@@ -607,7 +607,7 @@ append-only `segment_outputs` history.
   `detector_implementation: innovation_showcase_sequential_v1`, reason codes
   such as `innovation_ball_source_mismatch`, and suite name `innovation`.
   These names are historical output contracts, not separate workflows.
-- **Live (`ball_source: live`)** uses raw-video detector output and
+- **Detected (`ball_source: detected`)** uses raw-video detector output and
   `ball_tracking.py`. BAC, manual references, and provider event annotations
   are rejected as inference inputs. Its minimum 90% direct-coordinate
   provenance gate measures evidence coverage, not coordinate correctness or
@@ -627,13 +627,14 @@ written as mutable state, and there is no JSON fallback. When coordination is
 unavailable, review state is read-only. Media and binary caches stay in the
 OneDrive artifact share.
 
-A known transitional limitation remains in `src\football_poc\possession.py`:
-Live-derived rule variants (`_live_*` functions) are selected when
-`analytics-cache\ball-state-estimates.json` exists, because that file is the
-Live tracker output. This preserves every published segment's exact output
-hash during the consolidation. Converging to one code path is a planned
-follow-up performed function-by-function, with re-review of any affected
-published segments and the complete protected regression gate.
+`src\football_poc\possession.py` now has one possession rules path: the
+selected ball source changes only the coordinate input, while BAC and detected
+coordinates run through the same smoothing, segment-building, possession, and
+event rules. During consolidation, adopting the removed Live-only variants as
+the single implementation did not preserve the protected published set: the
+four BAC publications still match exactly on the single path, but the detected
+0540-020 publication remains a pending review mismatch until a general
+evidence-based rule change or re-review resolves the difference.
 
 The workflow identity is carried and checked at every review boundary:
 

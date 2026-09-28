@@ -1164,11 +1164,11 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
             if events_only and requested_source is None:
                 requested_source = self._recorded_ball_source(cache_key, segment)
             if requested_source not in BALL_SOURCES:
-                raise ValueError("ball_source must be 'bac' or 'live'")
+                raise ValueError("ball_source must be 'bac' or 'detected'")
             ball_source = str(requested_source)
             if (evidence_only or coordinates_updated) and ball_source != "bac":
                 raise ValueError("evidence_only and coordinates_updated require bac")
-            if (resume_after_detection or focused_recovery) and ball_source != "live":
+            if (resume_after_detection or focused_recovery) and ball_source != "detected":
                 raise ValueError(
                     "resume_after_detection and focused_recovery require live"
                 )

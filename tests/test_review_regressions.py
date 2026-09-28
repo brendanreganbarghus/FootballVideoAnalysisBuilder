@@ -32,7 +32,7 @@ def test_registry_entries_record_a_supported_ball_source() -> None:
     entries = registered_segments()
     assert entries
     assert len({entry["segment"] for entry in entries}) == len(entries)
-    assert {entry["ball_source"] for entry in entries} <= {"bac", "live"}
+    assert {entry["ball_source"] for entry in entries} <= {"bac", "detected"}
 
 
 def _segment_root(segment: str) -> Path:

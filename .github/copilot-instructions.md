@@ -16,13 +16,14 @@ Each segment records its ball-coordinate source, `ball_source`:
 - `bac`: frozen Alfheim BAC coordinates. A BAC run is a BAC-assisted
   diagnostic of the downstream football engine, never raw-video ball inference
   or a valid ball-tracking performance benchmark.
-- `live`: raw-video ball tracking. Its minimum 90% direct-coordinate
+- `detected`: the project's own raw-video ball detector and tracker. Its minimum 90% direct-coordinate
   provenance gate measures evidence coverage, not coordinate correctness or
   calibrated confidence. Increasing evidence-backed confidence is the
   objective; adaptive thresholding remains future work until it is
   implemented and independently validated.
 
-Switching a segment's ball source removes its derived artifacts and review
+The ball source only selects the ball-coordinate input; both sources run the
+same rules engine. Switching a segment's ball source removes its derived artifacts and review
 work except the M# golden set.
 
 For football-event analysis and rules-engine work, act as a senior football-law

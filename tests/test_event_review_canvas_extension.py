@@ -90,13 +90,13 @@ def test_ball_source_selector_and_analyze_payload() -> None:
 
     assert 'id="ball-source-select"' in renderer
     assert 'BAC coordinates (frozen Alfheim BAC, diagnostic)' in renderer
-    assert 'Live ball tracker (raw video)' in renderer
+    assert 'Detected ball (our detector, raw video)' in renderer
     assert '<button id="process-segment" type="button">Run ball coordinates</button>' in renderer
     assert '? "Passed Segment Locked"\n        : "Run ball coordinates"' in renderer
     assert 'ball_source: ballSourceSelect?.value || state.segment.ballSource || "bac"' in renderer
     assert 'ball_source: requestedBallSource' in extension
     assert 'requestedBallSource === "bac"' in extension
-    assert 'requestedBallSource === "live"' in extension
+    assert 'requestedBallSource === "detected"' in extension
     assert 'BAC-assisted diagnostic' in extension
     assert 'raw-video cold run' in extension
 
@@ -174,7 +174,7 @@ def test_legacy_snapshot_labels_and_ball_source_gate() -> None:
     assert 'LEGACY_CANVAS_IDS.has(state.canvasId)' in extension
     detected = extension[extension.index("async function loadDetectedBallTrack"):]
     detected = detected[:detected.index("\n}\n")]
-    assert 'if (segment.ballSource !== "live") {' in detected
+    assert 'if (segment.ballSource !== "detected") {' in detected
     assert '"innovation_day_bac_assisted"' in detected
     assert '"reviewer_corrected_innovation_coordinates"' in detected
 

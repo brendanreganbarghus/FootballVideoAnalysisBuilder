@@ -3828,7 +3828,7 @@ export function renderHtml({ adapter } = {}) {
       <p id="ball-source-switch-warning"></p>
       <p class="muted">
         Only the M# golden set and the prepared video remain. Detection is
-        rerun because BAC and Live use different ball-coordinate pipelines.
+        rerun because BAC and Detected use different ball-coordinate sources.
       </p>
       <p class="muted" id="ball-source-switch-status" aria-live="polite"></p>
       <div class="engine-verification-actions">
@@ -3987,7 +3987,7 @@ export function renderHtml({ adapter } = {}) {
             <label for="ball-source-select">Ball-coordinate source
               <select id="ball-source-select" name="ball-source-select">
                 <option value="bac">BAC coordinates (frozen Alfheim BAC, diagnostic)</option>
-                <option value="live">Live ball tracker (raw video)</option>
+                <option value="detected">Detected ball (our detector, raw video)</option>
               </select>
             </label>
             <button id="process-segment" type="button">Run ball coordinates</button>
@@ -6758,17 +6758,17 @@ export function renderHtml({ adapter } = {}) {
     }
 
     function ballSourceLabel(source) {
-      return {bac: "BAC", live: "Live"}[source] || "";
+      return {bac: "BAC", detected: "Detected"}[source] || "";
     }
 
     function ballSourceDescription(source) {
-      return source === "live"
-        ? "Live ball tracker (raw video)"
+      return source === "detected"
+        ? "Detected ball (our detector, raw video)"
         : "BAC coordinates (frozen Alfheim BAC, diagnostic)";
     }
 
     function alternateBallSource(source) {
-      return source === "live" ? "bac" : "live";
+      return source === "detected" ? "bac" : "detected";
     }
 
     function renderSegments() {

@@ -504,7 +504,7 @@ def test_memory_repository_records_latest_segment_outputs_and_ball_source() -> N
     second = repository.record_segment_outputs(
         "football_review",
         "segment-0120-020",
-        ball_source="live",
+        ball_source="detected",
         engine_sha256="c" * 64,
         output_sha256="d" * 64,
         files={"predicted-events.json": [{"id": "E2"}]},
@@ -517,10 +517,10 @@ def test_memory_repository_records_latest_segment_outputs_and_ball_source() -> N
     assert (first, second) == (1, 2)
     assert repository.get_segment_ball_source(
         "football_review", "segment-0120-020"
-    ) == "live"
+    ) == "detected"
     assert output is not None
     assert output["revision"] == 2
-    assert output["ballSource"] == "live"
+    assert output["ballSource"] == "detected"
     assert output["outputSha256"] == "d" * 64
     assert output["files"]["predicted-events.json"] == [{"id": "E2"}]
 

@@ -16,7 +16,7 @@ PREPARED_SEGMENT_SCHEMA_VERSION = 2
 PREPARED_SEGMENT_ID = re.compile(r"segment-\d{4}-\d{3}")
 PREPARED_SEGMENT_CATALOG = "15-prepared-segments"
 REVIEW_WORKFLOW_ID = "football_review"
-BALL_SOURCES = frozenset({"bac", "live"})
+BALL_SOURCES = frozenset({"bac", "detected"})
 # Reproducible or local-only files that are never published to the share.
 UNPUBLISHED_FILE_PATTERNS = (
     re.compile(r"alfheim-window(?:-playable)?\.mp4"),

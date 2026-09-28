@@ -1270,7 +1270,7 @@ async function loadPreparedSegments() {
         durationSeconds: duration,
         timeLabel: `${formatClock(start)}–${formatClock(start + duration)}`,
         state: segment.state,
-        coordinateMode: segment.ball_source === "live" ? "raw_video" : "frozen_bac",
+        coordinateMode: segment.ball_source === "detected" ? "raw_video" : "frozen_bac",
         rawVideoOnly: Boolean(segment.raw_video_only),
         blindReviewOnly: Boolean(manifest.blind_review_only),
         validationStatus,
@@ -1474,7 +1474,7 @@ async function loadDetectedBallTrack(
     join(segmentRoot(segment.key), "analytics-cache", "ball-tracks.json"),
     null,
   );
-  if (segment.ballSource !== "live") {
+  if (segment.ballSource !== "detected") {
     if (!payload) return null;
     if (
       payload.source_kind !== "evaluation_only_provider_coordinates"
@@ -3870,15 +3870,15 @@ async function reviewContext(requestedSegment = defaultSegment) {
     selected.runProvenance = status.run_provenance || null;
     selected.performance = status.performance || null;
     selected.ballSource = status.ball_source || selected.ballSource || null;
-    selected.recoveryAvailable = selected.ballSource === "live" && Boolean(
+    selected.recoveryAvailable = selected.ballSource === "detected" && Boolean(
       selected.state === "failed"
       && selected.expectedFrames > 0
       && selected.processedFrames >= selected.expectedFrames
     );
-    selected.stageTiming = selected.ballSource === "live"
+    selected.stageTiming = selected.ballSource === "detected"
       ? await liveStageTiming(selected)
       : null;
-    selected.coordinateMode = selected.ballSource === "live" ? "raw_video" : "frozen_bac";
+    selected.coordinateMode = selected.ballSource === "detected" ? "raw_video" : "frozen_bac";
     selected.trackingUrl = status.tracking_url
       ? `${localServer}${status.tracking_url}`
       : null;
@@ -4035,7 +4035,7 @@ function displayedActivity(selected, state) {
         ),
     };
   }
-  if (selected.ballSource !== "live" && selected.state === "evidence_ready") {
+  if (selected.ballSource !== "detected" && selected.state === "evidence_ready") {
     return {
       state: "waiting",
       label: "BAC evidence ready",
@@ -4044,14 +4044,14 @@ function displayedActivity(selected, state) {
     };
   }
   if (state.coordinateReview?.status === "finalized") {
-    if (selected.ballSource !== "live") {
+    if (selected.ballSource !== "detected") {
       return {
         state: "ready",
         label: selected.validated
           ? "Passed Review segment"
           : "Review segment ready for review",
         detail: "Frozen BAC coordinates and rules engine output are loaded. "
-          + "No Live ball-tracking gate is required.",
+          + "No detected-ball coordinate gate is required.",
       };
     }
     return {
@@ -4061,7 +4061,7 @@ function displayedActivity(selected, state) {
     };
   }
   if (state.coordinateReview?.status === "verified") {
-    if (selected.ballSource !== "live") {
+    if (selected.ballSource !== "detected") {
       return {
         state: "waiting",
         label: "Frozen BAC coordinates ready",
@@ -6313,8 +6313,8 @@ async function handleRequest(request, response, serverInstanceId) {
     const body = await readBody(request);
     const segment = requestedSegment(url, body);
     const ballSource = String(body.ball_source || "");
-    if (!["bac", "live"].includes(ballSource)) {
-      sendJson(response, 400, {error: "Choose BAC or Live as the ball source."});
+    if (!["bac", "detected"].includes(ballSource)) {
+      sendJson(response, 400, {error: "Choose BAC or Detected as the ball source."});
       return;
     }
     if (body.confirm !== true) {
@@ -6365,7 +6365,7 @@ async function handleRequest(request, response, serverInstanceId) {
     const body = await readBody(request);
     const segment = requestedSegment(url, body);
     const resumeAfterDetection = body.resumeAfterDetection === true;
-    const requestedBallSource = ["bac", "live"].includes(body.ball_source)
+    const requestedBallSource = ["bac", "detected"].includes(body.ball_source)
       ? body.ball_source
       : "bac";
     if (!/^segment-\d{4}-\d{3}$/.test(segment)) {
@@ -6413,7 +6413,7 @@ async function handleRequest(request, response, serverInstanceId) {
         cache_key: segment,
         ball_source: requestedBallSource,
         events_only: requestedBallSource === "bac",
-        ...(requestedBallSource === "live"
+        ...(requestedBallSource === "detected"
           ? {resume_after_detection: resumeAfterDetection}
           : {}),
       }),

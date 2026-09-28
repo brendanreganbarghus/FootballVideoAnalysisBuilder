@@ -14,7 +14,10 @@ publication behavior.
   - `bac`: frozen Alfheim BAC coordinates. A BAC run is a BAC-assisted
     diagnostic of the downstream football engine, never raw-video ball
     inference or a valid ball-tracking performance benchmark.
-  - `live`: raw-video ball tracking (`ball_tracking.py`).
+  - `detected`: the project's own raw-video ball detector and tracker
+    (`ball_tracking.py`).
+  The ball source only selects the ball-coordinate input; both sources run
+  the same rules engine.
 - Switching a segment's ball source removes its derived artifacts and review
   work except the M# golden set; never reuse outputs, decisions, thresholds,
   or fixes from one ball source as evidence for the other.
@@ -22,7 +25,7 @@ publication behavior.
   PostgreSQL coordination database, together with the engine output JSON. The
   share holds media and caches. There is no JSON-file review-state fallback;
   without the database, review state is read-only.
-- Live ball tracking has a fixed minimum 90% direct-coordinate
+- The `detected` ball source has a fixed minimum 90% direct-coordinate
   provenance gate. That measures evidence coverage, not 90% coordinate
   correctness or calibrated confidence. Increasing evidence-backed confidence
   is the objective; adaptive thresholding remains future work until it is
