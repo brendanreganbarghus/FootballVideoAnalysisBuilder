@@ -162,3 +162,47 @@ def test_later_modules_cannot_change_confirmed_frame_20260928T194758285Z() -> No
             evidence={"kind": "attempt"},
             confidence=0.4,
         )
+
+
+def test_unselected_yolo_candidate_confirms_when_trajectory_is_static_20260928T214010077Z() -> None:
+    """Unselected YOLO candidates are checked when the selected track is static."""
+    frames = [(frame, frame / 2) for frame in range(10)]
+    ledger = ball_tracking.FrameLedger(frames)
+    static = {
+        frame: _candidate(frame, x=300.0, y=220.0, confidence=0.4)
+        for frame, _seconds in frames
+    }
+    ball = {
+        0: _candidate(0, x=50.0, y=50.0, confidence=0.11),
+        1: _candidate(1, x=51.0, y=50.0, confidence=0.10),
+    }
+    distractors = {
+        1: _candidate(1, x=900.0, y=600.0, confidence=0.5),
+        2: _candidate(2, x=902.0, y=600.0, confidence=0.5),
+    }
+    candidates = {
+        frame: [
+            static[frame],
+            *([ball[frame]] if frame in ball else []),
+            *([distractors[frame]] if frame in distractors else []),
+        ]
+        for frame, _seconds in frames
+    }
+
+    ball_tracking._confirm_yolo_detections(
+        ledger,
+        [candidate.point for candidate in static.values()],
+        candidates_by_frame=candidates,
+        records_by_frame={
+            frame: {"source_frame": frame, "detections": []}
+            for frame, _seconds in frames
+        },
+        fps=2,
+        frame_step=1,
+        max_speed_pixels_per_second=1600,
+    )
+
+    assert (ledger.confirmed(0).x, ledger.confirmed(0).y) == (50.0, 50.0)
+    assert (ledger.confirmed(1).x, ledger.confirmed(1).y) == (51.0, 50.0)
+    assert ledger.confirmed(0).evidence["selected_trajectory_candidate"] is False
+    assert ledger.confirmed(5) is None
