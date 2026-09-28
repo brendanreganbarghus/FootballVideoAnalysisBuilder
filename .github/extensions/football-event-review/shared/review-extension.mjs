@@ -2623,7 +2623,7 @@ async function loadState(segment, segmentInfo, drafts) {
     state = null;
   }
   let changed = false;
-  const loadedJson = state ? JSON.stringify(state) : null;
+  const loadedJson = state ? canonicalJson(state) : null;
   if (state) {
     // Migration 0005 relabelled database rows but left append-only snapshot
     // JSON unchanged, so retired workflow and Canvas labels are normalized here.
@@ -2832,7 +2832,7 @@ async function loadState(segment, segmentInfo, drafts) {
     if (
       changed
       && coordination.mode === "available"
-      && JSON.stringify(state) !== loadedJson
+      && canonicalJson(state) !== loadedJson
     ) {
       await saveNormalizedStateIfLeased(segment, state);
     }
@@ -3063,7 +3063,7 @@ async function heartbeatCoordinationLease(segment) {
 function applyNormalizedManualReference(state, payload) {
   const normalized = payload?.draft || payload?.approved;
   if (!normalized) return false;
-  const before = JSON.stringify(state.manualReference ?? null);
+  const before = canonicalJson(state.manualReference ?? null);
   state.manualReference ||= {};
   const normalizedRevisionChanged =
     Number(state.manualReference.normalizedRevision ?? -1)
@@ -3113,7 +3113,7 @@ function applyNormalizedManualReference(state, payload) {
   if (normalizedRevisionChanged) {
     resetManualLedgerAudit(state.manualReference);
   }
-  return JSON.stringify(state.manualReference) !== before;
+  return canonicalJson(state.manualReference) !== before;
 }
 
 async function persistNormalizedManualReference(segment, state, approve = false) {
