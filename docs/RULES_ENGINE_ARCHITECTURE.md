@@ -643,10 +643,14 @@ append-only `segment_outputs` history.
   `ball_tracking.py`. BAC, manual references, and provider event annotations
   are rejected as inference inputs. Its 90% direct-coordinate provenance
   target measures evidence coverage, not coordinate correctness or calibrated
-  confidence. By default (`--runtime-mode production`) the coverage is reported
-  and every sampled frame's ball state is passed to the rules engine; the
-  engine uses only direct-evidence frames to prove touches, speed, and
-  direction. `--runtime-mode validation` still blocks below 90%. Increasing
+  confidence. By default (`--runtime-mode review`) the run stops after ball
+  tracking and the Canvas shows each frame's ball state; the reviewer can ask
+  Copilot questions and then choose **Continue to rules engine**, which runs
+  `--events-only` whatever the coverage. `--runtime-mode production` reports
+  the coverage and continues straight to the rules engine;
+  `--runtime-mode validation` still blocks below 90%. Every sampled frame's
+  ball state reaches the rules engine, which uses only direct-evidence frames
+  to prove touches, speed, and direction. Increasing
   evidence-backed confidence is the objective; adaptive thresholding remains
   future work until implemented and independently validated.
 

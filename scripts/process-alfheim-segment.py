@@ -221,11 +221,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--skip-events", action="store_true")
     parser.add_argument(
         "--runtime-mode",
-        choices=("validation", "production"),
-        default="production",
+        choices=("review", "production", "validation"),
+        default="review",
         help=(
-            "Detected ball source only: production (default) reports the "
-            "ball-provenance coverage and passes every frame's ball state to "
+            "Detected ball source only: review (default) stops after ball "
+            "tracking so the reviewer can check the ball-coordinate frames and "
+            "then continue to the rules engine with --events-only; production "
+            "reports the ball-provenance coverage and continues straight to "
             "the rules engine; validation blocks below the threshold."
         ),
     )
@@ -688,12 +690,22 @@ def main() -> None:
                 "Validating direct ball-evidence coverage before event "
                 "inference.",
             )
-            validate_ball_provenance(
+            provenance_report = validate_ball_provenance(
                 ball_tracks,
                 ball_state_estimates,
                 output=results / "ball-provenance.json",
                 enforce_threshold=args.runtime_mode == "validation",
             )
+            if args.runtime_mode == "review" and not args.events_only:
+                raise ValueError(
+                    "Ball provenance review required before rules-engine "
+                    "inference: "
+                    f"{provenance_report['direct_frame_count']}/"
+                    f"{provenance_report['sampled_frame_count']} direct "
+                    f"frames ({float(provenance_report['direct_provenance']):.1%}). "
+                    "Check the ball coordinate frames, then choose Continue "
+                    "to rules engine."
+                )
         status(
             "events",
             "Inferring match state, possession, passes, turnovers, and shots.",

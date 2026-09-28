@@ -4236,9 +4236,9 @@ function displayedActivity(selected, state) {
       return {
         state: "waiting",
         label: "Ball coordinates need review",
-        detail: "Tracking completed. Review the estimated coordinates and "
-          + "recover every additional frame supported by raw-video evidence; "
-          + "90% is the minimum gate, not the target.",
+        detail: "Tracking completed. Check the ball coordinate frames and "
+          + "ask Copilot any questions in the chat. Choose Continue to rules "
+          + "engine when you are satisfied.",
       };
     }
     return {
@@ -7927,17 +7927,6 @@ async function handleRequest(request, response, serverInstanceId) {
       return;
     }
     const snapshot = await ballCoordinateReviewSnapshot(segment);
-    if (
-      snapshot.directProvenance < 0.90
-      || snapshot.directFrameCount < Math.ceil(
-        snapshot.sampledFrameCount * 0.90,
-      )
-    ) {
-      sendJson(response, 409, {
-        error: "Direct ball-coordinate provenance is still below the 90% minimum",
-      });
-      return;
-    }
     const run = await localJson(
       workflow.analyzePath,
       {
@@ -7960,10 +7949,12 @@ async function handleRequest(request, response, serverInstanceId) {
     };
     context.state.conversation.push({
       role: "system",
-      content: "The user authorized the rules-engine run after the current "
+      content: "The user checked the ball coordinate frames and chose "
+        + "Continue to rules engine with "
         + `${snapshot.directFrameCount}/${snapshot.sampledFrameCount} direct `
-        + "coordinates met the 90% minimum. Unresolved and disputed frames "
-        + "remain recorded for optional improvement.",
+        + `frames (${(snapshot.directProvenance * 100).toFixed(1)}%). `
+        + "Estimated and possible-region frames reach the rules engine but "
+        + "never count as direct evidence.",
       eventIndex: null,
       coordinateReview: true,
       timestamp: context.state.coordinateReview.finalizedAt,
@@ -9467,7 +9458,7 @@ session = await joinSession({
         },
         {
           name: "confirm_ball_coordinate_review",
-          description: "Confirm that the completed local AI output has at least 90% direct ball provenance and that the current tracker code and coordinate output were independently reviewed. This does not put the segment into review; the user must finalize it in the Canvas.",
+          description: "Confirm that the current tracker code and coordinate output were independently reviewed; the 90% direct-provenance target is reported, not blocking. This does not put the segment into review; the user must finalize it in the Canvas.",
           inputSchema: {
             type: "object",
             properties: {
@@ -9493,17 +9484,6 @@ session = await joinSession({
               );
             }
             const snapshot = await ballCoordinateReviewSnapshot(segment);
-            if (
-              snapshot.directProvenance < 0.90
-              || snapshot.directFrameCount < Math.ceil(
-                snapshot.sampledFrameCount * 0.90,
-              )
-            ) {
-              throw new CanvasError(
-                "ball_coordinate_provenance_below_gate",
-                "Direct ball-coordinate provenance is below the 90% minimum.",
-              );
-            }
             review.state.coordinateReview = {
               ...review.state.coordinateReview,
               status: "verified",
@@ -9515,7 +9495,7 @@ session = await joinSession({
             review.state.conversation.push({
               role: "system",
               content: "Copilot verified the current ball-coordinate code and "
-                + "output. The user may now choose Finalize and put in review.",
+                + "output. The user may now choose Continue to rules engine.",
               eventIndex: null,
               coordinateReview: true,
               timestamp: review.state.coordinateReview.verifiedAt,

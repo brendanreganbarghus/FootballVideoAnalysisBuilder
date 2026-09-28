@@ -3932,7 +3932,7 @@ export function renderHtml({ adapter } = {}) {
     <span><strong id="activity-label">Ready for your review</strong>
       <span class="muted" id="activity-detail"></span></span>
     <button id="proceed-after-coordinate-gate" type="button" hidden>
-      Proceed to event review
+      Continue to rules engine
     </button>
     <button id="continue-coordinate-review" type="button" hidden>
       Continue reviewing
@@ -4777,7 +4777,7 @@ export function renderHtml({ adapter } = {}) {
                 adapter.coordinateReviewEnabled ? "" : " hidden"
               }
                 disabled>
-                Start rules-engine run
+                Continue to rules engine
               </button>
               <button id="improve-coordinate-coverage" type="button" hidden>
                 Improve coverage with unresolved frames
@@ -7439,7 +7439,33 @@ export function renderHtml({ adapter } = {}) {
       if ((state?.segment?.ballSource || "bac") === "bac") {
         return "Frozen BAC";
       }
-      return point.direct ? "Direct" : "Estimated";
+      return ballEvidenceStateLabel(point);
+    }
+
+    function ballEvidenceStateLabel(point) {
+      const kind = String(point?.state || "");
+      if (kind === "observed") return "Observed";
+      if (kind === "visually_reacquired") return "Visually recovered";
+      if (kind === "trajectory_estimated_possible_region") {
+        return "Possible region";
+      }
+      if (kind.startsWith("trajectory_estimated")) return "Estimated";
+      return point?.direct ? "Direct" : "Estimated";
+    }
+
+    function ballStateCountSummary(points) {
+      if ((state?.segment?.ballSource || "bac") === "bac") {
+        return points.length + " frozen BAC frames";
+      }
+      const counts = new Map();
+      for (const point of points) {
+        const label = ballEvidenceStateLabel(point);
+        counts.set(label, (counts.get(label) || 0) + 1);
+      }
+      return ["Observed", "Visually recovered", "Estimated", "Possible region"]
+        .filter(label => counts.get(label))
+        .map(label => counts.get(label) + " " + label.toLowerCase())
+        .join(" · ");
     }
 
     function ballFrameFlagStorageKey() {
@@ -8541,8 +8567,8 @@ export function renderHtml({ adapter } = {}) {
       document.getElementById("ball-frame-summary").textContent = points.length
         ? (ballTrack?.pendingEngineOutput
           ? points.length + " sampled raw frames · engine coordinates pending"
-          : direct + "/" + points.length + " persisted direct · " + estimated +
-          " persisted estimated" + (
+          : ballStateCountSummary(points) + " · " + direct + "/"
+          + points.length + " direct" + (
             diagnostic
               ? " · diagnostic " + diagnostic.diagnostic_direct_frame_count
                 + "/" + diagnostic.sampled_frame_count
@@ -8916,16 +8942,6 @@ export function renderHtml({ adapter } = {}) {
         0,
         (batch?.fixedFrames?.length || 0) - disputedCount
       );
-      const gateDirectCount = Number(
-        latestCompletedBatch?.after?.directFrameCount || 0
-      );
-      const gateSampledCount = Number(
-        latestCompletedBatch?.after?.sampledFrameCount || 0
-      );
-      const coordinateMinimumReached = Boolean(
-        gateSampledCount
-        && gateDirectCount >= Math.ceil(gateSampledCount * 0.90)
-      );
       const batchProcessing = coordinateBatchLocked(batch)
         || batch?.status === "rerun_started";
       roundResult.hidden = !batchProcessing && batch?.status !== "done";
@@ -8959,15 +8975,16 @@ export function renderHtml({ adapter } = {}) {
                       + "review or improve the remaining frames."
                     : "The 90% minimum is reached. Verifying the current code "
                       + "and persisted output before presenting your choice."
-                  : "The 90% minimum is not reached; the next unresolved round is required."
+                  : "Below the 90% direct target. You can review more frames "
+                    + "or choose Continue to rules engine."
               )
           : "";
       const finalize = document.getElementById(
         "finalize-ball-coordinate-review"
       );
-      finalize.disabled = !coordinateMinimumReached || segmentRunActive();
+      finalize.disabled = segmentRunActive();
       finalize.hidden = state.coordinateReview?.status === "finalized";
-      finalize.textContent = "Start rules-engine run";
+      finalize.textContent = "Continue to rules engine";
       const applyReviewerLayer = document.getElementById(
         "apply-reviewer-coordinate-layer"
       );
@@ -11507,9 +11524,13 @@ export function renderHtml({ adapter } = {}) {
       );
       const coordinateGateVerified =
         state.coordinateReview?.status === "verified";
-      document.getElementById(
+      const proceedAfterCoordinateGate = document.getElementById(
         "proceed-after-coordinate-gate"
-      ).hidden = !coordinateGateVerified;
+      );
+      proceedAfterCoordinateGate.hidden = !(
+        coordinateGateVerified || ballCoordinatesNeedReview()
+      );
+      proceedAfterCoordinateGate.disabled = segmentRunActive();
       const continueCoordinateReview = document.getElementById(
         "continue-coordinate-review"
       );
