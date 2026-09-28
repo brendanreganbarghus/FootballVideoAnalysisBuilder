@@ -636,6 +636,42 @@ four BAC publications still match exactly on the single path, but the detected
 0540-020 publication remains a pending review mismatch until a general
 evidence-based rule change or re-review resolves the difference.
 
+### Detected ball tracker stage table
+
+The detected-ball tracker is split under `src\football_poc\ball` while
+`src\football_poc\ball_tracking.py` remains an import-compatible shim. Cached
+rebuilds use the shared frame and detection cache layer in `ball\frames.py` and
+`ball\io_filters.py`; this cache-rebuild path must remain labelled separately
+from a fresh raw-video detection, tracking, inference, and publication run.
+
+`track_cached_balls` applies the tracker stages in this fixed order, and the
+ball-stage golden harness names files with the same stage labels so the first
+changed stage is visible:
+
+| # | Stage | Module |
+| --- | --- | --- |
+| 1 | `motion_supported_points` | `ball\motion_support.py` |
+| 2 | `template_supported_points` | `ball\template_support.py` |
+| 3 | `select_single_ball_trajectory` | `ball\selection.py` |
+| 4 | `resolve_detector_conflicts` | `ball\selection.py` |
+| 5 | `restore_plausible_detector_points` | `ball\selection.py` |
+| 6 | `bidirectional_template_bridges` | `ball\bidirectional_templates.py` |
+| 7 | `terminal_template_bridges` | `ball\terminal_forward_templates.py` |
+| 8 | `forward_template_consensus` | `ball\terminal_forward_templates.py` |
+| 9 | `startup_attention_gate` | `ball\frames.py` |
+| 10 | `raw_motion_proposals` | `ball\frames.py` / `ball\raw_motion_selection.py` |
+| 11 | `kalman_guided_reacquisitions` | `ball\kalman.py` |
+| 12 | `dense_optical_flow_bridges` | `ball\dense_flow.py` |
+| 13 | `discard_detector_outliers` | `ball\outliers.py` |
+| 14 | `bracketed_outlier_recoveries` | `ball\outliers.py` |
+| 15 | `full_rate_motion_streaks` | `ball\full_rate_corridors.py` / `ball\motion_streaks.py` |
+| 16 | `full_rate_trajectory_corridors` | `ball\full_rate_corridors.py` |
+| 17 | `discard_temporal_upper_body_points` | `ball\io_filters.py` |
+| 18 | `focused_multiscale_points` | `ball\focused_multiscale.py` |
+| 19 | `final_trajectory_integrity` | `ball\state_estimates.py` |
+| 20 | `short_stationary_template_recoveries` | `ball\bidirectional_templates.py` |
+| 21 | `post_recovery_trajectory_integrity` | `ball\state_estimates.py` |
+
 The workflow identity is carried and checked at every review boundary:
 
 | Workflow | Canvas ID | State `workflowId` | Artifact layout |
