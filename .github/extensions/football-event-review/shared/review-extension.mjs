@@ -5209,6 +5209,13 @@ function broadcast(eventName) {
 }
 
 function setActivity(state, label, detail) {
+  if (
+    activity?.state === state
+    && activity?.label === label
+    && activity?.detail === detail
+  ) {
+    return;
+  }
   activity = { state, label, detail };
   broadcast("activity");
 }
