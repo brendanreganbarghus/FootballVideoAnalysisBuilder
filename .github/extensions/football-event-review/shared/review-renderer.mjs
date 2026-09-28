@@ -7479,6 +7479,15 @@ export function renderHtml({ adapter } = {}) {
       };
     }
 
+    function readyCoordinateBatch() {
+      if (state.coordinateReview?.status === "finalized") return null;
+      const batches = state.coordinateReview?.batches || [];
+      return batches.find(
+        batch => batch.id === state.coordinateReview?.activeBatchId
+          && batch.status === "ready"
+      ) || null;
+    }
+
     function selectedCoordinateBatch() {
       if (selectedCoordinateBatchId === "all") {
         return null;
@@ -7915,10 +7924,7 @@ export function renderHtml({ adapter } = {}) {
         String(selectedBallTargetFrame)
       ];
       const selectedBatch = selectedCoordinateBatch();
-      const activeRoundView =
-        selectedCoordinateBatchId !== "all"
-        && document.getElementById("ball-frame-filter").value === "flagged"
-        && selectedBatch?.status === "ready";
+      const activeRoundView = Boolean(readyCoordinateBatch());
       const reviewerCorrectionView = Boolean(
         reviewWorkflow.reviewerCorrectedDemoLayer
         && (state?.segment?.ballSource || "bac") === "bac"
@@ -8301,6 +8307,16 @@ export function renderHtml({ adapter } = {}) {
 
     async function recordBallCoordinateDecision(observation, description) {
       const reviewedFrame = selectedBallTargetFrame;
+      const readyBatch = readyCoordinateBatch();
+      if (
+        readyBatch
+        && (state?.segment?.ballSource || "bac") !== "bac"
+        && selectedCoordinateBatch()?.id !== readyBatch.id
+      ) {
+        selectedCoordinateBatchId = readyBatch.id;
+        loadBallFrameFlags();
+        renderBallCoordinateReviewMessages();
+      }
       ballCoordinateObservations[String(reviewedFrame)] = {
         frame: reviewedFrame,
         ...observation,
@@ -8325,6 +8341,16 @@ export function renderHtml({ adapter } = {}) {
     }
 
     function renderBallFrames() {
+      const openGateDetail = document.querySelector(
+        "#ball-frame-items .coordinate-gate-popover:popover-open"
+      )?.id;
+      renderBallFrameRows();
+      if (openGateDetail) {
+        document.getElementById(openGateDetail)?.showPopover?.();
+      }
+    }
+
+    function renderBallFrameRows() {
       const points = ballTrack?.states || [];
       const direct = points.filter(point => point.direct).length;
       const estimated = points.length - direct;
@@ -8629,7 +8655,9 @@ export function renderHtml({ adapter } = {}) {
           } else if (finalized) {
             review.textContent = "Review finalized";
           } else if (selectedCoordinateBatchId === "all") {
-            review.textContent = "Inspect only";
+            review.textContent = readyCoordinateBatch()
+              ? "Open to add to Round " + readyCoordinateBatch().number
+              : "Inspect only";
           } else if (batch?.status === "done") {
             const rerunResult = {
               fixed: "resolved",
@@ -8643,10 +8671,12 @@ export function renderHtml({ adapter } = {}) {
             review.textContent =
               batch?.status === "ready" && batch.frames.includes(point.frame)
                 ? "Review in Round " + batch.number
-                : "Inspect only";
+                : readyCoordinateBatch()
+                  ? "Open to add to Round " + readyCoordinateBatch().number
+                  : "Inspect only";
           } else if (!reviewableFrame) {
             review.textContent = batch
-              ? "Not in Round " + batch.number
+              ? "Open to add to Round " + batch.number
               : "Not in active round";
           } else {
             const reviewStatus = document.createElement("span");
