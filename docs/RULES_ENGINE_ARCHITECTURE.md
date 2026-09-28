@@ -376,8 +376,18 @@ The Innovation **Football Event Review** canvas is manual-first:
    evidence-based rule. Never use an M# timestamp, segment, track ID, or manual
    label as an inference input.
 9. After an engine change, capture a new engine fingerprint, rebuild cached
-    event output for every published segment in that workflow, compare each
-    result with its publication hash, and run focused and protected tests.
+    event output for the current segment only, add a unit test for the rule
+    under `tests\rules` or `tests\tracking` named
+    `test_<rule>_YYYYMMDDTHHMMSSmmmZ` (UTC milliseconds), regenerate
+    `tests\RULE_INDEX.md` with `python scripts\generate-rule-index.py`, and
+    run the fast rule unit-test gate (`regressionTests` in the workflow
+    adapter). A failing test names the broken rule. Re-running every published
+    segment against its publication hash is an on-demand check (Canvas
+    segment regression and publication), not a per-change gate; fix any
+    failure there by adding a new timestamped unit test. Ball-tracker changes
+    use the same fast unit tests; the full-video stage goldens
+    (`tests\ball_stages`, opt-in via `FOOTBALL_RUN_BALL_GOLDENS=1`) are for
+    refactors only.
 10. Mark the segment passed only when current E# output satisfies the approved
     golden reference and every protected publication gate passes.
 

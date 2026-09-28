@@ -1994,9 +1994,26 @@ function publishPreparedSegmentBundle(segment, selected) {
   ).trim();
 }
 
+// Directory entries (ending in /) expand to their sorted .py files so the
+// split engine and ball packages stay inside the fingerprint.
+async function expandSourceFiles(files) {
+  const expanded = [];
+  for (const relativePath of files) {
+    if (!relativePath.endsWith("/")) {
+      expanded.push(relativePath);
+      continue;
+    }
+    const names = (await readdir(join(projectRoot, relativePath)))
+      .filter((name) => name.endsWith(".py"))
+      .sort();
+    expanded.push(...names.map((name) => relativePath + name));
+  }
+  return expanded;
+}
+
 async function engineFingerprint() {
   const hash = createHash("sha256");
-  for (const relativePath of engineFiles) {
+  for (const relativePath of await expandSourceFiles(engineFiles)) {
     hash.update(relativePath);
     hash.update(await readFile(join(projectRoot, relativePath)));
   }
@@ -2019,7 +2036,7 @@ async function engineFingerprint() {
 
 async function sourceVersion(files) {
   const hash = createHash("sha256");
-  for (const relativePath of files) {
+  for (const relativePath of await expandSourceFiles(files)) {
     hash.update(relativePath);
     hash.update(await readFile(join(projectRoot, relativePath)));
   }
