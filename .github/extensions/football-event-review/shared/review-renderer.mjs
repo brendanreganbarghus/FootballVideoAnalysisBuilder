@@ -1414,6 +1414,37 @@ export function renderHtml({ adapter } = {}) {
     .ball-frame-modal-media.panning {
       cursor: grabbing;
     }
+    .ball-frame-modal-media.pointer-visible,
+    .ball-frame-modal-media.pointer-visible.zoomed,
+    .ball-frame-modal-media.pointer-visible.marking {
+      cursor: none;
+    }
+    .ball-frame-zoom-controls {
+      position: absolute;
+      z-index: 5;
+      right: 10px;
+      bottom: 10px;
+      display: inline-flex;
+      gap: 4px;
+      align-items: center;
+      padding: 3px;
+      border-radius: 8px;
+      background: rgb(13 17 23 / 85%);
+      cursor: default;
+    }
+    .ball-frame-zoom-controls button {
+      min-width: 34px;
+      min-height: 34px;
+      padding: 4px 9px;
+      font-size: 18px;
+      line-height: 1;
+    }
+    .ball-frame-zoom-controls output {
+      min-width: 40px;
+      color: #f0f6fc;
+      font-size: 12px;
+      text-align: center;
+    }
     .ball-frame-modal-media.seeking::after {
       content: attr(data-seek-status);
       position: absolute;
@@ -1485,7 +1516,7 @@ export function renderHtml({ adapter } = {}) {
     }
     .ball-frame-modal-media.zoomed video,
     .ball-frame-modal-media.zoomed .ball-frame-modal-overlay {
-      transform: scale(2.5);
+      transform: scale(var(--ball-zoom, 2.5));
     }
     .ball-frame-modal-marker {
       fill: rgb(126 231 135 / 20%);
@@ -1531,17 +1562,34 @@ export function renderHtml({ adapter } = {}) {
       background: rgb(255 255 255 / 82%);
       box-shadow: 0 0 1px #000;
     }
+    .ball-frame-pointer::before,
+    .ball-frame-pointer::after {
+      background: none;
+      box-shadow: none;
+      --pointer-line: rgb(255 255 255 / 82%);
+      --pointer-gap: 14px;
+    }
     .ball-frame-pointer::before {
       left: 0;
       right: 0;
       top: var(--pointer-y);
       height: 1px;
+      background: linear-gradient(to right,
+        var(--pointer-line) calc(var(--pointer-x) - var(--pointer-gap)),
+        transparent 0,
+        transparent calc(var(--pointer-x) + var(--pointer-gap)),
+        var(--pointer-line) 0);
     }
     .ball-frame-pointer::after {
       top: 0;
       bottom: 0;
       left: var(--pointer-x);
       width: 1px;
+      background: linear-gradient(to bottom,
+        var(--pointer-line) calc(var(--pointer-y) - var(--pointer-gap)),
+        transparent 0,
+        transparent calc(var(--pointer-y) + var(--pointer-gap)),
+        var(--pointer-line) 0);
     }
     .ball-frame-pointer-label {
       position: absolute;
@@ -4579,6 +4627,14 @@ export function renderHtml({ adapter } = {}) {
               <div class="ball-frame-pointer" id="ball-frame-pointer" hidden>
                 <span class="ball-frame-pointer-label"
                   id="ball-frame-pointer-label"></span>
+              </div>
+              <div class="ball-frame-zoom-controls"
+                aria-label="Frame zoom">
+                <button id="ball-frame-zoom-out" type="button"
+                  aria-label="Zoom frame out" title="Zoom out (or scroll)">−</button>
+                <output id="ball-frame-zoom-level" aria-live="polite">1×</output>
+                <button id="ball-frame-zoom-in" type="button"
+                  aria-label="Zoom frame in" title="Zoom in (or scroll)">+</button>
               </div>
               <div class="raw-frame-nav next">
                 <button id="next-ball-frame" type="button"
@@ -7818,6 +7874,7 @@ export function renderHtml({ adapter } = {}) {
       if (!preserveZoom) {
         media.classList.remove("zoomed");
         document.getElementById("reset-ball-frame-zoom").hidden = true;
+        document.getElementById("ball-frame-zoom-level").textContent = "1×";
       }
       const seekRequest = ++rawBallFrameSeekRequest;
       const seek = () => {
@@ -9492,9 +9549,7 @@ export function renderHtml({ adapter } = {}) {
         const bounds = ballFrameMedia.getBoundingClientRect();
         const sourceWidth = Number(ballTrack?.width || 4450);
         const sourceHeight = Number(ballTrack?.height || 2000);
-        const zoomScale = ballFrameMedia.classList.contains("zoomed")
-          ? 2.5
-          : 1;
+        const zoomScale = currentBallFrameZoom();
         const styles = getComputedStyle(ballFrameMedia);
         const originX = bounds.width * (
           parseFloat(styles.getPropertyValue("--zoom-x")) / 100
@@ -9522,17 +9577,23 @@ export function renderHtml({ adapter } = {}) {
         return {x, y};
       };
       const updatePointerCoordinate = event => {
-        if (!ballTrack || event.target.closest("button")) {
+        if (
+          !ballTrack
+          || event.target.closest("button, .ball-frame-zoom-controls")
+        ) {
           pointerCrosshair.hidden = true;
+          ballFrameMedia.classList.remove("pointer-visible");
           return;
         }
         const mediaBounds = ballFrameMedia.getBoundingClientRect();
         const coordinate = originalBallCoordinateAtPointer(event);
         if (!coordinate) {
           pointerCrosshair.hidden = true;
+          ballFrameMedia.classList.remove("pointer-visible");
           return;
         }
         pointerCrosshair.hidden = false;
+        ballFrameMedia.classList.add("pointer-visible");
         pointerCrosshair.style.setProperty(
           "--pointer-x",
           (event.clientX - mediaBounds.left) + "px"
@@ -9549,7 +9610,76 @@ export function renderHtml({ adapter } = {}) {
         ballFrameMedia.classList.remove("zoomed");
         ballFrameMedia.classList.remove("panning");
         document.getElementById("reset-ball-frame-zoom").hidden = true;
+        document.getElementById("ball-frame-zoom-level").textContent = "1×";
       };
+      function currentBallFrameZoom() {
+        if (!ballFrameMedia.classList.contains("zoomed")) return 1;
+        return parseFloat(
+          ballFrameMedia.style.getPropertyValue("--ball-zoom")
+        ) || 2.5;
+      }
+      const setBallFrameZoom = (nextScale, anchorEvent = null) => {
+        const scale = Math.max(1, Math.min(8, nextScale));
+        if (scale <= 1.001) {
+          resetBallFrameZoom();
+          return;
+        }
+        const bounds = ballFrameMedia.getBoundingClientRect();
+        const styles = getComputedStyle(ballFrameMedia);
+        const previous = currentBallFrameZoom();
+        const originX = bounds.width * (
+          parseFloat(styles.getPropertyValue("--zoom-x")) / 100
+        );
+        const originY = bounds.height * (
+          parseFloat(styles.getPropertyValue("--zoom-y")) / 100
+        );
+        const pointerX = anchorEvent
+          ? anchorEvent.clientX - bounds.left
+          : previous > 1 ? originX : bounds.width / 2;
+        const pointerY = anchorEvent
+          ? anchorEvent.clientY - bounds.top
+          : previous > 1 ? originY : bounds.height / 2;
+        const contentX = originX + (pointerX - originX) / previous;
+        const contentY = originY + (pointerY - originY) / previous;
+        const nextOriginX = (pointerX - contentX * scale) / (1 - scale);
+        const nextOriginY = (pointerY - contentY * scale) / (1 - scale);
+        ballFrameMedia.style.setProperty(
+          "--zoom-x",
+          Math.max(0, Math.min(100, nextOriginX / bounds.width * 100)) + "%"
+        );
+        ballFrameMedia.style.setProperty(
+          "--zoom-y",
+          Math.max(0, Math.min(100, nextOriginY / bounds.height * 100)) + "%"
+        );
+        ballFrameMedia.style.setProperty("--ball-zoom", String(scale));
+        ballFrameMedia.classList.add("zoomed");
+        document.getElementById("reset-ball-frame-zoom").hidden = false;
+        document.getElementById("ball-frame-zoom-level").textContent =
+          (Math.round(scale * 10) / 10) + "×";
+      };
+      document.getElementById("ball-frame-zoom-in").addEventListener(
+        "click",
+        event => {
+          event.stopPropagation();
+          setBallFrameZoom(Math.max(1.5, currentBallFrameZoom() * 1.5));
+        }
+      );
+      document.getElementById("ball-frame-zoom-out").addEventListener(
+        "click",
+        event => {
+          event.stopPropagation();
+          setBallFrameZoom(currentBallFrameZoom() / 1.5);
+        }
+      );
+      ballFrameMedia.addEventListener("wheel", event => {
+        if (event.target.closest(".ball-frame-zoom-controls")) return;
+        event.preventDefault();
+        setBallFrameZoom(
+          currentBallFrameZoom() * (event.deltaY < 0 ? 1.25 : 0.8),
+          event
+        );
+        updatePointerCoordinate(event);
+      }, {passive: false});
       playbackButton.addEventListener("click", () => {
         if (modalVideo.paused) {
           if (modalVideo.ended) {
@@ -9605,7 +9735,7 @@ export function renderHtml({ adapter } = {}) {
         if (Math.hypot(deltaX, deltaY) < 4) return;
         ballFrameDidDrag = true;
         ballFrameMedia.classList.add("panning");
-        const zoomScale = 2.5;
+        const zoomScale = currentBallFrameZoom();
         const originX = panStart.originX +
           deltaX / (1 - zoomScale) / bounds.width * 100;
         const originY = panStart.originY +
@@ -9630,7 +9760,10 @@ export function renderHtml({ adapter } = {}) {
       ballFrameMedia.addEventListener("pointerup", finishBallFramePan);
       ballFrameMedia.addEventListener("pointercancel", finishBallFramePan);
       ballFrameMedia.addEventListener("pointerleave", () => {
-        if (!panStart) pointerCrosshair.hidden = true;
+        if (!panStart) {
+          pointerCrosshair.hidden = true;
+          ballFrameMedia.classList.remove("pointer-visible");
+        }
       });
       ballFrameMedia.addEventListener("click", event => {
         if (event.target.closest("button")) return;
@@ -9662,21 +9795,12 @@ export function renderHtml({ adapter } = {}) {
             + ". Confirm it before moving to another frame.";
           return;
         }
+        if (event.target.closest(".ball-frame-zoom-controls")) return;
         if (ballFrameMedia.classList.contains("zoomed")) {
           resetBallFrameZoom();
           return;
         }
-        const bounds = ballFrameMedia.getBoundingClientRect();
-        ballFrameMedia.style.setProperty(
-          "--zoom-x",
-          ((event.clientX - bounds.left) / bounds.width * 100) + "%"
-        );
-        ballFrameMedia.style.setProperty(
-          "--zoom-y",
-          ((event.clientY - bounds.top) / bounds.height * 100) + "%"
-        );
-        ballFrameMedia.classList.add("zoomed");
-        document.getElementById("reset-ball-frame-zoom").hidden = false;
+        setBallFrameZoom(2.5, event);
       });
       document.getElementById("reset-ball-frame-zoom").addEventListener(
         "click",
@@ -9729,8 +9853,13 @@ export function renderHtml({ adapter } = {}) {
             "--zoom-y",
             (point.y / ballTrack.height * 100) + "%"
           );
+          if (!ballFrameMedia.classList.contains("zoomed")) {
+            ballFrameMedia.style.setProperty("--ball-zoom", "2.5");
+          }
           ballFrameMedia.classList.add("zoomed");
           document.getElementById("reset-ball-frame-zoom").hidden = false;
+          document.getElementById("ball-frame-zoom-level").textContent =
+            (Math.round(currentBallFrameZoom() * 10) / 10) + "×";
         }
       );
       document.getElementById("mark-ball-location").addEventListener(
