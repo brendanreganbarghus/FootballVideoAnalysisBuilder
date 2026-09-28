@@ -139,13 +139,13 @@ def test_time_machine_bounds_one_sided_extrapolation_20260928T191549001Z() -> No
         max_one_sided_seconds=0.4,
     )
 
-    assert ledger.confirmed(3) is not None
-    assert ledger.confirmed(7) is not None
-    assert ledger.confirmed(2) is None
-    assert ledger.confirmed(8) is None
-    assert any(
-        reason["reason"] == "one_sided_extrapolation_beyond_bound"
-        for reason in ledger.entries[2].rejection_reasons
+    assert ledger.confirmed(3).evidence["mode"] == "bounded_one_sided_hold"
+    assert ledger.confirmed(7).evidence["mode"] == "bounded_one_sided_hold"
+    assert ledger.confirmed(2).evidence["mode"] == "possible_region_one_sided_hold"
+    assert ledger.confirmed(8).evidence["mode"] == "possible_region_one_sided_hold"
+    assert (
+        ledger.confirmed(2).evidence["uncertainty_radius_pixels"]
+        > ledger.confirmed(3).evidence["uncertainty_radius_pixels"]
     )
 
 

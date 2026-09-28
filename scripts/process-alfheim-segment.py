@@ -222,10 +222,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--runtime-mode",
         choices=("validation", "production"),
-        default="validation",
+        default="production",
         help=(
-            "Detected ball source only: validation blocks below the ball-provenance threshold; "
-            "production records degraded coverage and continues."
+            "Detected ball source only: production (default) reports the "
+            "ball-provenance coverage and passes every frame's ball state to "
+            "the rules engine; validation blocks below the threshold."
         ),
     )
     parser.add_argument("--pano", type=Path, default=None)

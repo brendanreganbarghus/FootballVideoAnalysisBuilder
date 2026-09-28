@@ -51,8 +51,8 @@ ball-coordinate source, `ball_source`:
 - `bac`: frozen Alfheim BAC coordinates. A BAC run is a BAC-assisted
   diagnostic of the downstream engine. Never describe it as raw-video ball
   inference or a valid ball-tracking performance benchmark.
-- `detected`: the project's own raw-video ball detector and tracker. Its minimum 90% direct-coordinate
-  provenance gate measures evidence coverage, not coordinate correctness or
+- `detected`: the project's own raw-video ball detector and tracker. Its 90% direct-coordinate provenance target (reported by default,
+  enforced only in validation mode) measures evidence coverage, not coordinate correctness or
   calibrated confidence. Adaptive thresholding remains future work until it is
   implemented and independently validated.
 

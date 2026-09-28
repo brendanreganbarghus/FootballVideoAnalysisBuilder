@@ -27,6 +27,26 @@ def _nearest_confirmed_entries(
     return previous, following
 
 
+def _uncertainty_radius(
+    *,
+    bounded: bool,
+    elapsed_seconds: float,
+    frame_step: int,
+    fps: float,
+    box_diagonal: float,
+    width: int,
+    height: int,
+    max_speed_pixels_per_second: float,
+) -> float:
+    """Radius around an estimate within which the ball can physically be."""
+    diameter = max(1.0, box_diagonal)
+    if bounded:
+        steps = elapsed_seconds / (frame_step / fps)
+        return round(diameter * (1 + steps), 3)
+    reachable = max_speed_pixels_per_second * elapsed_seconds
+    return round(min(max(diameter, reachable), hypot(width, height) / 2), 3)
+
+
 def _confirm_time_machine_estimates(
     ledger: FrameLedger,
     *,
@@ -49,13 +69,7 @@ def _confirm_time_machine_estimates(
         )
         if previous is not None and following is not None:
             gap_seconds = (following.source_frame - previous.source_frame) / fps
-            if gap_seconds > max_interpolation_seconds:
-                ledger.reject(
-                    frame,
-                    TIME_MACHINE_MODULE,
-                    "bracketing_gap_too_large_for_interpolation",
-                )
-                continue
+            bounded = gap_seconds <= max_interpolation_seconds
             alpha = (
                 (frame - previous.source_frame)
                 / (following.source_frame - previous.source_frame)
@@ -72,10 +86,24 @@ def _confirm_time_machine_estimates(
                 y=min(height - 1.0, max(0.0, y)),
                 confirming_module=TIME_MACHINE_MODULE,
                 evidence={
-                    "mode": "bounded_interpolation",
+                    "mode": (
+                        "bounded_interpolation"
+                        if bounded
+                        else "possible_region_interpolation"
+                    ),
                     "previous_frame": previous.source_frame,
                     "following_frame": following.source_frame,
                     "gap_seconds": round(gap_seconds, 3),
+                    "uncertainty_radius_pixels": _uncertainty_radius(
+                        bounded=bounded,
+                        elapsed_seconds=elapsed,
+                        frame_step=frame_step,
+                        fps=fps,
+                        box_diagonal=float(previous.box_diagonal or 0.0),
+                        width=width,
+                        height=height,
+                        max_speed_pixels_per_second=max_speed_pixels_per_second,
+                    ),
                 },
                 confidence=min(
                     0.49,
@@ -86,38 +114,68 @@ def _confirm_time_machine_estimates(
                 ),
                 clip_seconds=frame / fps,
                 box_diagonal=max(1.0, float(previous.box_diagonal or 0.0)),
-                point_evidence="trajectory_estimated_bidirectional",
+                point_evidence=(
+                    "trajectory_estimated_bidirectional"
+                    if bounded
+                    else "trajectory_estimated_possible_region"
+                ),
                 point_source_attribution="interpolated",
             )
             continue
 
         anchor = previous or following
         if anchor is None:
-            ledger.reject(frame, TIME_MACHINE_MODULE, "no_confirmed_anchor")
-            continue
-        elapsed = abs(frame - anchor.source_frame) / fps
-        if elapsed > max_one_sided_seconds:
-            ledger.reject(
+            # No visual evidence anywhere in the segment: the ball could be
+            # anywhere in the frame.
+            ledger.confirm(
                 frame,
-                TIME_MACHINE_MODULE,
-                "one_sided_extrapolation_beyond_bound",
+                x=(width - 1.0) / 2,
+                y=(height - 1.0) / 2,
+                confirming_module=TIME_MACHINE_MODULE,
+                evidence={
+                    "mode": "possible_region_without_anchor",
+                    "uncertainty_radius_pixels": round(hypot(width, height) / 2, 3),
+                },
+                confidence=0.0,
+                clip_seconds=frame / fps,
+                box_diagonal=1.0,
+                point_evidence="trajectory_estimated_possible_region",
+                point_source_attribution="interpolated",
             )
             continue
+        elapsed = abs(frame - anchor.source_frame) / fps
+        bounded = elapsed <= max_one_sided_seconds
         ledger.confirm(
             frame,
             x=float(anchor.x),
             y=float(anchor.y),
             confirming_module=TIME_MACHINE_MODULE,
             evidence={
-                "mode": "bounded_one_sided_hold",
+                "mode": (
+                    "bounded_one_sided_hold"
+                    if bounded
+                    else "possible_region_one_sided_hold"
+                ),
                 "anchor_frame": anchor.source_frame,
                 "elapsed_seconds": round(elapsed, 3),
+                "uncertainty_radius_pixels": _uncertainty_radius(
+                    bounded=bounded,
+                    elapsed_seconds=elapsed,
+                    frame_step=frame_step,
+                    fps=fps,
+                    box_diagonal=float(anchor.box_diagonal or 0.0),
+                    width=width,
+                    height=height,
+                    max_speed_pixels_per_second=max_speed_pixels_per_second,
+                ),
             },
             confidence=min(0.35, float(anchor.confidence or 0.0) * 0.5),
             clip_seconds=frame / fps,
             box_diagonal=max(1.0, float(anchor.box_diagonal or 0.0)),
             point_evidence=(
-                "trajectory_estimated_forward"
+                "trajectory_estimated_possible_region"
+                if not bounded
+                else "trajectory_estimated_forward"
                 if previous is not None
                 else "trajectory_estimated_backward"
             ),

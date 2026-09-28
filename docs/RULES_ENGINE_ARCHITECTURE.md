@@ -641,11 +641,14 @@ append-only `segment_outputs` history.
   These names are historical output contracts, not separate workflows.
 - **Detected (`ball_source: detected`)** uses raw-video detector output and
   `ball_tracking.py`. BAC, manual references, and provider event annotations
-  are rejected as inference inputs. Its minimum 90% direct-coordinate
-  provenance gate measures evidence coverage, not coordinate correctness or
-  calibrated confidence. Increasing evidence-backed confidence is the
-  objective; adaptive thresholding remains future work until implemented and
-  independently validated.
+  are rejected as inference inputs. Its 90% direct-coordinate provenance
+  target measures evidence coverage, not coordinate correctness or calibrated
+  confidence. By default (`--runtime-mode production`) the coverage is reported
+  and every sampled frame's ball state is passed to the rules engine; the
+  engine uses only direct-evidence frames to prove touches, speed, and
+  direction. `--runtime-mode validation` still blocks below 90%. Increasing
+  evidence-backed confidence is the objective; adaptive thresholding remains
+  future work until implemented and independently validated.
 
 The Canvas **Run ball coordinates** action chooses the source for a segment.
 **Change ball source** requires confirmation, is blocked while a job runs or
@@ -683,26 +686,39 @@ module that satisfies its evidence gate may mark it `confirmed` with x/y,
 confidence, confirming module, evidence, and detected-source attribution. A
 confirmed frame is a lock: later modules may read it as context, but they cannot
 edit, unconfirm, or remove it. Failed attempts append rejection reasons to the
-unresolved entry. Frames still unresolved at the end remain explicit unresolved
-states and are not event-evidence/direct provenance.
+unresolved entry. The time machine runs last and gives every remaining frame an
+estimate, so each sampled frame reaches the rules engine with a coordinate, an
+uncertainty radius, and a ball state.
 
-`track_cached_balls` applies the confirmation cascade in this fixed order, and
-the ball-stage golden harness names files with the same module labels so the
-first changed module is visible:
+`track_cached_balls` applies the confirmation cascade in this fixed order (the
+module labels are stable identifiers, so `02_time_machine` runs last), and the
+ball-stage golden harness names files with the same module labels so the first
+changed module is visible:
 
 | # | Module | Responsibility |
 | --- | --- | --- |
 | 1 | `01_confirm_yolo` | Lock real YOLO ball detections only after detector confidence, player/upper-body exclusion, neighbouring motion consistency, and static-object rejection agree. Static detections that remain within a few pixels over a long span without nearby player or motion support are rejected here before they can become track anchors. |
-| 2 | `02_time_machine` | Fill only unresolved frames by bounded interpolation between confirmed neighbours or a short one-sided hold from the nearest confirmed frame. Long one-sided backward/forward extrapolation remains unresolved with a reason. |
-| 3 | `03_motion_and_optical_flow` | Try raw-motion, Kalman-guided visual reacquisition, and dense optical-flow proposals for unresolved frames; each proposal must pass its module gate and the confirmed-neighbour plausibility gate before locking. |
-| 4 | `04_focused_multiscale` | Run the existing focused multiscale re-detection on cached crops only, never a full-video detector rerun, and lock only unresolved frames that pass the cascade gate. |
-| 5 | `05_short_stationary` | Apply short stationary template recovery for unresolved frames that are supported by the locked context and pass the cascade gate. |
+| 2 | `03_motion_and_optical_flow` | Try raw-motion, Kalman-guided visual reacquisition, and dense optical-flow proposals for unresolved frames; each proposal must pass its module gate and the confirmed-neighbour plausibility gate before locking. |
+| 3 | `04_focused_multiscale` | Run the existing focused multiscale re-detection on cached crops only, never a full-video detector rerun, and lock only unresolved frames that pass the cascade gate. |
+| 4 | `05_short_stationary` | Apply short stationary template recovery for unresolved frames that are supported by the locked context and pass the cascade gate. |
+| 5 | `02_time_machine` | Estimate every frame still unresolved after visual recovery. Gaps of at most 1.2 s between confirmed frames are interpolated, and frames within the short one-sided bound hold the nearest confirmed position, with a small uncertainty radius. Longer gaps and segment edges get a best-guess point plus a possible-region radius equal to the distance the ball could travel at the maximum ball speed, capped at half the frame diagonal. A segment without any confirmed frame gets the frame centre with that cap. |
 | Final | `final` | Write the locked track, unresolved ledger states, per-frame confirming module/rejection metadata, and a per-module summary in `ball-tracking-summary.json`. |
 
-Only `01_confirm_yolo` confirmations are direct detector observations for the
-fixed 90% detected-source provenance gate. Later confirmations can preserve
-continuity and review visibility, but they remain non-direct under
-`src\football_poc\ball_provenance.py`.
+Every sampled frame has exactly one ball state:
+
+| State | Produced by | Meaning | Rules-engine use |
+| --- | --- | --- | --- |
+| `observed` | `01_confirm_yolo` | YOLO detected the ball in this frame and the detection passed the confirmation gates. | Direct evidence: touches, speed, direction. |
+| `visually_reacquired` | `03`, `04`, `05` | Another visual method found the ball in this frame; the method is recorded in `evidence`. | Direct evidence; precision can be lower than a YOLO detection. |
+| `trajectory_estimated_bidirectional`, `trajectory_estimated_forward`, `trajectory_estimated_backward` | `02_time_machine` | Not seen in this frame; estimated from nearby seen frames within the short bounds. | Continuity and proximity only; never a touch. |
+| `trajectory_estimated_possible_region` | `02_time_machine` | Not seen, and the nearest seen frame is too far away. A best-guess point plus the reachable radius. | Only whether the ball could be at a location; never control or a touch. |
+
+Each state records its confirming module, evidence method or mode, anchor
+frames, uncertainty radius, and every earlier module's rejection reasons. The
+tracker never labels why the ball was not seen (occlusion, out of shot, blur)
+without evidence. Direct provenance in `src\football_poc\ball_provenance.py`
+counts `observed` and `visually_reacquired` frames; time-machine frames are
+never direct and carry `interpolated: true`.
 
 The workflow identity is carried and checked at every review boundary:
 

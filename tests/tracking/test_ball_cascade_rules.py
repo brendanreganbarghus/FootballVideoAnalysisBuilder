@@ -110,8 +110,8 @@ def test_time_machine_interpolates_only_between_confirmed_bounds_20260928T194758
     assert ledger.confirmed(2).y == pytest.approx(30)
 
 
-def test_time_machine_bounds_one_sided_extrapolation_20260928T194758284Z() -> None:
-    """One-sided time-machine extrapolation is limited to a short span."""
+def test_time_machine_gives_every_frame_a_possible_region_20260928T221719638Z() -> None:
+    """Frames beyond the bounded estimate get a reachable-region estimate."""
     ledger = ball_tracking.FrameLedger((frame, frame / 5) for frame in range(6))
     ledger.confirm(
         3,
@@ -133,12 +133,52 @@ def test_time_machine_bounds_one_sided_extrapolation_20260928T194758284Z() -> No
         max_one_sided_seconds=0.2,
     )
 
-    assert ledger.confirmed(2).confirming_module == "02_time_machine"
-    assert ledger.confirmed(1) is None
-    assert any(
-        reason["reason"] == "one_sided_extrapolation_beyond_bound"
-        for reason in ledger.entries[1].rejection_reasons
+    bounded = ledger.confirmed(2)
+    region = ledger.confirmed(0)
+    assert bounded.evidence["mode"] == "bounded_one_sided_hold"
+    assert region.evidence["mode"] == "possible_region_one_sided_hold"
+    assert region.point_evidence == "trajectory_estimated_possible_region"
+    assert (region.x, region.y) == (50, 60)
+    assert region.evidence["uncertainty_radius_pixels"] == pytest.approx(
+        min(1600 * 0.6, (100**2 + 100**2) ** 0.5 / 2), abs=1e-3
     )
+    assert ledger.unresolved_frames() == ()
+    assert region.to_point().interpolated is True
+
+
+def test_visual_recovery_modules_count_as_direct_evidence_20260928T221719639Z() -> None:
+    """Visual recovery counts as direct evidence; time-machine frames never do."""
+    ledger = ball_tracking.FrameLedger((frame, frame / 5) for frame in range(3))
+    for frame, module in ((0, "01_confirm_yolo"), (1, "03_motion_and_optical_flow")):
+        ledger.confirm(
+            frame,
+            x=10 + frame,
+            y=20,
+            confirming_module=module,
+            evidence={"kind": "visual"},
+            confidence=0.8,
+            box_diagonal=8,
+            point_source_attribution=(
+                "yolo26_observed" if frame == 0 else "raw_motion_micro_crop_supported"
+            ),
+        )
+    ball_tracking._confirm_time_machine_estimates(
+        ledger, fps=5, frame_step=1, width=100, height=100,
+        max_speed_pixels_per_second=1600,
+    )
+
+    states = ball_tracking._sampled_ball_state_estimates(
+        ledger.to_tracks(),
+        records=[{"source_frame": frame} for frame in range(3)],
+        fps=5, frame_step=1, width=100, height=100,
+        max_speed_pixels_per_second=1600, ledger=ledger,
+    )
+
+    assert [state["event_evidence_eligible"] for state in states] == [True, True, False]
+    assert [state["state"] for state in states] == [
+        "observed", "visually_reacquired", "trajectory_estimated_forward",
+    ]
+    assert states[1]["interpolated"] is False
 
 
 def test_later_modules_cannot_change_confirmed_frame_20260928T194758285Z() -> None:

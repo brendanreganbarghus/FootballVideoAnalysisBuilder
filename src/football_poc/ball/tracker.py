@@ -425,16 +425,6 @@ def _track_cached_balls_impl(
         frame_step=frame_step,
         max_speed_pixels_per_second=max_speed_pixels_per_second,
     )
-    ledger = _timed_tracker_call(
-        "02_time_machine",
-        _confirm_time_machine_estimates,
-        ledger,
-        fps=manifest.fps,
-        frame_step=frame_step,
-        width=width,
-        height=height,
-        max_speed_pixels_per_second=max_speed_pixels_per_second,
-    )
     ledger, raw_motion_diagnostics, dense_flow_diagnostics = _timed_tracker_call(
         "03_motion_and_optical_flow",
         _run_motion_and_optical_flow_module,
@@ -482,6 +472,18 @@ def _track_cached_balls_impl(
         fps=manifest.fps,
         max_speed_pixels_per_second=max_speed_pixels_per_second,
     )
+    # The time machine runs last so visual recovery modules see every gap
+    # first; it then gives each remaining frame an estimate or possible region.
+    ledger = _timed_tracker_call(
+        "02_time_machine",
+        _confirm_time_machine_estimates,
+        ledger,
+        fps=manifest.fps,
+        frame_step=frame_step,
+        width=width,
+        height=height,
+        max_speed_pixels_per_second=max_speed_pixels_per_second,
+    )
     accepted = _single_track_from_ledger(ledger)
     discarded_temporal_upper_body_points = 0
     final_trajectory_rejections: frozenset[int] = frozenset()
@@ -524,10 +526,10 @@ def _track_cached_balls_impl(
                     ),
                     "modules": [
                         "01_confirm_yolo",
-                        "02_time_machine",
                         "03_motion_and_optical_flow",
                         "04_focused_multiscale",
                         "05_short_stationary",
+                        "02_time_machine",
                     ],
                     "summary": ledger.module_summary(),
                 },

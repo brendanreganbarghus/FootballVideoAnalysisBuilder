@@ -19,7 +19,8 @@ The active review system uses one workflow, `football_review`, one Canvas,
 segment records `ball_source`: `bac` uses frozen Alfheim BAC coordinates as a
 BAC-assisted diagnostic of the downstream football engine, never raw-video ball
 inference or a valid ball-tracking benchmark; `detected` uses raw-video ball
-tracking, whose minimum 90% direct-coordinate provenance gate measures evidence
+tracking, whose 90% direct-coordinate provenance target (reported by default,
+enforced only in validation mode) measures evidence
 coverage, not coordinate correctness or calibrated confidence.
 
 ## 1. Target home-ground architecture
@@ -457,7 +458,7 @@ generated caches.
    against independently reviewed evidence. BAC runs are BAC-assisted
    diagnostics, not raw-video ball inference or valid ball-tracking
    performance benchmarks. Detected runs use raw-video ball tracking; their 90%
-   direct-coordinate provenance gate measures evidence coverage, not
+   direct-coordinate provenance target measures evidence coverage, not
    coordinate correctness or calibrated confidence. The temporary Canvas URL is
    only a local transport address; it does not contain the authoritative media
    or review history.

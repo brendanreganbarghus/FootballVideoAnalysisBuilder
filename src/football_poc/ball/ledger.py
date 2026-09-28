@@ -29,7 +29,7 @@ class FrameLedgerEntry:
             confidence=float(self.confidence or 0.0),
             x=float(self.x),
             y=float(self.y),
-            interpolated=self.confirming_module != "01_confirm_yolo",
+            interpolated=self.confirming_module == "02_time_machine",
             box_diagonal=float(self.box_diagonal),
             evidence=self.point_evidence,
             temporal_score=self.temporal_score,

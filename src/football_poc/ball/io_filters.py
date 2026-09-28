@@ -759,10 +759,10 @@ def _write_summary(
                 ),
                 "module_order": [
                     "01_confirm_yolo",
-                    "02_time_machine",
                     "03_motion_and_optical_flow",
                     "04_focused_multiscale",
                     "05_short_stationary",
+                    "02_time_machine",
                 ],
                 **ledger.module_summary(),
             }

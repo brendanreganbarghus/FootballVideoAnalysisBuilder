@@ -8,7 +8,7 @@ ball-coordinate source as `ball_source`:
 | Source | Meaning | Benchmark claim boundary |
 | --- | --- | --- |
 | `bac` | Frozen Alfheim BAC coordinates feeding the downstream football engine | BAC-assisted diagnostic only; never raw-video ball inference or a valid ball-tracking benchmark |
-| `detected` | Raw-video detector and `ball_tracking.py` output | The fixed minimum 90% direct-coordinate provenance gate measures evidence coverage, not coordinate correctness or calibrated confidence |
+| `detected` | Raw-video detector and `ball_tracking.py` output | The 90% direct-coordinate provenance target (reported by default, enforced with `--runtime-mode validation`) measures evidence coverage, not coordinate correctness or calibrated confidence |
 
 Prepared-segment artifacts are flat under the segment root, not under
 `innovation\` or `live\` subfolders. Runtime outputs include

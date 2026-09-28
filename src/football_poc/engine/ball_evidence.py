@@ -315,6 +315,13 @@ def _load_ball_points(
             "Ball-state estimates do not declare continuity-only trajectory use"
         )
     existing_frames = set(points)
+    for state in state_payload.get("states", []):
+        source_frame = int(state["source_frame"])
+        if source_frame not in existing_frames or "event_evidence_eligible" not in state:
+            continue
+        for value in points[source_frame]:
+            value["event_evidence_eligible"] = bool(state["event_evidence_eligible"])
+            value["state"] = state.get("state", value["state"])
     track_ids = {
         int(point["track_id"])
         for frame_points in points.values()
@@ -333,6 +340,8 @@ def _load_ball_points(
             raise ValueError(
                 "Missing ball-track frames cannot be promoted as direct evidence"
             )
+        if state.get("x") is None or state.get("y") is None:
+            continue
         value = dict(state)
         value["track_id"] = track_id
         value["interpolated"] = True

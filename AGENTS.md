@@ -25,8 +25,9 @@ publication behavior.
   PostgreSQL coordination database, together with the engine output JSON. The
   share holds media and caches. There is no JSON-file review-state fallback;
   without the database, review state is read-only.
-- The `detected` ball source has a fixed minimum 90% direct-coordinate
-  provenance gate. That measures evidence coverage, not 90% coordinate
+- The `detected` ball source has a 90% direct-coordinate provenance target,
+  reported by default and enforced only in validation mode; every frame's ball
+  state still reaches the rules engine. That measures evidence coverage, not 90% coordinate
   correctness or calibrated confidence. Increasing evidence-backed confidence
   is the objective; adaptive thresholding remains future work until it is
   implemented and independently validated.

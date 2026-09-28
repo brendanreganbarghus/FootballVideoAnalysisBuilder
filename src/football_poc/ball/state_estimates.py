@@ -2,6 +2,17 @@ from __future__ import annotations
 
 from .settings import *  # noqa: F401,F403
 
+# Modules whose confirmation rests on visual evidence in that frame. The time
+# machine only estimates, so its frames are never direct evidence.
+DIRECT_EVIDENCE_MODULES = frozenset(
+    {
+        "01_confirm_yolo",
+        "03_motion_and_optical_flow",
+        "04_focused_multiscale",
+        "05_short_stationary",
+    }
+)
+
 def _sampled_ball_state_estimates(
     tracks: Iterable[BallTrack],
     *,
@@ -25,24 +36,34 @@ def _sampled_ball_state_estimates(
     for source_frame in sampled_frames:
         point = observed_by_frame.get(source_frame)
         if point is not None:
+            estimated = point.confirming_module == "02_time_machine"
             is_direct = (
                 True
                 if ledger is None
-                else point.confirming_module == "01_confirm_yolo"
+                else point.confirming_module in DIRECT_EVIDENCE_MODULES
                 if point.confirming_module is not None
                 else point.source_attribution == "yolo26_observed"
+            )
+            entry = ledger.confirmed(source_frame) if ledger is not None else None
+            recorded_radius = (
+                (entry.evidence or {}).get("uncertainty_radius_pixels")
+                if entry is not None
+                else None
             )
             states.append(
                 {
                     **asdict(point),
                     "state": (
-                        "observed"
+                        point.evidence
+                        if estimated
+                        else "observed"
                         if point.source_attribution == "yolo26_observed"
                         else "visually_reacquired"
                     ),
-                    "uncertainty_radius_pixels": round(
-                        max(1.0, point.box_diagonal / 2),
-                        3,
+                    "uncertainty_radius_pixels": (
+                        float(recorded_radius)
+                        if recorded_radius is not None
+                        else round(max(1.0, point.box_diagonal / 2), 3)
                     ),
                     "event_evidence_eligible": is_direct,
                 }
