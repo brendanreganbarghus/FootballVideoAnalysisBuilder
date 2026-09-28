@@ -3990,7 +3990,7 @@ export function renderHtml({ adapter } = {}) {
                 <option value="detected">Detected ball (our detector, raw video)</option>
               </select>
             </label>
-            <button id="process-segment" type="button">Run ball coordinates</button>
+            <button id="process-segment" type="button">Run segment</button>
           </div>
           <progress class="segment-progress" id="segment-progress"
             max="1" value="0" hidden></progress>
@@ -6541,6 +6541,20 @@ export function renderHtml({ adapter } = {}) {
           Number(state.segment.durationSeconds);
     }
 
+    function selectedBallSource() {
+      return ballSourceSelect?.value || state.segment.ballSource || "bac";
+    }
+
+    function primarySegmentAction() {
+      const segment = state.segment;
+      if (selectedBallSource() === "detected") {
+        return segment.recoveryAvailable ? "resume-detected" : "run-detected";
+      }
+      return reviewWorkflow.evidencePreparationEnabled && !segment.evidenceReady
+        ? "prepare-bac"
+        : "run-bac";
+    }
+
     function renderRunControls() {
       const segment = state.segment;
       const running = segmentRunActive();
@@ -6552,21 +6566,28 @@ export function renderHtml({ adapter } = {}) {
       }
       prepareButton.hidden = selectedVideoPrepared;
       processButton.hidden = !selectedVideoPrepared;
-      prepareEvidenceButton.hidden =
-        !reviewWorkflow.evidencePreparationEnabled || !selectedVideoPrepared;
+      prepareEvidenceButton.hidden = true;
       prepareButton.disabled = running || !segment.preparationSupported;
-      prepareEvidenceButton.disabled =
-        running
-        || !segment.evidencePreparationSupported
-        || referenceLocked();
-      prepareEvidenceButton.textContent = segment.evidenceReady
-        ? "Rebuild BAC + player context"
-        : "Prepare BAC + player context";
+      const action = primarySegmentAction();
+      processButton.dataset.action = action;
       processButton.disabled =
-        running || !segment.processingSupported || referenceLocked();
+        running
+        || referenceLocked()
+        || (action === "prepare-bac"
+          ? !segment.evidencePreparationSupported
+          : !segment.processingSupported);
       processButton.textContent = referenceLocked()
         ? "Passed Segment Locked"
-        : "Run ball coordinates";
+        : {
+            "prepare-bac": "Prepare BAC + player context",
+            "run-bac": segment.state === "ready"
+              ? "Rerun rules engine (BAC)"
+              : "Run rules engine (BAC)",
+            "resume-detected": "Resume detected ball tracking",
+            "run-detected": segment.state === "ready"
+              ? "Rerun detected ball tracking"
+              : "Run detected ball tracking",
+          }[action];
       if (ballSourceSelect && segment.ballSource && !ballSourceSelect.dataset.userChanged) {
         ballSourceSelect.value = segment.ballSource;
       }
@@ -6700,7 +6721,10 @@ export function renderHtml({ adapter } = {}) {
               .replace("Ball coordinates: ", "") +
             ". Recover every additional frame supported by the raw video. " +
             "90% is the minimum gate, not the target."
-          : "AI failed: " + friendlyRunFailure(segment.statusMessage);
+          : segment.runProvenance?.interrupted
+            ? "Processing was interrupted. Click \"" + processButton.textContent
+              + "\" to continue."
+            : "AI failed: " + friendlyRunFailure(segment.statusMessage);
       } else if (!segment.processingSupported) {
         segmentRunStatus.textContent = (
           reviewWorkflow.manualReferenceEnabled
@@ -14199,7 +14223,7 @@ export function renderHtml({ adapter } = {}) {
       ballSourceSelect.dataset.userChanged = "true";
       renderRunControls();
     });
-    prepareEvidenceButton.addEventListener("click", async () => {
+    async function prepareBacEvidence() {
       const segment = selectedSegmentKey();
       analysisModalMode = "evidence";
       setSegmentLoading(
@@ -14242,7 +14266,8 @@ export function renderHtml({ adapter } = {}) {
         renderRunControls();
         renderAiGate();
       }
-    });
+    }
+    prepareEvidenceButton.addEventListener("click", prepareBacEvidence);
     function openBallSourceSwitchModal() {
       const current = state.segment.ballSource;
       if (!current) return;
@@ -14289,7 +14314,7 @@ export function renderHtml({ adapter } = {}) {
         await loadState();
         renderRunControls();
         segmentRunStatus.textContent =
-          "Ball source changed. Review state was reset to the M# golden set; click Run ball coordinates.";
+          "Ball source changed. Review state was reset to the M# golden set; click the run button to process it.";
       } catch (error) {
         status.textContent = error.message;
       } finally {
@@ -14299,15 +14324,24 @@ export function renderHtml({ adapter } = {}) {
 
     async function startSegmentAnalysis() {
       const segment = selectedSegmentKey();
+      const detected = selectedBallSource() === "detected";
       if (reviewWorkflow.manualReferenceEnabled) {
         analysisModalMode = "rules";
         setSegmentLoading(
           true,
-          "Processing rules engine",
+          detected
+            ? "Running detected ball tracking"
+            : "Processing rules engine",
           "Target: " + (state.segment.timeLabel || segment) + "\\n"
             + "Playable segment: Complete\\n"
-            + "Frozen BAC coordinates: Complete\\n"
-            + "YOLO player context: Complete\\n"
+            + (detected
+              ? (state.segment.recoveryAvailable
+                ? "Raw-video detections: Complete (reused)\\n"
+                : "Raw-video detections: Waiting\\n")
+                + "Detected ball tracking: Waiting\\n"
+                + "Player tracking: Waiting\\n"
+              : "Frozen BAC coordinates: Complete\\n"
+                + "YOLO player context: Complete\\n")
             + "rules engine: Waiting"
         );
       }
@@ -14327,8 +14361,8 @@ export function renderHtml({ adapter } = {}) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             segment,
-            ball_source: ballSourceSelect?.value || state.segment.ballSource || "bac",
-            resumeAfterDetection: state.segment.recoveryAvailable
+            ball_source: selectedBallSource(),
+            resumeAfterDetection: detected && state.segment.recoveryAvailable
           })
         });
         const result = await response.json();
@@ -14359,7 +14393,13 @@ export function renderHtml({ adapter } = {}) {
     document.getElementById("confirm-ball-source-switch").addEventListener(
       "click", confirmBallSourceSwitch
     );
-    processButton.addEventListener("click", startSegmentAnalysis);
+    processButton.addEventListener("click", () => {
+      if (primarySegmentAction() === "prepare-bac") {
+        void prepareBacEvidence();
+      } else {
+        void startSegmentAnalysis();
+      }
+    });
     document.getElementById("next-event").addEventListener(
       "click", () => selectEvent(selectedIndex + 1)
     );

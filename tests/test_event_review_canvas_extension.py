@@ -91,9 +91,11 @@ def test_ball_source_selector_and_analyze_payload() -> None:
     assert 'id="ball-source-select"' in renderer
     assert 'BAC coordinates (frozen Alfheim BAC, diagnostic)' in renderer
     assert 'Detected ball (our detector, raw video)' in renderer
-    assert '<button id="process-segment" type="button">Run ball coordinates</button>' in renderer
-    assert '? "Passed Segment Locked"\n        : "Run ball coordinates"' in renderer
-    assert 'ball_source: ballSourceSelect?.value || state.segment.ballSource || "bac"' in renderer
+    assert '<button id="process-segment" type="button">Run segment</button>' in renderer
+    assert '"prepare-bac": "Prepare BAC + player context"' in renderer
+    assert '"resume-detected": "Resume detected ball tracking"' in renderer
+    assert "prepareEvidenceButton.hidden = true;" in renderer
+    assert 'return ballSourceSelect?.value || state.segment.ballSource || "bac";' in renderer
     assert 'ball_source: requestedBallSource' in extension
     assert 'requestedBallSource === "bac"' in extension
     assert 'requestedBallSource === "detected"' in extension
