@@ -358,14 +358,27 @@ function manualEvent(input, key, revision = 1) {
   };
 }
 
-function manualComparisonValidationIsCurrent(reference, current) {
+function manualComparisonValidationIsCurrent(
+  reference,
+  current,
+  publishedOutputHash = null,
+) {
   const approved = reference?.approved;
   const validation = reference?.comparisonValidation;
+  // A published segment stays current while the engine reproduces its exact
+  // publication output hash, even if unrelated engine source changed.
+  const publishedOutputReproduced = Boolean(
+    publishedOutputHash
+    && current.outputHash === publishedOutputHash
+  );
   return Boolean(
     approved
     && validation
     && validation.manualFingerprint === approved.fingerprint
-    && validation.engineContentHash === current.fingerprint.contentHash
+    && (
+      publishedOutputReproduced
+      || validation.engineContentHash === current.fingerprint.contentHash
+    )
     && validation.outputHash === current.outputHash
   );
 }
@@ -4756,10 +4769,24 @@ export async function publicState(
         : null,
     };
   });
+  const publicationRegistry = workflow.manualReferenceEnabled
+    ? await readJson(regressionRegistryPath, {segments: []})
+    : {segments: []};
+  const publishedOutputHashFor = (segmentKey, stored) =>
+    (publicationRegistry.segments || []).find(
+      (entry) => entry.segment === segmentKey,
+    )?.output_hash
+    || stored?.publishedReference?.outputHash
+    || null;
   const engineComparisonRevealed = !workflow.manualReferenceEnabled
+    || (
+      selected.validated
+      && publishedOutputHashFor(selected.key, state) === displayedEngine.outputHash
+    )
     || manualComparisonValidationIsCurrent(
       state.manualReference,
       displayedEngine,
+      selected.validated ? publishedOutputHashFor(selected.key, state) : null,
     );
   if (selected.validated && !engineComparisonRevealed) {
     selected.validationStatus = "published_stale";
@@ -4870,13 +4897,28 @@ export async function publicState(
           (event) => event.reviewStatus === "rejected",
         )
       : [];
+    const publishedOutputHash = published
+      ? publishedOutputHashFor(segment.key, stored)
+      : null;
+    const publishedOutputReproduced = Boolean(
+      publishedOutputHash && current.outputHash === publishedOutputHash
+    );
     const manualValidationCurrent = workflow.manualReferenceEnabled
-      && manualComparisonValidationIsCurrent(stored.manualReference, current);
+      && manualComparisonValidationIsCurrent(
+        stored.manualReference,
+        current,
+        publishedOutputHash,
+      );
+    const publishedEventCount = (publicationRegistry.segments || []).find(
+      (entry) => entry.segment === segment.key,
+    )?.event_count;
     const manualMatchedCount = manualValidationCurrent
       ? Object.keys(
           stored.manualReference?.comparisonValidation?.mappings || {},
         ).length
-      : 0;
+      : publishedOutputReproduced && Number.isInteger(publishedEventCount)
+        ? publishedEventCount
+        : 0;
     const unavailableProposalData = Object.keys(stored.decisions || {}).some(
       (index) => !storedDrafts[Number(index)],
     );
@@ -4949,6 +4991,7 @@ export async function publicState(
       publishedStale: Boolean(
         published
         && workflow.manualReferenceEnabled
+        && !publishedOutputReproduced
         && !manualValidationCurrent
       ),
       blockers: plan.blockers,
