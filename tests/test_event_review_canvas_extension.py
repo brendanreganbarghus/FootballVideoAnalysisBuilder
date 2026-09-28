@@ -253,7 +253,7 @@ def test_engine_snapshot_prefers_coordination_outputs() -> None:
     ]
 
     assert '/api/coordination/outputs?workflow=' in snapshot
-    assert 'const stored = await coordinationOutputRecord(segment);' in snapshot
+    assert 'const stored = fromFiles ? null : await coordinationOutputRecord(segment);' in snapshot
     assert 'outputRecordFile(stored, "predicted-events.json", [])' in snapshot
     assert 'outputRecordFile(stored, "match-state-events.json", {intervals: []})' in snapshot
     assert 'stored?.outputSha256 || stored?.output_sha256' in snapshot

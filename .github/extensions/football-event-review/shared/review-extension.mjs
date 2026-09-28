@@ -1968,8 +1968,6 @@ function publishPreparedSegmentBundle(segment, selected) {
     [
       join(projectRoot, "scripts", "publish-prepared-segment.py"),
       preparedSegmentRoot(segment),
-      "--workflow",
-      workflowId,
       "--camera-id",
       selected.cameraId,
       "--recording-id",
@@ -2024,9 +2022,13 @@ async function componentVersions() {
   return {tracker, rulesEngine};
 }
 
-async function captureEngineSnapshot(segment, knownFingerprint = null) {
+async function captureEngineSnapshot(
+  segment,
+  knownFingerprint = null,
+  {fromFiles = false} = {},
+) {
   const root = segmentRoot(segment);
-  const stored = await coordinationOutputRecord(segment);
+  const stored = fromFiles ? null : await coordinationOutputRecord(segment);
   const predictions = stored
     ? outputRecordFile(stored, "predicted-events.json", [])
     : await readJson(
@@ -2400,6 +2402,18 @@ async function executePublishedReviewRegression(segment, progress) {
 
   let baselineSnapshotForRestore = before;
   let completedResult = null;
+  // Keep the exact bytes of the published output files. Restoring from a
+  // database copy would reorder keys and change the publication hash.
+  const restorableOutputFiles = [
+    "predicted-events.json",
+    "match-state-events.json",
+  ].map((name) => join(segmentRoot(segment), "analytics-data", name));
+  const originalOutputBytes = await Promise.all(
+    restorableOutputFiles.map((path) =>
+      readFile(path).catch(() => null)
+    ),
+  );
+  let keepRebuiltOutput = false;
   try {
     updateSegmentRegressionProgress(progress, "baseline", "completed");
     updateSegmentRegressionProgress(progress, "engine", "running");
@@ -2426,8 +2440,11 @@ async function executePublishedReviewRegression(segment, progress) {
     );
     updateSegmentRegressionProgress(progress, "engine", "completed");
     updateSegmentRegressionProgress(progress, "compare", "running");
-    const current = await captureEngineSnapshot(segment);
+    const current = await captureEngineSnapshot(segment, null, {
+      fromFiles: true,
+    });
     const exactOutputMatch = current.outputHash === baselineOutputHash;
+    keepRebuiltOutput = exactOutputMatch;
     // When the rebuilt output matches the publication hash exactly, restore
     // it rather than an older copy of the same content with reordered keys.
     const baselineSnapshot = [
@@ -2515,23 +2532,12 @@ async function executePublishedReviewRegression(segment, progress) {
     throw error;
   } finally {
     updateSegmentRegressionProgress(progress, "restore", "running");
-    if (baselineSnapshotForRestore) {
-      await writeJsonAtomically(
-        join(
-          segmentRoot(segment),
-          "analytics-data",
-          "predicted-events.json",
-        ),
-        baselineSnapshotForRestore.predictions,
-      );
-      await writeJsonAtomically(
-        join(
-          segmentRoot(segment),
-          "analytics-data",
-          "match-state-events.json",
-        ),
-        baselineSnapshotForRestore.matchState,
-      );
+    if (!keepRebuiltOutput) {
+      await Promise.all(restorableOutputFiles.map((path, index) =>
+        originalOutputBytes[index] === null
+          ? null
+          : writeFile(path, originalOutputBytes[index])
+      ));
     }
     publishPreparedSegmentBundle(segment, review.selected);
     updateSegmentRegressionProgress(progress, "restore", "completed");
