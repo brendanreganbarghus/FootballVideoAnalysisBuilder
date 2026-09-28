@@ -255,8 +255,8 @@ Acceptance must follow the guarded review workflow in
 - re-running every published segment against its publication hash is an
   on-demand check (Canvas segment regression and publication), not a
   per-change gate; fix any failure there by adding a new timestamped unit test;
-- run the slow ball-tracker goldens (`tests\ball_stages`) only when
-  ball-tracker code changes;
+- ball-tracker changes use the same fast timestamped unit tests; the
+  ~18-minute goldens (`tests\ball_stages`) are opt-in, for refactors only;
 - record synchronization only after the accepted behavior appears in engine
   output and all required tests pass.
 

@@ -42,8 +42,8 @@ segment only, and run the fast rule unit-test gate. A failing test names the
 broken rule and keeps the accepted requirement pending until a general fix
 passes. Re-running every published segment against its publication hash is an
 on-demand check (Canvas segment regression and publication); any failure there
-is fixed by adding a new timestamped unit test. Run the slow ball-tracker
-goldens only when ball-tracker code changes. Never reset unrelated work.
+is fixed by adding a new timestamped unit test. Ball-tracker changes use the same fast
+timestamped unit tests; the ~18-minute goldens are opt-in, for refactors only. Never reset unrelated work.
 
 **Current boundary:** there is one review workflow (`football_review`), one
 Canvas (`football-event-review`) and one rules engine. Each segment records its

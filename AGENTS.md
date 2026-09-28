@@ -109,8 +109,10 @@ working-status contract. The port-8080 local app must be running first.
   Re-running every published segment against its publication hash is an
   on-demand check (Canvas segment regression and publication), not a
   per-change gate; a segment failure there must be fixed by adding a new
-  timestamped unit test for the missed interaction. Run the slow ball-tracker
-  goldens (`tests\ball_stages`) only when ball-tracker code changes.
+  timestamped unit test for the missed interaction. Ball-tracker changes use the same fast
+  timestamped unit tests (`tests\tracking`); the ~18-minute full-video goldens
+  (`tests\ball_stages`, opt-in via `FOOTBALL_RUN_BALL_GOLDENS=1`) are for
+  refactors only.
 - Read the current worktree and test state; do not assume conversation history
   is available.
 - Preserve unrelated working-tree changes and use the smallest relevant

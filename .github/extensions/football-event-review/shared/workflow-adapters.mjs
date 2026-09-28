@@ -106,10 +106,12 @@ export const reviewWorkflow = Object.freeze({
     "tests/test_match_state_regression.py",
     "tests/test_review_regressions.py",
   ],
-  // Slow ball-tracker goldens: run only when ball-tracker code changes.
+  // Fast ball-tracker gate for tracker changes: timestamped unit tests.
+  // The full-video stage goldens (tests/ball_stages, ~18 min) are opt-in via
+  // FOOTBALL_RUN_BALL_GOLDENS=1 and reserved for refactors.
   trackerRegressionTests: [
+    "tests/tracking",
     "tests/test_ball_tracking.py",
-    "tests/ball_stages",
   ],
   palette: {
     backgroundDefault: "#080d14",

@@ -85,7 +85,7 @@ def test_engine_fingerprints_and_regression_contract() -> None:
     ]:
         assert test in adapter
     assert 'rulesRegressionScopeFiles: [' in adapter
-    assert 'trackerRegressionTests: [\n    "tests/test_ball_tracking.py",\n    "tests/ball_stages",' in adapter
+    assert 'trackerRegressionTests: [\n    "tests/tracking",\n    "tests/test_ball_tracking.py",' in adapter
     extension = read(SHARED_EXTENSION)
     assert 'coverage: "rule_unit_tests"' in extension
     assert "queuePublishedReviewRegression(\n          publishedSegment.key" not in extension
