@@ -1483,6 +1483,93 @@ async function buildReplaySegments(segments) {
     })));
 }
 
+const mp4FrameSizeCache = new Map();
+
+async function mp4FrameSize(path) {
+  let info;
+  try {
+    info = await stat(path);
+  } catch {
+    return null;
+  }
+  const cacheKey = `${path}|${info.size}|${info.mtimeMs}`;
+  if (mp4FrameSizeCache.has(cacheKey)) return mp4FrameSizeCache.get(cacheKey);
+  const handle = await open(path, "r");
+  let size = null;
+  try {
+    const header = Buffer.alloc(16);
+    let offset = 0;
+    let moov = null;
+    while (offset + 8 <= info.size) {
+      await handle.read(header, 0, 16, offset);
+      let boxSize = header.readUInt32BE(0);
+      const type = header.toString("latin1", 4, 8);
+      let headerSize = 8;
+      if (boxSize === 1) {
+        boxSize = Number(header.readBigUInt64BE(8));
+        headerSize = 16;
+      } else if (boxSize === 0) {
+        boxSize = info.size - offset;
+      }
+      if (boxSize < headerSize) break;
+      if (type === "moov") {
+        moov = Buffer.alloc(boxSize - headerSize);
+        await handle.read(moov, 0, moov.length, offset + headerSize);
+        break;
+      }
+      offset += boxSize;
+    }
+    let search = moov ? moov.indexOf("tkhd", 0, "latin1") : -1;
+    while (search >= 4) {
+      const boxStart = search - 4;
+      const boxSize = moov.readUInt32BE(boxStart);
+      const width = moov.readUInt32BE(boxStart + boxSize - 8) / 65536;
+      const height = moov.readUInt32BE(boxStart + boxSize - 4) / 65536;
+      if (width > 0 && height > 0) {
+        size = { width, height };
+        break;
+      }
+      search = moov.indexOf("tkhd", search + 4, "latin1");
+    }
+  } finally {
+    await handle.close();
+  }
+  mp4FrameSizeCache.set(cacheKey, size);
+  return size;
+}
+
+// Detector and tracker coordinates are in the playable video's pixel space;
+// the Canvas displays and records coordinates in the segment image space.
+async function detectorDisplayScale(segment, videoPaths) {
+  const displayWidth = Number(segment.imageWidth);
+  const displayHeight = Number(segment.imageHeight);
+  if (!(displayWidth > 0 && displayHeight > 0)) return { x: 1, y: 1 };
+  for (const path of videoPaths.filter(Boolean)) {
+    const size = await mp4FrameSize(path).catch(() => null);
+    if (size) {
+      return {
+        x: displayWidth / size.width,
+        y: displayHeight / size.height,
+      };
+    }
+  }
+  return { x: 1, y: 1 };
+}
+
+function scaleYoloCandidates(candidates, scale) {
+  if (scale.x === 1 && scale.y === 1) return candidates;
+  return Object.fromEntries(
+    Object.entries(candidates).map(([frame, list]) => [
+      frame,
+      list.map((candidate) => ({
+        ...candidate,
+        x: candidate.x * scale.x,
+        y: candidate.y * scale.y,
+      })),
+    ]),
+  );
+}
+
 async function loadDetectedBallTrack(
   segment,
   { allowDetectionOnly = false } = {},
@@ -1586,6 +1673,16 @@ async function loadDetectedBallTrack(
       }
       if (Object.keys(yoloCandidates).length) {
         yoloCandidateSource = relativePath;
+        yoloCandidates = scaleYoloCandidates(
+          yoloCandidates,
+          await detectorDisplayScale(segment, [
+            manifest.video,
+            join(
+              preparedSegmentRoot(segment.key),
+              manifest.playable_video || "segment.mp4",
+            ),
+          ]),
+        );
         break;
       }
     }
@@ -1640,6 +1737,18 @@ async function loadDetectedBallTrack(
       yoloCandidates[String(record.source_frame)] = candidates;
     }
   }
+  const detectedScale = await detectorDisplayScale(segment, [
+    manifest.video,
+    join(segmentRoot(segment.key), manifest.playable_video || "segment.mp4"),
+    join(
+      preparedSegmentRoot(segment.key),
+      manifest.playable_video || "segment.mp4",
+    ),
+  ]);
+  const scaledYoloCandidates = scaleYoloCandidates(
+    yoloCandidates,
+    detectedScale,
+  );
   if (!payload) {
     if (!allowDetectionOnly || !sampledFrames.length) return null;
     return {
@@ -1652,7 +1761,7 @@ async function loadDetectedBallTrack(
       ),
       pendingEngineOutput: true,
       integrityRejectedFrames: [],
-      yoloCandidates,
+      yoloCandidates: scaledYoloCandidates,
       points: [],
       states: sampledFrames.map(({ frame, seconds }) => ({
         frame,
@@ -1679,8 +1788,8 @@ async function loadDetectedBallTrack(
     (track.points || []).map((point) => [
       Number(point.source_frame),
       Number(point.clip_seconds),
-      Number(point.x),
-      Number(point.y),
+      Number(point.x) * detectedScale.x,
+      Number(point.y) * detectedScale.y,
       Number(track.track_id),
     ])
   ).filter((point) => point.every(Number.isFinite));
@@ -1696,13 +1805,13 @@ async function loadDetectedBallTrack(
     integrityRejectedFrames: (
       payload.final_trajectory_integrity?.rejected_frames || []
     ).map(Number).filter(Number.isFinite),
-    yoloCandidates,
+    yoloCandidates: scaledYoloCandidates,
     points,
     states: (statePayload?.states || []).map((state) => ({
       frame: Number(state.source_frame),
       seconds: Number(state.clip_seconds),
-      x: Number(state.x),
-      y: Number(state.y),
+      x: Number(state.x) * detectedScale.x,
+      y: Number(state.y) * detectedScale.y,
       confidence: Number.isFinite(Number(state.confidence))
         ? Number(state.confidence)
         : null,
@@ -1711,7 +1820,7 @@ async function loadDetectedBallTrack(
       uncertaintyRadius: Number.isFinite(
         Number(state.uncertainty_radius_pixels),
       )
-        ? Number(state.uncertainty_radius_pixels)
+        ? Number(state.uncertainty_radius_pixels) * detectedScale.x
         : null,
       direct: Boolean(state.event_evidence_eligible),
     })).filter((state) =>
