@@ -766,6 +766,7 @@ def read_json_if_present(path: Path) -> object | None:
 class RangeRequestHandler(SimpleHTTPRequestHandler):
     range_to_send: tuple[int, int] | None = None
     analysis_processes: dict[str, subprocess.Popen[bytes]] = {}
+    analysis_launched_at: dict[str, datetime] = {}
     recorded_output_hashes: set[tuple[str, str]] = set()
 
     @property
@@ -1213,6 +1214,7 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
             )
             log.close()
             self.analysis_processes[process_key] = process
+            self.analysis_launched_at[process_key] = datetime.now(timezone.utc)
             self._send_json(
                 202,
                 {"state": "processing", "pid": process.pid, "ball_source": ball_source},
@@ -1361,6 +1363,7 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
             )
             log.close()
             self.analysis_processes[cache_key] = process
+            self.analysis_launched_at[cache_key] = datetime.now(timezone.utc)
             self._send_json(202, {"state": "processing", "pid": process.pid})
         except (
             FileNotFoundError,
@@ -1417,6 +1420,7 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
             )
             log.close()
             self.analysis_processes[cache_key] = process
+            self.analysis_launched_at[cache_key] = datetime.now(timezone.utc)
             self._send_json(202, {"state": "processing", "pid": process.pid})
         except (
             FileNotFoundError,
@@ -1599,6 +1603,24 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
             else f"/{root.relative_to(Path.cwd()).as_posix()}"
         )
         if current_process is not None and current_process.poll() is None:
+            launched_at = self.analysis_launched_at.get(process_key)
+            status_started = analysis_status.get("started_at_utc")
+            if launched_at is not None and (
+                not status_started
+                or datetime.fromisoformat(str(status_started)) < launched_at
+            ):
+                # The new run has not written its own status yet; never show
+                # the previous run's stage or start time.
+                analysis_status = {
+                    "stage": "starting",
+                    "message": "Starting processing.",
+                    "started_at_utc": launched_at.isoformat(),
+                    "elapsed_seconds": round(
+                        (datetime.now(timezone.utc) - launched_at)
+                        .total_seconds(),
+                        3,
+                    ),
+                }
             state = (
                 "processing"
                 if analysis_status.get("stage") == "detecting"

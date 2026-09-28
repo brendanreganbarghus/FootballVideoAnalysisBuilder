@@ -5194,9 +5194,11 @@ export function renderHtml({ adapter } = {}) {
         document.querySelector(".segment-loading-spinner").hidden = false;
         closeButton.hidden = true;
         cancelButton.hidden = !state?.activeConversation;
-        if (segmentLoadingStartedAt === null) {
+        if (elapsedSeconds !== null && elapsedSeconds !== undefined) {
           segmentLoadingStartedAt = Date.now() -
             Math.max(0, Number(elapsedSeconds || 0)) * 1000;
+        } else if (segmentLoadingStartedAt === null) {
+          segmentLoadingStartedAt = Date.now();
         }
         if (segmentLoadingTimer === null) {
           segmentLoadingTimer = setInterval(
@@ -5217,8 +5219,13 @@ export function renderHtml({ adapter } = {}) {
       }
     }
 
-    function finishSegmentLoading(label, detail) {
+    function finishSegmentLoading(label, detail, elapsedSeconds = null) {
       const overlay = document.getElementById("segment-loading-overlay");
+      const finalElapsed = elapsedSeconds !== null && elapsedSeconds !== undefined
+        ? Math.max(0, Math.round(Number(elapsedSeconds) || 0))
+        : null;
+      document.getElementById("segment-loading-elapsed").textContent =
+        finalElapsed === null ? "" : "Elapsed: " + finalElapsed + "s";
       overlay.hidden = false;
       document.body.setAttribute("aria-busy", "false");
       clearInterval(segmentLoadingTimer);
@@ -5259,6 +5266,31 @@ export function renderHtml({ adapter } = {}) {
           : segment.state === "failed"
             ? "Failed"
             : "In progress";
+        if (segment.ballSource === "detected") {
+          const failed = segment.state === "failed";
+          const done = segment.state === "ready";
+          const detectionsDone = Number(segment.expectedFrames || 0) > 0
+            && Number(segment.processedFrames || 0)
+              >= Number(segment.expectedFrames);
+          const detectionStatus = detectionsDone
+            ? "Complete"
+            : failed ? "Failed" : "In progress";
+          const trackingStatus = done
+            ? "Complete"
+            : !detectionsDone ? "Waiting" : failed ? "Failed" : "In progress";
+          return [
+            "Target: " + timeLabel,
+            "Playable segment: Complete",
+            "Raw-video detection: " + detectionStatus +
+              (segment.expectedFrames
+                ? " — " + Number(segment.processedFrames || 0) + "/" +
+                  Number(segment.expectedFrames) + " sampled frames"
+                : ""),
+            "Detected ball + player tracking: " + trackingStatus,
+            "rules engine: " + (done ? "Complete" : "Waiting"),
+            segment.statusMessage || "Processing detected ball tracking."
+          ].join("\\n");
+        }
         return [
           "Target: " + timeLabel,
           "Playable segment: Complete",
@@ -5333,7 +5365,10 @@ export function renderHtml({ adapter } = {}) {
       } else if (analysisModalMode && segment.state === "failed") {
         finishSegmentLoading(
           "Review processing failed",
-          reviewAnalysisDetail(segment, analysisModalMode)
+          reviewAnalysisDetail(segment, analysisModalMode),
+          segment.runProvenance?.interrupted
+            ? null
+            : segment.runProvenance?.elapsed_seconds
         );
       }
     }
