@@ -146,6 +146,191 @@ def _speed_from_confirmed_neighbour(
     return min(speeds, default=float("inf"))
 
 
+MOVING_CHAIN_MINIMUM_LENGTH = 3
+MOVING_CHAIN_MINIMUM_PEAK_CONFIDENCE = 0.3
+MOVING_CHAIN_MAXIMUM_SKIPPED_FRAMES = 1
+
+
+def _moving_chain_supports(
+    point: BallPoint,
+    *,
+    candidates_by_frame: dict[int, list[_BallCandidate]],
+    fps: float,
+    frame_step: int,
+    max_speed_pixels_per_second: float,
+) -> bool:
+    """Whether the detection belongs to a chain of moving detections.
+
+    Links run through sampled frames in both directions, at most one missed
+    frame at a time, to the closest reachable detection that is not a static
+    object. A ball in flight produces such a chain; one-frame false positives
+    and fixed objects do not.
+    """
+    if fps <= 0 or frame_step < 1:
+        return False
+    chain = [point]
+    first_frame = min(candidates_by_frame, default=point.source_frame)
+    last_frame = max(candidates_by_frame, default=point.source_frame)
+    for direction in (-1, 1):
+        current = point
+        frame = point.source_frame
+        skipped = 0
+        while skipped <= MOVING_CHAIN_MAXIMUM_SKIPPED_FRAMES:
+            frame += direction * frame_step
+            if not first_frame <= frame <= last_frame:
+                break
+            elapsed = abs(frame - current.source_frame) / fps
+            reachable = [
+                candidate.point
+                for candidate in candidates_by_frame.get(frame, [])
+                if hypot(
+                    candidate.point.x - current.x,
+                    candidate.point.y - current.y,
+                )
+                <= max_speed_pixels_per_second * elapsed
+                and _same_position_static_reason(
+                    candidate.point,
+                    candidates_by_frame=candidates_by_frame,
+                    fps=fps,
+                )
+                is None
+            ]
+            if not reachable:
+                skipped += 1
+                continue
+            current = min(
+                reachable,
+                key=lambda candidate: hypot(
+                    candidate.x - current.x,
+                    candidate.y - current.y,
+                ),
+            )
+            chain.append(current)
+            skipped = 0
+    return (
+        len(chain) >= MOVING_CHAIN_MINIMUM_LENGTH
+        and max(candidate.confidence for candidate in chain)
+        >= MOVING_CHAIN_MINIMUM_PEAK_CONFIDENCE
+    )
+
+
+def _reachable_from_nearest_confirmed(
+    point: BallPoint,
+    ledger: FrameLedger,
+    *,
+    fps: float,
+    max_speed_pixels_per_second: float,
+) -> bool:
+    if fps <= 0:
+        return False
+    confirmed = [
+        entry
+        for entry in ledger.entries.values()
+        if entry.status == "confirmed"
+        and entry.x is not None
+        and entry.y is not None
+    ]
+    for side in (
+        [entry for entry in confirmed if entry.source_frame < point.source_frame],
+        [entry for entry in confirmed if entry.source_frame > point.source_frame],
+    ):
+        if not side:
+            continue
+        nearest = min(
+            side,
+            key=lambda entry: abs(entry.source_frame - point.source_frame),
+        )
+        elapsed = abs(nearest.source_frame - point.source_frame) / fps
+        if hypot(nearest.x - point.x, nearest.y - point.y) > (
+            max_speed_pixels_per_second * 1.25 * elapsed
+        ):
+            return False
+    return True
+
+
+# A weak detection far off the line between the confirmed ball just before and
+# just after it would need the ball to leave and come straight back within a
+# fraction of a second. The detour allowance is a quarter of the maximum ball
+# speed over the bracket.
+DETOUR_BRACKET_STEPS = 3
+DETOUR_ALLOWANCE_SPEED_FRACTION = 0.25
+
+
+def _withdraw_one_frame_detours(
+    ledger: FrameLedger,
+    *,
+    fps: float,
+    frame_step: int,
+    max_speed_pixels_per_second: float,
+) -> list[tuple[int, float, float]]:
+    withdrawn: list[tuple[int, float, float]] = []
+    if fps <= 0 or frame_step < 1:
+        return withdrawn
+    while True:
+        confirmed = {
+            entry.source_frame: entry
+            for entry in ledger.entries.values()
+            if entry.status == "confirmed"
+        }
+        worst: tuple[float, Any] | None = None
+        for frame, entry in confirmed.items():
+            if (
+                entry.confirming_module != CONFIRM_YOLO_MODULE
+                or not _is_movable_detection(entry)
+            ):
+                continue
+            previous = next(
+                (
+                    confirmed[frame - offset * frame_step]
+                    for offset in range(1, DETOUR_BRACKET_STEPS + 1)
+                    if frame - offset * frame_step in confirmed
+                ),
+                None,
+            )
+            following = next(
+                (
+                    confirmed[frame + offset * frame_step]
+                    for offset in range(1, DETOUR_BRACKET_STEPS + 1)
+                    if frame + offset * frame_step in confirmed
+                ),
+                None,
+            )
+            if previous is None or following is None:
+                continue
+            # Only a detection weaker than both neighbours is the detour; a
+            # stronger one means the neighbours are the doubtful points.
+            if float(entry.confidence or 0.0) >= min(
+                float(previous.confidence or 0.0),
+                float(following.confidence or 0.0),
+            ):
+                continue
+            elapsed = (following.source_frame - previous.source_frame) / fps
+            direct = hypot(following.x - previous.x, following.y - previous.y)
+            if direct > max_speed_pixels_per_second * 1.25 * elapsed:
+                continue
+            excess = (
+                hypot(entry.x - previous.x, entry.y - previous.y)
+                + hypot(following.x - entry.x, following.y - entry.y)
+                - direct
+            )
+            allowance = (
+                max_speed_pixels_per_second
+                * DETOUR_ALLOWANCE_SPEED_FRACTION
+                * elapsed
+            )
+            if excess > allowance and (worst is None or excess > worst[0]):
+                worst = (excess, entry)
+        if worst is None:
+            return withdrawn
+        entry = worst[1]
+        withdrawn.append((entry.source_frame, float(entry.x), float(entry.y)))
+        ledger.withdraw(
+            entry.source_frame,
+            CONFIRM_YOLO_MODULE,
+            "detour_from_consistent_confirmed_neighbours",
+        )
+
+
 def _candidate_rejection_reason(
     point: BallPoint,
     *,
@@ -178,14 +363,42 @@ def _candidate_rejection_reason(
     if require_moving_neighbour and ledger is not None:
         # An unselected candidate must also be reachable from the confirmed
         # ball; being near a player's feet alone is not evidence of the ball.
-        if _speed_from_confirmed_neighbour(
+        neighbour_speed = _speed_from_confirmed_neighbour(
             point,
             ledger,
             fps=fps,
             frame_step=frame_step,
-        ) > max_speed_pixels_per_second * 1.25 and any(
+        )
+        if neighbour_speed > max_speed_pixels_per_second * 1.25 and any(
             entry.status == "confirmed"
             for entry in ledger.entries.values()
+        ) and not (
+            # Inside a gap with no confirmed ball nearby, a moving chain of
+            # detections that the last and next confirmed ball can reach is
+            # the ball; otherwise a gap could never be closed from inside.
+            neighbour_speed == float("inf")
+            and _moving_chain_supports(
+                point,
+                candidates_by_frame=candidates_by_frame,
+                fps=fps,
+                frame_step=frame_step,
+                max_speed_pixels_per_second=max_speed_pixels_per_second,
+            )
+            and _reachable_from_nearest_confirmed(
+                point,
+                ledger,
+                fps=fps,
+                max_speed_pixels_per_second=max_speed_pixels_per_second,
+            )
+        ):
+            return "unreachable_from_confirmed_ball", near_feet
+        # Being reachable from a farther confirmed ball is not enough when
+        # the adjacent confirmed ball on either side cannot reach it.
+        if not _reachable_from_nearest_confirmed(
+            point,
+            ledger,
+            fps=fps,
+            max_speed_pixels_per_second=max_speed_pixels_per_second,
         ):
             return "unreachable_from_confirmed_ball", near_feet
     neighbours = candidates_by_frame
@@ -235,23 +448,77 @@ def _confirm_yolo_detections(
         if current is None or point.confidence > current.confidence:
             best_by_frame[point.source_frame] = point
 
-    for frame in ledger.unresolved_frames():
+    confirmation_pass = dict(
+        best_by_frame=best_by_frame,
+        candidates_by_frame=candidates_by_frame,
+        records_by_frame=records_by_frame,
+        fps=fps,
+        frame_step=frame_step,
+        max_speed_pixels_per_second=max_speed_pixels_per_second,
+        minimum_confidence=minimum_confidence,
+    )
+    _confirm_unresolved_frames(
+        ledger,
+        ledger.unresolved_frames(),
+        excluded=set(),
+        **confirmation_pass,
+    )
+    withdrawn = _withdraw_one_frame_detours(
+        ledger,
+        fps=fps,
+        frame_step=frame_step,
+        max_speed_pixels_per_second=max_speed_pixels_per_second,
+    )
+    if withdrawn:
+        _confirm_unresolved_frames(
+            ledger,
+            sorted({frame for frame, _, _ in withdrawn}),
+            excluded=set(withdrawn),
+            require_reachable=True,
+            **confirmation_pass,
+        )
+    _reject_confirmations_that_leave_resting_ball(ledger, fps=fps)
+
+    if video is not None:
+        _extend_resting_ball_confirmations(ledger, video=video, fps=fps)
+    return ledger
+
+
+def _confirm_unresolved_frames(
+    ledger: FrameLedger,
+    frames: Iterable[int],
+    *,
+    excluded: set[tuple[int, float, float]],
+    require_reachable: bool = False,
+    best_by_frame: dict[int, BallPoint],
+    candidates_by_frame: dict[int, list[_BallCandidate]],
+    records_by_frame: dict[int, dict[str, Any]],
+    fps: float,
+    frame_step: int,
+    max_speed_pixels_per_second: float,
+    minimum_confidence: float,
+) -> None:
+    for frame in frames:
+        if ledger.confirmed(frame) is not None:
+            continue
         selected = best_by_frame.get(frame)
         options: list[tuple[BallPoint, bool]] = []
         if selected is not None:
             options.append((selected, False))
         # The selected trajectory can follow a false positive; every other
-        # detector candidate in an unresolved frame gets the same checks.
+        # detector candidate in an unresolved frame gets the same checks. The
+        # strongest reachable detection goes first: ranking by nearness to the
+        # last confirmed point lets one weak lock-in pull a false chain along.
         for candidate in sorted(
             candidates_by_frame.get(frame, []),
             key=lambda item: (
+                -item.point.confidence,
                 _speed_from_confirmed_neighbour(
                     item.point,
                     ledger,
                     fps=fps,
                     frame_step=frame_step,
                 ),
-                -item.point.confidence,
             ),
         ):
             if (
@@ -259,6 +526,11 @@ def _confirm_yolo_detections(
                 and candidate.point.source_attribution == "yolo26_observed"
             ):
                 options.append((candidate.point, True))
+        options = [
+            (point, alternative)
+            for point, alternative in options
+            if (frame, float(point.x), float(point.y)) not in excluded
+        ]
         if not options:
             ledger.reject(frame, CONFIRM_YOLO_MODULE, "no_yolo_candidate")
             continue
@@ -274,7 +546,9 @@ def _confirm_yolo_detections(
                 frame_step=frame_step,
                 max_speed_pixels_per_second=max_speed_pixels_per_second,
                 minimum_confidence=minimum_confidence,
-                require_moving_neighbour=alternative,
+                # A replacement for a withdrawn detour must be reachable from
+                # the confirmed ball, whichever trajectory selected it.
+                require_moving_neighbour=alternative or require_reachable,
                 ledger=ledger,
             )
             if reason is not None:
@@ -307,11 +581,6 @@ def _confirm_yolo_detections(
                 CONFIRM_YOLO_MODULE,
                 rejection or "no_yolo_candidate",
             )
-    _reject_confirmations_that_leave_resting_ball(ledger, fps=fps)
-
-    if video is not None:
-        _extend_resting_ball_confirmations(ledger, video=video, fps=fps)
-    return ledger
 
 
 # A resting ball stays where it is until a player moves it. Once two detections
@@ -414,7 +683,26 @@ def _resting_ball_anchors(
                 float(first.x) - float(second.x),
                 float(first.y) - float(second.y),
             ) <= RESTING_ANCHOR_RADIUS_DIAMETERS * diameter:
-                anchors.append((first, second))
+                # A stronger detection elsewhere in between means the ball
+                # left and came back to the spot; it was not resting there.
+                weakest = min(
+                    float(first.confidence or 0.0),
+                    float(second.confidence or 0.0),
+                )
+                rest_x = (float(first.x) + float(second.x)) / 2
+                rest_y = (float(first.y) + float(second.y)) / 2
+                radius = RESTING_BALL_RADIUS_DIAMETERS * diameter
+                if not any(
+                    first.source_frame < between.source_frame < second.source_frame
+                    and float(between.confidence or 0.0) >= weakest
+                    and hypot(
+                        float(between.x) - rest_x,
+                        float(between.y) - rest_y,
+                    )
+                    > radius
+                    for between in detected
+                ):
+                    anchors.append((first, second))
                 break
     return anchors
 

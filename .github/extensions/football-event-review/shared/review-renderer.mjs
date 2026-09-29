@@ -8145,8 +8145,21 @@ export function renderHtml({ adapter } = {}) {
         selectedBallTargetFrame,
         observation
       );
-      const decisionLabel =
+      // An agreement is about one coordinate; once a tracker rerun moves the
+      // engine away from it, the saved agreement no longer covers the frame.
+      const agreedCoordinateMoved =
         observation?.decision === "agree"
+        && selectedRawBallFrame === selectedBallTargetFrame
+        && displayedPoint
+        && Number.isFinite(Number(observation.x))
+        && Math.hypot(
+          Number(observation.x) - displayedPoint.x,
+          Number(observation.y) - displayedPoint.y
+        ) > 6;
+      const decisionLabel =
+        agreedCoordinateMoved
+          ? "agreed with an earlier coordinate; the engine has since moved"
+        : observation?.decision === "agree"
           ? "agreed with the current coordinate"
           : observation?.decision === "needs_more_checking"
             ? "marked as needing more checking"
@@ -8162,7 +8175,9 @@ export function renderHtml({ adapter } = {}) {
                 ? "BAC imported coordinate confirmed"
                 : "";
       const currentDecisionLabel =
-        reviewerChangeStatus === "pending"
+        agreedCoordinateMoved
+          ? "Engine moved since you agreed · please recheck"
+        : reviewerChangeStatus === "pending"
           ? "User changed · pending batch apply"
           : reviewerChangeStatus === "applied"
             ? "✓ User change applied"
@@ -8190,7 +8205,7 @@ export function renderHtml({ adapter } = {}) {
         + (
           reviewerChangeStatus === "applied"
           || frozenBac && reviewerChangeStatus === "base"
-          || observation?.decision === "agree"
+          || observation?.decision === "agree" && !agreedCoordinateMoved
           || observation?.decision === "yolo_candidate"
           || (
             observation?.decision === "specified"

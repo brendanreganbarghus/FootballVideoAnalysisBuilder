@@ -514,3 +514,117 @@ def test_region_search_ignores_detection_beyond_reach_20260929T003136673Z() -> N
     assert ledger.confirmed(1) is None
     reasons = ledger.entries[1].rejection_reasons
     assert reasons[-1]["module"] == "06_time_machine_region_search"
+
+
+def _run_confirm(frames, candidates, selected, *, fps=5):
+    ledger = ball_tracking.FrameLedger([(frame, frame / fps) for frame in frames])
+    ball_tracking._confirm_yolo_detections(
+        ledger,
+        selected,
+        candidates_by_frame=candidates,
+        records_by_frame={
+            frame: {"source_frame": frame, "detections": []} for frame in frames
+        },
+        fps=fps,
+        frame_step=1,
+        max_speed_pixels_per_second=1600,
+    )
+    return ledger
+
+
+def test_moving_chain_inside_gap_confirms_20260929T090500001Z() -> None:
+    """A moving chain of detections in a gap confirms without a near anchor."""
+    frames = list(range(12))
+    static = {frame: _candidate(frame, x=300.0, y=220.0, confidence=0.4) for frame in frames}
+    moving = {
+        0: _candidate(0, x=100.0, y=100.0, confidence=0.8),
+        1: _candidate(1, x=104.0, y=100.0, confidence=0.8),
+        5: _candidate(5, x=600.0, y=100.0, confidence=0.4),
+        6: _candidate(6, x=640.0, y=100.0, confidence=0.3),
+        7: _candidate(7, x=680.0, y=100.0, confidence=0.3),
+    }
+    candidates = {
+        frame: [static[frame], *([moving[frame]] if frame in moving else [])]
+        for frame in frames
+    }
+
+    ledger = _run_confirm(frames, candidates, [c.point for c in static.values()])
+
+    assert (ledger.confirmed(1).x, ledger.confirmed(1).y) == (104.0, 100.0)
+    assert (ledger.confirmed(5).x, ledger.confirmed(5).y) == (600.0, 100.0)
+    assert (ledger.confirmed(7).x, ledger.confirmed(7).y) == (680.0, 100.0)
+    assert ledger.confirmed(9) is None
+
+
+def test_lone_detection_inside_gap_stays_unreachable_20260929T090500002Z() -> None:
+    """A single weak detection in a gap is not a moving chain."""
+    frames = list(range(12))
+    static = {frame: _candidate(frame, x=300.0, y=220.0, confidence=0.4) for frame in frames}
+    moving = {
+        0: _candidate(0, x=100.0, y=100.0, confidence=0.8),
+        1: _candidate(1, x=104.0, y=100.0, confidence=0.8),
+        6: _candidate(6, x=640.0, y=100.0, confidence=0.3),
+    }
+    candidates = {
+        frame: [static[frame], *([moving[frame]] if frame in moving else [])]
+        for frame in frames
+    }
+
+    ledger = _run_confirm(frames, candidates, [c.point for c in static.values()])
+
+    assert ledger.confirmed(6) is None
+
+
+def test_weak_detour_is_replaced_by_consistent_candidate_20260929T090500003Z() -> None:
+    """A weak detection far off the confirmed path is withdrawn and replaced."""
+    frames = list(range(5))
+    path = {
+        frame: _candidate(frame, x=100.0 + 10 * frame, y=100.0, confidence=0.8)
+        for frame in (0, 1, 3, 4)
+    }
+    detour = _candidate(2, x=700.0, y=100.0, confidence=0.15)
+    on_path = _candidate(2, x=120.0, y=100.0, confidence=0.3)
+    candidates = {frame: [path[frame]] for frame in path}
+    candidates[2] = [detour, on_path]
+    selected = [path[frame].point for frame in path] + [detour.point]
+
+    ledger = _run_confirm(frames, candidates, selected)
+
+    assert (ledger.confirmed(2).x, ledger.confirmed(2).y) == (120.0, 100.0)
+    assert any(
+        reason["reason"] == "detour_from_consistent_confirmed_neighbours"
+        for reason in ledger.confirmed(2).rejection_reasons
+    )
+
+def test_strongest_reachable_alternative_wins_20260929T101500001Z() -> None:
+    """Among reachable alternatives the stronger detection confirms first."""
+    frames = list(range(12))
+    static = {frame: _candidate(frame, x=900.0, y=600.0, confidence=0.4) for frame in frames}
+    ball = {frame: _candidate(frame, x=100.0 + 40 * frame, y=100.0, confidence=0.5) for frame in frames}
+    weak = {2: _candidate(2, x=150.0, y=110.0, confidence=0.12)}
+    candidates = {
+        frame: [static[frame], ball[frame], *([weak[frame]] if frame in weak else [])]
+        for frame in frames
+    }
+
+    ledger = _run_confirm(frames, candidates, [c.point for c in static.values()])
+
+    assert (ledger.confirmed(2).x, ledger.confirmed(2).y) == (180.0, 100.0)
+
+
+def test_resting_anchor_needs_no_stronger_detection_between_20260929T101500002Z() -> None:
+    """Two detections at one spot are not a rest when the ball was seen elsewhere."""
+    ledger = ball_tracking.FrameLedger([(frame, frame / 5) for frame in range(4)])
+    for frame, x, confidence in ((0, 100.0, 0.3), (1, 400.0, 0.6), (2, 100.0, 0.5)):
+        ledger.confirm(
+            frame,
+            x=x,
+            y=100.0,
+            confirming_module="01_confirm_yolo",
+            evidence={},
+            confidence=confidence,
+            box_diagonal=10.0,
+            point_source_attribution="yolo26_observed",
+        )
+
+    assert ball_tracking._resting_ball_anchors(ledger, fps=5) == []
