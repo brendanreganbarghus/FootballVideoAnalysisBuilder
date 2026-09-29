@@ -8067,10 +8067,10 @@ export function renderHtml({ adapter } = {}) {
       );
       const userMarkerHidden =
         selectedRawBallFrame !== selectedBallTargetFrame
-        || !["specified", "yolo_candidate"].includes(observation?.decision);
+        || observation?.decision !== "specified";
       userMarker.toggleAttribute("hidden", userMarkerHidden);
       userMarker.style.display = userMarkerHidden ? "none" : "";
-      if (["specified", "yolo_candidate"].includes(observation?.decision)) {
+      if (observation?.decision === "specified") {
         userMarker.setAttribute("cx", String(observation.x));
         userMarker.setAttribute("cy", String(observation.y));
         if (
