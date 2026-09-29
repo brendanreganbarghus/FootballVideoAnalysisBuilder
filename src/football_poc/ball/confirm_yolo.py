@@ -13,6 +13,150 @@ RESTING_BALL_RADIUS_DIAMETERS = 3.0
 MINIMUM_BALL_DIAMETER_PIXELS = 8.0
 
 
+# A weak detection at a player's feet can be a boot: boots are close to the
+# ball in size and shape. The pixels that stand out from the surrounding grass
+# must then have the ball's colour, learned from this video's own strong
+# detections. Without enough strong detections there is no colour evidence and
+# the check does not apply.
+BALL_COLOUR_STRONG_CONFIDENCE = 0.5
+BALL_COLOUR_WEAK_CONFIDENCE = 0.25
+BALL_COLOUR_MINIMUM_SAMPLES = 5
+BALL_COLOUR_CORE_DIAMETERS = 0.4
+BALL_COLOUR_MINIMUM_CHROMA_DISTANCE = 12.0
+BALL_COLOUR_RANGE_PERCENTILES = (5.0, 95.0)
+BALL_COLOUR_MINIMUM_HALF_RANGE = 5.0
+
+
+def _standout_chroma(
+    frame: np.ndarray,
+    x: float,
+    y: float,
+    diameter: float,
+) -> float | None:
+    """Red-green (Lab a) colour of the pixels whose colour differs from grass.
+
+    Brightness is ignored: lighter grass, lines and shadows differ from the
+    grass in brightness, not in colour.
+    """
+    diameter = max(diameter, MINIMUM_BALL_DIAMETER_PIXELS)
+    half = int(np.ceil(diameter * 5))
+    center_x = round(x)
+    center_y = round(y)
+    if (
+        center_y - half < 0
+        or center_x - half < 0
+        or center_y + half + 1 > frame.shape[0]
+        or center_x + half + 1 > frame.shape[1]
+    ):
+        return None
+    window = frame[
+        center_y - half : center_y + half + 1,
+        center_x - half : center_x + half + 1,
+    ]
+    lab = cv2.cvtColor(window, cv2.COLOR_BGR2LAB).astype(np.float32)
+    offsets_y, offsets_x = np.mgrid[-half : half + 1, -half : half + 1]
+    distance = np.hypot(offsets_x, offsets_y)
+    grass = np.median(
+        lab[(distance >= diameter * 2.5) & (distance <= diameter * 5)],
+        axis=0,
+    )
+    chroma_distance = np.hypot(lab[..., 1] - grass[1], lab[..., 2] - grass[2])
+    standout = (distance <= diameter * BALL_COLOUR_CORE_DIAMETERS) & (
+        chroma_distance >= BALL_COLOUR_MINIMUM_CHROMA_DISTANCE
+    )
+    if int(standout.sum()) < 2:
+        return None
+    strongest = chroma_distance[standout] >= np.median(chroma_distance[standout])
+    return float(np.median(lab[..., 1][standout][strongest]))
+
+
+def _read_standout_chroma(
+    video: Path,
+    points_by_frame: dict[int, list[BallPoint]],
+) -> dict[tuple[int, float, float], float | None]:
+    chroma: dict[tuple[int, float, float], float | None] = {}
+    if not points_by_frame:
+        return chroma
+    capture = cv2.VideoCapture(str(video))
+    try:
+        if not capture.isOpened():
+            raise ValueError(f"Could not open benchmark video: {video}")
+        for source_frame in range(max(points_by_frame) + 1):
+            points = points_by_frame.get(source_frame)
+            if not points:
+                if not capture.grab():
+                    raise RuntimeError(
+                        f"Could not skip to source frame {source_frame} in {video}"
+                    )
+                continue
+            ok, frame = capture.read()
+            if not ok:
+                raise RuntimeError(
+                    f"Could not read source frame {source_frame} from {video}"
+                )
+            for point in points:
+                chroma[(source_frame, float(point.x), float(point.y))] = (
+                    _standout_chroma(
+                        frame,
+                        float(point.x),
+                        float(point.y),
+                        float(point.box_diagonal or 0.0),
+                    )
+                )
+    finally:
+        capture.release()
+    return chroma
+
+
+def _ball_colour_check(
+    detector_points: Iterable[BallPoint],
+    candidates_by_frame: dict[int, list[_BallCandidate]],
+    video: Path,
+) -> Any:
+    strong = [
+        point
+        for point in detector_points
+        if point.source_attribution == "yolo26_observed"
+        and point.confidence >= BALL_COLOUR_STRONG_CONFIDENCE
+    ]
+    if len(strong) < BALL_COLOUR_MINIMUM_SAMPLES:
+        return None
+    weak_at_feet = [
+        candidate.point
+        for candidates in candidates_by_frame.values()
+        for candidate in candidates
+        if candidate.near_player_feet
+        and candidate.point.source_attribution == "yolo26_observed"
+        and candidate.point.confidence < BALL_COLOUR_WEAK_CONFIDENCE
+    ]
+    points_by_frame: dict[int, list[BallPoint]] = defaultdict(list)
+    for point in strong + weak_at_feet:
+        points_by_frame[point.source_frame].append(point)
+    chroma = _read_standout_chroma(video, points_by_frame)
+    samples = [
+        chroma[(point.source_frame, float(point.x), float(point.y))]
+        for point in strong
+    ]
+    samples = [sample for sample in samples if sample is not None]
+    if len(samples) < BALL_COLOUR_MINIMUM_SAMPLES:
+        return None
+    colour_low, colour_high = np.percentile(samples, BALL_COLOUR_RANGE_PERCENTILES)
+    # Video compression alone shifts the colour slightly.
+    centre = float(np.median(samples))
+    colour_low = min(float(colour_low), centre - BALL_COLOUR_MINIMUM_HALF_RANGE)
+    colour_high = max(float(colour_high), centre + BALL_COLOUR_MINIMUM_HALF_RANGE)
+
+    def matches(point: BallPoint) -> bool:
+        sample = chroma.get((point.source_frame, float(point.x), float(point.y)))
+        if sample is None:
+            # Nothing stands out from the grass: no boot or ball colour to
+            # compare, so colour is not evidence either way.
+            return True
+        return bool(colour_low <= sample <= colour_high)
+
+    return matches
+
+
 def _leaves_resting_ball(
     x: float,
     y: float,
@@ -342,6 +486,7 @@ def _candidate_rejection_reason(
     minimum_confidence: float,
     require_moving_neighbour: bool,
     ledger: FrameLedger | None = None,
+    ball_colour_matches: Any = None,
 ) -> tuple[str | None, bool]:
     if point.confidence < minimum_confidence:
         return "low_detector_confidence", False
@@ -358,6 +503,13 @@ def _candidate_rejection_reason(
         candidate.point == point and candidate.near_player_feet
         for candidate in candidates_by_frame.get(point.source_frame, [])
     )
+    if (
+        near_feet
+        and ball_colour_matches is not None
+        and point.confidence < BALL_COLOUR_WEAK_CONFIDENCE
+        and not ball_colour_matches(point)
+    ):
+        return "colour_differs_from_ball", True
     if near_feet and not require_moving_neighbour:
         return None, True
     if require_moving_neighbour and ledger is not None:
@@ -401,22 +553,22 @@ def _candidate_rejection_reason(
             max_speed_pixels_per_second=max_speed_pixels_per_second,
         ):
             return "unreachable_from_confirmed_ball", near_feet
-    neighbours = candidates_by_frame
-    if require_moving_neighbour:
-        neighbours = {
-            frame: [
-                candidate
-                for candidate in candidates
-                if _same_position_static_reason(
-                    candidate.point,
-                    candidates_by_frame=candidates_by_frame,
-                    fps=fps,
-                )
-                is None
-            ]
-            for frame, candidates in candidates_by_frame.items()
-            if abs(frame - point.source_frame) <= 3 * frame_step
-        }
+    # A fixed object detected in nearby frames is not motion support for any
+    # candidate, selected or not.
+    neighbours = {
+        frame: [
+            candidate
+            for candidate in candidates
+            if _same_position_static_reason(
+                candidate.point,
+                candidates_by_frame=candidates_by_frame,
+                fps=fps,
+            )
+            is None
+        ]
+        for frame, candidates in candidates_by_frame.items()
+        if abs(frame - point.source_frame) <= 3 * frame_step
+    }
     if not _detector_neighbour_support(
         point,
         candidates_by_frame=neighbours,
@@ -440,6 +592,7 @@ def _confirm_yolo_detections(
     minimum_confidence: float = 0.10,
     video: Path | None = None,
 ) -> FrameLedger:
+    detector_points = list(detector_points)
     best_by_frame: dict[int, BallPoint] = {}
     for point in detector_points:
         if point.source_attribution != "yolo26_observed":
@@ -456,6 +609,11 @@ def _confirm_yolo_detections(
         frame_step=frame_step,
         max_speed_pixels_per_second=max_speed_pixels_per_second,
         minimum_confidence=minimum_confidence,
+        ball_colour_matches=(
+            _ball_colour_check(detector_points, candidates_by_frame, video)
+            if video is not None
+            else None
+        ),
     )
     _confirm_unresolved_frames(
         ledger,
@@ -497,13 +655,44 @@ def _confirm_unresolved_frames(
     frame_step: int,
     max_speed_pixels_per_second: float,
     minimum_confidence: float,
+    ball_colour_matches: Any = None,
 ) -> None:
     for frame in frames:
         if ledger.confirmed(frame) is not None:
             continue
         selected = best_by_frame.get(frame)
         options: list[tuple[BallPoint, bool]] = []
-        if selected is not None:
+        # The trajectory's pick keeps its lighter checks unless it is an
+        # isolated detection (no moving chain) outranked by a stronger one in
+        # the same frame; then it must be reachable from the confirmed ball
+        # like any other candidate, and stronger candidates are tried first.
+        strongest_other = max(
+            (
+                candidate.point.confidence
+                for candidate in candidates_by_frame.get(frame, [])
+                if candidate.point != selected
+                and candidate.point.source_attribution == "yolo26_observed"
+                and _same_position_static_reason(
+                    candidate.point,
+                    candidates_by_frame=candidates_by_frame,
+                    fps=fps,
+                )
+                is None
+            ),
+            default=0.0,
+        )
+        selected_outranked = (
+            selected is not None
+            and strongest_other > selected.confidence
+            and not _moving_chain_supports(
+                selected,
+                candidates_by_frame=candidates_by_frame,
+                fps=fps,
+                frame_step=frame_step,
+                max_speed_pixels_per_second=max_speed_pixels_per_second,
+            )
+        )
+        if selected is not None and not selected_outranked:
             options.append((selected, False))
         # The selected trajectory can follow a false positive; every other
         # detector candidate in an unresolved frame gets the same checks. The
@@ -522,10 +711,14 @@ def _confirm_unresolved_frames(
             ),
         ):
             if (
-                candidate.point != selected
+                (candidate.point != selected or selected_outranked)
                 and candidate.point.source_attribution == "yolo26_observed"
             ):
                 options.append((candidate.point, True))
+        if selected_outranked and all(
+            point != selected for point, _ in options
+        ):
+            options.append((selected, True))
         options = [
             (point, alternative)
             for point, alternative in options
@@ -550,6 +743,7 @@ def _confirm_unresolved_frames(
                 # the confirmed ball, whichever trajectory selected it.
                 require_moving_neighbour=alternative or require_reachable,
                 ledger=ledger,
+                ball_colour_matches=ball_colour_matches,
             )
             if reason is not None:
                 if rejection is None:

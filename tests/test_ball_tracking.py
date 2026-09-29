@@ -117,6 +117,69 @@ def test_confirm_yolo_rejects_unanchored_static_object_20260928T191549001Z() -> 
     )
 
 
+def test_confirm_yolo_rejects_weak_feet_detection_without_ball_colour(tmp_path) -> None:
+    grass = (40, 140, 40)
+    orange_ball = (0, 100, 230)
+    yellow_boot = (0, 230, 230)
+    video = tmp_path / "segment.avi"
+    writer = cv2.VideoWriter(
+        str(video), cv2.VideoWriter_fourcc(*"MJPG"), 5, (600, 400)
+    )
+    discs = {frame: (120 + 20 * frame, 120, orange_ball) for frame in range(8)}
+    discs[10] = (250, 250, yellow_boot)
+    discs[12] = (400, 250, orange_ball)
+    for frame in range(14):
+        image = np.full((400, 600, 3), grass, np.uint8)
+        if frame in discs:
+            x, y, colour = discs[frame]
+            cv2.circle(image, (x, y), 6, colour, -1)
+        writer.write(image)
+    writer.release()
+
+    frames = [(frame, frame / 5) for frame in range(14)]
+    ledger = ball_tracking.FrameLedger(frames)
+    candidates_by_frame = {
+        frame: [
+            _BallCandidate(
+                BallPoint(
+                    frame,
+                    frame / 5,
+                    0.8 if frame < 8 else 0.15,
+                    float(x),
+                    float(y),
+                    box_diagonal=17.0,
+                ),
+                near_player_feet=frame >= 8,
+            )
+        ]
+        for frame, (x, y, _colour) in discs.items()
+    }
+
+    ball_tracking._confirm_yolo_detections(
+        ledger,
+        [
+            candidate.point
+            for candidates in candidates_by_frame.values()
+            for candidate in candidates
+        ],
+        candidates_by_frame=candidates_by_frame,
+        records_by_frame={
+            frame: {"source_frame": frame, "detections": []} for frame, _ in frames
+        },
+        fps=5,
+        frame_step=1,
+        max_speed_pixels_per_second=1600,
+        video=video,
+    )
+
+    assert ledger.confirmed(10) is None
+    assert any(
+        reason["reason"] == "colour_differs_from_ball"
+        for reason in ledger.entries[10].rejection_reasons
+    )
+    assert ledger.confirmed(12) is not None
+
+
 def test_time_machine_bounds_one_sided_extrapolation_20260928T191549001Z() -> None:
     ledger = ball_tracking.FrameLedger((frame, frame / 5) for frame in range(10))
     ledger.confirm(
