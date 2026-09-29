@@ -1540,7 +1540,7 @@ export function renderHtml({ adapter } = {}) {
     .ball-frame-user-marker {
       fill: rgb(242 204 96 / 25%);
       stroke: #f2cc60;
-      stroke-width: 5;
+      stroke-width: 2;
       vector-effect: non-scaling-stroke;
     }
     .ball-frame-hidden-region {
@@ -4632,7 +4632,7 @@ export function renderHtml({ adapter } = {}) {
                   id="ball-frame-modal-crosshair"></path>
                 <g id="ball-frame-yolo-markers"></g>
                 <circle class="ball-frame-user-marker"
-                  id="ball-frame-user-marker" r="14" hidden></circle>
+                  id="ball-frame-user-marker" r="7" hidden></circle>
                 <rect class="ball-frame-hidden-region"
                   id="ball-frame-hidden-region" hidden></rect>
               </svg>
