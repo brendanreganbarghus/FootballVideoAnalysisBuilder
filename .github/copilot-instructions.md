@@ -21,6 +21,12 @@ Each segment records its ball-coordinate source, `ball_source`:
   calibrated confidence. Increasing evidence-backed confidence is the
   objective; adaptive thresholding remains future work until it is
   implemented and independently validated.
+- Approved exception: frozen BAC coordinates may be read as an
+  evaluation-only reference for `detected` ball-coordinate review, after the
+  tracker output is frozen, to triage frames and diagnose misses. BAC is not
+  ground truth and never selects candidates, sets thresholds, narrows a
+  search, fills a frame, or confirms a frame; only the reviewer confirms.
+  General rules are never tuned to maximise BAC agreement on one segment.
 
 The ball source only selects the ball-coordinate input; both sources run the
 same rules engine. Switching a segment's ball source removes its derived artifacts and review

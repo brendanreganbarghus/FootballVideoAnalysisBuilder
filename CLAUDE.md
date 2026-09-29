@@ -55,6 +55,12 @@ ball-coordinate source, `ball_source`:
   enforced only in validation mode) measures evidence coverage, not coordinate correctness or
   calibrated confidence. Adaptive thresholding remains future work until it is
   implemented and independently validated.
+- Approved exception: frozen BAC coordinates may be read as an
+  evaluation-only reference for `detected` ball-coordinate review, after the
+  tracker output is frozen, to triage frames and diagnose misses. BAC is not
+  ground truth and never selects candidates, sets thresholds, narrows a
+  search, fills a frame, or confirms a frame; only the reviewer confirms.
+  General rules are never tuned to maximise BAC agreement on one segment.
 
 Review state and engine output JSON live only in the PostgreSQL coordination
 database; there is no JSON review-state fallback. The ball source only
