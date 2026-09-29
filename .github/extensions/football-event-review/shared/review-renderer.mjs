@@ -8073,6 +8073,16 @@ export function renderHtml({ adapter } = {}) {
       if (["specified", "yolo_candidate"].includes(observation?.decision)) {
         userMarker.setAttribute("cx", String(observation.x));
         userMarker.setAttribute("cy", String(observation.y));
+        if (
+          !userMarkerHidden
+          && displayedPoint
+          && Math.hypot(
+            observation.x - displayedPoint.x,
+            observation.y - displayedPoint.y
+          ) <= 6
+        ) {
+          marker.style.display = "none";
+        }
       }
       const hiddenRegion =
         selectedRawBallFrame === selectedBallTargetFrame
