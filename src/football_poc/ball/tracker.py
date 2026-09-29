@@ -123,6 +123,12 @@ def _proposal_allowed_by_confirmed_neighbours(
     return previous is not None or following is not None
 
 
+def _is_weak_feet_proposal(point: BallPoint, record: dict[str, Any]) -> bool:
+    return point.confidence < BALL_COLOUR_WEAK_CONFIDENCE and _near_player_feet(
+        point, record
+    )
+
+
 def _confirm_track_points_from_module(
     ledger: FrameLedger,
     module: str,
@@ -131,6 +137,7 @@ def _confirm_track_points_from_module(
     records_by_frame: dict[int, dict[str, Any]],
     fps: float,
     max_speed_pixels_per_second: float,
+    ball_colour_matches: Any = None,
 ) -> FrameLedger:
     proposed_by_frame: dict[int, BallPoint] = {}
     for track in tracks:
@@ -148,6 +155,13 @@ def _confirm_track_points_from_module(
         record = records_by_frame.get(frame, {})
         if _inside_player_upper_body(point, record):
             ledger.reject(frame, module, "candidate_inside_player_upper_body")
+            continue
+        if (
+            ball_colour_matches is not None
+            and _is_weak_feet_proposal(point, record)
+            and not ball_colour_matches(point)
+        ):
+            ledger.reject(frame, module, "colour_differs_from_ball")
             continue
         if not _proposal_allowed_by_confirmed_neighbours(
             ledger,
@@ -456,6 +470,15 @@ def _track_cached_balls_impl(
         fps=manifest.fps,
         frame_step=frame_step,
     )
+    focused_proposals = [
+        point
+        for track in focused_tracks
+        for point in track.points
+        if ledger.confirmed(point.source_frame) is None
+        and _is_weak_feet_proposal(
+            point, records_by_frame.get(point.source_frame, {})
+        )
+    ]
     ledger = _timed_tracker_call(
         "04_focused_multiscale",
         _confirm_track_points_from_module,
@@ -465,6 +488,15 @@ def _track_cached_balls_impl(
         records_by_frame=records_by_frame,
         fps=manifest.fps,
         max_speed_pixels_per_second=max_speed_pixels_per_second,
+        ball_colour_matches=(
+            _ball_colour_check(
+                selected_detector_points,
+                focused_proposals,
+                manifest.video,
+            )
+            if focused_proposals
+            else None
+        ),
     )
     stationary_tracks = _add_short_stationary_template_recoveries(
         _single_track_from_ledger(ledger),

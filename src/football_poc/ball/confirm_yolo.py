@@ -110,9 +110,14 @@ def _read_standout_chroma(
 
 def _ball_colour_check(
     detector_points: Iterable[BallPoint],
-    candidates_by_frame: dict[int, list[_BallCandidate]],
+    points_to_check: Iterable[BallPoint],
     video: Path,
 ) -> Any:
+    """Colour test for ``points_to_check`` against the strong detections.
+
+    Returns ``None`` when the video has too few strong detections to learn
+    the ball colour.
+    """
     strong = [
         point
         for point in detector_points
@@ -121,16 +126,8 @@ def _ball_colour_check(
     ]
     if len(strong) < BALL_COLOUR_MINIMUM_SAMPLES:
         return None
-    weak_at_feet = [
-        candidate.point
-        for candidates in candidates_by_frame.values()
-        for candidate in candidates
-        if candidate.near_player_feet
-        and candidate.point.source_attribution == "yolo26_observed"
-        and candidate.point.confidence < BALL_COLOUR_WEAK_CONFIDENCE
-    ]
     points_by_frame: dict[int, list[BallPoint]] = defaultdict(list)
-    for point in strong + weak_at_feet:
+    for point in [*strong, *points_to_check]:
         points_by_frame[point.source_frame].append(point)
     chroma = _read_standout_chroma(video, points_by_frame)
     samples = [
@@ -155,6 +152,19 @@ def _ball_colour_check(
         return bool(colour_low <= sample <= colour_high)
 
     return matches
+
+
+def _weak_feet_candidates(
+    candidates_by_frame: dict[int, list[_BallCandidate]],
+) -> list[BallPoint]:
+    return [
+        candidate.point
+        for candidates in candidates_by_frame.values()
+        for candidate in candidates
+        if candidate.near_player_feet
+        and candidate.point.source_attribution == "yolo26_observed"
+        and candidate.point.confidence < BALL_COLOUR_WEAK_CONFIDENCE
+    ]
 
 
 def _leaves_resting_ball(
@@ -610,7 +620,11 @@ def _confirm_yolo_detections(
         max_speed_pixels_per_second=max_speed_pixels_per_second,
         minimum_confidence=minimum_confidence,
         ball_colour_matches=(
-            _ball_colour_check(detector_points, candidates_by_frame, video)
+            _ball_colour_check(
+                detector_points,
+                _weak_feet_candidates(candidates_by_frame),
+                video,
+            )
             if video is not None
             else None
         ),
