@@ -4304,6 +4304,23 @@ async function ensureReviewerCoordinateLayer(segment, state, selected) {
   return state.reviewerCoordinateLayer;
 }
 
+// A reviewer's "not visible" note may name the area where the ball is hidden,
+// usually behind a player. It is a diagnostic lead only, never an input.
+function sanitizeHiddenBallRegion(observation, selected) {
+  const region = observation?.hiddenRegion;
+  if (!region || String(observation?.decision) !== "undefined") return null;
+  const width = Number(selected?.imageWidth);
+  const height = Number(selected?.imageHeight);
+  const [x1, x2] = [Number(region.x1), Number(region.x2)].sort((a, b) => a - b);
+  const [y1, y2] = [Number(region.y1), Number(region.y2)].sort((a, b) => a - b);
+  if (
+    ![x1, x2, y1, y2].every(Number.isFinite)
+    || x1 < 0 || y1 < 0 || x2 > width || y2 > height
+    || x2 - x1 < 4 || y2 - y1 < 4
+  ) return null;
+  return {x1, y1, x2, y2};
+}
+
 function materializeReviewerCoordinates(layer, observations) {
   const corrections = {};
   for (const [frameKey, observation] of Object.entries(observations || {})) {
@@ -5441,6 +5458,9 @@ function clipConversationPrompt(
         + coordinateObservations.map(observation =>
           observation.decision === "undefined"
             ? `frame ${observation.frame}: ball undefined / not visible`
+              + (observation.hiddenRegion
+                ? `, reviewer says it is hidden inside area x ${observation.hiddenRegion.x1.toFixed(0)}–${observation.hiddenRegion.x2.toFixed(0)}, y ${observation.hiddenRegion.y1.toFixed(0)}–${observation.hiddenRegion.y2.toFixed(0)}`
+                : "")
             : observation.decision === "needs_more_checking"
               ? `frame ${observation.frame}: needs more checking`
             : observation.decision === "yolo_candidate"
@@ -8010,6 +8030,7 @@ async function handleRequest(request, response, serverInstanceId) {
       y: Number(observation?.y),
       candidateIndex: Number(observation?.candidateIndex),
       confidence: Number(observation?.confidence),
+      hiddenRegion: sanitizeHiddenBallRegion(observation, context.selected),
       approved: observation?.approved === true,
     })).filter((observation) =>
       Number.isInteger(observation.frame)
@@ -8093,6 +8114,7 @@ async function handleRequest(request, response, serverInstanceId) {
       y: Number(observation?.y),
       candidateIndex: Number(observation?.candidateIndex),
       confidence: Number(observation?.confidence),
+      hiddenRegion: sanitizeHiddenBallRegion(observation, context.selected),
       approved: observation?.approved === true,
     })).filter((observation) =>
       Number.isInteger(observation.frame)
@@ -8406,6 +8428,7 @@ async function handleRequest(request, response, serverInstanceId) {
           y: Number(observation?.y),
           candidateIndex: Number(observation?.candidateIndex),
           confidence: Number(observation?.confidence),
+          hiddenRegion: sanitizeHiddenBallRegion(observation, context.selected),
         })).filter(observation =>
           Number.isInteger(observation.frame)
           && flaggedFrames.includes(observation.frame)

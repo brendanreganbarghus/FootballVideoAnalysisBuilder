@@ -1543,6 +1543,16 @@ export function renderHtml({ adapter } = {}) {
       stroke-width: 5;
       vector-effect: non-scaling-stroke;
     }
+    .ball-frame-hidden-region {
+      fill: rgb(210 153 255 / 18%);
+      stroke: #d2a8ff;
+      stroke-width: 3;
+      stroke-dasharray: 10 6;
+      vector-effect: non-scaling-stroke;
+    }
+    .ball-frame-modal-media.drawing-region {
+      cursor: crosshair;
+    }
     .ball-frame-modal-details {
       padding: 0 12px 10px;
       color: #c9d1d9;
@@ -4623,6 +4633,8 @@ export function renderHtml({ adapter } = {}) {
                 <g id="ball-frame-yolo-markers"></g>
                 <circle class="ball-frame-user-marker"
                   id="ball-frame-user-marker" r="14" hidden></circle>
+                <rect class="ball-frame-hidden-region"
+                  id="ball-frame-hidden-region" hidden></rect>
               </svg>
               <div class="ball-frame-pointer" id="ball-frame-pointer" hidden>
                 <span class="ball-frame-pointer-label"
@@ -4666,7 +4678,7 @@ export function renderHtml({ adapter } = {}) {
                 <li><b>Agree with coordinate</b> — the proposed coordinate is supported.</li>
                 <li><b>YOLO candidate is correct</b> — the ball is visible in a blue ring, but the selector did not choose it.</li>
                 <li><b>Specify my own coordinate</b> — the ball is visible elsewhere.</li>
-                <li><b>Ball undefined / not visible</b> — the single camera cannot show the ball, including player occlusion.</li>
+                <li><b>Ball undefined / not visible</b> — the single camera cannot show the ball, including player occlusion. Then drag a box around where it is hidden, or save without an area.</li>
                 <li><b>Needs more checking</b> — the image is ambiguous but potentially reviewable.</li>
               </ul>
             </div>
@@ -8061,6 +8073,33 @@ export function renderHtml({ adapter } = {}) {
         userMarker.setAttribute("cx", String(observation.x));
         userMarker.setAttribute("cy", String(observation.y));
       }
+      const hiddenRegion =
+        selectedRawBallFrame === selectedBallTargetFrame
+        && observation?.decision === "undefined"
+          ? observation.hiddenRegion
+          : null;
+      const hiddenRegionMarker = document.getElementById(
+        "ball-frame-hidden-region"
+      );
+      if (ballFrameInteractionMode !== "region") {
+        media.classList.remove("drawing-region");
+        document.getElementById("undefined-ball-coordinate").textContent =
+          "Ball undefined / not visible";
+        hiddenRegionMarker.hidden = !hiddenRegion;
+        hiddenRegionMarker.style.display = hiddenRegion ? "" : "none";
+        if (hiddenRegion) {
+          hiddenRegionMarker.setAttribute("x", String(hiddenRegion.x1));
+          hiddenRegionMarker.setAttribute("y", String(hiddenRegion.y1));
+          hiddenRegionMarker.setAttribute(
+            "width",
+            String(hiddenRegion.x2 - hiddenRegion.x1)
+          );
+          hiddenRegionMarker.setAttribute(
+            "height",
+            String(hiddenRegion.y2 - hiddenRegion.y1)
+          );
+        }
+      }
       document.getElementById("ball-frame-review-target").textContent =
         (
           (state?.segment?.ballSource || "bac") === "bac"
@@ -8100,7 +8139,9 @@ export function renderHtml({ adapter } = {}) {
           : observation?.decision === "needs_more_checking"
             ? "marked as needing more checking"
           : observation?.decision === "undefined"
-            ? "ball marked undefined / not visible"
+            ? observation.hiddenRegion
+              ? "ball marked not visible, hidden inside the drawn area"
+              : "ball marked undefined / not visible"
             : observation?.decision === "yolo_candidate"
               ? "confirmed a visible YOLO candidate"
             : observation?.decision === "specified"
@@ -9562,7 +9603,7 @@ export function renderHtml({ adapter } = {}) {
       const pointerLabel = document.getElementById(
         "ball-frame-pointer-label"
       );
-      const originalBallCoordinateAtPointer = event => {
+      const originalBallCoordinateAtPointer = (event, clamp = false) => {
         const bounds = ballFrameMedia.getBoundingClientRect();
         const sourceWidth = Number(ballTrack?.width || 4450);
         const sourceHeight = Number(ballTrack?.height || 2000);
@@ -9588,6 +9629,12 @@ export function renderHtml({ adapter } = {}) {
         const offsetY = (bounds.height - renderedHeight) / 2;
         const x = (unzoomedX - offsetX) / scale;
         const y = (unzoomedY - offsetY) / scale;
+        if (clamp) {
+          return {
+            x: Math.max(0, Math.min(sourceWidth, x)),
+            y: Math.max(0, Math.min(sourceHeight, y))
+          };
+        }
         if (x < 0 || x > sourceWidth || y < 0 || y > sourceHeight) {
           return null;
         }
@@ -9728,7 +9775,58 @@ export function renderHtml({ adapter } = {}) {
       });
       let panStart = null;
       let ballFrameDidDrag = false;
+      let hiddenRegionStart = null;
+      const hiddenRegionRect = document.getElementById(
+        "ball-frame-hidden-region"
+      );
+      const drawHiddenRegion = (start, end) => {
+        hiddenRegionRect.setAttribute("x", String(Math.min(start.x, end.x)));
+        hiddenRegionRect.setAttribute("y", String(Math.min(start.y, end.y)));
+        hiddenRegionRect.setAttribute(
+          "width",
+          String(Math.abs(end.x - start.x))
+        );
+        hiddenRegionRect.setAttribute(
+          "height",
+          String(Math.abs(end.y - start.y))
+        );
+        hiddenRegionRect.hidden = false;
+        hiddenRegionRect.style.display = "";
+      };
+      const setHiddenRegionMode = active => {
+        ballFrameInteractionMode = active ? "region" : "zoom";
+        ballFrameMedia.classList.toggle("drawing-region", active);
+        document.getElementById("undefined-ball-coordinate").textContent =
+          active
+            ? "Save without an area"
+            : "Ball undefined / not visible";
+      };
+      const saveHiddenBall = hiddenRegion => {
+        setHiddenRegionMode(false);
+        void recordBallCoordinateDecision(
+          hiddenRegion
+            ? {decision: "undefined", hiddenRegion}
+            : {decision: "undefined"},
+          hiddenRegion
+            ? "marked ball not visible, hidden inside the drawn area"
+            : "marked ball undefined / not visible"
+        ).catch(error => {
+          document.getElementById(
+            "ball-coordinate-review-status"
+          ).textContent = error.message;
+        });
+      };
       ballFrameMedia.addEventListener("pointerdown", event => {
+        if (
+          ballFrameInteractionMode === "region"
+          && !event.target.closest("button")
+        ) {
+          hiddenRegionStart = originalBallCoordinateAtPointer(event, true);
+          ballFrameDidDrag = true;
+          drawHiddenRegion(hiddenRegionStart, hiddenRegionStart);
+          ballFrameMedia.setPointerCapture(event.pointerId);
+          return;
+        }
         if (
           !ballFrameMedia.classList.contains("zoomed")
           || event.target.closest("button")
@@ -9745,6 +9843,13 @@ export function renderHtml({ adapter } = {}) {
       });
       ballFrameMedia.addEventListener("pointermove", event => {
         updatePointerCoordinate(event);
+        if (hiddenRegionStart) {
+          drawHiddenRegion(
+            hiddenRegionStart,
+            originalBallCoordinateAtPointer(event, true)
+          );
+          return;
+        }
         if (!panStart) return;
         const bounds = ballFrameMedia.getBoundingClientRect();
         const deltaX = event.clientX - panStart.pointerX;
@@ -9767,6 +9872,31 @@ export function renderHtml({ adapter } = {}) {
         );
       });
       const finishBallFramePan = event => {
+        if (hiddenRegionStart) {
+          const start = hiddenRegionStart;
+          hiddenRegionStart = null;
+          if (ballFrameMedia.hasPointerCapture(event.pointerId)) {
+            ballFrameMedia.releasePointerCapture(event.pointerId);
+          }
+          const end = originalBallCoordinateAtPointer(event, true);
+          const region = {
+            x1: Math.min(start.x, end.x),
+            y1: Math.min(start.y, end.y),
+            x2: Math.max(start.x, end.x),
+            y2: Math.max(start.y, end.y)
+          };
+          if (
+            event.type === "pointerup"
+            && region.x2 - region.x1 >= 4
+            && region.y2 - region.y1 >= 4
+          ) {
+            saveHiddenBall(region);
+          } else {
+            hiddenRegionRect.hidden = true;
+            hiddenRegionRect.style.display = "none";
+          }
+          return;
+        }
         if (!panStart) return;
         if (ballFrameMedia.hasPointerCapture(event.pointerId)) {
           ballFrameMedia.releasePointerCapture(event.pointerId);
@@ -9883,6 +10013,9 @@ export function renderHtml({ adapter } = {}) {
         "click",
         () => {
           ballFrameInteractionMode = "mark";
+          ballFrameMedia.classList.remove("drawing-region");
+          document.getElementById("undefined-ball-coordinate").textContent =
+            "Ball undefined / not visible";
           ballFrameMedia.classList.add("marking");
           document.getElementById("mark-ball-location").textContent =
             "Click the image to place the ball";
@@ -9907,14 +10040,24 @@ export function renderHtml({ adapter } = {}) {
       );
       document.getElementById("undefined-ball-coordinate").addEventListener(
         "click",
-        () => void recordBallCoordinateDecision(
-          {decision: "undefined"},
-          "marked ball undefined / not visible"
-        ).catch(error => {
+        () => {
+          if (ballFrameInteractionMode === "region") {
+            saveHiddenBall(null);
+            return;
+          }
+          if (ballFrameInteractionMode === "mark") {
+            ballFrameMedia.classList.remove("marking");
+            document.getElementById("mark-ball-location").textContent =
+              "Specify my own coordinate";
+          }
+          setHiddenRegionMode(true);
           document.getElementById(
             "ball-coordinate-review-status"
-          ).textContent = error.message;
-        })
+          ).textContent =
+            "Frame " + selectedBallTargetFrame
+            + ": drag a box around where the ball is hidden (for example "
+            + "behind a player), or choose Save without an area.";
+        }
       );
       document.getElementById("needs-more-checking").addEventListener(
         "click",
