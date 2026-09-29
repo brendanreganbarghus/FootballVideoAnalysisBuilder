@@ -1528,7 +1528,8 @@ export function renderHtml({ adapter } = {}) {
       fill: none;
       fill-opacity: 0;
       stroke: #ff3b30;
-      stroke-width: 2;
+      stroke-width: 5;
+      vector-effect: none;
     }
     .ball-frame-modal-crosshair {
       fill: none;
@@ -1538,10 +1539,9 @@ export function renderHtml({ adapter } = {}) {
       vector-effect: non-scaling-stroke;
     }
     .ball-frame-user-marker {
-      fill: rgb(242 204 96 / 25%);
+      fill: none;
       stroke: #f2cc60;
-      stroke-width: 2;
-      vector-effect: non-scaling-stroke;
+      stroke-width: 5;
     }
     .ball-frame-hidden-region {
       fill: rgb(210 153 255 / 18%);
@@ -4627,12 +4627,12 @@ export function renderHtml({ adapter } = {}) {
                 id="ball-frame-modal-overlay"
                 preserveAspectRatio="xMidYMid meet" aria-hidden="true">
                 <circle class="ball-frame-modal-marker engine-coordinate"
-                  id="ball-frame-modal-marker" r="7"></circle>
+                  id="ball-frame-modal-marker" r="11"></circle>
                 <path class="ball-frame-modal-crosshair"
                   id="ball-frame-modal-crosshair"></path>
                 <g id="ball-frame-yolo-markers"></g>
                 <circle class="ball-frame-user-marker"
-                  id="ball-frame-user-marker" r="7" hidden></circle>
+                  id="ball-frame-user-marker" r="11" hidden></circle>
                 <rect class="ball-frame-hidden-region"
                   id="ball-frame-hidden-region" hidden></rect>
               </svg>
