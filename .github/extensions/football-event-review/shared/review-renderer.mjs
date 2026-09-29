@@ -8065,10 +8065,11 @@ export function renderHtml({ adapter } = {}) {
           return button;
         })
       );
-      userMarker.hidden =
+      const userMarkerHidden =
         selectedRawBallFrame !== selectedBallTargetFrame
         || !["specified", "yolo_candidate"].includes(observation?.decision);
-      userMarker.style.display = userMarker.hidden ? "none" : "";
+      userMarker.toggleAttribute("hidden", userMarkerHidden);
+      userMarker.style.display = userMarkerHidden ? "none" : "";
       if (["specified", "yolo_candidate"].includes(observation?.decision)) {
         userMarker.setAttribute("cx", String(observation.x));
         userMarker.setAttribute("cy", String(observation.y));
@@ -8085,7 +8086,7 @@ export function renderHtml({ adapter } = {}) {
         media.classList.remove("drawing-region");
         document.getElementById("undefined-ball-coordinate").textContent =
           "Ball undefined / not visible";
-        hiddenRegionMarker.hidden = !hiddenRegion;
+        hiddenRegionMarker.toggleAttribute("hidden", Boolean(!hiddenRegion));
         hiddenRegionMarker.style.display = hiddenRegion ? "" : "none";
         if (hiddenRegion) {
           hiddenRegionMarker.setAttribute("x", String(hiddenRegion.x1));
@@ -9790,7 +9791,7 @@ export function renderHtml({ adapter } = {}) {
           "height",
           String(Math.abs(end.y - start.y))
         );
-        hiddenRegionRect.hidden = false;
+        hiddenRegionRect.toggleAttribute("hidden", Boolean(false));
         hiddenRegionRect.style.display = "";
       };
       const setHiddenRegionMode = active => {
@@ -9892,7 +9893,7 @@ export function renderHtml({ adapter } = {}) {
           ) {
             saveHiddenBall(region);
           } else {
-            hiddenRegionRect.hidden = true;
+            hiddenRegionRect.toggleAttribute("hidden", Boolean(true));
             hiddenRegionRect.style.display = "none";
           }
           return;
