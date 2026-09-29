@@ -1529,6 +1529,7 @@ export function renderHtml({ adapter } = {}) {
       fill-opacity: 0;
       stroke: #ff3b30;
       stroke-width: 5;
+      stroke-dasharray: 9 6;
       vector-effect: none;
     }
     .ball-frame-modal-crosshair {
@@ -4626,11 +4627,11 @@ export function renderHtml({ adapter } = {}) {
               <svg class="ball-frame-modal-overlay"
                 id="ball-frame-modal-overlay"
                 preserveAspectRatio="xMidYMid meet" aria-hidden="true">
-                <circle class="ball-frame-modal-marker engine-coordinate"
-                  id="ball-frame-modal-marker" r="11"></circle>
                 <path class="ball-frame-modal-crosshair"
                   id="ball-frame-modal-crosshair"></path>
                 <g id="ball-frame-yolo-markers"></g>
+                <circle class="ball-frame-modal-marker engine-coordinate"
+                  id="ball-frame-modal-marker" r="11"></circle>
                 <circle class="ball-frame-user-marker"
                   id="ball-frame-user-marker" r="11" hidden></circle>
                 <rect class="ball-frame-hidden-region"
