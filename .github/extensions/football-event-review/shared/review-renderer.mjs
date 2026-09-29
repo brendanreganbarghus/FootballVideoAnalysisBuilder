@@ -7571,6 +7571,45 @@ export function renderHtml({ adapter } = {}) {
         ...(selectedBatch?.observations || {}),
         ...ballCoordinateObservations
       };
+      if (selectedBatch?.status === "ready") {
+        const earlierDecisions = new Map();
+        batches.filter(batch => batch !== selectedBatch).forEach(batch =>
+          Object.entries(batch.observations || {}).forEach(
+            ([frame, observation]) => earlierDecisions.set(frame, observation)
+          )
+        );
+        Object.entries(ballCoordinateObservations).forEach(
+          ([frame, observation]) => {
+            const earlier = earlierDecisions.get(frame);
+            if (
+              !selectedBatch.observations?.[frame]
+              && earlier?.decision === observation?.decision
+              && (
+                ["undefined", "needs_more_checking"]
+                  .includes(observation?.decision)
+                || (
+                  Math.abs(Number(earlier.x) - Number(observation.x)) <= 1
+                  && Math.abs(Number(earlier.y) - Number(observation.y)) <= 1
+                )
+              )
+            ) {
+              delete ballCoordinateObservations[frame];
+            }
+          }
+        );
+        localStorage.setItem(
+          ballCoordinateObservationStorageKey(),
+          JSON.stringify(ballCoordinateObservations)
+        );
+      }
+      const unsyncedFrames = Object.keys(ballCoordinateObservations).filter(
+        frame => !selectedBatch?.observations?.[frame]
+      );
+      if (selectedBatch?.status === "ready" && unsyncedFrames.length) {
+        unsyncedFrames.map(Number).filter(Number.isInteger)
+          .forEach(frame => flaggedBallFrames.add(frame));
+        saveBallFrameFlags().catch(() => {});
+      }
     }
 
     function readyCoordinateBatch() {
@@ -8477,9 +8516,21 @@ export function renderHtml({ adapter } = {}) {
         frame: reviewedFrame,
         description
       };
-      await saveBallFrameFlags();
+      let saveError = null;
+      try {
+        await saveBallFrameFlags();
+      } catch (error) {
+        saveError = error;
+      }
       renderBallFrames();
       showRawBallFrame(reviewedFrame, true);
+      if (saveError) {
+        document.getElementById("ball-coordinate-review-status").textContent =
+          "Frame " + reviewedFrame + ": " + description
+          + ". NOT saved to the database: " + saveError.message
+          + ". Your decisions are kept in this page; do not close it.";
+        return;
+      }
       document.getElementById("ball-coordinate-review-status").textContent =
         (state?.segment?.ballSource || "bac") === "bac"
           ? "Frame " + reviewedFrame + ": " + description
@@ -8561,6 +8612,10 @@ export function renderHtml({ adapter } = {}) {
           ? "Read-only: inspect coordinates; recovery submissions are closed."
           : selectedCoordinateBatchId === "all"
             ? "All frames is read-only and shows persisted direct coordinates only."
+          : batch?.status === "done" && batch.closedWithoutRerunAt
+            ? "Round " + batch.number + " closed · "
+              + Object.keys(batch.observations || {}).length
+              + " decisions kept. Read-only."
           : batch?.status === "done"
             ? "Round " + batch.number + " completed "
               + formatCoordinateBatchTime(batch.rerunCompletedAt) + " · "
@@ -8607,8 +8662,8 @@ export function renderHtml({ adapter } = {}) {
         + (ballTrack?.integrityRejectedFrames?.length || 0) + ")";
       filter.options[2].textContent =
         latestReviewSelected
-          ? "Latest Round " + batch.number + " review ("
-            + flaggedBallFrames.size + ")"
+          ? "Round " + batch.number + " to review ("
+            + (batch.frames?.length || 0) + " frames)"
           : "Selected round frames (" + flaggedBallFrames.size + ")";
       filter.options[2].classList.toggle(
         "latest-review",
@@ -8806,8 +8861,12 @@ export function renderHtml({ adapter } = {}) {
             review.textContent = "Review finalized";
           } else if (selectedCoordinateBatchId === "all") {
             review.textContent = readyCoordinateBatch()
-              ? "Open to add to Round " + readyCoordinateBatch().number
+              ? "Not in Round yet · your decision adds it to Round " + readyCoordinateBatch().number
               : "Inspect only";
+          } else if (batch?.status === "done" && batch.closedWithoutRerunAt) {
+            review.textContent = observation?.approved
+              ? "Decision kept"
+              : "Moved to next round";
           } else if (batch?.status === "done") {
             const rerunResult = {
               fixed: "resolved",
@@ -8822,11 +8881,11 @@ export function renderHtml({ adapter } = {}) {
               batch?.status === "ready" && batch.frames.includes(point.frame)
                 ? "Review in Round " + batch.number
                 : readyCoordinateBatch()
-                  ? "Open to add to Round " + readyCoordinateBatch().number
+                  ? "Not in Round yet · your decision adds it to Round " + readyCoordinateBatch().number
                   : "Inspect only";
           } else if (!reviewableFrame) {
             review.textContent = batch
-              ? "Open to add to Round " + batch.number
+              ? "Not in Round yet · your decision adds it to Round " + batch.number
               : "Not in active round";
           } else {
             const reviewStatus = document.createElement("span");
@@ -8880,6 +8939,12 @@ export function renderHtml({ adapter } = {}) {
         );
         button.textContent = "Round " + candidate.number + " · "
           + coordinateBatchStatusLabel(candidate.status);
+        const openRound = readyCoordinateBatch();
+        button.disabled = Boolean(openRound && candidate.id !== openRound.id);
+        if (button.disabled) {
+          button.title = "Closed. Only Round " + openRound.number
+            + " is open for decisions.";
+        }
         button.addEventListener("click", () => {
           selectedCoordinateBatchId = candidate.id;
           loadBallFrameFlags();
@@ -12464,6 +12529,9 @@ export function renderHtml({ adapter } = {}) {
                   state.coordinateReview?.activeBatchId || null;
               }
               loadBallFrameFlags();
+              if (readyCoordinateBatch()) {
+                document.getElementById("ball-frame-filter").value = "flagged";
+              }
           }
           const resetForReadySegment =
             previousSegmentKey !== state.segment.key

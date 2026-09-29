@@ -12,7 +12,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { createServer } from "node:http";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import {
   dirname,
   join,
@@ -4443,6 +4443,133 @@ function activeCoordinateBatch(state) {
     || null;
 }
 
+function sameCoordinateDecision(left, right) {
+  if (!left || !right || left.decision !== right.decision) return false;
+  if (["undefined", "needs_more_checking"].includes(left.decision)) {
+    return true;
+  }
+  return Math.abs(Number(left.x) - Number(right.x)) <= 1
+    && Math.abs(Number(left.y) - Number(right.y)) <= 1;
+}
+
+// A ready round must only hold frames that still need a decision plus the
+// decisions made in it; stale copies of earlier rounds' decisions are dropped.
+function dedupeReadyCoordinateRound(batches, batch) {
+  const earlier = new Map();
+  for (const candidate of batches) {
+    if (candidate === batch) continue;
+    for (const [frame, observation] of Object.entries(
+      candidate.observations || {},
+    )) {
+      earlier.set(Number(frame), observation);
+    }
+  }
+  const observations = {};
+  let removed = 0;
+  for (const [frame, observation] of Object.entries(
+    batch.observations || {},
+  )) {
+    if (sameCoordinateDecision(observation, earlier.get(Number(frame)))) {
+      removed += 1;
+      continue;
+    }
+    observations[frame] = observation;
+  }
+  batch.observations = observations;
+  batch.frames = [...new Set(batch.frames || [])]
+    .map(Number)
+    .filter((frame) =>
+      Number.isInteger(frame)
+      && (!earlier.has(frame) || observations[String(frame)])
+    )
+    .sort((left, right) => left - right);
+  return removed;
+}
+
+async function repairReadyCoordinateRound(segment) {
+  const context = await reviewContext(segment);
+  const batch = activeCoordinateBatch(context.state);
+  if (!batch || batch.status !== "ready") {
+    throw new CanvasError(
+      "ball_coordinate_round_not_ready",
+      "There is no ready coordinate round to repair.",
+    );
+  }
+  const removed = dedupeReadyCoordinateRound(
+    context.state.coordinateReview.batches || [],
+    batch,
+  );
+  context.state.coordinateReview.flaggedFrames = batch.frames;
+  await saveState(segment, context.state);
+  return {
+    batchId: batch.id,
+    removedDuplicates: removed,
+    frameCount: batch.frames.length,
+    decisions: Object.keys(batch.observations).length,
+  };
+}
+
+async function advanceCoordinateRound(segment) {
+  const context = await reviewContext(segment);
+  const current = activeCoordinateBatch(context.state);
+  if (!current || current.status !== "ready") {
+    throw new CanvasError(
+      "ball_coordinate_round_not_ready",
+      "Only a ready coordinate round can be closed.",
+    );
+  }
+  const batches = context.state.coordinateReview.batches || [];
+  const decided = new Set(batches.flatMap((candidate) =>
+    Object.keys(candidate.observations || {}).map(Number)
+  ));
+  const sampled = (
+    await loadDetectedBallTrack(
+      context.selected,
+      {allowDetectionOnly: true},
+    )
+  )?.states?.map((point) => Number(point.frame)) || [];
+  const frames = [...new Set(sampled)]
+    .filter((frame) => Number.isInteger(frame) && !decided.has(frame))
+    .sort((left, right) => left - right);
+  const closedAt = new Date().toISOString();
+  Object.assign(current, {
+    status: "done",
+    frames: Object.keys(current.observations || {})
+      .map(Number)
+      .sort((left, right) => left - right),
+    closedWithoutRerunAt: closedAt,
+    closedReason: "Decisions kept; undecided frames moved to the next round.",
+  });
+  if (!frames.length) {
+    context.state.coordinateReview.activeBatchId = null;
+    await saveState(segment, context.state);
+    return {closed: current.id, frameCount: 0};
+  }
+  const nextNumber = Math.max(
+    0,
+    ...batches.map((candidate) => Number(candidate.number || 0)),
+  ) + 1;
+  const nextBatch = {
+    id: `coordinate-round-${nextNumber}`,
+    number: nextNumber,
+    status: "ready",
+    frames,
+    observations: {},
+    createdAt: closedAt,
+    frameResults: {},
+    carryForward: {},
+  };
+  batches.push(nextBatch);
+  context.state.coordinateReview.activeBatchId = nextBatch.id;
+  context.state.coordinateReview.flaggedFrames = frames;
+  await saveState(segment, context.state);
+  return {
+    closed: current.id,
+    batchId: nextBatch.id,
+    frameCount: frames.length,
+  };
+}
+
 async function coordinateOutputSnapshot(selected) {
   const [track, provenance] = await Promise.all([
     loadDetectedBallTrack(selected),
@@ -5204,6 +5331,29 @@ function sendJson(response, status, payload) {
     "Content-Length": Buffer.byteLength(body),
   });
   response.end(body);
+}
+
+async function backupCoordinateDraftBody(body) {
+  try {
+    const directory = join(
+      tmpdir(),
+      "football-review-coordinate-draft-backups",
+    );
+    await mkdir(directory, {recursive: true});
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    await writeFile(
+      join(directory, stamp + "-" + randomUUID().slice(0, 8) + ".json"),
+      JSON.stringify(body),
+    );
+    console.error(
+      "[coordinate-batch-draft] backup saved",
+      body?.segment,
+      body?.batchId,
+      Array.isArray(body?.observations) ? body.observations.length : 0,
+    );
+  } catch (error) {
+    console.error("[coordinate-batch-draft] backup failed", error?.message);
+  }
 }
 
 async function readBody(request, maximumBytes = 16_384) {
@@ -7935,6 +8085,20 @@ async function handleRequest(request, response, serverInstanceId) {
   }
   if (
     request.method === "POST"
+    && url.pathname === "/api/coordinate-round-advance"
+  ) {
+    const body = await readBody(request);
+    try {
+      sendJson(response, 200, await advanceCoordinateRound(
+        requestedSegment(url, body),
+      ));
+    } catch (error) {
+      sendJson(response, 409, {error: error.message});
+    }
+    return;
+  }
+  if (
+    request.method === "POST"
     && url.pathname === "/api/finalize-ball-coordinate-review"
   ) {
     const body = await readBody(request);
@@ -7997,7 +8161,8 @@ async function handleRequest(request, response, serverInstanceId) {
     request.method === "POST"
     && url.pathname === "/api/coordinate-batch-draft"
   ) {
-    const body = await readBody(request);
+    const body = await readBody(request, 524_288);
+    await backupCoordinateDraftBody(body);
     const segment = requestedSegment(url, body);
     const context = await reviewContext(segment);
     const batch = context.state.coordinateReview?.batches?.find(
@@ -8009,8 +8174,15 @@ async function handleRequest(request, response, serverInstanceId) {
       });
       return;
     }
+    const decidedFrames = (Array.isArray(body.observations)
+      ? body.observations
+      : []
+    ).map((observation) => Number(observation?.frame));
     const frames = [...new Set(
-      (Array.isArray(body.frames) ? body.frames : [])
+      [
+        ...(Array.isArray(body.frames) ? body.frames : []),
+        ...decidedFrames,
+      ]
         .map(Number)
         .filter(Number.isInteger),
     )].sort((left, right) => left - right);
@@ -8072,13 +8244,17 @@ async function handleRequest(request, response, serverInstanceId) {
       ]),
     );
     batch.draftUpdatedAt = new Date().toISOString();
-    context.state.coordinateReview.flaggedFrames = frames;
+    dedupeReadyCoordinateRound(
+      context.state.coordinateReview.batches || [],
+      batch,
+    );
+    context.state.coordinateReview.flaggedFrames = batch.frames;
     await saveState(segment, context.state);
     sendJson(response, 200, {
       saved: true,
       batchId: batch.id,
-      frameCount: frames.length,
-      observationCount: observations.length,
+      frameCount: batch.frames.length,
+      observationCount: Object.keys(batch.observations).length,
     });
     return;
   }
@@ -9358,6 +9534,30 @@ session = await joinSession({
               rerunStarted: false,
             };
           },
+        },
+        {
+          name: "advance_ball_coordinate_round",
+          description: "Close the ready coordinate round keeping every saved decision, and open the next round containing only sampled frames without any decision. Does not alter tracker output.",
+          inputSchema: {
+            type: "object",
+            properties: {segment: {type: "string"}},
+            required: ["segment"],
+            additionalProperties: false,
+          },
+          handler: async (context) =>
+            advanceCoordinateRound(String(context.input.segment)),
+        },
+        {
+          name: "repair_ball_coordinate_round",
+          description: "Remove stale duplicates of earlier rounds' decisions from the ready coordinate round, keeping only undecided frames and decisions made in that round.",
+          inputSchema: {
+            type: "object",
+            properties: {segment: {type: "string"}},
+            required: ["segment"],
+            additionalProperties: false,
+          },
+          handler: async (context) =>
+            repairReadyCoordinateRound(String(context.input.segment)),
         },
         {
           name: "reject_ball_coordinate_review",
