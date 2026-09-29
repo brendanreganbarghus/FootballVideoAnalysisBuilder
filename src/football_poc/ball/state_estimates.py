@@ -10,6 +10,7 @@ DIRECT_EVIDENCE_MODULES = frozenset(
         "03_motion_and_optical_flow",
         "04_focused_multiscale",
         "05_short_stationary",
+        "06_time_machine_region_search",
     }
 )
 

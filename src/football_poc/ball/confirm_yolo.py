@@ -5,6 +5,63 @@ from .settings import *  # noqa: F401,F403
 
 CONFIRM_YOLO_MODULE = "01_confirm_yolo"
 
+# A ball seen resting at the same spot on both sides of a short window cannot
+# have been somewhere else in between: leaving and being returned to rest at the
+# same spot needs several touches, which the evidence does not show.
+RESTING_BALL_WINDOW_SECONDS = 3.0
+RESTING_BALL_RADIUS_DIAMETERS = 3.0
+MINIMUM_BALL_DIAMETER_PIXELS = 8.0
+
+
+def _leaves_resting_ball(
+    x: float,
+    y: float,
+    frame: int,
+    *,
+    previous: Any,
+    following: Any,
+    fps: float,
+) -> bool:
+    if previous is None or following is None or fps <= 0:
+        return False
+    if not previous.source_frame < frame < following.source_frame:
+        return False
+    if (
+        following.source_frame - previous.source_frame
+    ) / fps > RESTING_BALL_WINDOW_SECONDS:
+        return False
+    diameter = max(
+        float(previous.box_diagonal or 0.0),
+        float(following.box_diagonal or 0.0),
+        MINIMUM_BALL_DIAMETER_PIXELS,
+    )
+    radius = RESTING_BALL_RADIUS_DIAMETERS * diameter
+    if hypot(
+        float(previous.x) - float(following.x),
+        float(previous.y) - float(following.y),
+    ) > radius:
+        return False
+    return hypot(
+        x - (float(previous.x) + float(following.x)) / 2,
+        y - (float(previous.y) + float(following.y)) / 2,
+    ) > radius
+
+
+def _confirmed_bracket(
+    entries: Iterable[Any],
+    frame: int,
+) -> tuple[Any, Any]:
+    ordered = sorted(entries, key=lambda entry: entry.source_frame)
+    previous = next(
+        (entry for entry in reversed(ordered) if entry.source_frame < frame),
+        None,
+    )
+    following = next(
+        (entry for entry in ordered if entry.source_frame > frame),
+        None,
+    )
+    return previous, following
+
 
 def _same_position_static_reason(
     point: BallPoint,
@@ -99,6 +156,7 @@ def _candidate_rejection_reason(
     max_speed_pixels_per_second: float,
     minimum_confidence: float,
     require_moving_neighbour: bool,
+    ledger: FrameLedger | None = None,
 ) -> tuple[str | None, bool]:
     if point.confidence < minimum_confidence:
         return "low_detector_confidence", False
@@ -115,8 +173,21 @@ def _candidate_rejection_reason(
         candidate.point == point and candidate.near_player_feet
         for candidate in candidates_by_frame.get(point.source_frame, [])
     )
-    if near_feet:
+    if near_feet and not require_moving_neighbour:
         return None, True
+    if require_moving_neighbour and ledger is not None:
+        # An unselected candidate must also be reachable from the confirmed
+        # ball; being near a player's feet alone is not evidence of the ball.
+        if _speed_from_confirmed_neighbour(
+            point,
+            ledger,
+            fps=fps,
+            frame_step=frame_step,
+        ) > max_speed_pixels_per_second * 1.25 and any(
+            entry.status == "confirmed"
+            for entry in ledger.entries.values()
+        ):
+            return "unreachable_from_confirmed_ball", near_feet
     neighbours = candidates_by_frame
     if require_moving_neighbour:
         neighbours = {
@@ -154,6 +225,7 @@ def _confirm_yolo_detections(
     frame_step: int,
     max_speed_pixels_per_second: float,
     minimum_confidence: float = 0.10,
+    video: Path | None = None,
 ) -> FrameLedger:
     best_by_frame: dict[int, BallPoint] = {}
     for point in detector_points:
@@ -203,6 +275,7 @@ def _confirm_yolo_detections(
                 max_speed_pixels_per_second=max_speed_pixels_per_second,
                 minimum_confidence=minimum_confidence,
                 require_moving_neighbour=alternative,
+                ledger=ledger,
             )
             if reason is not None:
                 if rejection is None:
@@ -234,4 +307,299 @@ def _confirm_yolo_detections(
                 CONFIRM_YOLO_MODULE,
                 rejection or "no_yolo_candidate",
             )
+    _reject_confirmations_that_leave_resting_ball(ledger, fps=fps)
+
+    if video is not None:
+        _extend_resting_ball_confirmations(ledger, video=video, fps=fps)
     return ledger
+
+
+# A resting ball stays where it is until a player moves it. Once two detections
+# agree the ball is resting, each neighbouring frame keeps the ball at that spot
+# while the pixels inside the ball disc still match the detected ball and still
+# stand out from the surrounding grass. The walk stops at the first frame where
+# the disc changes, which is where the ball was moved or covered.
+RESTING_ANCHOR_RADIUS_DIAMETERS = 1.0
+RESTING_DISC_MINIMUM_CONTRAST = 8.0
+RESTING_DISC_MAXIMUM_CHANGE_RATIO = 0.5
+RESTING_DISC_MINIMUM_CONTRAST_RATIO = 0.5
+RESTING_STRONG_ELSEWHERE_CONFIDENCE = 0.5
+
+
+def _resting_disc_masks(diameter: float) -> tuple[int, np.ndarray, np.ndarray]:
+    inner_radius = max(2.0, diameter * 0.4)
+    ring_inner = diameter * 0.7
+    ring_outer = diameter * 1.1
+    half = int(np.ceil(ring_outer)) + 1
+    offsets_y, offsets_x = np.mgrid[-half : half + 1, -half : half + 1]
+    distance = np.hypot(offsets_x, offsets_y)
+    return (
+        half,
+        distance <= inner_radius,
+        (distance >= ring_inner) & (distance <= ring_outer),
+    )
+
+
+def _resting_patch(
+    grayscale: np.ndarray,
+    x: float,
+    y: float,
+    half: int,
+) -> np.ndarray | None:
+    center_x = round(x)
+    center_y = round(y)
+    top = center_y - half
+    left = center_x - half
+    if (
+        top < 0
+        or left < 0
+        or center_y + half + 1 > grayscale.shape[0]
+        or center_x + half + 1 > grayscale.shape[1]
+    ):
+        return None
+    return grayscale[
+        top : center_y + half + 1,
+        left : center_x + half + 1,
+    ].astype(np.float32)
+
+
+def _ball_still_resting(
+    reference: np.ndarray,
+    target: np.ndarray,
+    inner: np.ndarray,
+    ring: np.ndarray,
+) -> bool:
+    reference_contrast = float(reference[inner].mean() - reference[ring].mean())
+    if abs(reference_contrast) < RESTING_DISC_MINIMUM_CONTRAST:
+        return False
+    target_contrast = float(target[inner].mean() - target[ring].mean())
+    if (
+        target_contrast * reference_contrast <= 0
+        or abs(target_contrast)
+        < abs(reference_contrast) * RESTING_DISC_MINIMUM_CONTRAST_RATIO
+    ):
+        return False
+    change = float(np.abs(target - reference)[inner].mean())
+    return change <= abs(reference_contrast) * RESTING_DISC_MAXIMUM_CHANGE_RATIO
+
+
+def _resting_ball_anchors(
+    ledger: FrameLedger,
+    *,
+    fps: float,
+) -> list[tuple[Any, Any]]:
+    detected = sorted(
+        (
+            entry
+            for entry in ledger.entries.values()
+            if entry.status == "confirmed"
+            and entry.confirming_module == CONFIRM_YOLO_MODULE
+            and entry.point_source_attribution == "yolo26_observed"
+        ),
+        key=lambda entry: entry.source_frame,
+    )
+    anchors: list[tuple[Any, Any]] = []
+    for index, first in enumerate(detected):
+        for second in detected[index + 1 :]:
+            if (
+                second.source_frame - first.source_frame
+            ) / fps > RESTING_BALL_WINDOW_SECONDS:
+                break
+            diameter = max(
+                float(first.box_diagonal or 0.0),
+                float(second.box_diagonal or 0.0),
+                MINIMUM_BALL_DIAMETER_PIXELS,
+            )
+            if hypot(
+                float(first.x) - float(second.x),
+                float(first.y) - float(second.y),
+            ) <= RESTING_ANCHOR_RADIUS_DIAMETERS * diameter:
+                anchors.append((first, second))
+                break
+    return anchors
+
+
+def _is_movable_detection(entry: Any) -> bool:
+    return (
+        entry.confirming_module == CONFIRM_YOLO_MODULE
+        and float(entry.confidence or 0.0) < RESTING_STRONG_ELSEWHERE_CONFIDENCE
+    )
+
+
+def _extend_resting_ball_confirmations(
+    ledger: FrameLedger,
+    *,
+    video: Path,
+    fps: float,
+) -> None:
+    anchors = _resting_ball_anchors(ledger, fps=fps)
+    if not anchors:
+        return
+    frames = sorted(ledger.entries)
+    grayscale = _read_sampled_grayscale_frames(video, frames)
+    rest_spans: list[tuple[int, int, float, float, float]] = []
+    for first, second in anchors:
+        diameter = max(
+            float(first.box_diagonal or 0.0),
+            float(second.box_diagonal or 0.0),
+            MINIMUM_BALL_DIAMETER_PIXELS,
+        )
+        rest_x = (float(first.x) + float(second.x)) / 2
+        rest_y = (float(first.y) + float(second.y)) / 2
+        radius = RESTING_BALL_RADIUS_DIAMETERS * diameter
+        if any(
+            (current := ledger.confirmed(anchor.source_frame)) is None
+            or hypot(float(current.x) - rest_x, float(current.y) - rest_y)
+            > radius
+            for anchor in (first, second)
+        ):
+            continue
+        # One ball: a second resting spot inside an established rest span is
+        # a stationary false positive, not the ball.
+        if any(
+            start <= first.source_frame <= end
+            and hypot(rest_x - span_x, rest_y - span_y) > span_radius
+            for start, end, span_x, span_y, span_radius in rest_spans
+        ):
+            for anchor in (first, second):
+                current = ledger.confirmed(anchor.source_frame)
+                if current is not None and _is_movable_detection(current):
+                    ledger.withdraw(
+                        anchor.source_frame,
+                        CONFIRM_YOLO_MODULE,
+                        "ball_still_resting_elsewhere",
+                    )
+            continue
+        half, inner, ring = _resting_disc_masks(diameter)
+        reference_frame = grayscale.get(first.source_frame)
+        reference = (
+            _resting_patch(reference_frame, rest_x, rest_y, half)
+            if reference_frame is not None
+            else None
+        )
+        if reference is None:
+            continue
+        evidence = {
+            "resting_ball_anchor_frames": [
+                first.source_frame,
+                second.source_frame,
+            ],
+            "resting_disc_matches_detected_ball": True,
+        }
+        confidence = min(
+            float(first.confidence or 0.0),
+            float(second.confidence or 0.0),
+        )
+        span_start = first.source_frame
+        span_end = first.source_frame
+        start_index = frames.index(first.source_frame)
+        for direction in (1, -1):
+            last_match = first.source_frame
+            covered: list[int] = []
+            index = start_index + direction
+            while 0 <= index < len(frames):
+                frame = frames[index]
+                index += direction
+                if abs(frame - last_match) / fps > RESTING_BALL_WINDOW_SECONDS:
+                    break
+                entry = ledger.entries[frame]
+                at_rest = entry.status == "confirmed" and hypot(
+                    float(entry.x) - rest_x,
+                    float(entry.y) - rest_y,
+                ) <= radius
+                if not at_rest:
+                    target_frame = grayscale.get(frame)
+                    target = (
+                        _resting_patch(target_frame, rest_x, rest_y, half)
+                        if target_frame is not None
+                        else None
+                    )
+                    if target is None or not _ball_still_resting(
+                        reference,
+                        target,
+                        inner,
+                        ring,
+                    ):
+                        # Covered frames stay unresolved; they only join the
+                        # rest span if the ball is seen at rest again.
+                        covered.append(frame)
+                        continue
+                    if entry.status == "confirmed":
+                        if not _is_movable_detection(entry):
+                            break
+                        ledger.withdraw(
+                            frame,
+                            CONFIRM_YOLO_MODULE,
+                            "ball_still_resting_elsewhere",
+                        )
+                    ledger.confirm(
+                        frame,
+                        x=rest_x,
+                        y=rest_y,
+                        confirming_module=CONFIRM_YOLO_MODULE,
+                        evidence=evidence,
+                        confidence=confidence,
+                        box_diagonal=diameter,
+                        point_evidence="resting_ball_persistence",
+                        point_source_attribution="temporal_detector_observed",
+                    )
+                for gap_frame in covered:
+                    gap_entry = ledger.confirmed(gap_frame)
+                    if gap_entry is not None and _is_movable_detection(gap_entry):
+                        ledger.withdraw(
+                            gap_frame,
+                            CONFIRM_YOLO_MODULE,
+                            "ball_still_resting_elsewhere",
+                        )
+                covered = []
+                last_match = frame
+            span_start = min(span_start, last_match)
+            span_end = max(span_end, last_match)
+        rest_spans.append((span_start, span_end, rest_x, rest_y, radius))
+
+def _reject_confirmations_that_leave_resting_ball(
+    ledger: FrameLedger,
+    *,
+    fps: float,
+) -> None:
+    """Withdraw this module's detections that contradict a resting ball.
+
+    The check runs once all detections are known, so a ball resting at the same
+    spot before and after a detection elsewhere wins over that one detection.
+    """
+    confirmed = [
+        entry
+        for entry in ledger.entries.values()
+        if entry.status == "confirmed"
+        and entry.confirming_module == CONFIRM_YOLO_MODULE
+    ]
+    for entry in confirmed:
+        others = [
+            other
+            for other in confirmed
+            if other.source_frame != entry.source_frame
+        ]
+        previous, following = _confirmed_bracket(others, entry.source_frame)
+        if (
+            previous is not None
+            and following is not None
+            and float(entry.confidence or 0.0)
+            > min(
+                float(previous.confidence or 0.0),
+                float(following.confidence or 0.0),
+            )
+        ):
+            continue
+        if _leaves_resting_ball(
+            float(entry.x),
+            float(entry.y),
+            entry.source_frame,
+            previous=previous,
+            following=following,
+            fps=fps,
+        ):
+            ledger.withdraw(
+                entry.source_frame,
+                CONFIRM_YOLO_MODULE,
+                "leaves_and_returns_to_resting_ball",
+            )

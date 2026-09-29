@@ -118,6 +118,30 @@ class FrameLedger:
             ),
         )
 
+    def withdraw(self, frame: int, module: str, reason: str) -> None:
+        """Return a confirmation to unresolved within the confirming module.
+
+        Only the module that confirmed a frame may withdraw it, while that
+        module is still running; later modules still cannot edit a lock.
+        """
+        source_frame = int(frame)
+        current = self._entries.get(source_frame)
+        if current is None or current.status != "confirmed":
+            return
+        if current.confirming_module != str(module):
+            raise ValueError(
+                f"Frame {source_frame} was confirmed by "
+                f"{current.confirming_module}, not {module}"
+            )
+        self._entries[source_frame] = FrameLedgerEntry(
+            source_frame=source_frame,
+            clip_seconds=current.clip_seconds,
+            rejection_reasons=(
+                *current.rejection_reasons,
+                {"module": str(module), "reason": str(reason)},
+            ),
+        )
+
     def unresolved_frames(self) -> tuple[int, ...]:
         return tuple(
             frame

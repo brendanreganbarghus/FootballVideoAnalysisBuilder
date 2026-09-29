@@ -102,6 +102,15 @@ def _proposal_allowed_by_confirmed_neighbours(
         ),
         None,
     )
+    if _leaves_resting_ball(
+        point.x,
+        point.y,
+        point.source_frame,
+        previous=previous,
+        following=following,
+        fps=fps,
+    ):
+        return False
     for anchor in (previous, following):
         if anchor is None:
             continue
@@ -424,6 +433,7 @@ def _track_cached_balls_impl(
         fps=manifest.fps,
         frame_step=frame_step,
         max_speed_pixels_per_second=max_speed_pixels_per_second,
+        video=manifest.video,
     )
     ledger, raw_motion_diagnostics, dense_flow_diagnostics = _timed_tracker_call(
         "03_motion_and_optical_flow",
@@ -470,6 +480,18 @@ def _track_cached_balls_impl(
         stationary_tracks,
         records_by_frame=records_by_frame,
         fps=manifest.fps,
+        max_speed_pixels_per_second=max_speed_pixels_per_second,
+    )
+    ledger = _timed_tracker_call(
+        "06_time_machine_region_search",
+        _confirm_time_machine_region_search,
+        ledger,
+        records_by_frame=records_by_frame,
+        video=manifest.video,
+        model_path=Path(str(metadata["model"])),
+        fps=manifest.fps,
+        width=width,
+        height=height,
         max_speed_pixels_per_second=max_speed_pixels_per_second,
     )
     # The time machine runs last so visual recovery modules see every gap
@@ -529,6 +551,7 @@ def _track_cached_balls_impl(
                         "03_motion_and_optical_flow",
                         "04_focused_multiscale",
                         "05_short_stationary",
+                        "06_time_machine_region_search",
                         "02_time_machine",
                     ],
                     "summary": ledger.module_summary(),

@@ -8,6 +8,7 @@ _MODULE_ORDER = (
     "ledger.py",
     "confirm_yolo.py",
     "time_machine.py",
+    "time_machine_search.py",
     "tracker.py",
     "state_estimates.py",
     "selection.py",

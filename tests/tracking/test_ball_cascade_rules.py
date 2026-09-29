@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import numpy as np
 import pytest
 
 import football_poc.ball_tracking as ball_tracking
@@ -246,3 +247,270 @@ def test_unselected_yolo_candidate_confirms_when_trajectory_is_static_20260928T2
     assert (ledger.confirmed(1).x, ledger.confirmed(1).y) == (51.0, 50.0)
     assert ledger.confirmed(0).evidence["selected_trajectory_candidate"] is False
     assert ledger.confirmed(5) is None
+
+
+def _resting_frames(ball_frames: set[int], frame_count: int):
+    import numpy as np
+
+    frames = {}
+    for frame in range(frame_count):
+        image = np.full((80, 80), 60, dtype=np.uint8)
+        if frame in ball_frames:
+            yy, xx = np.mgrid[0:80, 0:80]
+            image[np.hypot(xx - 40, yy - 40) <= 4] = 200
+        frames[frame] = image
+    return frames
+
+
+def _resting_ledger(frame_count: int) -> ball_tracking.FrameLedger:
+    ledger = ball_tracking.FrameLedger(
+        (frame, frame / 5) for frame in range(frame_count)
+    )
+    for frame in (0, 1):
+        ledger.confirm(
+            frame,
+            x=40.0,
+            y=40.0,
+            confirming_module="01_confirm_yolo",
+            evidence={},
+            confidence=0.12,
+            box_diagonal=10.0,
+        )
+    return ledger
+
+
+def test_resting_ball_persists_while_disc_matches_20260928T230831649Z(monkeypatch) -> None:
+    """A detected resting ball stays at its spot until its disc changes."""
+    frames = _resting_frames(set(range(6)), 9)
+    monkeypatch.setattr(
+        ball_tracking,
+        "_read_sampled_grayscale_frames",
+        lambda _video, _frames: frames,
+    )
+    ledger = _resting_ledger(9)
+
+    ball_tracking._extend_resting_ball_confirmations(
+        ledger,
+        video=ball_tracking.Path("unused.mp4"),
+        fps=5,
+    )
+
+    for frame in range(2, 6):
+        entry = ledger.confirmed(frame)
+        assert entry.point_evidence == "resting_ball_persistence"
+        assert (entry.x, entry.y) == (40.0, 40.0)
+    assert ledger.confirmed(6) is None
+
+
+def test_resting_ball_replaces_weak_detection_elsewhere_20260928T230831686Z(monkeypatch) -> None:
+    """A weak detection elsewhere loses to a ball still visibly at rest."""
+    frames = _resting_frames(set(range(6)), 6)
+    monkeypatch.setattr(
+        ball_tracking,
+        "_read_sampled_grayscale_frames",
+        lambda _video, _frames: frames,
+    )
+    ledger = _resting_ledger(6)
+    ledger.confirm(
+        3,
+        x=10.0,
+        y=10.0,
+        confirming_module="01_confirm_yolo",
+        evidence={},
+        confidence=0.2,
+        box_diagonal=10.0,
+    )
+
+    ball_tracking._extend_resting_ball_confirmations(
+        ledger,
+        video=ball_tracking.Path("unused.mp4"),
+        fps=5,
+    )
+
+    assert (ledger.confirmed(3).x, ledger.confirmed(3).y) == (40.0, 40.0)
+    assert any(
+        reason["reason"] == "ball_still_resting_elsewhere"
+        for reason in ledger.confirmed(3).rejection_reasons
+    )
+
+
+def test_resting_ball_bridges_short_cover_and_drops_competing_rest_20260928T230831706Z(monkeypatch) -> None:
+    """A briefly covered resting ball keeps its spot; a second rest is false."""
+    frames = _resting_frames({0, 1, 2, 5, 6}, 7)
+    monkeypatch.setattr(
+        ball_tracking,
+        "_read_sampled_grayscale_frames",
+        lambda _video, _frames: frames,
+    )
+    ledger = _resting_ledger(7)
+    for frame in (3, 4):
+        ledger.confirm(
+            frame,
+            x=10.0,
+            y=12.0,
+            confirming_module="01_confirm_yolo",
+            evidence={},
+            confidence=0.14,
+            box_diagonal=10.0,
+        )
+
+    ball_tracking._extend_resting_ball_confirmations(
+        ledger,
+        video=ball_tracking.Path("unused.mp4"),
+        fps=5,
+    )
+
+    assert ledger.confirmed(3) is None
+    assert ledger.confirmed(4) is None
+    assert ledger.confirmed(5).point_evidence == "resting_ball_persistence"
+    assert ledger.confirmed(6).point_evidence == "resting_ball_persistence"
+
+
+def test_detection_bracketed_by_resting_ball_is_withdrawn_20260928T230916266Z() -> None:
+    """A detection far away between two resting detections is not the ball."""
+    ledger = ball_tracking.FrameLedger((frame, frame / 5) for frame in range(3))
+    for frame, x in ((0, 40.0), (1, 400.0), (2, 41.0)):
+        ledger.confirm(
+            frame,
+            x=x,
+            y=40.0,
+            confirming_module="01_confirm_yolo",
+            evidence={},
+            confidence=0.2,
+            box_diagonal=10.0,
+        )
+
+    ball_tracking._reject_confirmations_that_leave_resting_ball(ledger, fps=5)
+
+    assert ledger.confirmed(1) is None
+    assert ledger.confirmed(0) is not None and ledger.confirmed(2) is not None
+
+
+def test_later_module_cannot_move_resting_ball_20260928T230916282Z() -> None:
+    """Motion and search modules cannot place the ball away from a rest."""
+    ledger = ball_tracking.FrameLedger((frame, frame / 5) for frame in range(3))
+    for frame in (0, 2):
+        ledger.confirm(
+            frame,
+            x=40.0,
+            y=40.0,
+            confirming_module="01_confirm_yolo",
+            evidence={},
+            confidence=0.2,
+            box_diagonal=10.0,
+        )
+    far = ball_tracking.BallPoint(1, 0.2, 0.5, 120.0, 40.0)
+    near = ball_tracking.BallPoint(1, 0.2, 0.5, 42.0, 40.0)
+
+    assert not ball_tracking._proposal_allowed_by_confirmed_neighbours(
+        ledger, far, fps=5, max_speed_pixels_per_second=1600
+    )
+    assert ball_tracking._proposal_allowed_by_confirmed_neighbours(
+        ledger, near, fps=5, max_speed_pixels_per_second=1600
+    )
+
+
+
+class _Box:
+    def __init__(self, x1, y1, x2, y2, confidence):
+        self.cls = [32]
+        self.conf = [confidence]
+        self.xyxy = [(x1, y1, x2, y2)]
+
+
+class _Result:
+    names = {32: "sports ball"}
+
+    def __init__(self, boxes):
+        self.boxes = boxes
+
+
+class _BrightBlobDetector:
+    """Reports each bright 10 px blob in a crop; brightness sets confidence."""
+
+    def __init__(self):
+        self.crops = []
+
+    def predict(self, crops, conf=0.0, **_kwargs):
+        results = []
+        for crop in crops:
+            self.crops.append(crop.shape)
+            boxes = []
+            for value in sorted(set(int(v) for v in np.unique(crop)) - {0}):
+                if value / 250 < conf:
+                    continue
+                ys, xs = np.nonzero(crop[:, :, 0] == value)
+                boxes.append(
+                    _Box(xs.min(), ys.min(), xs.max() + 1, ys.max() + 1, value / 250)
+                )
+            results.append(_Result(boxes))
+        return results
+
+
+def _region_search_ledger():
+    ledger = ball_tracking.FrameLedger((frame, frame / 5) for frame in range(3))
+    for frame, x in ((0, 400.0), (2, 440.0)):
+        ledger.confirm(
+            frame,
+            x=x,
+            y=300.0,
+            confirming_module="01_confirm_yolo",
+            evidence={},
+            confidence=0.5,
+            box_diagonal=10.0,
+        )
+    return ledger
+
+
+def _image_with_blobs(*blobs):
+    image = np.zeros((600, 800, 3), dtype=np.uint8)
+    for x, y, value in blobs:
+        image[y - 5 : y + 5, x - 5 : x + 5] = value
+    return image
+
+
+def _run_region_search(ledger, image, record=None):
+    return ball_tracking._confirm_time_machine_region_search(
+        ledger,
+        records_by_frame={1: record or {}},
+        video=None,
+        model_path=None,
+        fps=5,
+        width=800,
+        height=600,
+        max_speed_pixels_per_second=1600,
+        model=_BrightBlobDetector(),
+        color_frames={1: image},
+    )
+
+
+def test_region_search_confirms_ball_found_inside_reachable_region_20260929T003136671Z() -> None:
+    """The time-machine region is searched at native size and is direct evidence."""
+    ledger = _run_region_search(
+        _region_search_ledger(), _image_with_blobs((430, 250, 200))
+    )
+
+    entry = ledger.confirmed(1)
+    assert entry is not None
+    assert entry.confirming_module == "06_time_machine_region_search"
+    assert (round(entry.x), round(entry.y)) == (430, 250)
+    assert "06_time_machine_region_search" in ball_tracking.DIRECT_EVIDENCE_MODULES
+
+
+def test_region_search_ignores_weak_detections_20260929T003136672Z() -> None:
+    """Weak region detections are usually boots or markings; the frame stays unresolved."""
+    ledger = _run_region_search(
+        _region_search_ledger(), _image_with_blobs((430, 250, 100))
+    )
+
+    assert ledger.confirmed(1) is None
+
+def test_region_search_ignores_detection_beyond_reach_20260929T003136673Z() -> None:
+    """A detection outside the reachable region stays unconfirmed."""
+    ledger = _run_region_search(
+        _region_search_ledger(), _image_with_blobs((700, 520, 200))
+    )
+
+    assert ledger.confirmed(1) is None
+    reasons = ledger.entries[1].rejection_reasons
+    assert reasons[-1]["module"] == "06_time_machine_region_search"
