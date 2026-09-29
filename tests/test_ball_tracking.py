@@ -180,6 +180,54 @@ def test_confirm_yolo_rejects_weak_feet_detection_without_ball_colour(tmp_path) 
     assert ledger.confirmed(12) is not None
 
 
+def test_track_module_rejects_weak_feet_proposal_without_ball_colour() -> None:
+    ledger = ball_tracking.FrameLedger((frame, frame / 5) for frame in range(4))
+    ledger.confirm(
+        0,
+        x=100,
+        y=300,
+        confirming_module="01_confirm_yolo",
+        evidence={"kind": "anchor"},
+        confidence=0.8,
+    )
+    player = {
+        "class_name": "person",
+        "confidence": 0.9,
+        "x1": 80.0,
+        "y1": 200.0,
+        "x2": 140.0,
+        "y2": 310.0,
+    }
+    records_by_frame = {
+        frame: {"source_frame": frame, "detections": [player]} for frame in range(4)
+    }
+    weak_feet = BallPoint(1, 0.2, 0.15, 105.0, 300.0)
+    strong_feet = BallPoint(2, 0.4, 0.6, 110.0, 300.0)
+    checked: list[int] = []
+
+    def colour_matches(candidate: BallPoint) -> bool:
+        checked.append(candidate.source_frame)
+        return False
+
+    ball_tracking._confirm_track_points_from_module(
+        ledger,
+        "04_focused_multiscale",
+        [BallTrack(1, [weak_feet, strong_feet])],
+        records_by_frame=records_by_frame,
+        fps=5,
+        max_speed_pixels_per_second=1600,
+        ball_colour_matches=colour_matches,
+    )
+
+    assert ledger.confirmed(1) is None
+    assert any(
+        reason["reason"] == "colour_differs_from_ball"
+        for reason in ledger.entries[1].rejection_reasons
+    )
+    assert ledger.confirmed(2) is not None
+    assert checked == [1]
+
+
 def test_time_machine_bounds_one_sided_extrapolation_20260928T191549001Z() -> None:
     ledger = ball_tracking.FrameLedger((frame, frame / 5) for frame in range(10))
     ledger.confirm(
