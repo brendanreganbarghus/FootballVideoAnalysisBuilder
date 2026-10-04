@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from football_poc.benchmark import BenchmarkManifest
+from football_poc.image_space import video_size as read_video_size
 from football_poc.possession import (
     infer_cached_possession,
 )
@@ -178,6 +179,7 @@ def run(args: Any) -> Path:
             goalkeeper_affiliations=affiliations,
             match_state=args.output / "match-state-events.json",
             fps=manifest.fps,
+            video_size=read_video_size(manifest.video),
         )
     apply_shots_on_target(
         args.output,

@@ -19,6 +19,8 @@ from typing import Any, Sequence
 import cv2
 import numpy as np
 
+from football_poc.image_space import scale_factors
+
 
 CALIBRATION_VERSION = "innovation-goal-face-v1"
 GOAL_WIDTH_M = 7.32
@@ -169,7 +171,10 @@ def build_goal_face(side: str, polygon: Sequence[Point], goal_line: Sequence[Poi
     )
 
 
-def load_goal_faces(path: Path) -> tuple[dict[str, GoalFace], dict[str, Any]]:
+def load_goal_faces(
+    path: Path, image_size: tuple[float, float] | None = None
+) -> tuple[dict[str, GoalFace], dict[str, Any]]:
+    """Load goal faces, converted to ``image_size`` when the file declares its own."""
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
@@ -177,11 +182,16 @@ def load_goal_faces(path: Path) -> tuple[dict[str, GoalFace], dict[str, Any]]:
     features = payload.get("features")
     if not isinstance(features, dict):
         raise GoalCalibrationError("Calibration has no features")
+    sx, sy = scale_factors(payload, image_size)
+
+    def scaled(name: str) -> list[Point]:
+        return [(x * sx, y * sy) for x, y in _points(features.get(name), name)]
+
     faces = {
         side: build_goal_face(
             side,
-            _points(features.get(f"{side}_goal_mouth"), f"{side}_goal_mouth"),
-            _points(features.get(f"{side}_goal_line"), f"{side}_goal_line"),
+            scaled(f"{side}_goal_mouth"),
+            scaled(f"{side}_goal_line"),
         )
         for side in ("left", "right")
     }
@@ -190,6 +200,7 @@ def load_goal_faces(path: Path) -> tuple[dict[str, GoalFace], dict[str, Any]]:
         "camera_id": payload.get("camera_id"),
         "source_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
         "click_error_px": CLICK_ERROR_PX,
+        "coordinate_scale": [round(sx, 6), round(sy, 6)],
         "monocular_depth_margin_m": MONOCULAR_DEPTH_MARGIN_M,
         "uncertainty_m": {
             side: round(face.uncertainty_m, 3) for side, face in faces.items()

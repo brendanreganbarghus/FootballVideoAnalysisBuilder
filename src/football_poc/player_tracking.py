@@ -12,6 +12,7 @@ import cv2
 import numpy as np
 
 from football_poc.benchmark import BenchmarkManifest
+from football_poc.image_space import scale_goalkeeper_affiliations
 from football_poc.match_initialization import (
     MatchInitialization,
     TrackInitializationEvidence,
@@ -145,7 +146,10 @@ def track_cached_players(
         affiliations = json.loads(
             goalkeeper_affiliations_path.read_text(encoding="utf-8")
         )
-        apply_goalkeeper_affiliations(accepted, affiliations["affiliations"])
+        apply_goalkeeper_affiliations(
+            accepted,
+            scale_goalkeeper_affiliations(affiliations, (width, height)),
+        )
 
     output.mkdir(parents=True, exist_ok=True)
     destination = output / "player-tracks.json"

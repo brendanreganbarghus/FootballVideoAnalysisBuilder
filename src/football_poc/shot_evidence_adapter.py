@@ -27,6 +27,7 @@ from football_poc.goal_calibration import (
     GoalFace,
     load_goal_faces,
 )
+from football_poc.image_space import ball_coordinate_size, video_size as read_video_size
 from football_poc.shots_on_target import (
     EVIDENCE_FILE_NAME,
     EVIDENCE_SOURCE_KIND,
@@ -359,10 +360,14 @@ def write_evidence(
     goalkeeper_affiliations: Path,
     match_state: Path | None = None,
     fps: float = 25.0,
+    video_size: tuple[float, float] | None = None,
 ) -> dict[str, Any]:
-    faces, provenance = load_goal_faces(goal_calibration)
+    ball_payload = json.loads(ball_tracks.read_text(encoding="utf-8"))
+    faces, provenance = load_goal_faces(
+        goal_calibration, ball_coordinate_size(ball_payload, video_size)
+    )
     evidence = build_evidence(
-        ball_tracks=json.loads(ball_tracks.read_text(encoding="utf-8")),
+        ball_tracks=ball_payload,
         player_tracks=json.loads(player_tracks.read_text(encoding="utf-8")),
         affiliations=json.loads(goalkeeper_affiliations.read_text(encoding="utf-8")),
         faces=faces,
@@ -433,8 +438,18 @@ def build_for_segment(segment_root: Path, project_root: Path) -> Path:
             "goalkeeper-affiliations.json", project_root
         ),
         match_state=segment_root / "analytics-data" / "match-state-events.json",
+        video_size=_segment_video_size(segment_root),
     )
     return output
+
+
+def _segment_video_size(segment_root: Path) -> tuple[float, float] | None:
+    from football_poc.benchmark import BenchmarkManifest
+
+    manifest = segment_root / "runtime-manifest.json"
+    if not manifest.is_file():
+        return None
+    return read_video_size(BenchmarkManifest.load(manifest).video)
 
 
 def main(argv: list[str] | None = None) -> None:
