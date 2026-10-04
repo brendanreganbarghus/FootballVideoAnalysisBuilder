@@ -398,7 +398,16 @@ def infer_flight_transfer_events(
                     observation.clip_seconds
                     for observation in segment.observations
                     if observation.clip_seconds >= timestamp
-                    and observation.control_ratio <= maximum_reception_ratio
+                    and (
+                        observation.control_ratio <= 1.0
+                        or (
+                            observation.control_ratio
+                            <= maximum_reception_ratio
+                            and _segment_has_reception_evidence(
+                                segment, balls, motion_evidence=motion
+                            )
+                        )
+                    )
                 ),
                 None,
             )
