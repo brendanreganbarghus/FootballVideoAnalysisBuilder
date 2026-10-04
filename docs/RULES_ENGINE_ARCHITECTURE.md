@@ -390,6 +390,13 @@ The Innovation **Football Event Review** canvas is manual-first:
     refactors only.
 10. Mark the segment passed only when current E# output satisfies the approved
     golden reference and every protected publication gate passes.
+11. A published segment stays locked. When a later general engine change moves
+    its E# output (for example small timing shifts) while every golden M# still
+    matches one-to-one with no extra E#, the Canvas action
+    `rebaseline_published_reference` moves its regression baseline to the
+    current output. It requires passing protected regressions recorded for
+    the current engine and output, keeps `manual-reference.json` and M#
+    unchanged, and records the replaced hash in `baselineHistory`.
 
 The Innovation header may open a separate, optional **M# Ledger Audit**. This
 is deterministic local code, not a Copilot or model review. It reads only the

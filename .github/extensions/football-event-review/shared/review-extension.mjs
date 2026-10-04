@@ -12045,6 +12045,167 @@ session = await joinSession({
           },
         },
         {
+          name: "rebaseline_published_reference",
+          description: (
+            "Move a published segment's regression baseline to the current "
+            + "engine output. Allowed only when protected regressions passed "
+            + "on the current engine and output, every golden M# still maps "
+            + "one-to-one to E#, and there is no extra E#."
+          ),
+          inputSchema: {
+            type: "object",
+            properties: {
+              segment: { type: "string" },
+            },
+            required: ["segment"],
+            additionalProperties: false,
+          },
+          handler: async (context) => {
+            if (!workflow.manualReferenceEnabled) {
+              throw new CanvasError(
+                "innovation_only",
+                "Re-baselining is available only in Review.",
+              );
+            }
+            const segment = String(context.input.segment);
+            const review = await reviewContext(segment);
+            const published = review.state.publishedReference;
+            if (!review.selected.validated || !published) {
+              throw new CanvasError(
+                "rebaseline_requires_published_segment",
+                "Only a published, passed segment can be re-baselined.",
+              );
+            }
+            const approved = review.state.manualReference?.approved;
+            if (!approved) {
+              throw new CanvasError(
+                "golden_reference_missing",
+                "The segment has no frozen golden M# reference.",
+              );
+            }
+            const current = await captureEngineSnapshot(segment);
+            const regression = review.state.regression;
+            if (
+              regression?.passed !== true
+              || regression.fingerprint?.contentHash
+                !== current.fingerprint.contentHash
+              || regression.outputHash !== current.outputHash
+            ) {
+              throw new CanvasError(
+                "rebaseline_regression_required",
+                "Record passing protected regressions for the current engine "
+                  + "and output first.",
+              );
+            }
+            const manualEvents = approved.events
+              .filter((event) => event.active && !event.deleted);
+            const engineEvents = snapshotEvents(current)
+              .filter((event) =>
+                workflow.analyticsEventTypes.includes(event.type)
+              )
+              .map((event, index) => ({...event, key: `E${index + 1}`}));
+            const mappingCount = Object.keys(
+              suggestManualMappings(manualEvents, engineEvents),
+            ).length;
+            if (
+              mappingCount !== manualEvents.length
+              || engineEvents.length !== manualEvents.length
+            ) {
+              throw new CanvasError(
+                "rebaseline_golden_mismatch",
+                `Current engine matches ${mappingCount}/${manualEvents.length} `
+                  + `golden M# with ${engineEvents.length} E#; every M# must `
+                  + "match with no extra E#.",
+              );
+            }
+            const registry = await readJson(regressionRegistryPath, {
+              segments: [],
+            });
+            const registered = (registry.segments || []).find(
+              (entry) => entry.segment === segment,
+            );
+            if (
+              published.outputHash === current.outputHash
+              && registered?.output_hash === current.outputHash
+            ) {
+              return {
+                segment,
+                rebaselined: false,
+                outputHash: current.outputHash,
+                summary: "The published baseline already equals the current output.",
+              };
+            }
+            const reference = await readJson(
+              join(segmentRoot(segment), "manual-reference.json"),
+              null,
+            );
+            if (!reference?.events?.length) {
+              throw new CanvasError(
+                "published_reference_missing",
+                "The published manual-reference.json is missing.",
+              );
+            }
+            try {
+              publishPreparedSegmentBundle(segment, review.selected);
+            } catch (error) {
+              throw new CanvasError(
+                "shared_segment_publication_failed",
+                "The shared segment bundle could not be published "
+                  + `(close any open video for this segment): ${error.message}`,
+              );
+            }
+            const rebaselinedAt = new Date().toISOString();
+            const previousOutputHash = (
+              registered?.output_hash || published.outputHash
+            );
+            review.state.publishedReference = {
+              ...published,
+              engineContentHash: current.fingerprint.contentHash,
+              outputHash: current.outputHash,
+              regressionRecordedAt: regression.recordedAt,
+              analysisScope: publishedAnalysisScope(current),
+              rebaselinedAt,
+              baselineHistory: [
+                ...(published.baselineHistory || []),
+                {
+                  engineContentHash: published.engineContentHash,
+                  outputHash: previousOutputHash,
+                  replacedAt: rebaselinedAt,
+                },
+              ],
+            };
+            refreshEngineReferenceValidation(
+              review.state,
+              current,
+              "rebaseline_published_reference",
+            );
+            review.state.conversation.push({
+              role: "system",
+              content: (
+                `Regression baseline moved to the current engine output: `
+                + `${mappingCount}/${manualEvents.length} golden M# matched, `
+                + `${engineEvents.length} E#, protected regressions passed.`
+              ),
+              eventIndex: null,
+              timestamp: rebaselinedAt,
+            });
+            await registerWorkflowRegression(
+              segment,
+              {...reference, exported_at: rebaselinedAt},
+              current,
+            );
+            await saveState(segment, review.state);
+            return {
+              segment,
+              rebaselined: true,
+              previousOutputHash,
+              outputHash: current.outputHash,
+              goldenMatched: `${mappingCount}/${manualEvents.length}`,
+              engineEventCount: engineEvents.length,
+            };
+          },
+        },
+        {
           name: "validate_engine_reference",
           description: "Refresh the current Review E# comparison against the frozen golden M# reference.",
           inputSchema: {
