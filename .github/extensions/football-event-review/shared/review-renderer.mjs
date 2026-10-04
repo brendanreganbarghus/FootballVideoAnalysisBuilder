@@ -8067,10 +8067,16 @@ export function renderHtml({ adapter } = {}) {
         };
       }
       if (result.kind === "off") {
+        const distanceText = Number.isFinite(result.distance)
+          ? " (" + result.distance.toFixed(0) + " px)" : "";
+        if (ballCoordinateObservations[String(frame)]?.decision) {
+          return {
+            label: "Known engine miss" + distanceText,
+            className: "checking"
+          };
+        }
         return {
-          label: "Needs your review"
-            + (Number.isFinite(result.distance)
-              ? " (" + result.distance.toFixed(0) + " px)" : ""),
+          label: "Needs your review" + distanceText,
           className: "estimated"
         };
       }
@@ -8088,6 +8094,12 @@ export function renderHtml({ adapter } = {}) {
       const triage = comparisonTriage();
       if (!triage) return false;
       const kind = triage.results.get(frame)?.kind;
+      if (
+        kind === "off"
+        && ballCoordinateObservations[String(frame)]?.decision
+      ) {
+        return false;
+      }
       return triage.spotCheck.has(frame)
         || ["near", "off", "unclear"].includes(kind)
         || !kind;
@@ -9253,7 +9265,7 @@ export function renderHtml({ adapter } = {}) {
             : engineCheck.kind === "near"
               ? " · engine near miss"
             : engineCheck.kind === "off"
-              ? " · engine still off"
+              ? " · known engine miss"
               : ""
           );
           if (
