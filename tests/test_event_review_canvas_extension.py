@@ -100,7 +100,10 @@ def test_ball_source_selector_and_analyze_payload() -> None:
     assert 'Detected ball (our detector, raw video)' in renderer
     assert '<button id="process-segment" type="button">Run segment</button>' in renderer
     assert '"prepare-bac": "Prepare BAC + player context"' in renderer
-    assert '"resume-detected": "Resume detected ball tracking"' in renderer
+    assert '"resume-detected": "Run ball coordinates (continue)"' in renderer
+    assert '<button id="process-ai" type="button" hidden disabled>Process AI</button>' in renderer
+    assert "void finalizeBallCoordinateReview();" in renderer
+    assert "90% is the minimum gate" not in renderer
     assert "prepareEvidenceButton.hidden = true;" in renderer
     assert 'return ballSourceSelect?.value || state.segment.ballSource || "bac";' in renderer
     assert 'ball_source: requestedBallSource' in extension
@@ -385,3 +388,16 @@ def test_our_rules_engine_run_rechecks_the_bac_copy() -> None:
     assert '"/api/bac-recheck"' in extension
     assert 'id="bac-recheck-summary"' in renderer
     assert '"M# found · Our rules "' in renderer
+
+def test_our_rules_copy_shows_saved_decisions_and_ball_check_score() -> None:
+    extension = read(SHARED_EXTENSION)
+    renderer = read(SHARED_RENDERER)
+
+    assert "async function ballCheckScore(selected, track, observations)" in extension
+    assert "const BALL_CHECK_MATCH_PX = 25;" in extension
+    assert "ballCheck,\n    shotsOnTarget" in extension
+    assert ".filter((ballState) => ballState.direct).length" in extension
+    assert "...(selectedBatch ? {} : state.trajectoryAudit?.observations || {})," in renderer
+    assert "|| state.trajectoryAudit?.observations?.[String(point.frame)];" in renderer
+    assert '<option value="ball-check-left" hidden>Not matching yet</option>' in renderer
+    assert '"Our rules correct "' in renderer

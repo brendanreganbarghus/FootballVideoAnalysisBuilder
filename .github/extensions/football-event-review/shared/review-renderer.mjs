@@ -4082,6 +4082,7 @@ export function renderHtml({ adapter } = {}) {
               </select>
             </label>
             <button id="process-segment" type="button">Run segment</button>
+            <button id="process-ai" type="button" hidden disabled>Process AI</button>
           </div>
           <progress class="segment-progress" id="segment-progress"
             max="1" value="0" hidden></progress>
@@ -4261,6 +4262,7 @@ export function renderHtml({ adapter } = {}) {
                 <option value="all">All frames</option>
                 <option value="direct">Direct only</option>
                 <option value="needs-review" hidden>Needs my review</option>
+                <option value="ball-check-left" hidden>Not matching yet</option>
               </select>
             </label>
             <div class="ball-coordinate-review-actions">
@@ -5210,6 +5212,7 @@ export function renderHtml({ adapter } = {}) {
     const segmentDuration = document.getElementById("segment-duration");
     const prepareButton = document.getElementById("prepare-segment");
     const processButton = document.getElementById("process-segment");
+    const processAiButton = document.getElementById("process-ai");
     const ballSourceSelect = document.getElementById("ball-source-select");
     const changeBallSourceButton = document.getElementById("change-ball-source");
     const ballSourceSwitchModal = document.getElementById("ball-source-switch-modal");
@@ -6766,11 +6769,26 @@ export function renderHtml({ adapter } = {}) {
             "run-bac": segment.state === "ready"
               ? "Rerun rules engine (BAC)"
               : "Run rules engine (BAC)",
-            "resume-detected": "Resume detected ball tracking",
-            "run-detected": segment.state === "ready"
-              ? "Rerun detected ball tracking"
-              : "Run detected ball tracking",
+            "resume-detected": "Run ball coordinates (continue)",
+            "run-detected": segment.ballTrackAvailable
+              ? "Run ball coordinates again"
+              : "Run ball coordinates",
           }[action];
+      // Our-rules copy: ball coordinates first, then Process AI (the rules
+      // engine) once coordinates exist and before the engine has run.
+      const detectedCopy = selectedBallSource() === "detected"
+        && (segment.ballSource || "bac") === "detected";
+      processAiButton.hidden = !detectedCopy || !selectedVideoPrepared;
+      processAiButton.disabled =
+        running
+        || referenceLocked()
+        || !segment.ballTrackAvailable
+        || state.coordinateReview?.status === "finalized";
+      processAiButton.title = !segment.ballTrackAvailable
+        ? "Run ball coordinates first"
+        : state.coordinateReview?.status === "finalized"
+          ? "AI already processed on these ball coordinates"
+          : "Run the rules engine on our ball coordinates";
       if (ballSourceSelect && segment.ballSource && !ballSourceSelect.dataset.userChanged) {
         ballSourceSelect.value = segment.ballSource;
       }
@@ -6798,7 +6816,9 @@ export function renderHtml({ adapter } = {}) {
               report.gpu_guidance.required_measured_end_to_end_speedup
             ).toFixed(2) + "x measured end-to-end speedup. Benchmark required."
           : "";
-        segmentRunStatus.textContent = "Run complete. " + coverage + ". " + (
+        segmentRunStatus.textContent = "Run complete. " + (
+          segment.ballSource === "detected" ? "" : coverage + ". "
+        ) + (
           state.drafts.length
             ? state.drafts.length + " AI event candidate(s) ready for review."
             : (state.engineEvents || []).length
@@ -6899,11 +6919,8 @@ export function renderHtml({ adapter } = {}) {
         segmentRunStatus.textContent += timingText + " " + stage[1];
       } else if (segment.state === "failed") {
         segmentRunStatus.textContent = ballCoordinatesNeedReview(segment)
-          ? "Ball coordinates need review: tracking completed with " +
-            ballCoordinateCoverage(state.ballProvenance)
-              .replace("Ball coordinates: ", "") +
-            ". Recover every additional frame supported by the raw video. " +
-            "90% is the minimum gate, not the target."
+          ? "Ball coordinates are ready. Check them in the ball check, "
+            + "then click Process AI."
           : segment.runProvenance?.interrupted
             ? "Processing was interrupted. Click '" + processButton.textContent
               + "' to continue."
@@ -7801,6 +7818,7 @@ export function renderHtml({ adapter } = {}) {
         || "{}"
       );
       ballCoordinateObservations = {
+        ...(selectedBatch ? {} : state.trajectoryAudit?.observations || {}),
         ...(selectedBatch?.observations || {}),
         ...ballCoordinateObservations
       };
@@ -7908,7 +7926,10 @@ export function renderHtml({ adapter } = {}) {
           ballCoordinateObservationStorageKey(),
           JSON.stringify(ballCoordinateObservations)
         );
-        if ((state?.segment?.ballSource || "bac") === "bac") {
+        if (
+          (state?.segment?.ballSource || "bac") === "bac"
+          || !selectedCoordinateBatch()
+        ) {
           const response = await fetch("/api/trajectory-audit-draft", {
             method: "POST",
             headers: {"Content-Type": "application/json"},
@@ -7995,6 +8016,10 @@ export function renderHtml({ adapter } = {}) {
       ]);
       if (filter === "needs-review" && engineComparisonActive()) {
         return points.filter(point => comparisonNeedsReview(point.frame));
+      }
+      if (filter === "ball-check-left" && state.ballCheck) {
+        const left = new Set(state.ballCheck.left || []);
+        return points.filter(point => left.has(point.frame));
       }
       return filter === "estimated"
         ? points.filter(point => !point.direct)
@@ -8102,7 +8127,10 @@ export function renderHtml({ adapter } = {}) {
     }
 
     function engineComparisonActive() {
-      return false;
+      return Boolean(
+        ballTrack?.engineComparison?.points
+        && (state?.segment?.ballSource || "bac") === "detected"
+      );
     }
 
     // Review triage only: BAC/engine agreement is not ground truth, so
@@ -8266,6 +8294,19 @@ export function renderHtml({ adapter } = {}) {
           + (result.estimate ? " · estimate" : ""),
         className: "direct"
       };
+    }
+
+    // Review display only: an auto-agreed frame (our rules close to BAC) has
+    // no saved reviewer decision; it is shown as agreed, never saved.
+    function autoAgreedDecisionLabel(frame) {
+      const triage = comparisonTriage();
+      if (!triage || ballCoordinateObservations[String(frame)]) return null;
+      if (triage.spotCheck.has(frame)) return null;
+      const kind = triage.results.get(frame)?.kind;
+      if (kind === "hidden_estimate") return "Auto-agreed · ball hidden";
+      return ["agreed", "near", "estimate_near"].includes(kind)
+        ? "Auto-agreed · no review needed"
+        : null;
     }
 
     function comparisonNeedsReview(frame) {
@@ -8747,7 +8788,8 @@ export function renderHtml({ adapter } = {}) {
                   ? "Custom coordinate awaiting confirmation"
                   : frozenBac
                     ? "✓ BAC imported · confirmed"
-                    : "Not reviewed yet";
+                    : autoAgreedDecisionLabel(selectedBallTargetFrame)
+                      || "Not reviewed yet";
       currentDecision.textContent =
         (selectedBatch?.status === "done"
           ? "Your previous decision: "
@@ -9252,6 +9294,19 @@ export function renderHtml({ adapter } = {}) {
           + needsReview.length + " · "
           + agreed + " of " + points.length + " engine OK)";
       }
+      const ballCheck = state.ballCheck;
+      filter.options[7].hidden = !ballCheck;
+      if (ballCheck) {
+        filter.options[7].textContent = "Not matching yet ("
+          + ballCheck.left.length + ")";
+      }
+      const ballCheckText = ballCheck
+        ? "Our rules correct " + ballCheck.correct + "/" + ballCheck.scored
+          + " (" + Math.round(100 * ballCheck.correct / ballCheck.scored)
+          + "%) · not matching yet: "
+          + (ballCheck.left.length ? ballCheck.left.join(", ") : "none")
+          + " · "
+        : "";
       const visible = visibleBallStates();
       const comparing = engineComparisonActive();
       for (const header of document.querySelectorAll(".engine-compare-col")) {
@@ -9262,7 +9317,7 @@ export function renderHtml({ adapter } = {}) {
       document.getElementById("ball-frame-y-header").textContent =
         comparing ? "BAC Y" : "Y";
       document.getElementById("ball-frame-summary").textContent = points.length
-        ? (ballTrack?.pendingEngineOutput
+        ? ballCheckText + (ballTrack?.pendingEngineOutput
           ? points.length + " sampled raw frames · engine coordinates pending"
           : ballStateCountSummary(points) + " · " + direct + "/"
           + points.length + " direct" + (
@@ -9279,7 +9334,8 @@ export function renderHtml({ adapter } = {}) {
       document.getElementById("ball-frame-items").replaceChildren(
         ...visible.map((point, index) => {
           const observation =
-            ballCoordinateObservations[String(point.frame)];
+            ballCoordinateObservations[String(point.frame)]
+            || state.trajectoryAudit?.observations?.[String(point.frame)];
           const reviewerCoordinate = Boolean(
             reviewWorkflow.reviewerCorrectedDemoLayer
             && observation?.decision === "specified"
@@ -9435,6 +9491,8 @@ export function renderHtml({ adapter } = {}) {
             : savedDecisionPresentation || (
                   (state?.segment?.ballSource || "bac") === "bac"
                     ? ["BAC imported · confirmed", "confirmed"]
+                    : autoAgreedDecisionLabel(point.frame)
+                      ? [autoAgreedDecisionLabel(point.frame), "confirmed"]
                     : ["Not reviewed yet", "pending"]
                 );
           const decisionStatus = document.createElement("span");
@@ -9723,19 +9781,8 @@ export function renderHtml({ adapter } = {}) {
             : "Round " + batch.number + " result · "
               + supportedFixedCount + " resolved · "
               + unresolvedCount + " unresolved · "
-              + regressionCount + " regressed · "
-              + afterDirect + "/" + afterSampled + " direct ("
-              + (afterCoverage * 100).toFixed(1) + "%). "
-              + (
-                afterCoverage >= 0.90
-                  ? state.coordinateReview?.status === "verified"
-                    ? "The 90% minimum is reached. Choose Continue to event "
-                      + "review or improve the remaining frames."
-                    : "The 90% minimum is reached. Verifying the current code "
-                      + "and persisted output before presenting your choice."
-                  : "Below the 90% direct target. You can review more frames "
-                    + "or choose Continue to rules engine."
-              )
+              + regressionCount + " regressed. "
+              + "You can review more frames or click Process AI."
           : "";
       const finalize = document.getElementById(
         "finalize-ball-coordinate-review"
@@ -15518,6 +15565,10 @@ export function renderHtml({ adapter } = {}) {
       } else {
         void startSegmentAnalysis();
       }
+    });
+    processAiButton.addEventListener("click", () => {
+      processAiButton.disabled = true;
+      void finalizeBallCoordinateReview();
     });
     document.getElementById("next-event").addEventListener(
       "click", () => selectEvent(selectedIndex + 1)

@@ -1875,6 +1875,11 @@ async function loadDetectedBallTrack(
     ).map(Number).filter(Number.isFinite),
     yoloCandidates: scaledYoloCandidates,
     points,
+    interpolatedFrames: (payload.tracks || []).flatMap((track) =>
+      (track.points || [])
+        .filter((point) => point.interpolated)
+        .map((point) => Number(point.source_frame))
+    ),
     states: (statePayload?.states || []).map((state) => ({
       frame: Number(state.source_frame),
       seconds: Number(state.clip_seconds),
@@ -3300,6 +3305,141 @@ async function goldenMatchCount(segment, approved) {
   };
 }
 
+// Evaluation only, after the Our-rules track is frozen: each sampled frame is
+// compared with the reviewer's saved ball decision, or with the same window's
+// frozen BAC coordinate where the reviewer made none. Neither reference ever
+// feeds the tracker.
+const BALL_CHECK_MATCH_PX = 25;
+
+async function ballCheckScore(selected, track, observations) {
+  if (
+    selected.ballSource !== "detected"
+    || track?.pendingEngineOutput
+    || !track?.states?.length
+  ) return null;
+  const bacSegment = await bacSiblingSegment(selected.key);
+  const bacPayload = bacSegment
+    ? await readJson(
+      join(segmentRoot(bacSegment), "analytics-cache", "ball-tracks.json"),
+      null,
+    )
+    : null;
+  const bac = new Map();
+  for (const bacTrack of bacPayload?.tracks || []) {
+    for (const point of bacTrack.points || []) {
+      if (point.x === null || point.y === null) continue;
+      bac.set(Number(point.source_frame), {x: Number(point.x), y: Number(point.y)});
+    }
+  }
+  const ours = new Map(
+    (track.points || []).map(([frame, , x, y]) => [frame, {x, y}]),
+  );
+  const interpolated = new Set(track.interpolatedFrames || []);
+  const near = (point, reference) =>
+    Boolean(point && reference)
+    && Math.hypot(point.x - reference.x, point.y - reference.y)
+      <= BALL_CHECK_MATCH_PX;
+  const left = [];
+  let correct = 0;
+  let fromDecisions = 0;
+  for (const frame of track.states.map((state) => state.frame)) {
+    const point = ours.get(frame);
+    const decision = observations?.[String(frame)];
+    let hit;
+    if (decision?.decision === "needs_more_checking") continue;
+    if (decision?.decision === "undefined") {
+      hit = !point || interpolated.has(frame);
+    } else if (decision) {
+      hit = near(point, decision);
+    } else {
+      if (!bac.has(frame)) continue;
+      hit = near(point, bac.get(frame));
+    }
+    if (decision) fromDecisions += 1;
+    if (hit) correct += 1;
+    else left.push(frame);
+  }
+  const scored = correct + left.length;
+  return {
+    correct,
+    scored,
+    left,
+    fromDecisions,
+    fromBac: scored - fromDecisions,
+    matchPx: BALL_CHECK_MATCH_PX,
+  };
+}
+
+// Review display only, after our tracker output is frozen: shows the BAC
+// sibling's coordinates (green) beside our tracker (red), as on the original
+// ball review screen. BAC never changes our coordinates or the engine input.
+async function withBacComparison(selected, track) {
+  if (
+    selected.ballSource !== "detected"
+    || track?.pendingEngineOutput
+    || !track?.points?.length
+  ) return track;
+  const bacSegment = await bacSiblingSegment(selected.key);
+  const bacPayload = bacSegment
+    ? await readJson(
+      join(segmentRoot(bacSegment), "analytics-cache", "ball-tracks.json"),
+      null,
+    )
+    : null;
+  if (!bacPayload?.tracks) return track;
+  const interpolated = new Set(track.interpolatedFrames || []);
+  const points = {};
+  for (const [frame, , x, y] of track.points) {
+    points[String(frame)] = {
+      x,
+      y,
+      module: "our rules",
+      interpolated: interpolated.has(frame),
+    };
+  }
+  const states = bacPayload.tracks.flatMap((bacTrack) =>
+    (bacTrack.points || []).map((point) => ({
+      frame: Number(point.source_frame),
+      seconds: Number(point.clip_seconds),
+      x: point.x === null ? NaN : Number(point.x),
+      y: point.y === null ? NaN : Number(point.y),
+      confidence: null,
+      evidence: "Frozen BAC coordinate (comparison only)",
+      state: "frozen_bac",
+      uncertaintyRadius: null,
+      direct: true,
+    }))
+  ).filter((state) =>
+    Number.isFinite(state.frame)
+    && Number.isFinite(state.seconds)
+    && Number.isFinite(state.x)
+    && Number.isFinite(state.y)
+  ).sort((left, right) => left.frame - right.frame);
+  if (!states.length) return track;
+  for (const state of states) {
+    const enginePoint = points[String(state.frame)];
+    if (!enginePoint) continue;
+    state.engineX = enginePoint.x;
+    state.engineY = enginePoint.y;
+    state.engineModule = enginePoint.module;
+    state.engineInterpolated = enginePoint.interpolated;
+    state.engineDistance = Math.hypot(
+      enginePoint.x - state.x,
+      enginePoint.y - state.y,
+    );
+  }
+  return {
+    ...track,
+    ownStates: track.states,
+    states,
+    engineComparison: {
+      source: `${bacSegment}/analytics-cache/ball-tracks.json`,
+      points,
+      frameCount: Object.keys(points).length,
+    },
+  };
+}
+
 // A video window can have one copy per ball source. The reviewer's M#
 // golden set belongs to the window, so a new copy starts with it.
 async function copySiblingManualReference(segment) {
@@ -4339,7 +4479,7 @@ function displayedActivity(selected, state) {
     return {
       state: "ready",
       label: "Segment in review",
-      detail: "The rules-engine run was authorized after the 90% coordinate minimum.",
+      detail: "Rules engine run on our ball coordinates.",
     };
   }
   if (state.coordinateReview?.status === "verified") {
@@ -5066,18 +5206,31 @@ export async function publicState(
   }
   let ballProvenance;
   let ballRecoveryDiagnostic;
+  let ballCheck = null;
   if (workflow.manualReferenceEnabled) {
     const frozenBallTrack = await loadDetectedBallTrack(selected);
     const frozenCoordinateCount = frozenBallTrack?.states?.length || 0;
+    const directCoordinateCount = (frozenBallTrack?.states || [])
+      .filter((ballState) => ballState.direct).length;
     ballProvenance = {
-      direct_frame_count: frozenCoordinateCount,
+      direct_frame_count: directCoordinateCount,
       sampled_frame_count: frozenCoordinateCount,
-      direct_provenance: frozenCoordinateCount ? 1 : 0,
+      direct_provenance: frozenCoordinateCount
+        ? directCoordinateCount / frozenCoordinateCount
+        : 0,
       source_kind: frozenBallTrack?.sourceKind || null,
       pipeline_mode: frozenBallTrack?.pipelineMode || null,
       review_required: false,
     };
     ballRecoveryDiagnostic = null;
+    ballCheck = await ballCheckScore(selected, frozenBallTrack, {
+      ...(state.trajectoryAudit?.observations || {}),
+      ...Object.assign(
+        {},
+        ...(state.coordinateReview?.batches || [])
+          .map((batch) => batch.observations || {}),
+      ),
+    }).catch(() => null);
   } else {
     ballProvenance = await readJson(
       join(
@@ -5433,6 +5586,7 @@ export async function publicState(
       ? "regression_candidate"
       : "published",
     ballProvenance,
+    ballCheck,
     shotsOnTarget: shotsOnTargetStatus(currentEngine?.shotsOnTarget),
     ballRecoveryDiagnostic,
     coordinateReview: state.coordinateReview,
@@ -6778,7 +6932,11 @@ async function handleRequest(request, response, serverInstanceId) {
       });
       return;
     }
-    sendJson(response, 200, track);
+    sendJson(
+      response,
+      200,
+      audit ? track : await withBacComparison(selected, track),
+    );
     return;
   }
   if (request.method === "GET" && url.pathname === "/events") {
