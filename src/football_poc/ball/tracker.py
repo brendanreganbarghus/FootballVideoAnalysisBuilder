@@ -632,6 +632,12 @@ def _track_cached_balls_impl(
         height=height,
         max_speed_pixels_per_second=max_speed_pixels_per_second,
         place_possible_regions=False,
+        video=manifest.video,
+        colour_range=_learned_ball_colour_range(
+            [point for record in records for point in _ball_points(record)],
+            manifest.video,
+        ),
+        records_by_frame=records_by_frame,
     )
     accepted = _single_track_from_ledger(ledger)
     discarded_temporal_upper_body_points = 0

@@ -246,6 +246,45 @@ def _read_standout_chroma(
     return chroma
 
 
+def _ball_colour_range(
+    samples: Iterable[float | None],
+) -> tuple[float, float] | None:
+    """Learned ball colour range from strong detections' stand-out colour."""
+    samples = [sample for sample in samples if sample is not None]
+    if len(samples) < BALL_COLOUR_MINIMUM_SAMPLES:
+        return None
+    colour_low, colour_high = np.percentile(samples, BALL_COLOUR_RANGE_PERCENTILES)
+    # Video compression alone shifts the colour slightly.
+    centre = float(np.median(samples))
+    return (
+        min(float(colour_low), centre - BALL_COLOUR_MINIMUM_HALF_RANGE),
+        max(float(colour_high), centre + BALL_COLOUR_MINIMUM_HALF_RANGE),
+    )
+
+
+def _learned_ball_colour_range(
+    detector_points: Iterable[BallPoint],
+    video: Path,
+) -> tuple[float, float] | None:
+    """Ball colour range learned from every confident detector box in the video."""
+    strong = [
+        point
+        for point in detector_points
+        if point.source_attribution == "yolo26_observed"
+        and point.confidence >= BALL_COLOUR_STRONG_CONFIDENCE
+    ]
+    if len(strong) < BALL_COLOUR_MINIMUM_SAMPLES:
+        return None
+    points_by_frame: dict[int, list[BallPoint]] = defaultdict(list)
+    for point in strong:
+        points_by_frame[point.source_frame].append(point)
+    chroma = _read_standout_chroma(video, points_by_frame)
+    return _ball_colour_range(
+        chroma[(point.source_frame, float(point.x), float(point.y))]
+        for point in strong
+    )
+
+
 def _ball_colour_check(
     detector_points: Iterable[BallPoint],
     points_to_check: Iterable[BallPoint],
@@ -272,14 +311,10 @@ def _ball_colour_check(
         chroma[(point.source_frame, float(point.x), float(point.y))]
         for point in strong
     ]
-    samples = [sample for sample in samples if sample is not None]
-    if len(samples) < BALL_COLOUR_MINIMUM_SAMPLES:
+    colour_range = _ball_colour_range(samples)
+    if colour_range is None:
         return None
-    colour_low, colour_high = np.percentile(samples, BALL_COLOUR_RANGE_PERCENTILES)
-    # Video compression alone shifts the colour slightly.
-    centre = float(np.median(samples))
-    colour_low = min(float(colour_low), centre - BALL_COLOUR_MINIMUM_HALF_RANGE)
-    colour_high = max(float(colour_high), centre + BALL_COLOUR_MINIMUM_HALF_RANGE)
+    colour_low, colour_high = colour_range
 
     def matches(point: BallPoint) -> bool:
         sample = chroma.get((point.source_frame, float(point.x), float(point.y)))
