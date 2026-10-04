@@ -855,3 +855,37 @@ def suppress_label_flicker_tackle_artifacts(
         ):
             rejected.add(tail_index)
     return [event for index, event in enumerate(ordered) if index not in rejected]
+
+def collapse_simultaneous_releases_to_same_receiver(
+    events: Iterable[PredictedEvent],
+    *,
+    maximum_release_delta_seconds: float = 0.5,
+) -> list[PredictedEvent]:
+    """Count one pass when two senders "release" the same ball to one receiver.
+
+    A ball cannot leave two different same-team players at almost the same
+    moment and reach the same receiver twice; nearby boxes at the release point
+    are competing interpretations of one pass, so the stronger one is kept.
+    """
+    accepted: list[PredictedEvent] = []
+    for event in sorted(events, key=lambda item: item.clip_seconds):
+        competing_index = next(
+            (
+                index
+                for index, prior in enumerate(accepted)
+                if event.event_type == prior.event_type == "pass_candidate"
+                and event.team is not None
+                and event.team == prior.team
+                and event.to_player_track_id is not None
+                and event.to_player_track_id == prior.to_player_track_id
+                and event.from_player_track_id != prior.from_player_track_id
+                and abs(event.clip_seconds - prior.clip_seconds)
+                <= maximum_release_delta_seconds
+            ),
+            None,
+        )
+        if competing_index is None:
+            accepted.append(event)
+        elif event.confidence > accepted[competing_index].confidence:
+            accepted[competing_index] = event
+    return sorted(accepted, key=lambda event: event.clip_seconds)

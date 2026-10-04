@@ -73,3 +73,5 @@ baseline suites (`tests/test_possession.py`, `tests/test_match_state.py`,
 | 20261004T194306490Z | tracking | goal faces scale to ball coordinate size | `tests/tracking/test_config_scales_to_image_size_20261004T194306489Z.py::test_goal_faces_scale_to_ball_coordinate_size_20261004T194306490Z` |
 | 20261004T200842978Z | rules | flickering tackle counts once | `tests/rules/test_label_flicker_tackle_20261004T200842978Z.py::test_flickering_tackle_counts_once_20261004T200842978Z` |
 | 20261004T200842979Z | rules | stable colours keep turnover and quick pass | `tests/rules/test_label_flicker_tackle_20261004T200842978Z.py::test_stable_colours_keep_turnover_and_quick_pass_20261004T200842979Z` |
+| 20261004T201514367Z | rules | near simultaneous releases count once | `tests/rules/test_simultaneous_release_same_receiver_20261004T201514367Z.py::test_near_simultaneous_releases_count_once_20261004T201514367Z` |
+| 20261004T201514383Z | rules | separate releases to same receiver are kept | `tests/rules/test_simultaneous_release_same_receiver_20261004T201514367Z.py::test_separate_releases_to_same_receiver_are_kept_20261004T201514383Z` |
