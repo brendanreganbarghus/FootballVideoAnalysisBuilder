@@ -1435,6 +1435,12 @@ def bootstrap_coordination(
         connection = psycopg.connect(
             settings.database_url,
             connect_timeout=settings.connect_timeout_seconds,
+            # The server keeps one long-lived connection; TCP keepalives stop
+            # an idle Docker/WSL network path from silently dropping it.
+            keepalives=1,
+            keepalives_idle=30,
+            keepalives_interval=10,
+            keepalives_count=3,
         )
         migrations = apply_migrations(connection, migration_directory)
         connection.autocommit = True

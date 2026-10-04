@@ -4,6 +4,144 @@ from .settings import *  # noqa: F401,F403
 
 
 CONFIRM_YOLO_MODULE = "01_confirm_yolo"
+LOCK_YOLO_CHAIN_MODULE = "00_lock_yolo_chains"
+
+# Permanent locks come first and are never withdrawn. A single frame cannot
+# separate the ball from boots, heads or pitch marks, so a YOLO box is locked
+# only when it belongs to a long chain of YOLO boxes that moves like a ball:
+# linked frame to frame within a speed limit and travelling a clear distance.
+# Fixed pitch marks do not travel and isolated false positives do not chain.
+# A frame where more than one box qualifies is left unresolved, never guessed.
+LOCK_CHAIN_MINIMUM_CONFIDENCE = 0.10
+LOCK_CHAIN_MAX_SPEED_PIXELS_PER_SECOND = 300.0
+LOCK_CHAIN_MAX_MISSING_STEPS = 1
+LOCK_CHAIN_MINIMUM_BOXES = 8
+LOCK_CHAIN_MINIMUM_TRAVEL_PIXELS = 40.0
+
+
+def _lock_moving_yolo_chains(
+    ledger: FrameLedger,
+    *,
+    records_by_frame: dict[int, dict[str, Any]],
+    fps: float,
+    frame_step: int,
+) -> FrameLedger:
+    step_seconds = frame_step / fps
+    boxes_by_frame: dict[int, list[dict[str, Any]]] = {}
+    for frame in sorted(records_by_frame):
+        boxes = []
+        for detection in records_by_frame[frame].get("detections", []):
+            if detection.get("class_name") != "sports ball":
+                continue
+            confidence = float(detection.get("confidence", 0.0))
+            if confidence < LOCK_CHAIN_MINIMUM_CONFIDENCE:
+                continue
+            x1, y1 = float(detection["x1"]), float(detection["y1"])
+            x2, y2 = float(detection["x2"]), float(detection["y2"])
+            boxes.append(
+                {
+                    "x": (x1 + x2) / 2,
+                    "y": (y1 + y2) / 2,
+                    "diagonal": hypot(x2 - x1, y2 - y1),
+                    "confidence": confidence,
+                    "chain": None,
+                    "linked": False,
+                }
+            )
+        boxes.sort(key=lambda box: -box["confidence"])
+        boxes_by_frame[frame] = boxes
+
+    chains: list[list[tuple[int, dict[str, Any]]]] = []
+    for frame, boxes in boxes_by_frame.items():
+        for box in boxes:
+            best: tuple[float, dict[str, Any]] | None = None
+            for steps in range(1, LOCK_CHAIN_MAX_MISSING_STEPS + 2):
+                limit = LOCK_CHAIN_MAX_SPEED_PIXELS_PER_SECOND * step_seconds * steps
+                for previous in boxes_by_frame.get(frame - steps * frame_step, []):
+                    if previous["linked"]:
+                        continue
+                    distance = hypot(
+                        box["x"] - previous["x"], box["y"] - previous["y"]
+                    )
+                    if distance <= limit and (best is None or distance < best[0]):
+                        best = (distance, previous)
+            if best is not None:
+                best[1]["linked"] = True
+                box["chain"] = best[1]["chain"]
+            else:
+                box["chain"] = len(chains)
+                chains.append([])
+            chains[box["chain"]].append((frame, box))
+
+    qualifying: dict[int, list[tuple[dict[str, Any], int]]] = defaultdict(list)
+    for chain_index, chain in enumerate(chains):
+        if len(chain) < LOCK_CHAIN_MINIMUM_BOXES:
+            continue
+        first, last = chain[0][1], chain[-1][1]
+        travel = hypot(last["x"] - first["x"], last["y"] - first["y"])
+        if travel < LOCK_CHAIN_MINIMUM_TRAVEL_PIXELS:
+            continue
+        for frame, box in chain:
+            qualifying[frame].append((box, chain_index))
+
+    entries = ledger.entries
+    for frame, found in sorted(qualifying.items()):
+        if frame not in entries or ledger.confirmed(frame) is not None:
+            continue
+        if len(found) != 1:
+            ledger.reject(frame, LOCK_YOLO_CHAIN_MODULE, "several_moving_chains")
+            continue
+        box, chain_index = found[0]
+        chain = chains[chain_index]
+        ledger.confirm(
+            frame,
+            x=box["x"],
+            y=box["y"],
+            confirming_module=LOCK_YOLO_CHAIN_MODULE,
+            evidence={
+                "detector_confidence": box["confidence"],
+                "chain_boxes": len(chain),
+                "chain_first_frame": chain[0][0],
+                "chain_last_frame": chain[-1][0],
+                "permanent_lock": True,
+            },
+            confidence=box["confidence"],
+            box_diagonal=box["diagonal"],
+        )
+    return ledger
+
+
+def _merge_independent_module(
+    ledger: FrameLedger,
+    module_ledger: FrameLedger,
+    module: str,
+) -> FrameLedger:
+    """Copy a module's decisions, made on its own fresh ledger, into frames
+    that are still unresolved. Permanent locks are never overwritten; where the
+    module disagrees with a lock, the lock wins and the disagreement is kept as
+    a rejection reason."""
+    for frame, entry in module_ledger.entries.items():
+        current = ledger.confirmed(frame)
+        if entry.status == "confirmed" and entry.confirming_module == module:
+            if current is None:
+                ledger.confirm(
+                    frame,
+                    x=float(entry.x),
+                    y=float(entry.y),
+                    confirming_module=module,
+                    evidence=dict(entry.evidence or {}),
+                    confidence=float(entry.confidence or 0.0),
+                    clip_seconds=entry.clip_seconds,
+                    box_diagonal=entry.box_diagonal,
+                    point_evidence=entry.point_evidence,
+                    point_source_attribution=entry.point_source_attribution,
+                    temporal_score=entry.temporal_score,
+                )
+            continue
+        for reason in entry.rejection_reasons:
+            if reason.get("module") == module:
+                ledger.reject(frame, module, reason.get("reason", ""))
+    return ledger
 
 # A ball seen resting at the same spot on both sides of a short window cannot
 # have been somewhere else in between: leaving and being returned to rest at the
@@ -152,6 +290,102 @@ def _ball_colour_check(
         return bool(colour_low <= sample <= colour_high)
 
     return matches
+
+
+GRASS_CONTRAST_FRACTION_OF_STRONG = 0.55
+GRASS_CONTRAST_BLUR_DIAGONALS = 1.5
+
+
+def _grass_contrast(frame: np.ndarray, x: float, y: float, diameter: float) -> float | None:
+    """How strongly the box centre differs in colour (any colour) from grass.
+
+    Brightness is ignored, so lighter grass, shadows and pitch texture score
+    low whatever the ball's own colour is.
+    """
+    diameter = max(diameter, MINIMUM_BALL_DIAMETER_PIXELS)
+    half = int(np.ceil(diameter * 5))
+    center_x = round(x)
+    center_y = round(y)
+    if (
+        center_y - half < 0
+        or center_x - half < 0
+        or center_y + half + 1 > frame.shape[0]
+        or center_x + half + 1 > frame.shape[1]
+    ):
+        return None
+    window = frame[
+        center_y - half : center_y + half + 1,
+        center_x - half : center_x + half + 1,
+    ]
+    lab = cv2.cvtColor(window, cv2.COLOR_BGR2LAB).astype(np.float32)
+    offsets_y, offsets_x = np.mgrid[-half : half + 1, -half : half + 1]
+    distance = np.hypot(offsets_x, offsets_y)
+    grass = np.median(
+        lab[(distance >= diameter * 2.5) & (distance <= diameter * 5)],
+        axis=0,
+    )
+    chroma_distance = np.hypot(lab[..., 1] - grass[1], lab[..., 2] - grass[2])
+    core = distance <= diameter * BALL_COLOUR_CORE_DIAMETERS
+    return float(np.percentile(chroma_distance[core], 90))
+
+
+def _grass_contrast_check(detector_points: Iterable[BallPoint], video: Path) -> Any:
+    """Reject weak boxes that do not stand out from the grass in colour.
+
+    The required contrast is learned from this video's strong detections, so
+    no ball colour is assumed. Boxes much larger than a normal ball are motion
+    blur, which dilutes contrast, and are not judged.
+    """
+    yolo = [p for p in detector_points if p.source_attribution == "yolo26_observed"]
+    strong = [p for p in yolo if p.confidence >= BALL_COLOUR_STRONG_CONFIDENCE]
+    weak = [p for p in yolo if p.confidence < BALL_COLOUR_WEAK_CONFIDENCE]
+    if len(strong) < BALL_COLOUR_MINIMUM_SAMPLES or not weak:
+        return None
+    points_by_frame: dict[int, list[BallPoint]] = defaultdict(list)
+    for point in [*strong, *weak]:
+        points_by_frame[point.source_frame].append(point)
+    contrast: dict[tuple[int, float, float], float | None] = {}
+    capture = cv2.VideoCapture(str(video))
+    try:
+        if not capture.isOpened():
+            raise ValueError(f"Could not open benchmark video: {video}")
+        for source_frame in range(max(points_by_frame) + 1):
+            points = points_by_frame.get(source_frame)
+            if not points:
+                if not capture.grab():
+                    raise RuntimeError(f"Could not skip to source frame {source_frame} in {video}")
+                continue
+            ok, frame = capture.read()
+            if not ok:
+                raise RuntimeError(f"Could not read source frame {source_frame} from {video}")
+            for point in points:
+                contrast[(source_frame, float(point.x), float(point.y))] = _grass_contrast(
+                    frame, float(point.x), float(point.y), float(point.box_diagonal or 0.0)
+                )
+    finally:
+        capture.release()
+    strong_contrast = [
+        value
+        for point in strong
+        if (value := contrast[(point.source_frame, float(point.x), float(point.y))]) is not None
+    ]
+    if len(strong_contrast) < BALL_COLOUR_MINIMUM_SAMPLES:
+        return None
+    minimum = float(np.median(strong_contrast)) * GRASS_CONTRAST_FRACTION_OF_STRONG
+    strong_diagonals = [p.box_diagonal for p in strong if p.box_diagonal]
+    blur_diagonal = (
+        float(np.median(strong_diagonals)) * GRASS_CONTRAST_BLUR_DIAGONALS
+        if strong_diagonals
+        else float("inf")
+    )
+
+    def stands_out(point: BallPoint) -> bool:
+        if (point.box_diagonal or 0.0) > blur_diagonal:
+            return True
+        value = contrast.get((point.source_frame, float(point.x), float(point.y)))
+        return value is None or value >= minimum
+
+    return stands_out
 
 
 def _weak_feet_candidates(
@@ -402,11 +636,12 @@ def _reachable_from_nearest_confirmed(
     return True
 
 
-# A weak detection far off the line between the confirmed ball just before and
-# just after it would need the ball to leave and come straight back within a
-# fraction of a second. The detour allowance is a quarter of the maximum ball
-# speed over the bracket.
-DETOUR_BRACKET_STEPS = 3
+# A short run of weak detections far off the line between the confirmed ball
+# just before and just after it would need the ball to leave and come straight
+# back within a fraction of a second. The detour allowance is a quarter of the
+# maximum ball speed over the bracket.
+DETOUR_BRACKET_STEPS = 4
+DETOUR_MAX_RUN_LENGTH = 2
 DETOUR_ALLOWANCE_SPEED_FRACTION = 0.25
 
 
@@ -426,63 +661,153 @@ def _withdraw_one_frame_detours(
             for entry in ledger.entries.values()
             if entry.status == "confirmed"
         }
-        worst: tuple[float, Any] | None = None
+        worst: tuple[float, list[Any]] | None = None
         for frame, entry in confirmed.items():
-            if (
-                entry.confirming_module != CONFIRM_YOLO_MODULE
-                or not _is_movable_detection(entry)
-            ):
-                continue
-            previous = next(
-                (
-                    confirmed[frame - offset * frame_step]
-                    for offset in range(1, DETOUR_BRACKET_STEPS + 1)
-                    if frame - offset * frame_step in confirmed
-                ),
-                None,
-            )
-            following = next(
-                (
-                    confirmed[frame + offset * frame_step]
-                    for offset in range(1, DETOUR_BRACKET_STEPS + 1)
-                    if frame + offset * frame_step in confirmed
-                ),
-                None,
-            )
-            if previous is None or following is None:
-                continue
-            # Only a detection weaker than both neighbours is the detour; a
-            # stronger one means the neighbours are the doubtful points.
-            if float(entry.confidence or 0.0) >= min(
-                float(previous.confidence or 0.0),
-                float(following.confidence or 0.0),
-            ):
-                continue
-            elapsed = (following.source_frame - previous.source_frame) / fps
-            direct = hypot(following.x - previous.x, following.y - previous.y)
-            if direct > max_speed_pixels_per_second * 1.25 * elapsed:
-                continue
-            excess = (
-                hypot(entry.x - previous.x, entry.y - previous.y)
-                + hypot(following.x - entry.x, following.y - entry.y)
-                - direct
-            )
-            allowance = (
-                max_speed_pixels_per_second
-                * DETOUR_ALLOWANCE_SPEED_FRACTION
-                * elapsed
-            )
-            if excess > allowance and (worst is None or excess > worst[0]):
-                worst = (excess, entry)
+            run = [entry]
+            for offset in range(1, DETOUR_MAX_RUN_LENGTH):
+                member = confirmed.get(frame + offset * frame_step)
+                if member is None:
+                    break
+                run.append(member)
+            for length in range(1, len(run) + 1):
+                members = run[:length]
+                if any(
+                    member.confirming_module != CONFIRM_YOLO_MODULE
+                    or not _is_movable_detection(member)
+                    for member in members
+                ):
+                    break
+                first, last = members[0].source_frame, members[-1].source_frame
+                previous = next(
+                    (
+                        confirmed[first - offset * frame_step]
+                        for offset in range(1, DETOUR_BRACKET_STEPS + 1)
+                        if first - offset * frame_step in confirmed
+                    ),
+                    None,
+                )
+                following = next(
+                    (
+                        confirmed[last + offset * frame_step]
+                        for offset in range(1, DETOUR_BRACKET_STEPS + 1)
+                        if last + offset * frame_step in confirmed
+                    ),
+                    None,
+                )
+                if previous is None or following is None:
+                    continue
+                # Only detections weaker than both neighbours are the detour;
+                # a stronger one means the neighbours are the doubtful points.
+                # Neighbours locked as multi-frame detector chains are not
+                # doubtful: agreement across frames outweighs one score.
+                chained = (
+                    previous.confirming_module == LOCK_YOLO_CHAIN_MODULE
+                    and following.confirming_module == LOCK_YOLO_CHAIN_MODULE
+                )
+                if not chained and max(float(member.confidence or 0.0) for member in members) >= min(
+                    float(previous.confidence or 0.0),
+                    float(following.confidence or 0.0),
+                ):
+                    continue
+                elapsed = (following.source_frame - previous.source_frame) / fps
+                direct = hypot(following.x - previous.x, following.y - previous.y)
+                if direct > max_speed_pixels_per_second * 1.25 * elapsed:
+                    continue
+                path = [previous, *members, following]
+                excess = (
+                    sum(
+                        hypot(b.x - a.x, b.y - a.y)
+                        for a, b in zip(path, path[1:])
+                    )
+                    - direct
+                )
+                allowance = (
+                    max_speed_pixels_per_second
+                    * DETOUR_ALLOWANCE_SPEED_FRACTION
+                    * elapsed
+                )
+                if excess > allowance and (worst is None or excess > worst[0]):
+                    worst = (excess, members)
         if worst is None:
             return withdrawn
-        entry = worst[1]
-        withdrawn.append((entry.source_frame, float(entry.x), float(entry.y)))
-        ledger.withdraw(
-            entry.source_frame,
-            CONFIRM_YOLO_MODULE,
-            "detour_from_consistent_confirmed_neighbours",
-        )
+        for entry in worst[1]:
+            withdrawn.append((entry.source_frame, float(entry.x), float(entry.y)))
+            ledger.withdraw(
+                entry.source_frame,
+                CONFIRM_YOLO_MODULE,
+                "detour_from_consistent_confirmed_neighbours",
+            )
+
+
+def _earlier_object_reason(
+    point: BallPoint,
+    *,
+    ledger: FrameLedger | None,
+    candidates_by_frame: dict[int, list[_BallCandidate]],
+    frame_step: int,
+) -> str | None:
+    # A box where the detector already saw something one sample earlier,
+    # while the confirmed ball was clearly elsewhere, is that other object
+    # (a boot or a mark), not the ball arriving.
+    if ledger is None or frame_step < 1:
+        return None
+    previous = ledger.entries.get(point.source_frame - frame_step)
+    if (
+        previous is None
+        or previous.status != "confirmed"
+        or previous.x is None
+        or previous.y is None
+    ):
+        return None
+    radius = EARLIER_OBJECT_RADIUS_PIXELS
+    if hypot(previous.x - point.x, previous.y - point.y) <= (
+        EARLIER_OBJECT_BALL_SEPARATION * radius
+    ):
+        return None
+    if any(
+        hypot(candidate.point.x - point.x, candidate.point.y - point.y) <= radius
+        for candidate in candidates_by_frame.get(point.source_frame - frame_step, [])
+    ):
+        return "same_spot_as_earlier_non_ball_detection"
+    return None
+
+
+EARLIER_OBJECT_RADIUS_PIXELS = 30.0
+EARLIER_OBJECT_BALL_SEPARATION = 3.0
+
+
+def _long_unseen_jump(
+    point: BallPoint,
+    ledger: FrameLedger,
+    *,
+    fps: float,
+    frame_step: int,
+    max_speed_pixels_per_second: float,
+) -> bool:
+    """Whether the nearest confirmed ball is farther than one top-speed sample.
+
+    The ball can only get there by travelling fast through unseen frames; a
+    real ball in flight leaves a chain of moving detections, while a boot or
+    other ball-like object far from the ball does not.
+    """
+    if fps <= 0 or frame_step < 1:
+        return False
+    confirmed = [
+        entry
+        for entry in ledger.entries.values()
+        if entry.status == "confirmed"
+        and entry.x is not None
+        and entry.y is not None
+        and entry.source_frame != point.source_frame
+    ]
+    if not confirmed:
+        return False
+    nearest = min(
+        confirmed,
+        key=lambda entry: abs(entry.source_frame - point.source_frame),
+    )
+    one_sample = max_speed_pixels_per_second * frame_step / fps
+    return hypot(nearest.x - point.x, nearest.y - point.y) > one_sample
 
 
 def _candidate_rejection_reason(
@@ -497,10 +822,20 @@ def _candidate_rejection_reason(
     require_moving_neighbour: bool,
     ledger: FrameLedger | None = None,
     ball_colour_matches: Any = None,
+    stands_out_from_grass: Any = None,
 ) -> tuple[str | None, bool]:
     if point.confidence < minimum_confidence:
         return "low_detector_confidence", False
-    if _inside_player_upper_body(point, record):
+    if (
+        stands_out_from_grass is not None
+        and point.source_attribution == "yolo26_observed"
+        and point.confidence < BALL_COLOUR_WEAK_CONFIDENCE
+        and not stands_out_from_grass(point)
+    ):
+        return "no_contrast_with_grass", False
+    if _inside_player_upper_body(point, record) and not _strong_ball_behind_player(
+        point
+    ):
         return "inside_player_upper_body", False
     static_reason = _same_position_static_reason(
         point,
@@ -509,17 +844,26 @@ def _candidate_rejection_reason(
     )
     if static_reason is not None:
         return static_reason, False
+    earlier_reason = _earlier_object_reason(
+        point,
+        ledger=ledger,
+        candidates_by_frame=candidates_by_frame,
+        frame_step=frame_step,
+    )
+    if earlier_reason is not None:
+        return earlier_reason, False
     near_feet = any(
         candidate.point == point and candidate.near_player_feet
         for candidate in candidates_by_frame.get(point.source_frame, [])
     )
+    # A weak box without ball colour is grass, a line or a sliver of kit,
+    # whether or not it sits near a player's feet.
     if (
-        near_feet
-        and ball_colour_matches is not None
+        ball_colour_matches is not None
         and point.confidence < BALL_COLOUR_WEAK_CONFIDENCE
         and not ball_colour_matches(point)
     ):
-        return "colour_differs_from_ball", True
+        return "colour_differs_from_ball", near_feet
     if near_feet and not require_moving_neighbour:
         return None, True
     if require_moving_neighbour and ledger is not None:
@@ -563,6 +907,20 @@ def _candidate_rejection_reason(
             max_speed_pixels_per_second=max_speed_pixels_per_second,
         ):
             return "unreachable_from_confirmed_ball", near_feet
+        if _long_unseen_jump(
+            point,
+            ledger,
+            fps=fps,
+            frame_step=frame_step,
+            max_speed_pixels_per_second=max_speed_pixels_per_second,
+        ) and not _moving_chain_supports(
+            point,
+            candidates_by_frame=candidates_by_frame,
+            fps=fps,
+            frame_step=frame_step,
+            max_speed_pixels_per_second=max_speed_pixels_per_second,
+        ):
+            return "long_unseen_jump_without_moving_chain", near_feet
     # A fixed object detected in nearby frames is not motion support for any
     # candidate, selected or not.
     neighbours = {
@@ -628,6 +986,9 @@ def _confirm_yolo_detections(
             if video is not None
             else None
         ),
+        stands_out_from_grass=(
+            _grass_contrast_check(detector_points, video) if video is not None else None
+        ),
     )
     _confirm_unresolved_frames(
         ledger,
@@ -670,6 +1031,7 @@ def _confirm_unresolved_frames(
     max_speed_pixels_per_second: float,
     minimum_confidence: float,
     ball_colour_matches: Any = None,
+    stands_out_from_grass: Any = None,
 ) -> None:
     for frame in frames:
         if ledger.confirmed(frame) is not None:
@@ -758,6 +1120,7 @@ def _confirm_unresolved_frames(
                 require_moving_neighbour=alternative or require_reachable,
                 ledger=ledger,
                 ball_colour_matches=ball_colour_matches,
+                stands_out_from_grass=stands_out_from_grass,
             )
             if reason is not None:
                 if rejection is None:

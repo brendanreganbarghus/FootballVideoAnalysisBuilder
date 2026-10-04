@@ -47,6 +47,7 @@ export const reviewWorkflow = Object.freeze({
   shotsOnTargetCapable: true,
   inspectionDetectionCaches: [
     "developer-runs/reviewed-23-ball-models/yolo26n/detections.jsonl",
+    "developer-runs/engine-comparison/detections.jsonl",
   ],
   promptLabel: "Football Event Review Canvas",
   promptBoundary:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import cv2
 import numpy as np
 import pytest
 
@@ -628,3 +629,269 @@ def test_resting_anchor_needs_no_stronger_detection_between_20260929T101500002Z(
         )
 
     assert ball_tracking._resting_ball_anchors(ledger, fps=5) == []
+
+def test_aerial_flight_refuses_long_unsupported_hole_20261003T015630519Z() -> None:
+    start, end = (0, 0.0, 0.0), (60, 300.0, 0.0)
+
+    def arc(t: int) -> tuple[float, float]:
+        return 5.0 * t, -0.1 * t * (60 - t)
+
+    continuous = {t: [arc(t)] for t in range(1, 60)}
+    assert ball_tracking._aerial_best_path(start, end, continuous) is not None
+    holed = {t: [arc(t)] for t in range(1, 60) if not 10 <= t < 30}
+    assert ball_tracking._aerial_best_path(start, end, holed) is None
+
+
+def test_scenery_check_vetoes_point_on_fixed_background_20261003T015630520Z(
+    tmp_path,
+) -> None:
+    video = tmp_path / "clip.avi"
+    writer = cv2.VideoWriter(
+        str(video), cv2.VideoWriter_fourcc(*"MJPG"), 25.0, (160, 120)
+    )
+    for frame in range(40):
+        image = np.full((120, 160, 3), 60, dtype=np.uint8)
+        cv2.circle(image, (30, 30), 4, (255, 255, 255), -1)
+        cv2.circle(image, (40 + 2 * frame, 80), 4, (255, 255, 255), -1)
+        writer.write(image)
+    writer.release()
+
+    ledger = ball_tracking.FrameLedger((f, f / 25) for f in range(40))
+    ledger.confirm(
+        10, x=30, y=30, confirming_module="04_focused_multiscale",
+        evidence={}, confidence=0.5,
+    )
+    ledger.confirm(
+        11, x=62, y=80, confirming_module="04_focused_multiscale",
+        evidence={}, confidence=0.5,
+    )
+    ledger.confirm(
+        12, x=30, y=30, confirming_module="02_aerial_flight",
+        evidence={}, confidence=0.5,
+    )
+    ledger = ball_tracking._confirm_scenery_check(ledger, video=video)
+
+    assert ledger.confirmed(10) is None
+    assert ledger.confirmed(11) is not None
+    assert ledger.confirmed(12) is not None
+
+
+def test_gap_walk_follows_slow_ball_from_known_end_20261003T071012345Z() -> None:
+    """A ball resting at a player's feet is followed one short step at a time.
+
+    An unrelated object further along the gap must not start the chain.
+    """
+    BallPoint = ball_tracking.BallPoint
+
+    def point(frame: int, x: float, y: float = 100.0) -> BallPoint:
+        return BallPoint(
+            source_frame=frame, clip_seconds=frame / 25, confidence=0.3,
+            x=x, y=y, box_diagonal=8.0, evidence="test",
+            temporal_score=None, source_attribution="test",
+        )
+
+    ball = {15: 12.0, 20: 14.0, 25: 15.0, 30: 18.0, 35: 20.0}
+    clutter = {15: 60.0, 20: 60.0, 25: 60.0, 30: 60.0, 35: 60.0}
+
+    def find(frame: int, x: float, y: float):
+        options = [point(frame, ball[frame]), point(frame, clutter[frame])]
+        return min(options, key=lambda p: abs(p.x - x))
+
+    walked = ball_tracking._walk_gap_from_ends(
+        point(10, 10.0), point(40, 22.0), [15, 20, 25, 30, 35], find,
+        frame_step=5, ball_diameter=8.0,
+    )
+    assert {f: p.x for f, p in walked.items()} == ball
+
+    far_only = ball_tracking._walk_gap_from_ends(
+        point(10, 10.0), point(40, 150.0), [15, 20, 25, 30, 35],
+        lambda f, x, y: point(f, 80.0, 300.0), frame_step=5, ball_diameter=8.0,
+    )
+    assert far_only == {}
+
+
+def test_gap_walk_replaces_only_clear_jumps_to_another_object_20261003T074530218Z() -> None:
+    """A walked point keeps a nearby first-pass ball and replaces a far jump."""
+    from football_poc.ball.focused_multiscale import _merge_walked_points
+
+    BallPoint = ball_tracking.BallPoint
+
+    def point(frame: int, x: float) -> BallPoint:
+        return BallPoint(
+            source_frame=frame, clip_seconds=frame / 25, confidence=0.3,
+            x=x, y=100.0, box_diagonal=8.0, evidence="test",
+            temporal_score=None, source_attribution="test",
+        )
+
+    candidates = {20: (point(20, 30.0), 1.0, 8.0), 25: (point(25, 100.0), 1.0, 8.0)}
+    accepted = {20, 25}
+    walked = {20: point(20, 10.0), 25: point(25, 12.0), 30: point(30, 14.0)}
+    _merge_walked_points(candidates, accepted, walked, 8.0)
+    assert candidates[20][0].x == 30.0
+    assert candidates[25][0].x == 12.0
+    assert candidates[30][0].x == 14.0
+    assert accepted == {20, 25, 30}
+
+
+def test_gap_walk_point_must_be_reachable_from_both_ends_20261003T082214507Z() -> None:
+    """A walk that drifts away from where the ball reappears is cut off."""
+    BallPoint = ball_tracking.BallPoint
+
+    def point(frame: int, x: float) -> BallPoint:
+        return BallPoint(
+            source_frame=frame, clip_seconds=frame / 25, confidence=0.3,
+            x=x, y=100.0, box_diagonal=8.0, evidence="test",
+            temporal_score=None, source_attribution="test",
+        )
+
+    # Ball rolls left from x=100 to x=40 but is unseen from the left end on
+    # 15 and 20; a second object appears to the right from frame 25.
+    ball = {15: 90.0, 20: 80.0, 25: 70.0, 30: 60.0, 35: 50.0}
+    drifter = {25: 145.0, 30: 165.0, 35: 185.0}
+
+    def find(frame: int, x: float, y: float):
+        if x >= 100.0:
+            return point(frame, drifter[frame]) if frame in drifter else None
+        return point(frame, ball[frame])
+
+    walked = ball_tracking._walk_gap_from_ends(
+        point(10, 100.0), point(40, 40.0), [15, 20, 25, 30, 35], find,
+        frame_step=5, ball_diameter=8.0,
+    )
+    assert {f: p.x for f, p in walked.items()} == ball
+
+
+def test_attention_fallback_point_off_path_is_rechecked_even_when_confident_20261003T085013987Z(
+    monkeypatch,
+) -> None:
+    import numpy as np
+    from pathlib import Path
+
+    from football_poc import ball_tracking
+    from football_poc.ball.types import BallPoint, BallTrack
+
+    jumped = BallPoint(
+        5,
+        0.2,
+        0.85,
+        5,
+        60,
+        box_diagonal=10,
+        evidence="raw_motion_attention_convergence_global_fallback",
+    )
+    replacement = BallPoint(
+        5,
+        0.2,
+        0.3,
+        5,
+        1,
+        box_diagonal=10,
+        evidence="focused_multiscale_detector",
+    )
+    tracks = (
+        BallTrack(
+            1,
+            [
+                BallPoint(0, 0.0, 0.8, 0, 0, box_diagonal=10),
+                jumped,
+                BallPoint(10, 0.4, 0.8, 10, 0, box_diagonal=10),
+            ],
+        ),
+    )
+    monkeypatch.setattr(
+        ball_tracking,
+        "_read_sampled_color_frames",
+        lambda *_args, **_kwargs: {5: np.zeros((20, 20, 3), dtype=np.uint8)},
+    )
+    monkeypatch.setattr(
+        ball_tracking,
+        "_focused_multiscale_ball_reacquisition",
+        lambda **_kwargs: replacement,
+    )
+
+    recovered = ball_tracking._replace_low_confidence_global_fallback_outliers(
+        tracks,
+        video=Path("unused.mp4"),
+        model=object(),
+    )
+
+    assert recovered[0].points[1] == replacement
+
+def test_motion_step_withdraws_attention_fallback_off_neighbour_path_20261004T103500000Z() -> None:
+    from football_poc import ball_tracking
+    FrameLedger = ball_tracking.FrameLedger
+
+    def ledger_with(fallback_frame: int, following_frame: int):
+        ledger = FrameLedger(
+            (frame, frame / 25) for frame in (0, fallback_frame, following_frame)
+        )
+        ledger.confirm(
+            0, x=0, y=0, confirming_module="00_lock_yolo_chains", evidence={},
+            confidence=0.8, clip_seconds=0.0, box_diagonal=10,
+        )
+        ledger.confirm(
+            fallback_frame, x=5, y=60,
+            confirming_module="03_motion_and_optical_flow", evidence={},
+            confidence=0.85, clip_seconds=fallback_frame / 25, box_diagonal=10,
+            point_evidence="raw_motion_attention_convergence_global_fallback",
+        )
+        ledger.confirm(
+            following_frame, x=following_frame, y=0,
+            confirming_module="00_lock_yolo_chains", evidence={},
+            confidence=0.8, clip_seconds=following_frame / 25, box_diagonal=10,
+        )
+        return ledger
+
+    close = ledger_with(5, 10)
+    ball_tracking._withdraw_off_path_attention_fallbacks(
+        close, "03_motion_and_optical_flow"
+    )
+    assert close.confirmed(5) is None
+    assert 5 in close.unresolved_frames()
+
+    far_apart = ledger_with(20, 40)
+    ball_tracking._withdraw_off_path_attention_fallbacks(
+        far_apart, "03_motion_and_optical_flow"
+    )
+    assert far_apart.confirmed(20) is not None
+
+
+def test_aerial_flight_needs_ends_that_travel_20261004T030000000Z(tmp_path) -> None:
+    """No flight is fitted between confirmed ends that barely moved."""
+    def run(end_x: float):
+        ledger = ball_tracking.FrameLedger((f, f / 25) for f in range(16))
+        for frame, x in ((0, 100.0), (15, end_x)):
+            ledger.confirm(
+                frame, x=x, y=100.0, confirming_module="01_confirm_yolo",
+                evidence={}, confidence=0.5,
+            )
+        ledger = ball_tracking._confirm_aerial_flights(
+            ledger, records_by_frame={0: {"detections": []}},
+            video=tmp_path / "missing.avi", fps=25.0,
+            max_speed_pixels_per_second=2000.0,
+        )
+        return [r["reason"] for r in ledger.entries[7].rejection_reasons]
+
+    assert run(102.0) == ["aerial_ends_did_not_travel"]
+    assert run(160.0) == ["aerial_no_unique_flight_path"]
+
+def test_detour_between_chain_locked_neighbours_ignores_score_20261004T053000000Z() -> None:
+    """A lone off-path detection loses to chain-locked neighbours even if it scores higher."""
+    def run(neighbour_module: str):
+        ledger = ball_tracking.FrameLedger((f, f / 25) for f in (0, 5, 10))
+        for frame, x, y, module, confidence in (
+            (0, 100.0, 100.0, neighbour_module, 0.2),
+            (5, 300.0, 200.0, "01_confirm_yolo", 0.45),
+            (10, 110.0, 105.0, neighbour_module, 0.3),
+        ):
+            ledger.confirm(
+                frame, x=x, y=y, confirming_module=module,
+                evidence={}, confidence=confidence,
+            )
+        ball_tracking._withdraw_one_frame_detours(
+            ledger, fps=25.0, frame_step=5, max_speed_pixels_per_second=1600.0,
+        )
+        return ledger.confirmed(5)
+
+    assert run("00_lock_yolo_chains") is None
+    assert run("01_confirm_yolo") is not None

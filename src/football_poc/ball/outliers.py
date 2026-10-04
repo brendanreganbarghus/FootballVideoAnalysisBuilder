@@ -354,9 +354,17 @@ def _replace_low_confidence_global_fallback_outliers(
                 hypot(point.x - expected_x, point.y - expected_y)
                 / reference_diameter
             )
+            # Attention-convergence confidence scores the players, not the
+            # ball's appearance, so it never exempts the point from a re-check.
             unstable_global_fallback = (
-                point.evidence == "raw_motion_global_fallback"
-                and point.confidence < maximum_confidence
+                (
+                    (
+                        point.evidence == "raw_motion_global_fallback"
+                        and point.confidence < maximum_confidence
+                    )
+                    or point.evidence
+                    == "raw_motion_attention_convergence_global_fallback"
+                )
                 and path_error_diameters > minimum_path_error_diameters
             )
             unstable_weak_detector = (

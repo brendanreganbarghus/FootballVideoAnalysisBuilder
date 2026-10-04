@@ -17,6 +17,7 @@ class BallPoint:
     confirming_module: str | None = None
     rejection_reasons: tuple[dict[str, str], ...] = ()
     ledger_source_attribution: str = "detected"
+    smooth_gap_path: bool = False
 
 
 @dataclass

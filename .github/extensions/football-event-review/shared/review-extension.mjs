@@ -1570,6 +1570,51 @@ function scaleYoloCandidates(candidates, scale) {
   );
 }
 
+const ENGINE_COMPARISON_TRACK = join(
+  "developer-runs",
+  "engine-comparison",
+  "ball-tracks.json",
+);
+
+// Display-only ball-rules engine output shown beside frozen BAC. It never
+// replaces BAC, feeds events, or changes reviewer decisions.
+async function loadEngineComparisonTrack(segment, manifest) {
+  const path = join(preparedSegmentRoot(segment.key), ENGINE_COMPARISON_TRACK);
+  const payload = await readJson(path, null);
+  if (!payload?.tracks) return null;
+  const scale = await detectorDisplayScale(segment, [
+    manifest.video,
+    join(
+      preparedSegmentRoot(segment.key),
+      manifest.playable_video || "segment.mp4",
+    ),
+  ]);
+  const points = {};
+  for (const track of payload.tracks) {
+    for (const point of track.points || []) {
+      const frame = Number(point.source_frame);
+      const x = Number(point.x);
+      const y = Number(point.y);
+      if (
+        !Number.isFinite(frame)
+        || point.x === null
+        || point.y === null
+        || !Number.isFinite(x)
+        || !Number.isFinite(y)
+      ) continue;
+      points[String(frame)] = {
+        x: x * scale.x,
+        y: y * scale.y,
+        module: String(
+          point.confirming_module || point.source_attribution || "engine",
+        ),
+      };
+    }
+  }
+  if (!Object.keys(points).length) return null;
+  return {source: ENGINE_COMPARISON_TRACK.replaceAll("\\", "/"), points};
+}
+
 async function loadDetectedBallTrack(
   segment,
   { allowDetectionOnly = false } = {},
@@ -1686,6 +1731,20 @@ async function loadDetectedBallTrack(
         break;
       }
     }
+    const engineComparison = await loadEngineComparisonTrack(segment, manifest);
+    if (engineComparison) {
+      for (const state of coordinateStates) {
+        const enginePoint = engineComparison.points[String(state.frame)];
+        if (!enginePoint) continue;
+        state.engineX = enginePoint.x;
+        state.engineY = enginePoint.y;
+        state.engineModule = enginePoint.module;
+        state.engineDistance = Math.hypot(
+          enginePoint.x - state.x,
+          enginePoint.y - state.y,
+        );
+      }
+    }
     return {
       width: Number(segment.imageWidth),
       height: Number(segment.imageHeight),
@@ -1703,6 +1762,13 @@ async function loadDetectedBallTrack(
       integrityRejectedFrames: [],
       yoloCandidates,
       yoloCandidateSource,
+      engineComparison: engineComparison
+        ? {
+          source: engineComparison.source,
+          points: engineComparison.points,
+          frameCount: Object.keys(engineComparison.points).length,
+        }
+        : null,
       points,
       states: coordinateStates,
     };

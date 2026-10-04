@@ -1182,6 +1182,8 @@ export function renderHtml({ adapter } = {}) {
       padding: 3px 8px;
     }
     .ball-frame-status.direct { color: #aff5b4; }
+    .ball-frame-status.confirmed { color: #79c0ff; font-weight: 600; }
+    .ball-frame-status.checking { color: #d2a8ff; }
     .ball-frame-status.estimated { color: #f2cc60; }
     .coordinate-review-result {
       display: inline-flex;
@@ -1409,7 +1411,7 @@ export function renderHtml({ adapter } = {}) {
       cursor: grab;
     }
     .ball-frame-modal-media.marking {
-      cursor: crosshair;
+      cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32'%3E%3Cg stroke='%23000' stroke-width='3' opacity='.7'%3E%3Cpath d='M16 1V11M16 21V31M1 16H11M21 16H31'/%3E%3C/g%3E%3Cg stroke='%23fff' stroke-width='1.2'%3E%3Cpath d='M16 1V11M16 21V31M1 16H11M21 16H31'/%3E%3C/g%3E%3Ccircle cx='16' cy='16' r='2.2' fill='%23f2cc60' stroke='%23000' stroke-width='.8'/%3E%3C/svg%3E") 16 16, crosshair;
     }
     .ball-frame-modal-media.panning {
       cursor: grabbing;
@@ -1482,6 +1484,12 @@ export function renderHtml({ adapter } = {}) {
       font-weight: 800;
     }
     .coordinate-icon-action.agree { color: #7ee787; }
+    #engine-correct-ball-coordinate {
+      color: #ffb3ad;
+      background: rgba(255, 123, 114, 0.18);
+      border-color: rgba(255, 123, 114, 0.55);
+      font-size: inherit;
+    }
     .coordinate-icon-action.undefined { color: #ff7b72; }
     .coordinate-undefined-action {
       color: #ff7b72;
@@ -1532,6 +1540,13 @@ export function renderHtml({ adapter } = {}) {
       stroke-dasharray: 9 6;
       vector-effect: none;
     }
+    .ball-frame-engine-compare-marker {
+      fill: none;
+      stroke: #ff3b30;
+      stroke-width: 5;
+      stroke-dasharray: 9 6;
+    }
+    .ball-frame-overlay-controls .bac { color: #7ee787; }
     .ball-frame-modal-crosshair {
       fill: none;
       stroke: #7ee787;
@@ -4228,6 +4243,7 @@ export function renderHtml({ adapter } = {}) {
                 <option value="diagnostic">Focused diagnostic batch</option>
                 <option value="all">All frames</option>
                 <option value="direct">Direct only</option>
+                <option value="needs-review" hidden>Needs my review</option>
               </select>
             </label>
             <div class="ball-coordinate-review-actions">
@@ -4245,8 +4261,11 @@ export function renderHtml({ adapter } = {}) {
                   <tr>
                     <th scope="col">Frame</th>
                     <th scope="col">Time</th>
-                    <th scope="col">X</th>
-                    <th scope="col">Y</th>
+                    <th scope="col" id="ball-frame-x-header">X</th>
+                    <th scope="col" id="ball-frame-y-header">Y</th>
+                    <th scope="col" class="engine-compare-col" hidden>Engine X</th>
+                    <th scope="col" class="engine-compare-col" hidden>Engine Y</th>
+                    <th scope="col" class="engine-compare-col" hidden>Distance</th>
                     <th scope="col">Status</th>
                     <th scope="col">Evidence</th>
                     <th scope="col">Review status</th>
@@ -4634,6 +4653,8 @@ export function renderHtml({ adapter } = {}) {
                   id="ball-frame-modal-marker" r="11"></circle>
                 <circle class="ball-frame-user-marker"
                   id="ball-frame-user-marker" r="11" hidden></circle>
+                <circle class="ball-frame-engine-compare-marker"
+                  id="ball-frame-engine-compare-marker" r="18" hidden></circle>
                 <rect class="ball-frame-hidden-region"
                   id="ball-frame-hidden-region" hidden></rect>
               </svg>
@@ -4661,9 +4682,14 @@ export function renderHtml({ adapter } = {}) {
               id="ball-frame-modal-details"></div>
             <div class="ball-frame-overlay-controls"
               id="ball-frame-overlay-controls" hidden>
-              <label class="engine">
+              <label class="engine" id="show-engine-ball-marker-label">
                 <input id="show-engine-ball-marker" type="checkbox" checked>
-                Engine ring (red)
+                <span>Engine ring (red)</span>
+              </label>
+              <label class="engine" id="show-engine-compare-marker-label"
+                hidden>
+                <input id="show-engine-compare-marker" type="checkbox" checked>
+                Rules engine (red)
               </label>
               <label class="yolo">
                 <input id="show-yolo-ball-markers" type="checkbox" checked>
@@ -4710,6 +4736,11 @@ export function renderHtml({ adapter } = {}) {
                   adapter.coordinateCorrectionEnabled ? "" : " hidden"
                 }>
                 ✓
+              </button>
+              <button class="coordinate-icon-action agree"
+                id="engine-correct-ball-coordinate" type="button" hidden
+                title="The engine (red) coordinate is correct">
+                Engine (red) correct
               </button>
               <button class="coordinate-undefined-action"
                 id="undefined-ball-coordinate" type="button"
@@ -5112,6 +5143,7 @@ export function renderHtml({ adapter } = {}) {
     let selectedRawBallFrame = 0;
     let ballFrameInteractionMode = "zoom";
     let showEngineBallMarker = true;
+    let showEngineComparisonMarker = true;
     let showYoloBallMarkers = true;
     let flaggedBallFrames = new Set();
     let ballCoordinateObservations = {};
@@ -6387,6 +6419,9 @@ export function renderHtml({ adapter } = {}) {
         "#target-ball-frame",
         "#zoom-ball-frame",
         "#reset-ball-frame-zoom",
+        "#ball-frame-zoom-out",
+        "#ball-frame-zoom-in",
+        "#play-ball-frame-video",
         "#next-ball-frame",
         "#next-ball-review-frame",
         "#close-ball-coordinate-review",
@@ -6408,6 +6443,9 @@ export function renderHtml({ adapter } = {}) {
         "#validate-engine-reference",
         ".ball-frame-open",
         "#ball-frame-filter",
+        "#show-engine-ball-marker",
+        "#show-engine-compare-marker",
+        "#show-yolo-ball-markers",
         "#refresh-copilot-session",
         "#start-segment-work",
         "#view-regression-runs"
@@ -6544,6 +6582,9 @@ export function renderHtml({ adapter } = {}) {
         "#target-ball-frame",
         "#zoom-ball-frame",
         "#reset-ball-frame-zoom",
+        "#ball-frame-zoom-out",
+        "#ball-frame-zoom-in",
+        "#play-ball-frame-video",
         "#next-ball-frame",
         "#next-ball-review-frame",
         "#close-ball-coordinate-review",
@@ -6569,6 +6610,24 @@ export function renderHtml({ adapter } = {}) {
         ".shared-review-table button",
         ".segment-replay-modal button",
         "#ball-frame-filter",
+        "#show-engine-ball-marker",
+        "#show-engine-compare-marker",
+        "#show-yolo-ball-markers",
+        // Reviewer coordinate decisions go to the separate reviewer layer,
+        // never to frozen BAC or the published events, so stay editable.
+        ...(reviewWorkflow.reviewerCorrectedDemoLayer
+          && (state?.segment?.ballSource || "bac") === "bac"
+          ? [
+              "#agree-ball-coordinate",
+              "#engine-correct-ball-coordinate",
+              "#undefined-ball-coordinate",
+              "#needs-more-checking",
+              "#mark-ball-location",
+              "#approve-ball-location",
+              "#undo-ball-coordinate-decision",
+              "#yolo-candidate-actions button"
+            ]
+          : []),
         ...(regressionCandidateReviewActive()
           ? [
               ".comparison-action",
@@ -7491,8 +7550,26 @@ export function renderHtml({ adapter } = {}) {
         + "-" + (selectedCoordinateBatchId || "unassigned");
     }
 
+    function engineConfirmation(frame, observation) {
+      if (observation?.decision !== "specified" || !engineComparisonActive()) {
+        return false;
+      }
+      const point = (ballTrack?.states || []).find(
+        candidate => candidate.frame === Number(frame)
+      );
+      return Number.isFinite(point?.engineX)
+        && Math.hypot(
+          Number(observation.x) - point.engineX,
+          Number(observation.y) - point.engineY
+        ) < 0.5;
+    }
+
     function reviewerCoordinateChangeStatus(frame, observation) {
       if (!observation?.approved) return "base";
+      if (observation.decision === "agree") return "base";
+      // The engine-comparison screen records evaluation decisions only;
+      // the BAC demo-layer batch apply does not apply there.
+      if (engineComparisonActive()) return "base";
       const applied =
         state.reviewerCoordinateLayer?.corrections?.[String(frame)];
       if (!applied || applied.outcome !== observation.decision) {
@@ -7760,6 +7837,9 @@ export function renderHtml({ adapter } = {}) {
         ...(diagnostic?.original_review_frames || []),
         ...(diagnostic?.new_regression_frames || [])
       ]);
+      if (filter === "needs-review" && engineComparisonActive()) {
+        return points.filter(point => comparisonNeedsReview(point.frame));
+      }
       return filter === "estimated"
         ? points.filter(point => !point.direct)
         : filter === "flagged"
@@ -7859,8 +7939,139 @@ export function renderHtml({ adapter } = {}) {
       };
     }
 
+    function engineComparisonActive() {
+      return Boolean(
+        ballTrack?.engineComparison?.points
+        && (state?.segment?.ballSource || "bac") === "bac"
+      );
+    }
+
+    // Review triage only: BAC/engine agreement is not ground truth, so
+    // auto-agreed frames are never saved as reviewer decisions.
+    const AUTO_AGREE_DISTANCE_PX = 25;
+    const SPOT_CHECK_RATE = 0.1;
+    let comparisonTriageCache = null;
+
+    function spotCheckHash(frame) {
+      let hash = 2166136261;
+      for (const char of String(frame)) {
+        hash = Math.imul(hash ^ char.charCodeAt(0), 16777619) >>> 0;
+      }
+      return hash;
+    }
+
+    function comparisonTriage() {
+      if (!engineComparisonActive()) return null;
+      if (comparisonTriageCache?.track === ballTrack) {
+        return comparisonTriageCache;
+      }
+      const autoAgreed = (ballTrack.states || [])
+        .filter(point =>
+          Number.isFinite(point.engineDistance)
+          && point.engineDistance <= AUTO_AGREE_DISTANCE_PX
+        )
+        .map(point => point.frame);
+      const spotCheck = new Set(
+        [...autoAgreed]
+          .sort((a, b) => spotCheckHash(a) - spotCheckHash(b) || a - b)
+          .slice(0, Math.ceil(autoAgreed.length * SPOT_CHECK_RATE))
+      );
+      comparisonTriageCache = {
+        track: ballTrack,
+        autoAgreed: new Set(autoAgreed),
+        spotCheck
+      };
+      return comparisonTriageCache;
+    }
+
+    function comparisonTriageStatus(frame) {
+      const triage = comparisonTriage();
+      if (!triage) return null;
+      if (ballCoordinateObservations[String(frame)]) {
+        return {label: "Reviewed by you", className: "confirmed"};
+      }
+      if (triage.spotCheck.has(frame)) {
+        return {label: "Spot-check (auto-agreed)", className: "checking"};
+      }
+      if (triage.autoAgreed.has(frame)) {
+        return {
+          label: "Auto-agreed (≤" + AUTO_AGREE_DISTANCE_PX + " px)",
+          className: "direct"
+        };
+      }
+      return {label: "Needs your review", className: "estimated"};
+    }
+
+    function comparisonNeedsReview(frame) {
+      const triage = comparisonTriage();
+      if (!triage) return false;
+      return triage.spotCheck.has(frame) || !triage.autoAgreed.has(frame);
+    }
+
+    function comparisonReviewFramesActive() {
+      return engineComparisonActive()
+        && document.getElementById("ball-frame-filter").value
+          === "needs-review";
+    }
+
+    // Display-only rules-engine point beside BAC; interpolated between
+    // sampled engine frames only when both neighbours are close.
+    function engineComparisonPointAtRawFrame(frame) {
+      if (!engineComparisonActive()) return null;
+      const points = ballTrack.engineComparison.points;
+      if (points[String(frame)]) return points[String(frame)];
+      const frames = Object.keys(points).map(Number).sort((a, b) => a - b);
+      const previous = [...frames].reverse().find(value => value < frame);
+      const following = frames.find(value => value > frame);
+      if (
+        previous === undefined
+        || following === undefined
+        || following - previous > 10
+      ) return null;
+      const alpha = (frame - previous) / (following - previous);
+      const left = points[String(previous)];
+      const right = points[String(following)];
+      return {
+        x: left.x + (right.x - left.x) * alpha,
+        y: left.y + (right.y - left.y) * alpha,
+        module: "between sampled engine frames"
+      };
+    }
+
+    function renderEngineComparisonMarker(frame) {
+      const active = engineComparisonActive();
+      const enginePoint = engineComparisonPointAtRawFrame(frame);
+      const marker = document.getElementById(
+        "ball-frame-engine-compare-marker"
+      );
+      document.getElementById("ball-frame-modal-marker").classList.toggle(
+        "engine-coordinate",
+        !active
+      );
+      document.getElementById(
+        "show-engine-compare-marker-label"
+      ).hidden = !active;
+      const bacLabel = document.getElementById(
+        "show-engine-ball-marker-label"
+      );
+      bacLabel.classList.toggle("bac", active);
+      bacLabel.classList.toggle("engine", !active);
+      bacLabel.querySelector("span").textContent = active
+        ? "BAC (green)"
+        : "Engine ring (red)";
+      // SVG elements have no hidden property; toggle the attribute.
+      const hideMarker = !enginePoint || !showEngineComparisonMarker;
+      marker.toggleAttribute("hidden", hideMarker);
+      marker.style.display = hideMarker ? "none" : "";
+      if (enginePoint) {
+        marker.setAttribute("cx", String(enginePoint.x));
+        marker.setAttribute("cy", String(enginePoint.y));
+      }
+    }
+
     function renderBallPlaybackOverlay(frame) {
       if (!ballTrack) return;
+      renderEngineComparisonMarker(frame);
       const displayedPoint = ballPointAtRawFrame(frame);
       const hasCoordinate =
         Number.isFinite(displayedPoint?.x)
@@ -7888,11 +8099,11 @@ export function renderHtml({ adapter } = {}) {
         "ball-frame-yolo-markers"
       );
       yoloMarkers.replaceChildren();
-      for (const candidate of (
+      for (const [candidateIndex, candidate] of (
         showYoloBallMarkers
           ? ballTrack.yoloCandidates?.[String(frame)] || []
           : []
-      )) {
+      ).entries()) {
         if (
           showEngineBallMarker
           && hasCoordinate
@@ -7911,7 +8122,17 @@ export function renderHtml({ adapter } = {}) {
         circle.setAttribute("fill", "none");
         circle.setAttribute("stroke", "#58a6ff");
         circle.setAttribute("stroke-width", "5");
-        yoloMarkers.append(circle);
+        const label = document.createElementNS(
+          "http://www.w3.org/2000/svg",
+          "text"
+        );
+        label.setAttribute("x", String(candidate.x + 18));
+        label.setAttribute("y", String(candidate.y - 18));
+        label.setAttribute("fill", "#79c0ff");
+        label.setAttribute("font-size", "32");
+        label.setAttribute("font-weight", "700");
+        label.textContent = String(candidateIndex + 1);
+        yoloMarkers.append(circle, label);
       }
       const fps = Number(ballTrack.fps || 25);
       const frameCount = Number(
@@ -8012,6 +8233,7 @@ export function renderHtml({ adapter } = {}) {
       marker.setAttribute("cy", String(displayedPoint?.y || 0));
       marker.hidden = !hasDisplayedCoordinate || !showEngineBallMarker;
       marker.style.display = marker.hidden ? "none" : "";
+      renderEngineComparisonMarker(selectedRawBallFrame);
       crosshair.setAttribute(
         "d",
         "M " + ((displayedPoint?.x || 0) - 20) + " "
@@ -8174,9 +8396,13 @@ export function renderHtml({ adapter } = {}) {
         "ball-frame-resolution-status"
       );
       document.getElementById("ball-frame-modal-mode").textContent =
-        inspectionOnly
-          ? "Inspection only · red ring: engine · blue rings: YOLO"
-          : "Coordinate review · red ring: engine · blue rings: YOLO";
+        (inspectionOnly ? "Inspection only" : "Coordinate review")
+        + (
+          engineComparisonActive()
+            ? " · green ring: BAC · red ring: rules engine · blue rings: "
+              + "YOLO · yellow: you"
+            : " · red ring: engine · blue rings: YOLO"
+        );
       document.getElementById("ball-frame-overlay-controls").hidden = false;
       const frozenBac =
         (state?.segment?.ballSource || "bac") === "bac";
@@ -8195,8 +8421,12 @@ export function renderHtml({ adapter } = {}) {
           Number(observation.x) - displayedPoint.x,
           Number(observation.y) - displayedPoint.y
         ) > 6;
+      const confirmedEngine =
+        engineConfirmation(selectedBallTargetFrame, observation);
       const decisionLabel =
-        agreedCoordinateMoved
+        confirmedEngine
+          ? "confirmed the engine (red) coordinate"
+        : agreedCoordinateMoved
           ? "agreed with an earlier coordinate; the engine has since moved"
         : observation?.decision === "agree"
           ? "agreed with the current coordinate"
@@ -8214,20 +8444,27 @@ export function renderHtml({ adapter } = {}) {
                 ? "BAC imported coordinate confirmed"
                 : "";
       const currentDecisionLabel =
-        agreedCoordinateMoved
+        confirmedEngine
+          ? "✓ Engine (red) correct"
+        : agreedCoordinateMoved
           ? "Engine moved since you agreed · please recheck"
         : reviewerChangeStatus === "pending"
           ? "User changed · pending batch apply"
           : reviewerChangeStatus === "applied"
             ? "✓ User change applied"
         : observation?.decision === "agree"
-          ? "✓ Agreed with coordinate"
+          ? (engineComparisonActive()
+              ? "✓ BAC (green) correct"
+              : "✓ Agreed with coordinate")
           : observation?.decision === "needs_more_checking"
             ? "Needs more checking"
             : observation?.decision === "undefined"
               ? "Ball undefined / not visible"
               : observation?.decision === "yolo_candidate"
-                ? "✓ YOLO candidate confirmed"
+                ? (Number.isInteger(observation.candidateIndex)
+                    ? "✓ YOLO candidate "
+                      + (observation.candidateIndex + 1) + " correct"
+                    : "✓ YOLO candidate confirmed")
               : observation?.decision === "specified" && observation.approved
                 ? "✓ Custom coordinate confirmed"
                 : observation?.decision === "specified"
@@ -8314,11 +8551,14 @@ export function renderHtml({ adapter } = {}) {
       }
       const viewingTarget =
         selectedRawBallFrame === selectedBallTargetFrame;
-      const coordinateDescription = hasDisplayedCoordinate
+      const comparingSources = engineComparisonActive();
+      const sourceName = comparingSources ? "BAC (green)" : "Engine";
+      const coordinateDescription = (hasDisplayedCoordinate
         ? (
           viewingTarget
-            ? "Engine coordinate at target "
-            : "Engine path at context frame " + selectedRawBallFrame + " "
+            ? sourceName + " coordinate at target "
+            : sourceName + " path at context frame "
+              + selectedRawBallFrame + " "
         )
           + "(" + displayedPoint.x.toFixed(1) + ", "
           + displayedPoint.y.toFixed(1) + ") · "
@@ -8329,9 +8569,17 @@ export function renderHtml({ adapter } = {}) {
               : displayedPoint.state + " · " + displayedPoint.evidence
                 + " · target frame " + selectedBallTargetFrame
           )
-        : "No engine path coordinate at context frame "
+        : "No " + sourceName.toLowerCase() + " path coordinate at context frame "
           + selectedRawBallFrame + " · target frame "
-          + selectedBallTargetFrame;
+          + selectedBallTargetFrame)
+        + (
+          comparingSources && viewingTarget
+            ? Number.isFinite(point.engineX) && Number.isFinite(point.engineY)
+              ? " · Engine (red) (" + point.engineX.toFixed(1) + ", "
+                + point.engineY.toFixed(1) + ")"
+              : " · Engine (red): no ball on this frame"
+            : ""
+        );
       document.getElementById("ball-frame-modal-details").textContent =
         coordinateDescription
         + (
@@ -8367,7 +8615,9 @@ export function renderHtml({ adapter } = {}) {
         rawBallFrameSeekPending || selectedRawBallFrame === 0;
       document.getElementById("next-ball-frame").disabled =
         rawBallFrameSeekPending || selectedRawBallFrame === frameCount - 1;
-      const reviewFrames = flaggedBallFrames.size
+      const reviewFrames = comparisonReviewFramesActive()
+        ? visibleBallStates()
+        : flaggedBallFrames.size
         ? (ballTrack.states || []).filter(
             candidate => flaggedBallFrames.has(candidate.frame)
           )
@@ -8416,6 +8666,24 @@ export function renderHtml({ adapter } = {}) {
           && !reviewerCorrectionView
         )
         || selectedCoordinateBatch()?.status === "done";
+      const agreeButton = document.getElementById("agree-ball-coordinate");
+      const engineCorrectButton =
+        document.getElementById("engine-correct-ball-coordinate");
+      const comparing = engineComparisonActive();
+      agreeButton.textContent = comparing ? "BAC (green) correct" : "✓";
+      agreeButton.title = comparing
+        ? "The BAC (green) coordinate is correct"
+        : "Agree with current coordinate";
+      agreeButton.setAttribute("aria-label", agreeButton.title);
+      engineCorrectButton.hidden = inspectionOnly || !comparing;
+      engineCorrectButton.disabled =
+        agreeButton.disabled
+        || !Number.isFinite(point.engineX)
+        || !Number.isFinite(point.engineY);
+      engineCorrectButton.title =
+        !Number.isFinite(point.engineX) || !Number.isFinite(point.engineY)
+          ? "The engine found no ball on this frame"
+          : "The rules engine (red) coordinate is correct";
       document.getElementById("undefined-ball-coordinate").disabled =
         selectedRawBallFrame !== selectedBallTargetFrame
         || (
@@ -8459,7 +8727,9 @@ export function renderHtml({ adapter } = {}) {
     }
 
     function showAdjacentBallReviewFrame(offset) {
-      const reviewFrames = flaggedBallFrames.size
+      const reviewFrames = comparisonReviewFramesActive()
+        ? visibleBallStates()
+        : flaggedBallFrames.size
         ? (ballTrack?.states || []).filter(
             point => flaggedBallFrames.has(point.frame)
           )
@@ -8523,7 +8793,14 @@ export function renderHtml({ adapter } = {}) {
         saveError = error;
       }
       renderBallFrames();
-      showRawBallFrame(reviewedFrame, true);
+      // Only redraw the frame when the reviewer is still looking at it;
+      // closing the modal during the save must not reopen it.
+      if (
+        document.getElementById("ball-frame-modal").open
+        && selectedBallTargetFrame === reviewedFrame
+      ) {
+        showRawBallFrame(reviewedFrame, true);
+      }
       if (saveError) {
         document.getElementById("ball-coordinate-review-status").textContent =
           "Frame " + reviewedFrame + ": " + description
@@ -8686,7 +8963,29 @@ export function renderHtml({ adapter } = {}) {
       filter.options[3].disabled = !diagnostic;
       filter.options[4].textContent = "All frames (" + points.length + ")";
       filter.options[5].textContent = "Direct only (" + direct + ")";
+      const triage = comparisonTriage();
+      filter.options[6].hidden = !triage;
+      if (triage) {
+        const needsReview = points.filter(
+          point => comparisonNeedsReview(point.frame)
+        );
+        const remaining = needsReview.filter(
+          point => !ballCoordinateObservations[String(point.frame)]
+        ).length;
+        filter.options[6].textContent = "Needs my review ("
+          + remaining + " of " + needsReview.length + " left · "
+          + (triage.autoAgreed.size - triage.spotCheck.size)
+          + " auto-agreed)";
+      }
       const visible = visibleBallStates();
+      const comparing = engineComparisonActive();
+      for (const header of document.querySelectorAll(".engine-compare-col")) {
+        header.hidden = !comparing;
+      }
+      document.getElementById("ball-frame-x-header").textContent =
+        comparing ? "BAC X" : "X";
+      document.getElementById("ball-frame-y-header").textContent =
+        comparing ? "BAC Y" : "Y";
       document.getElementById("ball-frame-summary").textContent = points.length
         ? (ballTrack?.pendingEngineOutput
           ? points.length + " sampled raw frames · engine coordinates pending"
@@ -8727,13 +9026,27 @@ export function renderHtml({ adapter } = {}) {
             point.seconds.toFixed(2) + "s",
             Number.isFinite(displayedX) ? displayedX.toFixed(1) : "Pending",
             Number.isFinite(displayedY) ? displayedY.toFixed(1) : "Pending",
+            ...(
+              engineComparisonActive()
+                ? [
+                    Number.isFinite(point.engineX)
+                      ? point.engineX.toFixed(1) : "No ball",
+                    Number.isFinite(point.engineY)
+                      ? point.engineY.toFixed(1) : "No ball",
+                    Number.isFinite(point.engineDistance)
+                      ? point.engineDistance.toFixed(0) + " px" : "—"
+                  ]
+                : []
+            ),
           ].map(value => {
             const cell = document.createElement("td");
             cell.textContent = value;
             return cell;
           });
           const status = document.createElement("td");
-          const diagnosticStatus = ballDiagnosticStatus(point.frame);
+          const diagnosticStatus =
+            comparisonTriageStatus(point.frame)
+            || ballDiagnosticStatus(point.frame);
           status.className = "ball-frame-status " + (
             diagnosticStatus?.className
             || (point.direct ? "direct" : "estimated")
@@ -8800,9 +9113,20 @@ export function renderHtml({ adapter } = {}) {
           const decision = document.createElement("td");
           const savedDecisionPresentation = observation?.decision
             ? {
-                agree: ["Agreed with coordinate", "confirmed"],
+                agree: [
+                  engineComparisonActive()
+                    ? "✓ BAC (green) correct"
+                    : "Agreed with coordinate",
+                  "confirmed"
+                ],
                 undefined: ["Ball undefined / not visible", "undefined"],
-                yolo_candidate: ["YOLO candidate confirmed", "confirmed"],
+                yolo_candidate: [
+                  Number.isInteger(observation.candidateIndex)
+                    ? "✓ YOLO candidate "
+                      + (observation.candidateIndex + 1) + " correct"
+                    : "YOLO candidate confirmed",
+                  "confirmed"
+                ],
                 specified: [
                   observation.approved
                     ? "Custom coordinate confirmed"
@@ -8813,7 +9137,9 @@ export function renderHtml({ adapter } = {}) {
               }[observation.decision]
             : null;
           const decisionPresentation =
-            reviewerCorrectionView
+            engineConfirmation(point.frame, observation)
+              ? ["✓ Engine (red) correct", "confirmed"]
+            : reviewerCorrectionView
             && reviewerCoordinateChangeStatus(point.frame, observation)
               === "pending"
               ? ["User changed · pending batch apply", "checking"]
@@ -9222,7 +9548,9 @@ export function renderHtml({ adapter } = {}) {
         const disputed = (batch?.disputedFrames || []).includes(point.frame)
           || carryForward?.status === "disputed_direct";
         const presentation =
-          reviewWorkflow.reviewerCorrectedDemoLayer
+          engineConfirmation(point.frame, observation)
+            ? ["✓ Engine (red) correct", "confirmed"]
+          : reviewWorkflow.reviewerCorrectedDemoLayer
           && reviewerChangeStatus === "pending"
             ? ["User changed · pending batch apply", "checking"]
           : reviewWorkflow.reviewerCorrectedDemoLayer
@@ -10130,6 +10458,23 @@ export function renderHtml({ adapter } = {}) {
           });
         }
       );
+      document.getElementById("engine-correct-ball-coordinate")
+        .addEventListener("click", () => {
+          const point = (ballTrack?.states || []).find(
+            candidate => candidate.frame === selectedBallTargetFrame
+          );
+          if (!Number.isFinite(point?.engineX)) return;
+          // Stored as the reviewer's own visible coordinate at the engine
+          // point, so the saved x/y alone says which side was correct.
+          void recordBallCoordinateDecision(
+            {decision: "specified", x: point.engineX, y: point.engineY},
+            "confirmed the engine (red) coordinate"
+          ).catch(error => {
+            document.getElementById(
+              "ball-coordinate-review-status"
+            ).textContent = error.message;
+          });
+        });
       document.getElementById("undefined-ball-coordinate").addEventListener(
         "click",
         () => {
@@ -10166,6 +10511,13 @@ export function renderHtml({ adapter } = {}) {
         "change",
         event => {
           showEngineBallMarker = event.target.checked;
+          renderBallPlaybackOverlay(selectedRawBallFrame);
+        }
+      );
+      document.getElementById("show-engine-compare-marker").addEventListener(
+        "change",
+        event => {
+          showEngineComparisonMarker = event.target.checked;
           renderBallPlaybackOverlay(selectedRawBallFrame);
         }
       );
@@ -12557,6 +12909,8 @@ export function renderHtml({ adapter } = {}) {
             document.getElementById("ball-frame-filter").value =
               activeCoordinateBatch?.status === "ready"
                 ? "flagged"
+              : engineComparisonActive()
+                ? "needs-review"
               : state.ballRecoveryDiagnostic?.status === "focused_unpersisted"
                 ? "diagnostic"
                 : state.segment.state === "failed" ? "estimated" : "all";

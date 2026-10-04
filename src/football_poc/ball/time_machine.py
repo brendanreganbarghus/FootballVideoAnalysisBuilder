@@ -57,6 +57,7 @@ def _confirm_time_machine_estimates(
     max_speed_pixels_per_second: float,
     max_interpolation_seconds: float = 1.2,
     max_one_sided_seconds: float | None = None,
+    place_possible_regions: bool = True,
 ) -> FrameLedger:
     if max_one_sided_seconds is None:
         max_one_sided_seconds = max(0.1, 2 * frame_step / fps)
@@ -70,6 +71,9 @@ def _confirm_time_machine_estimates(
         if previous is not None and following is not None:
             gap_seconds = (following.source_frame - previous.source_frame) / fps
             bounded = gap_seconds <= max_interpolation_seconds
+            if not bounded and not place_possible_regions:
+                ledger.reject(frame, TIME_MACHINE_MODULE, "gap_too_long_to_estimate")
+                continue
             alpha = (
                 (frame - previous.source_frame)
                 / (following.source_frame - previous.source_frame)
@@ -124,6 +128,12 @@ def _confirm_time_machine_estimates(
             continue
 
         anchor = previous or following
+        if not place_possible_regions and (
+            anchor is None
+            or abs(frame - anchor.source_frame) / fps > max_one_sided_seconds
+        ):
+            ledger.reject(frame, TIME_MACHINE_MODULE, "gap_too_long_to_estimate")
+            continue
         if anchor is None:
             # No visual evidence anywhere in the segment: the ball could be
             # anywhere in the frame.

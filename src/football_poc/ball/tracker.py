@@ -153,7 +153,7 @@ def _confirm_track_points_from_module(
             ledger.reject(frame, module, "module_found_no_candidate")
             continue
         record = records_by_frame.get(frame, {})
-        if _inside_player_upper_body(point, record):
+        if _inside_player_upper_body(point, record) and not point.smooth_gap_path:
             ledger.reject(frame, module, "candidate_inside_player_upper_body")
             continue
         if (
@@ -188,6 +188,48 @@ def _confirm_track_points_from_module(
             temporal_score=point.temporal_score,
         )
     return ledger
+
+
+def _withdraw_off_path_attention_fallbacks(ledger: FrameLedger, module: str) -> None:
+    # Attention convergence points at the players, not the ball. When both
+    # confirmed neighbours are close in time and the point sits far off the
+    # straight path between them, the module takes it back so later steps
+    # can fill the frame from the neighbours.
+    maximum_bracket_frames = int(
+        SOCCERTRACK_TRAJECTORY_OUTLIER_PROFILE[
+            "global_fallback_outlier_maximum_bracket_frames"
+        ]
+    )
+    minimum_path_error_diameters = float(
+        SOCCERTRACK_TRAJECTORY_OUTLIER_PROFILE[
+            "global_fallback_outlier_minimum_path_error_ball_diameters"
+        ]
+    )
+    points = sorted(
+        ledger.confirmed_points(), key=lambda point: point.source_frame
+    )
+    off_path: list[int] = []
+    for index in range(1, len(points) - 1):
+        point = points[index]
+        if (
+            point.confirming_module != module
+            or point.evidence
+            != "raw_motion_attention_convergence_global_fallback"
+        ):
+            continue
+        previous = points[index - 1]
+        following = points[index + 1]
+        span = following.source_frame - previous.source_frame
+        if span <= 0 or span > maximum_bracket_frames:
+            continue
+        alpha = (point.source_frame - previous.source_frame) / span
+        expected_x = previous.x + (following.x - previous.x) * alpha
+        expected_y = previous.y + (following.y - previous.y) * alpha
+        path_error = hypot(point.x - expected_x, point.y - expected_y)
+        if path_error / max(point.box_diagonal, 1.0) > minimum_path_error_diameters:
+            off_path.append(point.source_frame)
+    for frame in off_path:
+        ledger.withdraw(frame, module, "attention_fallback_off_neighbour_path")
 
 
 def _run_motion_and_optical_flow_module(
@@ -241,6 +283,7 @@ def _run_motion_and_optical_flow_module(
         fps=fps,
         max_speed_pixels_per_second=max_speed_pixels_per_second,
     )
+    _withdraw_off_path_attention_fallbacks(ledger, "03_motion_and_optical_flow")
     raw_motion_diagnostics = replace(
         raw_motion_diagnostics,
         attention_accepted=(
@@ -290,13 +333,18 @@ def _track_cached_balls_impl(
         for point in _ball_points(record)
         if _inside_soccertrack_pitch(point, width, height)
     ]
+    behind_player = _balls_continuing_behind_player(
+        pitch_candidates,
+        fps=manifest.fps,
+        frame_step=int(metadata["stride"]),
+    )
     candidates = [
         _BallCandidate(
             point=point,
             near_player_feet=_near_player_feet(point, record),
         )
         for point, record in pitch_candidates
-        if _player_context_allows_ball(point, record)
+        if point in behind_player or _player_context_allows_ball(point, record)
     ]
     static_cells = _static_cells(
         (candidate.point for candidate in candidates),
@@ -438,9 +486,19 @@ def _track_cached_balls_impl(
         if point.source_attribution == "yolo26_observed"
     ]
     ledger = _timed_tracker_call(
+        LOCK_YOLO_CHAIN_MODULE,
+        _lock_moving_yolo_chains,
+        ledger,
+        records_by_frame=records_by_frame,
+        fps=manifest.fps,
+        frame_step=frame_step,
+    )
+    # 01 decides on its own fresh ledger; its results fill only frames the
+    # permanent locks left unresolved.
+    yolo_ledger = _timed_tracker_call(
         "01_confirm_yolo",
         _confirm_yolo_detections,
-        ledger,
+        _ledger_from_records(records),
         selected_detector_points,
         candidates_by_frame=candidates_by_frame,
         records_by_frame=records_by_frame,
@@ -448,6 +506,34 @@ def _track_cached_balls_impl(
         frame_step=frame_step,
         max_speed_pixels_per_second=max_speed_pixels_per_second,
         video=manifest.video,
+    )
+    ledger = _merge_independent_module(ledger, yolo_ledger, "01_confirm_yolo")
+    # 01 judged detours without the chain locks; recheck its merged points
+    # now that locked chain neighbours are visible.
+    _withdraw_one_frame_detours(
+        ledger,
+        fps=manifest.fps,
+        frame_step=frame_step,
+        max_speed_pixels_per_second=max_speed_pixels_per_second,
+    )
+    ledger = _timed_tracker_call(
+        FLIPBOOK_MODULE,
+        _confirm_flipbook_time_machine,
+        ledger,
+        records_by_frame=records_by_frame,
+        video=manifest.video,
+        model_path=Path(str(metadata["model"])),
+        fps=manifest.fps,
+        max_speed_pixels_per_second=max_speed_pixels_per_second,
+    )
+    ledger = _timed_tracker_call(
+        AERIAL_MODULE,
+        _confirm_aerial_flights,
+        ledger,
+        records_by_frame=records_by_frame,
+        video=manifest.video,
+        fps=manifest.fps,
+        max_speed_pixels_per_second=max_speed_pixels_per_second,
     )
     ledger, raw_motion_diagnostics, dense_flow_diagnostics = _timed_tracker_call(
         "03_motion_and_optical_flow",
@@ -526,6 +612,14 @@ def _track_cached_balls_impl(
         height=height,
         max_speed_pixels_per_second=max_speed_pixels_per_second,
     )
+    # The scenery check needs the whole clip, so it runs after every visual
+    # module and before the time machine re-estimates any frame it frees.
+    ledger = _timed_tracker_call(
+        SCENERY_MODULE,
+        _confirm_scenery_check,
+        ledger,
+        video=manifest.video,
+    )
     # The time machine runs last so visual recovery modules see every gap
     # first; it then gives each remaining frame an estimate or possible region.
     ledger = _timed_tracker_call(
@@ -537,6 +631,7 @@ def _track_cached_balls_impl(
         width=width,
         height=height,
         max_speed_pixels_per_second=max_speed_pixels_per_second,
+        place_possible_regions=False,
     )
     accepted = _single_track_from_ledger(ledger)
     discarded_temporal_upper_body_points = 0
@@ -579,7 +674,10 @@ def _track_cached_balls_impl(
                         "modules can only confirm unresolved frames."
                     ),
                     "modules": [
+                        LOCK_YOLO_CHAIN_MODULE,
                         "01_confirm_yolo",
+                        FLIPBOOK_MODULE,
+                        AERIAL_MODULE,
                         "03_motion_and_optical_flow",
                         "04_focused_multiscale",
                         "05_short_stationary",

@@ -174,10 +174,75 @@ def test_confirm_yolo_rejects_weak_feet_detection_without_ball_colour(tmp_path) 
 
     assert ledger.confirmed(10) is None
     assert any(
-        reason["reason"] == "colour_differs_from_ball"
+        reason["reason"] in {"colour_differs_from_ball", "no_contrast_with_grass"}
         for reason in ledger.entries[10].rejection_reasons
     )
     assert ledger.confirmed(12) is not None
+
+
+def test_confirm_yolo_rejects_weak_detection_that_does_not_stand_out_from_grass(
+    tmp_path,
+) -> None:
+    grass = (40, 140, 40)
+    light_grass = (70, 175, 70)
+    white_ball = (235, 235, 235)
+    video = tmp_path / "segment.avi"
+    writer = cv2.VideoWriter(
+        str(video), cv2.VideoWriter_fourcc(*"MJPG"), 5, (600, 400)
+    )
+    discs = {frame: (120 + 20 * frame, 120, white_ball) for frame in range(8)}
+    discs[9] = (300, 120, light_grass)
+    discs[11] = (340, 120, white_ball)
+    for frame in range(14):
+        image = np.full((400, 600, 3), grass, np.uint8)
+        if frame in discs:
+            x, y, colour = discs[frame]
+            cv2.circle(image, (x, y), 6, colour, -1)
+        writer.write(image)
+    writer.release()
+
+    frames = [(frame, frame / 5) for frame in range(14)]
+    ledger = ball_tracking.FrameLedger(frames)
+    candidates_by_frame = {
+        frame: [
+            _BallCandidate(
+                BallPoint(
+                    frame,
+                    frame / 5,
+                    0.8 if frame < 8 else 0.15,
+                    float(x),
+                    float(y),
+                    box_diagonal=17.0,
+                ),
+                near_player_feet=False,
+            )
+        ]
+        for frame, (x, y, _colour) in discs.items()
+    }
+
+    ball_tracking._confirm_yolo_detections(
+        ledger,
+        [
+            candidate.point
+            for candidates in candidates_by_frame.values()
+            for candidate in candidates
+        ],
+        candidates_by_frame=candidates_by_frame,
+        records_by_frame={
+            frame: {"source_frame": frame, "detections": []} for frame, _ in frames
+        },
+        fps=5,
+        frame_step=1,
+        max_speed_pixels_per_second=1600,
+        video=video,
+    )
+
+    assert ledger.confirmed(9) is None
+    assert any(
+        reason["reason"] == "no_contrast_with_grass"
+        for reason in ledger.entries[9].rejection_reasons
+    )
+    assert ledger.confirmed(11) is not None
 
 
 def test_track_module_rejects_weak_feet_proposal_without_ball_colour() -> None:
@@ -3344,3 +3409,29 @@ def test_does_not_promote_weak_or_static_two_point_fragment() -> None:
     )
 
     assert accepted == ()
+
+
+def test_smooth_gap_path_keeps_curved_ball_and_rejects_clutter() -> None:
+    previous = point(445, 0.0, 1404, 763)
+    following = point(500, 0.0, 860, 919)
+    curved = [
+        point(450, 0.0, 1443, 709),
+        point(455, 0.0, 1400, 733),
+        point(460, 0.0, 1296, 769),
+        point(465, 0.0, 1262, 779),
+        point(475, 0.0, 1175, 805),
+        point(485, 0.0, 1053, 837),
+        point(490, 0.0, 963, 873),
+    ]
+
+    assert ball_tracking._smooth_gap_path_frames(
+        previous, following, curved, frame_step=5, ball_diameter=17.9
+    ) == {460, 465, 475, 485, 490}
+    clutter = [
+        point(460, 0.0, 1600, 400),
+        point(470, 0.0, 1610, 410),
+        point(480, 0.0, 1620, 420),
+    ]
+    assert not ball_tracking._smooth_gap_path_frames(
+        previous, following, clutter, frame_step=5, ball_diameter=17.9
+    )

@@ -219,6 +219,7 @@ SOCCERTRACK_TRAJECTORY_OUTLIER_PROFILE = FrozenProfile({
     "complete_path_minimum_margin": 0.08,
     "global_fallback_outlier_maximum_confidence": 0.7,
     "global_fallback_outlier_minimum_path_error_ball_diameters": 4.0,
+    "global_fallback_outlier_maximum_bracket_frames": 10,
     "return_excursion_maximum_span_seconds": 2.0,
     "return_excursion_stable_radius_ball_diameters": 3.0,
     "return_excursion_minimum_distance_pixels": 100.0,

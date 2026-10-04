@@ -141,6 +141,58 @@ def _near_player_feet(
     return False
 
 
+# In the camera's perspective a ball on the far side of a player overlaps the
+# player's upper body. Heads and shirts produce only weak ball boxes, so a
+# strong detector box there is kept as a ball passing behind the player.
+BEHIND_PLAYER_MINIMUM_CONFIDENCE = 0.5
+
+
+def _strong_ball_behind_player(point: BallPoint) -> bool:
+    return (
+        point.source_attribution == "yolo26_observed"
+        and point.confidence >= BEHIND_PLAYER_MINIMUM_CONFIDENCE
+    )
+
+
+def _balls_continuing_behind_player(
+    pitch_candidates: Iterable[tuple[BallPoint, dict[str, Any]]],
+    *,
+    fps: float,
+    frame_step: int,
+) -> set[BallPoint]:
+    """Weak boxes over a player that continue a strong behind-player ball.
+
+    A box one sampled frame from a strong ball box behind a player, and within
+    ball-chain reach of it, is the same ball still passing that player.
+    """
+    if fps <= 0 or frame_step < 1:
+        return set()
+    hidden = [
+        point
+        for point, record in pitch_candidates
+        if not _player_context_allows_ball(point, record)
+    ]
+    strong_by_frame: dict[int, list[BallPoint]] = defaultdict(list)
+    for point, record in pitch_candidates:
+        if _inside_player_upper_body(point, record) and _strong_ball_behind_player(
+            point
+        ):
+            strong_by_frame[point.source_frame].append(point)
+    reach = LOCK_CHAIN_MAX_SPEED_PIXELS_PER_SECOND * frame_step / fps
+    return {
+        point
+        for point in hidden
+        if any(
+            hypot(strong.x - point.x, strong.y - point.y) <= reach
+            for frame in (
+                point.source_frame - frame_step,
+                point.source_frame + frame_step,
+            )
+            for strong in strong_by_frame.get(frame, [])
+        )
+    }
+
+
 def _player_context_allows_ball(
     point: BallPoint,
     record: dict[str, Any],
@@ -148,7 +200,7 @@ def _player_context_allows_ball(
     if not _inside_player_upper_body(point, record):
         return True
     if not _near_player_feet(point, record):
-        return False
+        return _strong_ball_behind_player(point)
     return not any(
         _inside_person_upper_body(point, detection)
         and _near_person_feet(point, detection)
