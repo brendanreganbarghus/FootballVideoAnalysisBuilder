@@ -317,9 +317,22 @@ def collapse_transient_opponent_segments(
                     and following_gap <= continuity_window
                     and not coherent_opponent_control
                 )
+                # A coherent "opponent" spell on the same player track that
+                # then resumes for the owner team is a team-label flicker,
+                # not opponent control.
+                long_opponent_tracks = {
+                    segment.player_track_id
+                    for segment in source[index:end]
+                    if len(segment.observations) >= 3
+                }
+                opponent_label_flicker = (
+                    long_opponent_tracks == {source[end].player_track_id}
+                    and len(source[end].observations) >= 2
+                )
                 owner_continuity_allowed = owner_continuity and (
-                    len(source[end].observations) >= 2
+                    len(source[end].observations) >= 3
                     or not coherent_opponent_control
+                    or opponent_label_flicker
                 )
                 if (
                     transient_bridge
