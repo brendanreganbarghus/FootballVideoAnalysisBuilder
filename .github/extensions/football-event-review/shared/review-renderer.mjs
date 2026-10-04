@@ -1145,10 +1145,20 @@ export function renderHtml({ adapter } = {}) {
     }
     .ball-frame-table th,
     .ball-frame-table td {
-      padding: 7px 9px;
+      padding: 5px 6px;
       border-bottom: 1px solid var(--border-color-muted, #21262d);
       text-align: left;
       white-space: nowrap;
+      font-size: 12px;
+    }
+    /* Long text columns wrap so the table fits a narrow panel. */
+    .ball-frame-table td:nth-last-child(-n + 4) {
+      white-space: normal;
+      min-width: 90px;
+    }
+    .ball-frame-table .coordinate-review-result {
+      padding: 2px 6px;
+      font-size: 11px;
     }
     .ball-frame-table thead {
       position: sticky;
@@ -4263,12 +4273,12 @@ export function renderHtml({ adapter } = {}) {
                     <th scope="col">Time</th>
                     <th scope="col" id="ball-frame-x-header">X</th>
                     <th scope="col" id="ball-frame-y-header">Y</th>
-                    <th scope="col" class="engine-compare-col" hidden>Engine X</th>
-                    <th scope="col" class="engine-compare-col" hidden>Engine Y</th>
-                    <th scope="col" class="engine-compare-col" hidden>Distance</th>
+                    <th scope="col" class="engine-compare-col" hidden>Eng X</th>
+                    <th scope="col" class="engine-compare-col" hidden>Eng Y</th>
+                    <th scope="col" class="engine-compare-col" hidden>Dist</th>
                     <th scope="col">Status</th>
                     <th scope="col">Evidence</th>
-                    <th scope="col">Review status</th>
+                    <th scope="col">Review</th>
                     <th scope="col">Your decision</th>
                   </tr>
                 </thead>
@@ -7949,6 +7959,8 @@ export function renderHtml({ adapter } = {}) {
     // Review triage only: BAC/engine agreement is not ground truth, so
     // auto-agreed frames are never saved as reviewer decisions.
     const AUTO_AGREE_DISTANCE_PX = 25;
+    // Reported only; the 25 px limit stays the pass mark.
+    const NEAR_MISS_DISTANCE_PX = 30;
     const SPOT_CHECK_RATE = 0.1;
     let comparisonTriageCache = null;
 
@@ -7962,15 +7974,23 @@ export function renderHtml({ adapter } = {}) {
 
     function comparisonTriage() {
       if (!engineComparisonActive()) return null;
-      if (comparisonTriageCache?.track === ballTrack) {
+      if (
+        comparisonTriageCache?.track === ballTrack
+        && comparisonTriageCache.observations === ballCoordinateObservations
+        && comparisonTriageCache.observationCount
+          === Object.keys(ballCoordinateObservations).length
+      ) {
         return comparisonTriageCache;
       }
-      const autoAgreed = (ballTrack.states || [])
-        .filter(point =>
-          Number.isFinite(point.engineDistance)
-          && point.engineDistance <= AUTO_AGREE_DISTANCE_PX
+      const results = new Map(
+        (ballTrack.states || []).map(point => [point.frame, engineResult(point)])
+      );
+      const autoAgreed = [...results]
+        .filter(([frame, result]) =>
+          result.kind === "agreed"
+          && !ballCoordinateObservations[String(frame)]
         )
-        .map(point => point.frame);
+        .map(([frame]) => frame);
       const spotCheck = new Set(
         [...autoAgreed]
           .sort((a, b) => spotCheckHash(a) - spotCheckHash(b) || a - b)
@@ -7978,34 +7998,99 @@ export function renderHtml({ adapter } = {}) {
       );
       comparisonTriageCache = {
         track: ballTrack,
+        observations: ballCoordinateObservations,
+        observationCount: Object.keys(ballCoordinateObservations).length,
+        results,
         autoAgreed: new Set(autoAgreed),
         spotCheck
       };
       return comparisonTriageCache;
     }
 
+    // Evaluation-only view: compares the frozen engine output with the
+    // reviewer's own mark when one exists, otherwise with BAC. It never
+    // changes a saved decision or feeds the engine.
+    function engineResult(point) {
+      const observation = ballCoordinateObservations[String(point.frame)];
+      const hasEngine = Number.isFinite(point.engineX)
+        && Number.isFinite(point.engineY);
+      if (observation?.decision === "needs_more_checking") {
+        return {kind: "unclear"};
+      }
+      if (observation?.decision === "undefined") {
+        return !hasEngine || point.engineInterpolated
+          ? {kind: "hidden_estimate"}
+          : {kind: "off", distance: null};
+      }
+      let distance = null;
+      if (
+        ["specified", "yolo_candidate"].includes(observation?.decision)
+        && Number.isFinite(observation.x)
+        && Number.isFinite(observation.y)
+      ) {
+        distance = hasEngine
+          ? Math.hypot(
+              Number(observation.x) - point.engineX,
+              Number(observation.y) - point.engineY
+            )
+          : null;
+      } else if (Number.isFinite(point.engineDistance)) {
+        distance = point.engineDistance;
+      }
+      if (!Number.isFinite(distance)) return {kind: "off", distance: null};
+      if (distance <= AUTO_AGREE_DISTANCE_PX) {
+        return {
+          kind: "agreed",
+          distance,
+          estimate: Boolean(point.engineInterpolated)
+        };
+      }
+      if (distance <= NEAR_MISS_DISTANCE_PX) return {kind: "near", distance};
+      return {kind: "off", distance};
+    }
+
     function comparisonTriageStatus(frame) {
       const triage = comparisonTriage();
       if (!triage) return null;
-      if (ballCoordinateObservations[String(frame)]) {
-        return {label: "Reviewed by you", className: "confirmed"};
+      const result = triage.results.get(frame);
+      if (!result) return {label: "Needs your review", className: "estimated"};
+      if (result.kind === "hidden_estimate") {
+        return {label: "Estimate (ball hidden) · OK", className: "direct"};
+      }
+      if (result.kind === "unclear") {
+        return {label: "Needs your review (unclear)", className: "estimated"};
+      }
+      if (result.kind === "near") {
+        return {
+          label: "Near miss (" + result.distance.toFixed(0) + " px)",
+          className: "checking"
+        };
+      }
+      if (result.kind === "off") {
+        return {
+          label: "Needs your review"
+            + (Number.isFinite(result.distance)
+              ? " (" + result.distance.toFixed(0) + " px)" : ""),
+          className: "estimated"
+        };
       }
       if (triage.spotCheck.has(frame)) {
         return {label: "Spot-check (auto-agreed)", className: "checking"};
       }
-      if (triage.autoAgreed.has(frame)) {
-        return {
-          label: "Auto-agreed (≤" + AUTO_AGREE_DISTANCE_PX + " px)",
-          className: "direct"
-        };
-      }
-      return {label: "Needs your review", className: "estimated"};
+      return {
+        label: "Auto-agreed (≤" + AUTO_AGREE_DISTANCE_PX + " px)"
+          + (result.estimate ? " · estimate" : ""),
+        className: "direct"
+      };
     }
 
     function comparisonNeedsReview(frame) {
       const triage = comparisonTriage();
       if (!triage) return false;
-      return triage.spotCheck.has(frame) || !triage.autoAgreed.has(frame);
+      const kind = triage.results.get(frame)?.kind;
+      return triage.spotCheck.has(frame)
+        || ["near", "off", "unclear"].includes(kind)
+        || !kind;
     }
 
     function comparisonReviewFramesActive() {
@@ -8969,13 +9054,12 @@ export function renderHtml({ adapter } = {}) {
         const needsReview = points.filter(
           point => comparisonNeedsReview(point.frame)
         );
-        const remaining = needsReview.filter(
-          point => !ballCoordinateObservations[String(point.frame)]
+        const agreed = [...triage.results.values()].filter(
+          result => ["agreed", "hidden_estimate"].includes(result.kind)
         ).length;
         filter.options[6].textContent = "Needs my review ("
-          + remaining + " of " + needsReview.length + " left · "
-          + (triage.autoAgreed.size - triage.spotCheck.size)
-          + " auto-agreed)";
+          + needsReview.length + " · "
+          + agreed + " of " + points.length + " engine OK)";
       }
       const visible = visibleBallStates();
       const comparing = engineComparisonActive();
@@ -9159,7 +9243,19 @@ export function renderHtml({ adapter } = {}) {
           const decisionStatus = document.createElement("span");
           decisionStatus.className =
             "coordinate-review-result " + decisionPresentation[1];
-          decisionStatus.textContent = decisionPresentation[0];
+          const engineCheck = observation?.decision
+            ? comparisonTriage()?.results.get(point.frame)
+            : null;
+          decisionStatus.textContent = decisionPresentation[0] + (
+            !engineCheck ? ""
+            : ["agreed", "hidden_estimate"].includes(engineCheck.kind)
+              ? " · engine now matches"
+            : engineCheck.kind === "near"
+              ? " · engine near miss"
+            : engineCheck.kind === "off"
+              ? " · engine still off"
+              : ""
+          );
           if (
             ["specified", "yolo_candidate"].includes(observation?.decision)
             && Number.isFinite(observation.x)

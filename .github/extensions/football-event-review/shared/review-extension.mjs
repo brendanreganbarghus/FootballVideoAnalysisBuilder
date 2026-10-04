@@ -1608,6 +1608,7 @@ async function loadEngineComparisonTrack(segment, manifest) {
         module: String(
           point.confirming_module || point.source_attribution || "engine",
         ),
+        interpolated: Boolean(point.interpolated),
       };
     }
   }
@@ -1739,6 +1740,7 @@ async function loadDetectedBallTrack(
         state.engineX = enginePoint.x;
         state.engineY = enginePoint.y;
         state.engineModule = enginePoint.module;
+        state.engineInterpolated = enginePoint.interpolated;
         state.engineDistance = Math.hypot(
           enginePoint.x - state.x,
           enginePoint.y - state.y,
