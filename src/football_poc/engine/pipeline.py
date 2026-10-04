@@ -166,7 +166,7 @@ def infer_cached_possession(*, manifest_path: Path, player_tracks_path: Path, ba
         transfer_events = reconcile_intervening_opponent_aerial_contacts_fn(transfer_events, raw_observations, balls, minimum_speed_pixels_per_second=minimum_pass_speed_pixels_per_second)
         transfer_events = suppress_passes_crossing_opponent_control(transfer_events, observations)
         transfer_events = infer_delayed_first_flight_reception(transfer_events, raw_observations, stable_segments, players, balls, match_state_timeline, minimum_speed_pixels_per_second=minimum_pass_speed_pixels_per_second)
-        transfer_events = infer_short_controlled_teammate_transfers(transfer_events, state_segments, co_visible_track_pairs=co_visible_track_pairs, minimum_transfer_heights=minimum_transfer_heights)
+        transfer_events = infer_short_controlled_teammate_transfers(transfer_events, state_segments, co_visible_track_pairs=co_visible_track_pairs, minimum_transfer_heights=minimum_transfer_heights, players=players)
         transfer_events = reconcile_brief_opponent_turnover_pairs(transfer_events, raw_observations, players)
         transfer_events = split_sharp_direction_change_passes(transfer_events, players, balls, minimum_speed_pixels_per_second=minimum_pass_speed_pixels_per_second)
         if initial_possession_team is None:

@@ -416,6 +416,8 @@ def infer_short_controlled_teammate_transfers(
     minimum_transfer_heights: float,
     maximum_segment_gap_seconds: float = 1.0,
     minimum_short_transfer_heights: float = 0.2,
+    players: dict[int, list[dict[str, Any]]] | None = None,
+    minimum_direct_handover_separation_heights: float = 0.5,
 ) -> list[PredictedEvent]:
     """Recover short passes whose distance is below the normal flight threshold."""
     source = list(events)
@@ -484,6 +486,16 @@ def infer_short_controlled_teammate_transfers(
                 if direct_handover
                 else sender.observations[-1]
             )
+            if direct_handover and _handover_tracks_overlap(
+                players,
+                reception.source_frame,
+                sender.player_track_id,
+                receiver.player_track_id,
+                minimum_direct_handover_separation_heights,
+            ):
+                # A receiver box born on top of the sender is the same
+                # physical player re-identified, not a second teammate.
+                continue
             transfer_heights = hypot(
                 reception.ball_x - release.ball_x,
                 reception.ball_y - release.ball_y,
@@ -525,6 +537,41 @@ def infer_short_controlled_teammate_transfers(
             )
             break
     return _deduplicate_receptions([*source, *inferred])
+
+def _handover_tracks_overlap(
+    players: dict[int, list[dict[str, Any]]] | None,
+    source_frame: int,
+    sender_track_id: int,
+    receiver_track_id: int,
+    minimum_separation_heights: float,
+) -> bool:
+    if not players:
+        return False
+    boxes = {
+        int(player["track_id"]): player
+        for player in players.get(int(source_frame), [])
+        if int(player["track_id"]) in {sender_track_id, receiver_track_id}
+    }
+    if len(boxes) < 2:
+        return False
+    sender = boxes[sender_track_id]
+    receiver = boxes[receiver_track_id]
+    height = max(
+        1.0,
+        (
+            float(sender["y2"])
+            - float(sender["y1"])
+            + float(receiver["y2"])
+            - float(receiver["y1"])
+        )
+        / 2,
+    )
+    separation = hypot(
+        (float(sender["x1"]) + float(sender["x2"])) / 2
+        - (float(receiver["x1"]) + float(receiver["x2"])) / 2,
+        float(sender["y2"]) - float(receiver["y2"]),
+    )
+    return separation / height < minimum_separation_heights
 
 def reconcile_brief_opponent_turnover_pairs(
     events: Iterable[PredictedEvent],
