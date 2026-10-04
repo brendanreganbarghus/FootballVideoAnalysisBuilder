@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 from typing import Any
 
@@ -186,14 +187,35 @@ def run(args: Any) -> Path:
     return destination
 
 
+def _engine_ball_tracks(ball_tracks: Path, output: Path) -> Path:
+    """Return ball tracks with every point treated as a plain coordinate."""
+    payload = json.loads(ball_tracks.read_text(encoding="utf-8"))
+    points = [
+        point
+        for track in payload.get("tracks", [])
+        for point in track.get("points", [])
+    ]
+    if not any(point.get("interpolated") for point in points):
+        return ball_tracks
+    for point in points:
+        point["interpolated"] = False
+    output.mkdir(parents=True, exist_ok=True)
+    engine_tracks = output / "engine-ball-tracks.json"
+    engine_tracks.write_text(json.dumps(payload), encoding="utf-8")
+    return engine_tracks
+
+
 def _infer(args: Any) -> Path:
     # Ball states (seen/estimate/hidden) are review-only: coordinates reach
     # the rules engine exactly like BAC unless states are passed explicitly.
     ball_state_estimates = args.ball_state_estimates
+    ball_tracks = args.ball_tracks
+    if ball_state_estimates is None:
+        ball_tracks = _engine_ball_tracks(args.ball_tracks, args.output)
     return infer_cached_possession(
         manifest_path=args.manifest,
         player_tracks_path=args.player_tracks,
-        ball_tracks_path=args.ball_tracks,
+        ball_tracks_path=ball_tracks,
         output=args.output,
         ball_state_estimates_path=ball_state_estimates,
         infer_shots=not args.no_shots,
