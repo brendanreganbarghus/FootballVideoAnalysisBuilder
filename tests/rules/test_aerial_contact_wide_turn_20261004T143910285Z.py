@@ -58,7 +58,7 @@ def test_noisy_one_sample_turn_counts_when_wide_turn_reverses_20261004T143910285
     assert _observed_frames(path, 25) == [25]
 
 
-def test_slight_wide_bend_is_not_an_aerial_touch_20261004T143910285Z():
+def test_slight_wide_bend_is_not_an_aerial_touch_20261004T143910286Z():
     path = {
         15: (1926.0, 568.0),
         20: (1918.0, 564.0),

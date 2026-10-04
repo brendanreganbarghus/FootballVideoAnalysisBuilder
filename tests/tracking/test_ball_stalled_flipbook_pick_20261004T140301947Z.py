@@ -37,7 +37,7 @@ def test_flipbook_pick_that_stalls_between_fast_steps_is_withdrawn_20261004T1403
     assert ledger.confirmed(5) is not None
 
 
-def test_flipbook_pick_on_a_slowing_ball_is_kept_20261004T140301947Z() -> None:
+def test_flipbook_pick_on_a_slowing_ball_is_kept_20261004T140301948Z() -> None:
     ledger = _ledger(
         {
             0: (100.0, "01_confirm_yolo"),
@@ -50,7 +50,7 @@ def test_flipbook_pick_on_a_slowing_ball_is_kept_20261004T140301947Z() -> None:
     assert ledger.confirmed(10) is not None
 
 
-def test_other_modules_are_not_withdrawn_by_the_stall_rule_20261004T140301947Z() -> None:
+def test_other_modules_are_not_withdrawn_by_the_stall_rule_20261004T140301949Z() -> None:
     ledger = _ledger(
         {
             0: (100.0, "01_confirm_yolo"),

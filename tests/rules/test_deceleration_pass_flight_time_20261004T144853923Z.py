@@ -57,7 +57,7 @@ def _events(flight_seconds):
     )
 
 
-def test_one_second_flight_before_sharp_stop_is_a_pass_20261004T144853923Z():
+def test_one_second_flight_before_sharp_stop_is_a_pass_20261004T144853925Z():
     events = _events(1.0)
     assert [(event.event_type, event.team) for event in events] == [
         ("pass_candidate", "black")
@@ -65,5 +65,5 @@ def test_one_second_flight_before_sharp_stop_is_a_pass_20261004T144853923Z():
     assert events[0].completion_seconds == 2.0
 
 
-def test_much_longer_flight_before_stop_is_not_this_pass_20261004T144853923Z():
+def test_much_longer_flight_before_stop_is_not_this_pass_20261004T144853926Z():
     assert _events(1.6) == []
