@@ -6782,13 +6782,14 @@ export function renderHtml({ adapter } = {}) {
       processAiButton.disabled =
         running
         || referenceLocked()
-        || !segment.ballTrackAvailable
-        || state.coordinateReview?.status === "finalized";
+        || !segment.ballTrackAvailable;
+      processAiButton.textContent =
+        state.coordinateReview?.status === "finalized"
+          ? "Process AI again"
+          : "Process AI";
       processAiButton.title = !segment.ballTrackAvailable
         ? "Run ball coordinates first"
-        : state.coordinateReview?.status === "finalized"
-          ? "AI already processed on these ball coordinates"
-          : "Run the rules engine on our ball coordinates";
+        : "Run the rules engine on our ball coordinates";
       if (ballSourceSelect && segment.ballSource && !ballSourceSelect.dataset.userChanged) {
         ballSourceSelect.value = segment.ballSource;
       }
