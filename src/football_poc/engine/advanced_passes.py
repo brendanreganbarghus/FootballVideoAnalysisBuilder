@@ -437,6 +437,16 @@ def infer_short_controlled_teammate_transfers(
                 (sender.player_track_id, receiver.player_track_id)
             )
             intervening = segments[sender_index + 1 : receiver_index]
+            controlled_sender = [
+                observation
+                for observation in sender.observations
+                if observation.control_ratio <= 0.5
+            ]
+            direct_handover = (
+                not intervening
+                and len(controlled_sender) >= 2
+                and len(controlled_receiver) >= 3
+            )
             if (
                 sender.team != receiver.team
                 or sender.player_track_id == receiver.player_track_id
@@ -448,23 +458,32 @@ def infer_short_controlled_teammate_transfers(
                 )
                 or not controlled_receiver
                 or pair not in distinct_pairs
-                or len(intervening) < 2
-                or any(
-                    segment.team != sender.team
-                    or segment.player_track_id not in pair
-                    for segment in intervening
+                or (
+                    not direct_handover
+                    and (
+                        len(intervening) < 2
+                        or any(
+                            segment.team != sender.team
+                            or segment.player_track_id not in pair
+                            for segment in intervening
+                        )
+                        or intervening[0].player_track_id
+                        != receiver.player_track_id
+                        or intervening[-1].player_track_id
+                        != sender.player_track_id
+                    )
                 )
-                or intervening[0].player_track_id
-                != receiver.player_track_id
-                or intervening[-1].player_track_id
-                != sender.player_track_id
                 or not 0
                 <= receiver.start_seconds - sender.end_seconds
                 <= maximum_segment_gap_seconds
             ):
                 continue
             reception = controlled_receiver[0]
-            release = sender.observations[-1]
+            release = (
+                controlled_sender[-1]
+                if direct_handover
+                else sender.observations[-1]
+            )
             transfer_heights = hypot(
                 reception.ball_x - release.ball_x,
                 reception.ball_y - release.ball_y,
@@ -480,6 +499,11 @@ def infer_short_controlled_teammate_transfers(
                 event.completion_seconds is not None
                 and abs(event.completion_seconds - reception.clip_seconds)
                 <= 0.8
+                and not (
+                    direct_handover
+                    and event.to_player_track_id == sender.player_track_id
+                    and event.completion_seconds <= release.clip_seconds
+                )
                 for event in [*source, *inferred]
             ):
                 continue
