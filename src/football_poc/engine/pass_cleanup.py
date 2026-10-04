@@ -139,14 +139,44 @@ def suppress_noncausal_nonreturn_passes(
     events: Iterable[PredictedEvent],
     *,
     maximum_return_seconds: float = 3.0,
+    observations: Iterable[PossessionObservation] | None = None,
+    maximum_control_ratio: float = 1.0,
 ) -> list[PredictedEvent]:
-    """Require reciprocal evidence when control predates inferred release."""
+    """Require reciprocal evidence when control predates inferred release.
+
+    With observations, only a controlled receiver touch between the sender's
+    last control and the release is non-causal; earlier weak proximity alone
+    does not contradict a slow release.
+    """
     source = list(events)
+    controls = None if observations is None else list(observations)
+
+    def receiver_controlled_before_release(event: PredictedEvent) -> bool:
+        if controls is None:
+            return True
+        sender_last = max(
+            (
+                observation.clip_seconds
+                for observation in controls
+                if observation.player_track_id == event.from_player_track_id
+                and observation.clip_seconds <= event.clip_seconds
+            ),
+            default=None,
+        )
+        return any(
+            observation.player_track_id == event.to_player_track_id
+            and observation.control_ratio <= maximum_control_ratio
+            and (sender_last is None or observation.clip_seconds > sender_last)
+            and observation.clip_seconds < event.clip_seconds
+            for observation in controls
+        )
+
     accepted: list[PredictedEvent] = []
     for event in source:
         noncausal_reception = (
             event.event_type == "pass_candidate"
             and " control after -" in event.details
+            and receiver_controlled_before_release(event)
         )
         reciprocal_return = noncausal_reception and any(
             prior.event_type == "pass_candidate"

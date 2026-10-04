@@ -161,7 +161,7 @@ def infer_cached_possession(*, manifest_path: Path, player_tracks_path: Path, ba
         transfer_events = collapse_competing_same_sender_receptions(transfer_events)
         transfer_events = suppress_duplicate_track_handoff_passes(transfer_events, players)
         transfer_events = reconcile_late_strong_control_transfers(transfer_events, state_segments, raw_observations, balls, co_visible_track_pairs=co_visible_track_pairs, segment_end_seconds=manifest.source_frame_count / manifest.fps, minimum_speed_pixels_per_second=minimum_pass_speed_pixels_per_second)
-        transfer_events = suppress_noncausal_nonreturn_passes(transfer_events)
+        transfer_events = suppress_noncausal_nonreturn_passes(transfer_events, observations=raw_observations)
         transfer_events = infer_pass_sender_established_turnovers(transfer_events, state_segments, raw_observations, maximum_transfer_seconds=maximum_transfer_seconds)
         transfer_events = reconcile_intervening_opponent_aerial_contacts_fn(transfer_events, raw_observations, balls, minimum_speed_pixels_per_second=minimum_pass_speed_pixels_per_second)
         transfer_events = suppress_passes_crossing_opponent_control(transfer_events, observations)
