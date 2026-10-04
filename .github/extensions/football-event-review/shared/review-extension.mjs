@@ -847,6 +847,56 @@ export function suggestManualMappings(manualEvents, engineEvents) {
       usedEngineKeys.add(candidate.key);
     });
   }
+  // Unique matching can deadlock when two M# share the same two E# within
+  // tolerance; resolve the leftovers by chronological one-to-one order.
+  const leftoverManual = [...remainingManual.values()];
+  const leftoverEngine = [...new Map(
+    leftoverManual.flatMap((manual) => candidatesByManual.get(manual.key) || [])
+      .filter((candidate) => !usedEngineKeys.has(candidate.key))
+      .map((candidate) => [candidate.key, candidate]),
+  ).values()].sort((left, right) => left.engine.seconds - right.engine.seconds);
+  const compatible = (manual, candidate) =>
+    (candidatesByManual.get(manual.key) || [])
+      .some((item) => item.key === candidate.key);
+  const memo = new Map();
+  const best = (i, j) => {
+    if (i >= leftoverManual.length || j >= leftoverEngine.length) {
+      return {count: 0, cost: 0, pairs: []};
+    }
+    const memoKey = `${i}:${j}`;
+    if (memo.has(memoKey)) return memo.get(memoKey);
+    const options = [best(i + 1, j), best(i, j + 1)];
+    const manual = leftoverManual[i];
+    const candidate = leftoverEngine[j];
+    if (compatible(manual, candidate)) {
+      const rest = best(i + 1, j + 1);
+      options.push({
+        count: rest.count + 1,
+        cost: rest.cost + Math.abs(candidate.engine.seconds - manual.seconds),
+        pairs: [[manual, candidate], ...rest.pairs],
+      });
+    }
+    const chosen = options.reduce((left, right) =>
+      right.count > left.count
+      || (right.count === left.count && right.cost < left.cost)
+        ? right
+        : left
+    );
+    memo.set(memoKey, chosen);
+    return chosen;
+  };
+  best(0, 0).pairs.forEach(([manual, candidate]) => {
+    const deltaSeconds = candidate.engine.seconds - manual.seconds;
+    result[manual.key] = {
+      engineKey: candidate.key,
+      deltaSeconds,
+      highConfidence: false,
+      exact: Math.round(deltaSeconds * 1000) === 0,
+      withinTolerance: true,
+      teamConflict: false,
+      typeConflict: false,
+    };
+  });
   return result;
 }
 
