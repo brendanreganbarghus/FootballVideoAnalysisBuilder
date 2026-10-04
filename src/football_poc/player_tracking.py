@@ -202,6 +202,9 @@ def _associate_players(
         by_frame.setdefault(point.source_frame, []).append(point)
 
     tracks: list[PlayerTrack] = []
+    # Tracks that last shared a player with a stronger track. Without its own
+    # box such a track must not jump onto a different nearby player after a gap.
+    duplicated: set[int] = set()
     next_track_id = 1
     for frame_points in by_frame.values():
         timestamp = frame_points[0].clip_seconds
@@ -214,11 +217,14 @@ def _associate_players(
         for track_index, track in enumerate(active):
             predicted_x, predicted_y = track.predicted_foot(timestamp)
             elapsed = timestamp - track.last.clip_seconds
-            max_distance = max(
-                25.0,
-                track.last.height * 0.8
-                + max_speed_pixels_per_second * elapsed,
-            )
+            if track.track_id in duplicated:
+                max_distance = max(25.0, track.last.height * 0.8)
+            else:
+                max_distance = max(
+                    25.0,
+                    track.last.height * 0.8
+                    + max_speed_pixels_per_second * elapsed,
+                )
             for point_index, point in enumerate(frame_points):
                 point_x, point_y = point.foot
                 distance = hypot(point_x - predicted_x, point_y - predicted_y)
@@ -230,18 +236,47 @@ def _associate_players(
 
         assigned_tracks: set[int] = set()
         assigned_points: set[int] = set()
+        updated: list[PlayerTrack] = []
         for _, track_index, point_index in sorted(pairs):
             if track_index in assigned_tracks or point_index in assigned_points:
                 continue
-            active[track_index].points.append(frame_points[point_index])
+            track = active[track_index]
+            track.points.append(frame_points[point_index])
             assigned_tracks.add(track_index)
             assigned_points.add(point_index)
+            updated.append(track)
+            duplicated.discard(track.track_id)
 
         for point_index, point in enumerate(frame_points):
             if point_index not in assigned_points:
-                tracks.append(PlayerTrack(next_track_id, [point]))
+                track = PlayerTrack(next_track_id, [point])
+                tracks.append(track)
+                updated.append(track)
                 next_track_id += 1
+
+        for first_index, first in enumerate(updated):
+            for second in updated[first_index + 1 :]:
+                if first.track_id in duplicated or second.track_id in duplicated:
+                    continue
+                if _box_overlap_of_smaller(first.last, second.last) >= 0.6:
+                    weaker = (
+                        first
+                        if (len(first.points), first.last.confidence)
+                        < (len(second.points), second.last.confidence)
+                        else second
+                    )
+                    duplicated.add(weaker.track_id)
     return tuple(tracks)
+
+
+def _box_overlap_of_smaller(first: PlayerPoint, second: PlayerPoint) -> float:
+    width = max(0.0, min(first.x2, second.x2) - max(first.x1, second.x1))
+    height = max(0.0, min(first.y2, second.y2) - max(first.y1, second.y1))
+    smaller = min(
+        (first.x2 - first.x1) * (first.y2 - first.y1),
+        (second.x2 - second.x1) * (second.y2 - second.y1),
+    )
+    return width * height / smaller if smaller > 0 else 0.0
 
 
 def classify_color_scores(
