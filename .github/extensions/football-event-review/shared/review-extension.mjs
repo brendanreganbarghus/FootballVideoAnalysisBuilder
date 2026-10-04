@@ -3675,7 +3675,14 @@ function snapshotEvents(snapshot) {
       ballEvidence: event.ball_evidence || null,
       attemptId: event.attempt_id || null,
     };
-  }).filter((event) => Number.isFinite(event.seconds));
+  })
+    .filter((event) => Number.isFinite(event.seconds))
+    // E# ordinals follow completion time, the time used to compare with M#.
+    .sort((left, right) =>
+      left.seconds - right.seconds
+      || left.releaseSeconds - right.releaseSeconds
+      || left.index - right.index
+    );
 }
 
 function engineReviewSnapshot(state, current) {
