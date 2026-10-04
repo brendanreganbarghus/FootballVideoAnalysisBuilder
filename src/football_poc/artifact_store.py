@@ -13,7 +13,20 @@ from typing import Callable, Mapping
 
 
 PREPARED_SEGMENT_SCHEMA_VERSION = 2
-PREPARED_SEGMENT_ID = re.compile(r"segment-\d{4}-\d{3}")
+# A second copy of the same video window for the other ball source carries
+# that source as a suffix, e.g. segment-0080-020-detected.
+PREPARED_SEGMENT_ID = re.compile(r"segment-\d{4}-\d{3}(?:-(?:bac|detected))?")
+PREPARED_SEGMENT_KEY = re.compile(
+    r"segment-(?P<first>\d{4})-(?P<count>\d{3})(?:-(?P<source>bac|detected))?"
+)
+
+
+def segment_window_key(segment_id: str) -> str:
+    """Return the shared video-window key without any ball-source suffix."""
+    match = PREPARED_SEGMENT_KEY.fullmatch(segment_id)
+    if match is None:
+        raise ValueError("Invalid prepared segment ID")
+    return f"segment-{match['first']}-{match['count']}"
 PREPARED_SEGMENT_CATALOG = "15-prepared-segments"
 REVIEW_WORKFLOW_ID = "football_review"
 BALL_SOURCES = frozenset({"bac", "detected"})
@@ -274,6 +287,61 @@ def publish_prepared_segment(
             _remove_tree(staging)
         if backup.exists() and not destination.exists():
             backup.rename(destination)
+        raise
+    return _load_shared_segment(destination / "segment.json")
+
+
+def create_ball_source_copy(
+    base: SharedPreparedSegment,
+    ball_source: str,
+) -> SharedPreparedSegment:
+    """Copy only the raw video window into a sibling bundle for another ball source.
+
+    No derived artifact, cache, review label or coordinate is copied; the new
+    bundle starts unprocessed so its ball source runs from its own inputs.
+    """
+    if ball_source not in BALL_SOURCES:
+        raise ValueError("Invalid ball source")
+    window_key = segment_window_key(base.segment_id)
+    segment_id = f"{window_key}-{ball_source}"
+    destination = base.root.parent / segment_id
+    if destination.exists():
+        return _load_shared_segment(destination / "segment.json")
+    staging = Path(
+        tempfile.mkdtemp(prefix=f".{segment_id}-", dir=base.root.parent)
+    )
+    try:
+        shutil.copy2(base.video, staging / "segment.mp4")
+        manifest = json.loads(base.manifest.read_text(encoding="utf-8"))
+        manifest.pop("review_workflows", None)
+        manifest.update({"video": "segment.mp4", "playable_video": "segment.mp4"})
+        (staging / "manifest.json").write_text(
+            json.dumps(manifest, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        metadata = {
+            key: value
+            for key, value in base.metadata.items()
+            if key not in {"segment_id", "ball_source", "video", "manifest"}
+        }
+        metadata.update(
+            {
+                "schema_version": PREPARED_SEGMENT_SCHEMA_VERSION,
+                "segment_id": segment_id,
+                "video": "segment.mp4",
+                "manifest": "manifest.json",
+                "ball_source": ball_source,
+            }
+        )
+        (staging / "segment.json").write_text(
+            json.dumps(metadata, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        write_checksum_manifest(staging)
+        staging.rename(destination)
+    except Exception:
+        if staging.exists():
+            _remove_tree(staging)
         raise
     return _load_shared_segment(destination / "segment.json")
 

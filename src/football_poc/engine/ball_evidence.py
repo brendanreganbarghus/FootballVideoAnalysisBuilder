@@ -563,7 +563,7 @@ def _matches_manifest_reference(
     def segment_identity(path: Path) -> tuple[str, ...] | None:
         parts = path.parts
         for index, part in enumerate(parts):
-            if re.fullmatch(r"segment-\d{4}-\d{3}", part):
+            if re.fullmatch(r"segment-\d{4}-\d{3}(?:-(?:bac|detected))?", part):
                 identity = [value.casefold() for value in parts[index:]]
                 # Bundles published before the single review workflow kept
                 # their artifacts in a per-workflow namespace folder.

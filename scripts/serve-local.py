@@ -57,9 +57,13 @@ from football_poc.alfheim_segments import (
 from football_poc.event_comparison import compare_manual_events
 from football_poc.artifact_store import (
     BALL_SOURCES,
+    PREPARED_SEGMENT_ID,
+    PREPARED_SEGMENT_KEY,
     REVIEW_WORKFLOW_ID,
+    create_ball_source_copy,
     discover_prepared_segments,
     find_prepared_segment,
+    segment_window_key,
 )
 from football_poc.coordination import (
     CoordinationConfig,
@@ -225,7 +229,7 @@ class CoordinationService:
         segment_id = str(segment or "").strip()
         if workflow_id not in WORKFLOW_IDS:
             raise ValueError("Unknown coordination workflow")
-        if not re.fullmatch(r"(?:segment-\d{4}-\d{3}|alfheim-window-555)", segment_id):
+        if not re.fullmatch(r"(?:segment-\d{4}-\d{3}(?:-(?:bac|detected))?|alfheim-window-555)", segment_id):
             raise ValueError("Invalid coordination segment")
         return workflow_id, segment_id
 
@@ -779,7 +783,7 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
     def translate_path(self, path: str) -> str:
         request_path = urlparse(path).path
         shared_match = re.fullmatch(
-            r"/shared-prepared/(segment-\d{4}-\d{3})/"
+            r"/shared-prepared/(segment-\d{4}-\d{3}(?:-(?:bac|detected))?)/"
             r"((?:[A-Za-z0-9._-]+/)*[A-Za-z0-9._-]+)",
             request_path,
         )
@@ -882,7 +886,7 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
         if request.path == "/api/alfheim/status":
             try:
                 cache_key = parse_qs(request.query).get("cache_key", [""])[0]
-                if not re.fullmatch(r"segment-\d{4}-\d{3}", cache_key):
+                if not PREPARED_SEGMENT_ID.fullmatch(cache_key):
                     raise ValueError("Invalid segment cache key")
                 local_root = (
                     Path.cwd()
@@ -958,6 +962,31 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
                     "The recording does not contain the full requested "
                     f"{duration_seconds}-second segment"
                 )
+            requested_source = payload.get("ball_source")
+            if requested_source is not None and requested_source not in BALL_SOURCES:
+                raise ValueError("Invalid ball source")
+            window_key = (
+                f"segment-{plan.first_segment:04d}-{plan.segment_count:03d}"
+            )
+            if requested_source is not None:
+                existing = self._ball_source_copy(
+                    window_key,
+                    str(requested_source),
+                    float(payload["start_seconds"]),
+                    duration_seconds,
+                )
+                if existing is not None:
+                    self._send_json(
+                        200,
+                        {
+                            **plan.to_dict(),
+                            "source_start_seconds": float(payload["start_seconds"]),
+                            "duration_seconds": duration_seconds,
+                            "cache_key": existing,
+                            "ball_source": requested_source,
+                        },
+                    )
+                    return
             output = (
                 Path.cwd()
                 / "benchmarks"
@@ -1025,6 +1054,8 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
                 )
                 temporary_manifest.replace(manifest_path)
             relative = output.relative_to(Path.cwd()).as_posix()
+            if requested_source is not None:
+                self._record_ball_source(output.name, str(requested_source))
             self._send_json(
                 200,
                 {
@@ -1033,6 +1064,7 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
                     "duration_seconds": duration_seconds,
                     "video_url": f"/{relative}/alfheim-window-playable.mp4",
                     "cache_key": output.name,
+                    "ball_source": requested_source,
                 },
             )
         except (
@@ -1079,6 +1111,91 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
             files=files,
         )
         self.recorded_output_hashes.add(record_key)
+
+    def _record_ball_source(self, cache_key: str, ball_source: str) -> None:
+        try:
+            coordination = self.coordination
+        except AttributeError:
+            return
+        if coordination.mode is DatabaseMode.AVAILABLE:
+            coordination.set_segment_ball_source(cache_key, ball_source)
+
+    def _ball_source_copy(
+        self,
+        window_key: str,
+        ball_source: str,
+        start_seconds: float,
+        duration_seconds: float,
+    ) -> str | None:
+        """Return the copy of this video window that uses ``ball_source``.
+
+        The same window may exist once per ball source. When it exists only for
+        the other source, a sibling copy holding just the raw video is created.
+        Returns None when the window has not been prepared at all.
+        """
+        generated = Path.cwd() / "benchmarks" / "alfheim" / "generated"
+        found: list[tuple[str, Path, object]] = []
+        for key in (window_key, f"{window_key}-bac", f"{window_key}-detected"):
+            local = generated / key
+            if (local / "alfheim-window-playable.mp4").is_file():
+                found.append((key, local, None))
+                continue
+            shared = find_prepared_segment(key, SHARED_ARTIFACT_ROOT)
+            if shared is not None:
+                found.append((key, shared.root, shared))
+        matching = [
+            (key, root, shared)
+            for key, root, shared in found
+            if abs(
+                float(
+                    (read_json_if_present(
+                        (shared.manifest if shared is not None else root / "manifest.json")
+                    ) or {}).get("source_start_seconds", -1)
+                )
+                - start_seconds
+            ) < 0.001
+        ]
+        if not matching:
+            return None
+        recorded = {
+            key: self._recorded_ball_source(key, root)
+            for key, root, _ in matching
+        }
+        for key, _, _ in matching:
+            if recorded[key] == ball_source:
+                return key
+        for key, _, _ in matching:
+            if recorded[key] is None:
+                self._record_ball_source(key, ball_source)
+                return key
+        base_key, base_root, base_shared = matching[0]
+        if base_shared is not None:
+            copy = create_ball_source_copy(base_shared, ball_source)
+            new_key = copy.segment_id
+        else:
+            new_key = f"{window_key}-{ball_source}"
+            target = generated / new_key
+            target.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(
+                base_root / "alfheim-window-playable.mp4",
+                target / "alfheim-window-playable.mp4",
+            )
+            manifest = json.loads(
+                (base_root / "manifest.json").read_text(encoding="utf-8")
+            )
+            manifest.update(
+                {
+                    "video": "alfheim-window-playable.mp4",
+                    "playable_video": "alfheim-window-playable.mp4",
+                    "review_workflows": [REVIEW_WORKFLOW_ID],
+                }
+            )
+            (target / "manifest.json").write_text(
+                json.dumps(manifest, indent=2) + "\n",
+                encoding="utf-8",
+            )
+        self._record_ball_source(new_key, ball_source)
+        return new_key
 
     def _recorded_ball_source(
         self, cache_key: str, segment_root: Path
@@ -1142,7 +1259,7 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
                     "events_only, evidence_only, resume_after_detection, "
                     "focused_recovery, and coordinates_updated are exclusive"
                 )
-            if not re.fullmatch(r"segment-\d{4}-\d{3}", cache_key):
+            if not PREPARED_SEGMENT_ID.fullmatch(cache_key):
                 raise ValueError("Invalid segment cache key")
             # Process the same prepared folder the Canvas reads: the shared
             # copy wins, and a local generated folder is only a fallback.
@@ -1238,7 +1355,7 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
             payload = json.loads(self.rfile.read(content_length))
             cache_key = str(payload.get("cache_key") or "")
             ball_source = str(payload.get("ball_source") or "")
-            if not re.fullmatch(r"segment-\d{4}-\d{3}", cache_key):
+            if not PREPARED_SEGMENT_ID.fullmatch(cache_key):
                 raise ValueError("Invalid segment cache key")
             if ball_source not in BALL_SOURCES:
                 raise ValueError("Invalid ball source")
@@ -1713,7 +1830,7 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
             )
             first_segment, segment_count = map(
                 int,
-                shared.segment_id.removeprefix("segment-").split("-"),
+                shared.segment_id.removeprefix("segment-").split("-")[:2],
             )
             run_root = shared.root
             status = self._segment_status(
@@ -1842,13 +1959,13 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
 
         generated = workspace / "benchmarks" / "alfheim" / "generated"
         for root in sorted(generated.iterdir()) if generated.is_dir() else ():
-            match = re.fullmatch(r"segment-(\d{4})-(\d{3})", root.name)
+            match = PREPARED_SEGMENT_KEY.fullmatch(root.name)
             if not match or not root.is_dir():
                 continue
             video = root / "alfheim-window-playable.mp4"
             if not video.is_file():
                 continue
-            first_segment, segment_count = map(int, match.groups())
+            first_segment, segment_count = int(match["first"]), int(match["count"])
             status = self._segment_status(root.name)
             manifest_path = root / "manifest.json"
             manifest = (

@@ -3973,6 +3973,13 @@ export function renderHtml({ adapter } = {}) {
     <button id="continue-coordinate-review" type="button" hidden>
       Continue reviewing
     </button>
+    <button id="restart-ball-coordinate-review" type="button" hidden>
+      Start ball check again
+    </button>
+    <button id="cancel-ball-coordinate-restart" type="button" hidden>
+      Cancel ball check restart
+    </button>
+    <span class="muted" id="bac-recheck-summary" hidden></span>
     <button id="cancel-copilot-review" type="button" hidden>
       Cancel Copilot Review
     </button>
@@ -6710,7 +6717,11 @@ export function renderHtml({ adapter } = {}) {
       return Number.isFinite(requestedStart)
         && requestedStart === Number(state.segment.startSeconds)
         && Number(segmentDuration.value) ===
-          Number(state.segment.durationSeconds);
+          Number(state.segment.durationSeconds)
+        && (
+          !state.segment.ballSource
+          || selectedBallSource() === state.segment.ballSource
+        );
     }
 
     function selectedBallSource() {
@@ -6932,7 +6943,11 @@ export function renderHtml({ adapter } = {}) {
         )
       )
         && !segmentPreparationPending
-        && !runStartPending;
+        && !runStartPending
+        && !(
+          state.coordinateReviewRestart
+          && state.coordinateReview?.status !== "finalized"
+        );
       document.querySelectorAll("[data-ai-gated]").forEach(section => {
         section.inert = !ready;
         section.classList.toggle("ai-locked", !ready);
@@ -6955,7 +6970,28 @@ export function renderHtml({ adapter } = {}) {
     }
 
     function ballSourceLabel(source) {
-      return {bac: "BAC", detected: "Detected"}[source] || "";
+      return {bac: "BAC", detected: "Our rules"}[source] || "";
+    }
+
+    // Display-only address parameters; "segment" alone selects the segment.
+    function syncReadableSegmentUrl(selected) {
+      const url = new URL(window.location.href);
+      if (url.searchParams.get("segment") !== selected.key) return;
+      const time = String(selected.timeLabel || "").replace(/\s*[–—]\s*/g, "-");
+      const ball = {bac: "bac", detected: "our-rules"}[selected.ballSource] || "";
+      if (
+        (url.searchParams.get("time") || "") === time
+        && (url.searchParams.get("ball") || "") === ball
+      ) return;
+      if (time) url.searchParams.set("time", time);
+      else url.searchParams.delete("time");
+      if (ball) url.searchParams.set("ball", ball);
+      else url.searchParams.delete("ball");
+      history.replaceState(
+        null,
+        "",
+        url.pathname + url.search.replaceAll("%3A", ":") + url.hash
+      );
     }
 
     function ballSourceDescription(source) {
@@ -7029,6 +7065,7 @@ export function renderHtml({ adapter } = {}) {
         startInputsInitialized = true;
       }
       renderedSegmentKey = selected.key;
+      syncReadableSegmentUrl(selected);
       const badge = document.getElementById("segment-status");
       badge.className = "segment-status " + (
         selectedSummary.regression === "failed"
@@ -7047,9 +7084,9 @@ export function renderHtml({ adapter } = {}) {
       sourceBadge.hidden = !sourceLabel;
       sourceBadge.textContent = sourceLabel;
       sourceBadge.className = "ball-source-badge " + (selected.ballSource || "");
-      changeBallSourceButton.hidden = !(
-        selected.ballSource && selected.coordinationLease?.heldByCurrent
-      );
+      // Each ball source now has its own copy of the video window; pick
+      // the ball type and press Prepare instead of switching in place.
+      changeBallSourceButton.hidden = true;
       changeBallSourceButton.textContent = selected.ballSource
         ? "Change ball source"
         : "Choose ball source";
@@ -7324,7 +7361,116 @@ export function renderHtml({ adapter } = {}) {
       renderViewMode();
       renderRunControls();
       renderAiGate();
+      renderBallCheckRestart();
       syncRegressionQueuePolling();
+    }
+
+    function ourRulesCopy() {
+      return state.segment?.ballSource === "detected";
+    }
+
+    function renderBallCheckRestart() {
+      const restart = document.getElementById(
+        "restart-ball-coordinate-review"
+      );
+      const cancel = document.getElementById(
+        "cancel-ball-coordinate-restart"
+      );
+      if (!restart || !cancel) return;
+      const open = state.coordinateReviewRestart
+        && state.coordinateReview?.status !== "finalized";
+      restart.hidden = !ourRulesCopy()
+        || state.coordinateReview?.status !== "finalized";
+      restart.disabled = segmentRunActive();
+      cancel.hidden = !ourRulesCopy() || !open;
+      cancel.disabled = Boolean(state.coordinateReviewRestart?.rerunStarted);
+      cancel.title = cancel.disabled
+        ? "The ball tracker is already running again."
+        : "";
+      void refreshBacRecheckSummary();
+    }
+
+    let bacRecheckRequest = null;
+    async function refreshBacRecheckSummary() {
+      const summary = document.getElementById("bac-recheck-summary");
+      if (!summary) return;
+      if (!ourRulesCopy() || state.coordinateReview?.status !== "finalized") {
+        summary.hidden = true;
+        return;
+      }
+      const segment = selectedSegmentKey();
+      const request = segment + ":" + (state.engineEvents || []).length + ":"
+        + (state.bacRecheck?.startedAt || "");
+      if (bacRecheckRequest === request) return;
+      bacRecheckRequest = request;
+      try {
+        const response = await fetch(
+          "/api/bac-recheck?segment=" + encodeURIComponent(segment)
+        );
+        const result = await response.json();
+        if (!result.available) {
+          summary.hidden = true;
+          return;
+        }
+        summary.textContent = "M# found · Our rules "
+          + result.ourRules.matched + "/" + result.ourRules.golden
+          + " · BAC " + result.bac.matched + "/" + result.bac.golden;
+        summary.hidden = false;
+      } catch {
+        summary.hidden = true;
+      }
+    }
+
+    async function restartBallCoordinateReview() {
+      const button = document.getElementById(
+        "restart-ball-coordinate-review"
+      );
+      button.disabled = true;
+      try {
+        const response = await fetch(
+          "/api/restart-ball-coordinate-review",
+          {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({segment: selectedSegmentKey()})
+          }
+        );
+        const result = await response.json();
+        if (!response.ok) {
+          throw new Error(result.error || "Could not start the ball check");
+        }
+        await loadState();
+      } catch (error) {
+        window.alert(error.message);
+      } finally {
+        renderBallCheckRestart();
+      }
+    }
+
+    async function cancelBallCoordinateRestart() {
+      const button = document.getElementById(
+        "cancel-ball-coordinate-restart"
+      );
+      button.disabled = true;
+      try {
+        const response = await fetch(
+          "/api/cancel-ball-coordinate-restart",
+          {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({segment: selectedSegmentKey()})
+          }
+        );
+        const result = await response.json();
+        if (!response.ok) {
+          throw new Error(result.error || "Could not cancel the restart");
+        }
+        await loadState();
+      } catch (error) {
+        window.alert(error.message);
+      } finally {
+        renderBallCheckRestart();
+      }
     }
 
     async function runPublishedSegmentRegression(segment) {
@@ -7949,11 +8095,14 @@ export function renderHtml({ adapter } = {}) {
       };
     }
 
+    // BAC copies show the frozen BAC coordinates read-only; ball review
+    // happens only on the "Our rules" copy of the same video window.
+    function bacReadOnly() {
+      return (state?.segment?.ballSource || "bac") === "bac";
+    }
+
     function engineComparisonActive() {
-      return Boolean(
-        ballTrack?.engineComparison?.points
-        && (state?.segment?.ballSource || "bac") === "bac"
-      );
+      return false;
     }
 
     // Review triage only: BAC/engine agreement is not ground truth, so
@@ -8411,7 +8560,8 @@ export function renderHtml({ adapter } = {}) {
         reviewWorkflow.reviewerCorrectedDemoLayer
         && (state?.segment?.ballSource || "bac") === "bac"
       );
-      const inspectionOnly = !activeRoundView && !reviewerCorrectionView;
+      const inspectionOnly = bacReadOnly()
+        || (!activeRoundView && !reviewerCorrectionView);
       const yoloCandidateActions = document.getElementById(
         "yolo-candidate-actions"
       );
@@ -9178,6 +9328,10 @@ export function renderHtml({ adapter } = {}) {
           );
           status.textContent =
             diagnosticStatus?.label || ballStateLabel(point);
+          if (bacReadOnly()) {
+            status.className = "ball-frame-status direct";
+            status.textContent = "Auto-agreed";
+          }
           const evidence = document.createElement("td");
           const evidenceLabel = document.createElement("span");
           evidenceLabel.textContent = point.evidence;
@@ -9262,7 +9416,9 @@ export function renderHtml({ adapter } = {}) {
               }[observation.decision]
             : null;
           const decisionPresentation =
-            engineConfirmation(point.frame, observation)
+            bacReadOnly()
+              ? ["BAC imported · confirmed", "confirmed"]
+            : engineConfirmation(point.frame, observation)
               ? ["✓ Engine (red) correct", "confirmed"]
             : reviewerCorrectionView
             && reviewerCoordinateChangeStatus(point.frame, observation)
@@ -9284,7 +9440,7 @@ export function renderHtml({ adapter } = {}) {
           const decisionStatus = document.createElement("span");
           decisionStatus.className =
             "coordinate-review-result " + decisionPresentation[1];
-          const engineCheck = observation?.decision
+          const engineCheck = observation?.decision && !bacReadOnly()
             ? comparisonTriage()?.results.get(point.frame)
             : null;
           decisionStatus.textContent = decisionPresentation[0] + (
@@ -9315,7 +9471,9 @@ export function renderHtml({ adapter } = {}) {
             activeRoundView
             && batch.frames.includes(point.frame)
           );
-          if (reviewerCorrectionView) {
+          if (bacReadOnly()) {
+            review.textContent = "No review available";
+          } else if (reviewerCorrectionView) {
             review.textContent =
               reviewerCoordinateChangeStatus(point.frame, observation)
                 === "pending"
@@ -10743,6 +10901,18 @@ export function renderHtml({ adapter } = {}) {
       ).addEventListener(
         "click",
         () => void finalizeBallCoordinateReview()
+      );
+      document.getElementById(
+        "restart-ball-coordinate-review"
+      ).addEventListener(
+        "click",
+        () => void restartBallCoordinateReview()
+      );
+      document.getElementById(
+        "cancel-ball-coordinate-restart"
+      ).addEventListener(
+        "click",
+        () => void cancelBallCoordinateRestart()
       );
       document.getElementById(
         "apply-reviewer-coordinate-layer"
@@ -15129,7 +15299,8 @@ export function renderHtml({ adapter } = {}) {
             start_seconds: minute * 60 + second,
             duration_seconds: duration,
             source_id: state.segment.datasetId,
-            source_segment: state.segment.key
+            source_segment: state.segment.key,
+            ball_source: selectedBallSource()
           })
         });
         const result = await response.json();
@@ -15137,6 +15308,7 @@ export function renderHtml({ adapter } = {}) {
           throw new Error(result.error || "Could not prepare segment");
         }
         state = result;
+        if (ballSourceSelect) delete ballSourceSelect.dataset.userChanged;
         selectedIndex = 0;
         actionZoom = false;
         manualZoom = 1;

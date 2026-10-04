@@ -3249,6 +3249,78 @@ async function persistNormalizedManualReference(segment, state, approve = false)
   return result.reference;
 }
 
+function segmentWindowKey(segment) {
+  return String(segment || "").replace(/-(?:bac|detected)$/, "");
+}
+
+async function bacSiblingSegment(segment) {
+  const windowKey = segmentWindowKey(segment);
+  return (await loadPreparedSegments()).find((candidate) =>
+    candidate.key !== segment
+    && segmentWindowKey(candidate.key) === windowKey
+    && candidate.ballSource !== "detected"
+  )?.key || null;
+}
+
+// After an Our-rules engine run, the same window's BAC copy is re-run with the
+// current engine so the reviewer can compare M# found with each ball source.
+async function startBacSiblingRecheck(segment, state) {
+  const bacSegment = await bacSiblingSegment(segment);
+  if (!bacSegment) return null;
+  const recheck = {bacSegment, startedAt: new Date().toISOString()};
+  try {
+    await localJson(workflow.analyzePath, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({cache_key: bacSegment, events_only: true}),
+    });
+    recheck.status = "started";
+  } catch (error) {
+    recheck.status = "failed_to_start";
+    recheck.error = error.message;
+  }
+  state.bacRecheck = recheck;
+  await saveState(segment, state);
+  return recheck;
+}
+
+async function goldenMatchCount(segment, approved) {
+  const current = await captureEngineSnapshot(segment);
+  const engineEvents = snapshotEvents(current)
+    .filter((event) => workflow.analyticsEventTypes.includes(event.type))
+    .map((event, index) => ({...event, key: `E${index + 1}`}));
+  const active = approved.events.filter(
+    (event) => event.active && !event.deleted,
+  );
+  return {
+    segment,
+    matched: Object.keys(suggestManualMappings(active, engineEvents)).length,
+    golden: active.length,
+    engineEvents: engineEvents.length,
+  };
+}
+
+// A video window can have one copy per ball source. The reviewer's M#
+// golden set belongs to the window, so a new copy starts with it.
+async function copySiblingManualReference(segment) {
+  const target = (await reviewContext(segment)).state;
+  if (activeManualEvents(target.manualReference).length) return false;
+  const windowKey = segmentWindowKey(segment);
+  const siblings = (await loadPreparedSegments())
+    .map((candidate) => candidate.key)
+    .filter((key) => key !== segment && segmentWindowKey(key) === windowKey);
+  for (const sibling of siblings) {
+    const source = (await reviewContext(sibling)).state;
+    if (!activeManualEvents(source.manualReference).length) continue;
+    target.manualReference =
+      preservedManualReferenceForSourceSwitch(source.manualReference);
+    await saveState(segment, target, {allowAutoAcquire: true});
+    await persistNormalizedManualReference(segment, target);
+    return true;
+  }
+  return false;
+}
+
 function preservedManualReferenceForSourceSwitch(reference) {
   if (!reference) return null;
   const preserved = structuredClone(reference);
@@ -4062,7 +4134,7 @@ async function reviewContext(requestedSegment = defaultSegment) {
   if (!selected) {
     throw new Error(`Prepared segment not found: ${requestedSegment}`);
   }
-  if (/^segment-\d{4}-\d{3}$/.test(selected.key)) {
+  if (/^segment-\d{4}-\d{3}(?:-(?:bac|detected))?$/.test(selected.key)) {
     const status = await localJson(
       `${workflow.statusPath}?cache_key=${encodeURIComponent(selected.key)}`,
     );
@@ -4821,6 +4893,12 @@ export function refreshEngineReferenceValidation(state, current, action) {
     )
     .map((event, index) => ({...event, key: `E${index + 1}`}));
   const validatedAt = new Date().toISOString();
+  if (
+    action === "validate_engine_against_golden"
+    && state.coordinateReviewRestart
+  ) {
+    state.coordinateReviewRestart = null;
+  }
   state.manualReference.comparisonValidation = {
     validatedAt,
     manualFingerprint: approved.fingerprint,
@@ -5338,7 +5416,19 @@ export async function publicState(
       };
     }),
     ...manualPublicState,
-    engineEvents: publicEngineEvents,
+    engineEvents: state.coordinateReviewRestart?.hideEngineEvents
+      ? []
+      : publicEngineEvents,
+    coordinateReviewRestart: state.coordinateReviewRestart
+      ? {
+          startedAt: state.coordinateReviewRestart.startedAt,
+          rerunStarted: Boolean(state.coordinateReviewRestart.rerunStarted),
+          hideEngineEvents: Boolean(
+            state.coordinateReviewRestart.hideEngineEvents,
+          ),
+        }
+      : null,
+    bacRecheck: state.bacRecheck || null,
     engineDisplayMode: showRegressionCandidate
       ? "regression_candidate"
       : "published",
@@ -6756,8 +6846,16 @@ async function handleRequest(request, response, serverInstanceId) {
         duration_seconds: durationSeconds,
         source_id: sourceId,
         workflow_id: workflowId,
+        ...(["bac", "detected"].includes(String(body.ball_source || ""))
+          ? {ball_source: String(body.ball_source)}
+          : {}),
       }),
     });
+    try {
+      await copySiblingManualReference(prepared.cache_key);
+    } catch (error) {
+      console.error("M# copy from sibling ball-source copy failed:", error);
+    }
     setActivity(
       "ready",
       "Segment prepared",
@@ -6832,7 +6930,7 @@ async function handleRequest(request, response, serverInstanceId) {
     const requestedBallSource = ["bac", "detected"].includes(body.ball_source)
       ? body.ball_source
       : "bac";
-    if (!/^segment-\d{4}-\d{3}$/.test(segment)) {
+    if (!/^segment-\d{4}-\d{3}(?:-(?:bac|detected))?$/.test(segment)) {
       sendJson(response, 400, {
         error: "Select a generated prepared segment before starting AI",
       });
@@ -8217,12 +8315,129 @@ async function handleRequest(request, response, serverInstanceId) {
       "Rules engine running",
       "Building events from the current coordinate output.",
     );
+    const bacRecheck = context.selected.ballSource === "detected"
+      ? await startBacSiblingRecheck(segment, context.state)
+      : null;
     sendJson(response, 200, {
       finalized: true,
       rulesEngineStarted: true,
       run,
+      bacRecheck,
       validationStatus: "in_review",
     });
+    return;
+  }
+  if (
+    request.method === "POST"
+    && url.pathname === "/api/restart-ball-coordinate-review"
+  ) {
+    const body = await readBody(request);
+    const segment = requestedSegment(url, body);
+    const context = await reviewContext(segment);
+    if (context.selected.ballSource !== "detected") {
+      sendJson(response, 409, {
+        error: "Only the Our rules copy has a ball check to restart.",
+      });
+      return;
+    }
+    if (context.state.coordinateReview?.status !== "finalized") {
+      sendJson(response, 409, {
+        error: "The ball check is already open.",
+      });
+      return;
+    }
+    const startedAt = new Date().toISOString();
+    context.state.coordinateReviewRestart = {
+      startedAt,
+      rerunStarted: false,
+      hideEngineEvents: true,
+      previous: {
+        coordinateReview: structuredClone(context.state.coordinateReview),
+        comparisonValidation: structuredClone(
+          context.state.manualReference?.comparisonValidation || null,
+        ),
+      },
+    };
+    context.state.coordinateReview = {
+      ...context.state.coordinateReview,
+      status: "pending",
+      restartedAt: startedAt,
+    };
+    if (context.state.manualReference) {
+      context.state.manualReference.comparisonValidation = null;
+    }
+    context.state.conversation.push({
+      role: "system",
+      content: "The user started the ball check again. M# and E# are "
+        + "locked until the ball check is finished; E# stay hidden until "
+        + "golden-vs-engine compare is run again.",
+      eventIndex: null,
+      coordinateReview: true,
+      timestamp: startedAt,
+    });
+    await saveState(segment, context.state);
+    sendJson(response, 200, {restarted: true, startedAt});
+    return;
+  }
+  if (
+    request.method === "POST"
+    && url.pathname === "/api/cancel-ball-coordinate-restart"
+  ) {
+    const body = await readBody(request);
+    const segment = requestedSegment(url, body);
+    const context = await reviewContext(segment);
+    const restart = context.state.coordinateReviewRestart;
+    if (!restart) {
+      sendJson(response, 409, {error: "No ball check restart is open."});
+      return;
+    }
+    if (restart.rerunStarted) {
+      sendJson(response, 409, {
+        error: "The ball tracker is already running again, so this "
+          + "restart can no longer be cancelled.",
+      });
+      return;
+    }
+    context.state.coordinateReview = restart.previous.coordinateReview;
+    if (context.state.manualReference) {
+      context.state.manualReference.comparisonValidation =
+        restart.previous.comparisonValidation;
+    }
+    context.state.coordinateReviewRestart = null;
+    context.state.conversation.push({
+      role: "system",
+      content: "The user cancelled the ball check restart. The previous "
+        + "ball check and engine comparison are back.",
+      eventIndex: null,
+      coordinateReview: true,
+      timestamp: new Date().toISOString(),
+    });
+    await saveState(segment, context.state);
+    sendJson(response, 200, {cancelled: true});
+    return;
+  }
+  if (request.method === "GET" && url.pathname === "/api/bac-recheck") {
+    const segment = requestedSegment(url, {});
+    const context = await reviewContext(segment);
+    const approved = context.state.manualReference?.approved;
+    const bacSegment = context.state.bacRecheck?.bacSegment
+      || (context.selected.ballSource === "detected"
+        ? await bacSiblingSegment(segment)
+        : null);
+    if (!approved || !bacSegment) {
+      sendJson(response, 200, {available: false});
+      return;
+    }
+    try {
+      sendJson(response, 200, {
+        available: true,
+        recheck: context.state.bacRecheck || null,
+        ourRules: await goldenMatchCount(segment, approved),
+        bac: await goldenMatchCount(bacSegment, approved),
+      });
+    } catch (error) {
+      sendJson(response, 200, {available: false, error: error.message});
+    }
     return;
   }
   if (
@@ -8457,6 +8672,9 @@ async function handleRequest(request, response, serverInstanceId) {
         eventsRerun: priorEngineOutput,
         startedAt: new Date().toISOString(),
       };
+      if (context.state.coordinateReviewRestart) {
+        context.state.coordinateReviewRestart.rerunStarted = true;
+      }
       layer.runtimeHash = await writeReviewerCoordinateRuntime(segment, layer);
       await saveState(segment, context.state);
       setActivity(
@@ -9562,6 +9780,9 @@ session = await joinSession({
                 batch.rerunStartedAt = new Date().toISOString();
                 batch.awaitingRunObservation = true;
                 review.state.coordinateReview.status = "rerunning";
+                if (review.state.coordinateReviewRestart) {
+                  review.state.coordinateReviewRestart.rerunStarted = true;
+                }
                 review.state.pendingClipRequest = null;
                 await saveState(segment, review.state);
                 return {
@@ -11821,7 +12042,18 @@ session = await joinSession({
           entry = await startServer(context.instanceId);
           servers.set(context.instanceId, entry);
         }
-        const url = `${entry.url}?segment=${encodeURIComponent(segment)}&theme=${
+        const readableTime = String(review.selected.timeLabel || "")
+          .replace(/\s*[–—]\s*/g, "-");
+        const readableBall = {bac: "bac", detected: "our-rules"}[
+          review.selected.ballSource
+        ] || "";
+        const url = `${entry.url}?segment=${encodeURIComponent(segment)}${
+          readableTime
+            ? `&time=${encodeURIComponent(readableTime).replaceAll("%3A", ":")}`
+            : ""
+        }${
+          readableBall ? `&ball=${readableBall}` : ""
+        }&theme=${
           encodeURIComponent(theme)
         }&hostInstanceId=${encodeURIComponent(context.instanceId)}`;
         await setActiveAdapter(context.instanceId, workflow.key);

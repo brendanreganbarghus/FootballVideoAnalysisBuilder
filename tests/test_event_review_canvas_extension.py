@@ -213,7 +213,7 @@ def test_ball_source_switch_requires_confirmation_and_reports_errors() -> None:
     assert 'ball/player/possession caches, C# proposals and decisions, "' in renderer
     assert 'E# confirmations, M↔E links and Passed status); only the M# "' in renderer
     assert 'golden set and the prepared video remain.' in renderer
-    assert 'selected.ballSource && selected.coordinationLease?.heldByCurrent' in renderer
+    assert 'changeBallSourceButton.hidden = true;' in renderer
     assert 'fetch("/api/switch-ball-source"' in renderer
     assert 'confirm: true' in renderer
     assert 'status.textContent = error.message' in renderer
@@ -335,3 +335,53 @@ def test_client_review_workflow_injects_every_property_the_page_reads() -> None:
     injected = set(re.findall(r"(\w+):", block.group(1)))
     used = set(re.findall(r"reviewWorkflow\.([A-Za-z]+)", renderer))
     assert used <= injected, f"not injected into the page: {sorted(used - injected)}"
+
+def test_each_ball_source_prepares_its_own_window_copy_with_m_golden_set() -> None:
+    renderer = read(SHARED_RENDERER)
+    extension = read(SHARED_EXTENSION)
+
+    assert "ball_source: selectedBallSource()" in renderer
+    assert "selectedBallSource() === state.segment.ballSource" in renderer
+    assert "ball_source: String(body.ball_source)" in extension
+    assert "await copySiblingManualReference(prepared.cache_key);" in extension
+    assert "preservedManualReferenceForSourceSwitch(source.manualReference)" in extension
+    assert 'replace(/-(?:bac|detected)$/, "")' in extension
+
+
+def test_bac_copy_is_read_only_auto_agreed() -> None:
+    renderer = read(SHARED_RENDERER)
+
+    assert "function bacReadOnly()" in renderer
+    assert 'status.textContent = "Auto-agreed";' in renderer
+    assert '? ["BAC imported · confirmed", "confirmed"]' in renderer
+    assert 'review.textContent = "No review available";' in renderer
+    assert "const inspectionOnly = bacReadOnly()" in renderer
+
+
+def test_our_rules_copy_can_start_the_ball_check_again() -> None:
+    extension = read(SHARED_EXTENSION)
+    renderer = read(SHARED_RENDERER)
+
+    assert '"/api/restart-ball-coordinate-review"' in extension
+    assert '"/api/cancel-ball-coordinate-restart"' in extension
+    assert 'if (context.selected.ballSource !== "detected") {' in extension
+    assert "hideEngineEvents: true," in extension
+    assert "if (restart.rerunStarted) {" in extension
+    assert "review.state.coordinateReviewRestart.rerunStarted = true;" in extension
+    assert "state.coordinateReviewRestart = null;" in extension
+    assert "engineEvents: state.coordinateReviewRestart?.hideEngineEvents" in extension
+    assert 'id="restart-ball-coordinate-review"' in renderer
+    assert 'id="cancel-ball-coordinate-restart"' in renderer
+    assert "function renderBallCheckRestart()" in renderer
+    assert "state.coordinateReviewRestart\n          && state.coordinateReview?.status !== \"finalized\"" in renderer
+
+
+def test_our_rules_engine_run_rechecks_the_bac_copy() -> None:
+    extension = read(SHARED_EXTENSION)
+    renderer = read(SHARED_RENDERER)
+
+    assert "async function startBacSiblingRecheck(segment, state)" in extension
+    assert "await startBacSiblingRecheck(segment, context.state)" in extension
+    assert '"/api/bac-recheck"' in extension
+    assert 'id="bac-recheck-summary"' in renderer
+    assert '"M# found · Our rules "' in renderer
