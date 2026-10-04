@@ -51,13 +51,21 @@ def _add_kalman_guided_reacquisitions(
     )
     grayscale = _read_sampled_grayscale_frames(video, ordered_frames)
     raw_by_frame: dict[int, list[_RawMotionProposal]] = defaultdict(list)
-    for previous_frame, source_frame, following_frame in zip(
-        ordered_frames,
-        ordered_frames[1:],
-        ordered_frames[2:],
-    ):
-        if source_frame not in missing_frames:
-            continue
+    missing_frame_set = set(missing_frames)
+    pending_frames = [
+        (previous_frame, source_frame, following_frame)
+        for previous_frame, source_frame, following_frame in zip(
+            ordered_frames,
+            ordered_frames[1:],
+            ordered_frames[2:],
+        )
+        if source_frame in missing_frame_set
+    ]
+
+    def frame_proposals(
+        frames: tuple[int, int, int],
+    ) -> tuple[_RawMotionProposal, ...]:
+        previous_frame, source_frame, following_frame = frames
         proposals, _ = _raw_motion_frame_proposals(
             previous=grayscale[previous_frame],
             current=grayscale[source_frame],
@@ -71,6 +79,12 @@ def _add_kalman_guided_reacquisitions(
             trusted=trusted,
             frame_step=frame_step,
         )
+        return proposals
+
+    for (_, source_frame, _), proposals in zip(
+        pending_frames,
+        _ordered_parallel_map(frame_proposals, pending_frames),
+    ):
         raw_by_frame[source_frame].extend(proposals)
     detector_by_frame: dict[int, list[BallPoint]] = defaultdict(list)
     for point in detector_candidates:

@@ -74,7 +74,7 @@ def _player_attention_cones(
     following: np.ndarray,
     record: dict[str, Any],
 ) -> tuple[_PlayerAttentionCone, ...]:
-    cones: list[_PlayerAttentionCone] = []
+    players: list[tuple[Any, ...]] = []
     for detection in record.get("detections", []):
         if (
             detection.get("class_name") != "person"
@@ -142,19 +142,61 @@ def _player_attention_cones(
             qualityLevel=0.02,
             minDistance=2,
         )
-        motion_direction: np.ndarray | None = None
-        motion_confidence = 0.0
         if features is not None and len(features) >= 3:
             features[:, 0, 0] += x1
             features[:, 0, 1] += y1
-            moved, status, _ = cv2.calcOpticalFlowPyrLK(
-                current,
-                following,
+        else:
+            features = None
+        players.append(
+            (
+                detection,
+                x1,
+                x2,
+                y1,
+                width,
+                height,
+                appearance_direction,
+                appearance_confidence,
                 features,
-                None,
-                winSize=(15, 15),
-                maxLevel=2,
             )
+        )
+
+    # Lucas-Kanade tracks every point independently, so one call over all
+    # players' features gives the same per-point result as one call per
+    # player while building the full-frame image pyramids only once.
+    tracked = [player[8] for player in players if player[8] is not None]
+    moved_all = status_all = None
+    if tracked:
+        moved_all, status_all, _ = cv2.calcOpticalFlowPyrLK(
+            current,
+            following,
+            np.concatenate(tracked),
+            None,
+            winSize=(15, 15),
+            maxLevel=2,
+        )
+    offset = 0
+    cones: list[_PlayerAttentionCone] = []
+    for (
+        detection,
+        x1,
+        x2,
+        y1,
+        width,
+        height,
+        appearance_direction,
+        appearance_confidence,
+        features,
+    ) in players:
+        motion_direction: np.ndarray | None = None
+        motion_confidence = 0.0
+        if features is not None:
+            count = len(features)
+            moved = status = None
+            if moved_all is not None and status_all is not None:
+                moved = moved_all[offset : offset + count]
+                status = status_all[offset : offset + count]
+            offset += count
             if moved is not None and status is not None:
                 valid = status[:, 0].astype(bool)
                 if int(valid.sum()) >= 3:

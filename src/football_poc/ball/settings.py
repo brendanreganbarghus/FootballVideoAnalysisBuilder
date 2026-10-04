@@ -3,8 +3,10 @@ from __future__ import annotations
 from __future__ import annotations
 
 import json
+import os
 import time
 from collections import Counter, defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, replace
 from itertools import product
 from math import hypot
@@ -33,6 +35,27 @@ class FrozenProfile(dict):
 
 
 _ACTIVE_GRAYSCALE_FRAME_STORE: _SampledGrayscaleFrameStore | None = None
+
+
+def _ball_worker_count() -> int:
+    configured = os.environ.get("FOOTBALL_BALL_WORKERS")
+    if configured:
+        return max(1, int(configured))
+    return max(1, min(8, (os.cpu_count() or 1) - 1))
+
+
+def _ordered_parallel_map(function: Any, items: Iterable[Any]) -> list[Any]:
+    """Apply a pure function to independent items on idle cores.
+
+    Results keep the input order, so callers combine them exactly as a
+    sequential loop would. OpenCV and NumPy release the GIL while working.
+    """
+    items = list(items)
+    workers = min(_ball_worker_count(), len(items))
+    if workers <= 1:
+        return [function(item) for item in items]
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        return list(executor.map(function, items))
 
 
 def _timed_tracker_call(name: str, function: Any, /, *args: Any, **kwargs: Any):

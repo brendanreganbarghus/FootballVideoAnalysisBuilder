@@ -28,6 +28,7 @@ def _add_dense_optical_flow_bridges(
     try:
         if not capture.isOpened():
             raise ValueError(f"Could not open benchmark video: {video}")
+        gaps: list[tuple[int, BallPoint, BallPoint]] = []
         for track_index, track in enumerate(tracks):
             trusted = sorted(
                 (
@@ -48,27 +49,40 @@ def _add_dense_optical_flow_bridges(
                 ):
                     counters["expired_bridges"] += 1
                     continue
+                gaps.append((track_index, first, second))
+
+        def flow_path(
+            job: tuple[dict[int, np.ndarray], BallPoint, int],
+        ) -> tuple[dict[int, _DenseFlowSample], str | None]:
+            frames, seed, target_frame = job
+            return _dense_optical_flow_path(
+                frames,
+                seed=seed,
+                target_frame=target_frame,
+                fps=fps,
+                width=width,
+                height=height,
+            )
+
+        # Gaps are independent: decode a batch in video order, then run the
+        # forward and backward flow paths side by side and combine in order.
+        batch_size = _ball_worker_count()
+        for batch_start in range(0, len(gaps), batch_size):
+            batch = gaps[batch_start : batch_start + batch_size]
+            jobs: list[tuple[dict[int, np.ndarray], BallPoint, int]] = []
+            for _, first, second in batch:
                 frames = _read_dense_grayscale_range(
                     capture,
                     first.source_frame,
                     second.source_frame,
                 )
-                forward, forward_rejection = _dense_optical_flow_path(
-                    frames,
-                    seed=first,
-                    target_frame=second.source_frame,
-                    fps=fps,
-                    width=width,
-                    height=height,
-                )
-                backward, backward_rejection = _dense_optical_flow_path(
-                    frames,
-                    seed=second,
-                    target_frame=first.source_frame,
-                    fps=fps,
-                    width=width,
-                    height=height,
-                )
+                jobs.append((frames, first, second.source_frame))
+                jobs.append((frames, second, first.source_frame))
+            paths = _ordered_parallel_map(flow_path, jobs)
+            del jobs, frames
+            for gap_index, (track_index, first, second) in enumerate(batch):
+                forward, forward_rejection = paths[2 * gap_index]
+                backward, backward_rejection = paths[2 * gap_index + 1]
                 rejection = forward_rejection or backward_rejection
                 if rejection is not None:
                     counters[rejection] += 1
@@ -195,7 +209,17 @@ def _read_dense_grayscale_range(
     first_frame: int,
     last_frame: int,
 ) -> dict[int, np.ndarray]:
-    capture.set(cv2.CAP_PROP_POS_FRAMES, first_frame)
+    # Decoding forward from the current position avoids a keyframe re-decode
+    # per seek; seek only when the range starts behind the decoder.
+    position = int(capture.get(cv2.CAP_PROP_POS_FRAMES))
+    if first_frame < position:
+        capture.set(cv2.CAP_PROP_POS_FRAMES, first_frame)
+    else:
+        for skipped in range(position, first_frame):
+            if not capture.grab():
+                raise RuntimeError(
+                    f"Could not skip to source frame {skipped} for dense flow"
+                )
     frames: dict[int, np.ndarray] = {}
     for source_frame in range(first_frame, last_frame + 1):
         ok, frame = capture.read()

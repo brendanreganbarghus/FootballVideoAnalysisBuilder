@@ -199,17 +199,22 @@ def _add_raw_motion_proposals(
     grayscale = _read_sampled_grayscale_frames(video, ordered_frames)
     proposals_by_frame: dict[int, list[_RawMotionProposal]] = {}
     counters: Counter[str] = Counter()
-    for previous_frame, source_frame, following_frame in zip(
-        ordered_frames,
-        ordered_frames[1:],
-        ordered_frames[2:],
-    ):
-        if (
-            source_frame in trusted_frames
-            or source_frame in detector_candidate_frames
-        ):
-            continue
-        proposals, rejected = _raw_motion_frame_proposals(
+    pending_frames = [
+        (previous_frame, source_frame, following_frame)
+        for previous_frame, source_frame, following_frame in zip(
+            ordered_frames,
+            ordered_frames[1:],
+            ordered_frames[2:],
+        )
+        if source_frame not in trusted_frames
+        and source_frame not in detector_candidate_frames
+    ]
+
+    def frame_proposals(
+        frames: tuple[int, int, int],
+    ) -> tuple[tuple[_RawMotionProposal, ...], Counter[str]]:
+        previous_frame, source_frame, following_frame = frames
+        return _raw_motion_frame_proposals(
             previous=grayscale[previous_frame],
             current=grayscale[source_frame],
             following=grayscale[following_frame],
@@ -222,6 +227,11 @@ def _add_raw_motion_proposals(
             trusted=trusted,
             frame_step=frame_step,
         )
+
+    for (_, source_frame, _), (proposals, rejected) in zip(
+        pending_frames,
+        _ordered_parallel_map(frame_proposals, pending_frames),
+    ):
         proposals_by_frame[source_frame] = list(proposals)
         counters.update(rejected)
         counters["generated"] += len(proposals)
@@ -455,10 +465,20 @@ def _raw_motion_frame_proposals(
         )
         counters[f"{mode}_generated"] += 1
         contour_fill = area / max(1.0, blob_width * blob_height)
-        foreground_mask = np.zeros_like(motion)
-        cv2.drawContours(foreground_mask, [contour], -1, 255, -1)
+        # The filled contour lies inside its bounding rectangle, so the
+        # masked mean over that rectangle equals the full-frame masked mean.
+        motion_window = motion[y : y + blob_height, x : x + blob_width]
+        foreground_mask = np.zeros_like(motion_window)
+        cv2.drawContours(
+            foreground_mask,
+            [contour],
+            -1,
+            255,
+            -1,
+            offset=(-x, -y),
+        )
         foreground_strength = float(
-            cv2.mean(motion, mask=foreground_mask)[0]
+            cv2.mean(motion_window, mask=foreground_mask)[0]
         )
         foreground_score = min(1.0, foreground_strength / 64.0)
         compactness_score = min(
