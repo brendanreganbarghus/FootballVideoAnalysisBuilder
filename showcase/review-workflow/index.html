@@ -716,7 +716,7 @@
         <div class="pipeline-body">
           <div class="framework-strip" aria-label="Frameworks and major components">
             <span translate="no">OpenCV</span>
-            <span translate="no">Ultralytics YOLO11</span>
+            <span translate="no">Ultralytics YOLO26n</span>
             <span translate="no">PyTorch</span>
             <span translate="no">NumPy</span>
             <span translate="no">ByteTrack pilot</span>
@@ -744,9 +744,9 @@
                 <li>Create tracking-verification videos.</li>
               </ul>
             </article>
-            <article class="flow-node" data-title="YOLO detects visible objects" data-copy="Ultralytics loads YOLO11; PyTorch executes inference. Panoramic frames are tiled, duplicate overlap boxes are removed, and detections are cached.">
+            <article class="flow-node" data-title="YOLO detects visible objects" data-copy="Ultralytics loads YOLO26n; PyTorch executes inference. Panoramic frames are tiled, duplicate overlap boxes are removed, and detections are cached.">
               <h3>Object Detection</h3>
-              <p><span translate="no">YOLO11 + PyTorch</span> detect players and ball candidates; overlap NMS removes duplicate tile detections.</p>
+              <p><span translate="no">YOLO26n + PyTorch</span> detect players and ball candidates; overlap NMS removes duplicate tile detections.</p>
             </article>
             <article class="flow-node" data-title="Objects become temporal tracks" data-copy="The current Alfheim review path predicts player foot positions, associates nearby observations over time, and uses OpenCV colour evidence for team labels.">
               <h3>Player Tracking</h3>

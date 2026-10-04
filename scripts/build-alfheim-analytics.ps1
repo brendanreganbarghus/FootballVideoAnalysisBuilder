@@ -11,7 +11,7 @@ python .\scripts\build-alfheim-ball-track.py
 
 python -m football_poc.benchmark_cli $manifest `
   --output $cache `
-  --model .\yolo11n.pt `
+  --model .\yolo26n.pt `
   --confidence 0.12 `
   --image-size 960 `
   --stride 5 `

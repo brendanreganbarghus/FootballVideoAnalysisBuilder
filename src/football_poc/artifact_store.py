@@ -394,26 +394,22 @@ def resolve_detector_model(project_root: Path) -> Path:
             )
         return model
 
-    artifact_root = discover_artifact_root()
-    approved_model = (
-        artifact_root
-        / "20-approved-models"
-        / "internal-poc-only"
-        / "ultralytics-yolo11n"
-        / "yolo11n.pt"
-        if artifact_root
-        else None
-    )
-    if approved_model and approved_model.is_file():
-        return approved_model.resolve()
+    yolo26_model = os.environ.get("FOOTBALL_YOLO26_MODEL", "").strip()
+    if yolo26_model:
+        model = Path(yolo26_model).expanduser().resolve()
+        if not model.is_file():
+            raise FileNotFoundError(
+                f"FOOTBALL_YOLO26_MODEL does not exist: {model}"
+            )
+        return model
 
-    local_generic_model = project_root / "yolo11n.pt"
-    if local_generic_model.is_file():
-        return local_generic_model.resolve()
+    local_model = project_root / "yolo26n.pt"
+    if local_model.is_file():
+        return local_model.resolve()
 
     raise FileNotFoundError(
-        "No detector model is available. Set FOOTBALL_DETECTOR_MODEL to an "
-        "authorized checkpoint or synchronize the approved internal POC model. "
+        "No YOLO26n detector model is available. Set FOOTBALL_YOLO26_MODEL "
+        "or FOOTBALL_DETECTOR_MODEL, or provide yolo26n.pt in the project. "
         "The local football-specific checkpoint is not selected implicitly "
         "because its training-data and licence provenance are unresolved."
     )

@@ -21,7 +21,7 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=Path("benchmarks/soccertrack-117093-yolo"),
     )
-    parser.add_argument("--model", default="yolo11n.pt")
+    parser.add_argument("--model", default="yolo26n.pt")
     parser.add_argument("--confidence", type=float, default=0.1)
     parser.add_argument("--image-size", type=int, default=960)
     parser.add_argument("--device", default=None)

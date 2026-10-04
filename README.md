@@ -29,7 +29,7 @@ Run it against a recording:
 .\.venv\Scripts\football-poc match.mp4 --output output
 ```
 
-The default model is `yolo11n.pt`; Ultralytics downloads its weights on first
+The default model is `yolo26n.pt` (set `FOOTBALL_YOLO26_MODEL` to its path); Ultralytics downloads its weights on first
 use. For a small football in a wide view, a football-specific model supplied
 with `--model` will normally be necessary. Use `--device 0` for the first CUDA
 GPU or `--device cpu` for CPU inference. The CPU-friendly defaults process

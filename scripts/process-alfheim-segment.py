@@ -23,7 +23,6 @@ from football_poc.alfheim_segments import resolve_alfheim_pano
 from football_poc.artifact_store import (
     BALL_SOURCES,
     discover_artifact_root,
-    resolve_detector_model,
 )
 from football_poc.ball_provenance import validate_ball_provenance
 from football_poc.bac_ball_tracks import write_bac_ball_tracks
@@ -34,21 +33,8 @@ from football_poc.shots_on_target import (
     SUMMARY_FILE_NAME as SHOTS_SUMMARY_FILE_NAME,
 )
 
-# The BAC path pairs frozen provider ball coordinates with frozen YOLO11n
-# player context; the detected path runs the raw-video YOLO26 ball tracker.
-BAC_DETECTOR_MODEL_SHA256 = (
-    "0ebbc80d4a7680d14987a577cd21342b65ecfd94632bd9a8da63ae6417644ee1"
-)
-BAC_DETECTOR_PROFILE = {
-    "model": "yolo11n.pt",
-    "confidence": 0.12,
-    "image_size": 960,
-    "stride": 5,
-    "tile_width": 1484,
-    "tile_height": None,
-    "overlap": 0.1,
-    "nms_iou": 0.5,
-}
+# Both ball sources run the same YOLO26n detector for players; they differ
+# only in where the ball coordinates come from.
 LIVE_DETECTOR_MODEL_SHA256 = (
     "9b09cc8bf347f0fc8a5f7657480587f25db09b34bf33b0652110fb03a8ad4fef"
 )
@@ -111,17 +97,34 @@ def alfheim_config_path(name: str) -> Path:
     )
 
 
-def validate_bac_detector_model(model: Path) -> None:
-    model_hash = sha256(model)
-    if (
-        model.name.lower() != BAC_DETECTOR_PROFILE["model"]
-        or model_hash != BAC_DETECTOR_MODEL_SHA256
-    ):
-        raise ValueError(
-            "BAC-path player detection requires the frozen YOLO11n checkpoint "
-            f"{BAC_DETECTOR_MODEL_SHA256}; got {model.name} "
-            f"with SHA-256 {model_hash}. Refusing detector configuration drift."
-        )
+def live_detection_arguments(model: Path, cache: Path, manifest: Path) -> list[str]:
+    return [
+        "-m",
+        "football_poc.benchmark_cli",
+        str(manifest),
+        "--output",
+        str(cache),
+        "--model",
+        str(model),
+        "--device",
+        "cpu",
+        "--confidence",
+        str(LIVE_DETECTOR_PROFILE["confidence"]),
+        "--image-size",
+        str(LIVE_DETECTOR_PROFILE["image_size"]),
+        "--stride",
+        str(LIVE_DETECTOR_PROFILE["stride"]),
+        "--tile-width",
+        str(LIVE_DETECTOR_PROFILE["tile_width"]),
+        "--tile-height",
+        str(LIVE_DETECTOR_PROFILE["tile_height"]),
+        "--overlap",
+        str(LIVE_DETECTOR_PROFILE["overlap"]),
+        "--nms-iou",
+        str(LIVE_DETECTOR_PROFILE["nms_iou"]),
+        "--frame-batch-size",
+        str(LIVE_DETECTOR_PROFILE["frame_batch_size"]),
+    ]
 
 
 def resolve_live_detector_model(project_root: Path) -> Path:
@@ -536,31 +539,14 @@ def main() -> None:
                 if reviewer_ball_tracks.is_file()
                 else ball_tracks
             )
-            model = resolve_detector_model(PROJECT_ROOT)
-            validate_bac_detector_model(model)
+            live_model = resolve_live_detector_model(PROJECT_ROOT)
             status(
                 "player_detection",
-                "Running frozen YOLO player detection from the prepared video.",
+                "Running YOLO26n player detection from the prepared video.",
             )
             run(
                 "detection",
-                "-m",
-                "football_poc.bac_player_detector",
-                str(runtime_manifest),
-                "--output",
-                str(cache),
-                "--model",
-                str(model),
-                "--confidence",
-                str(BAC_DETECTOR_PROFILE["confidence"]),
-                "--image-size",
-                str(BAC_DETECTOR_PROFILE["image_size"]),
-                "--stride",
-                str(BAC_DETECTOR_PROFILE["stride"]),
-                "--tile-width",
-                str(BAC_DETECTOR_PROFILE["tile_width"]),
-                "--overlap",
-                str(BAC_DETECTOR_PROFILE["overlap"]),
+                *live_detection_arguments(live_model, cache, runtime_manifest),
             )
             status(
                 "player_tracking",
@@ -632,31 +618,9 @@ def main() -> None:
                 )
                 run(
                     "detection",
-                    "-m",
-                    "football_poc.benchmark_cli",
-                    str(runtime_manifest),
-                    "--output",
-                    str(cache),
-                    "--model",
-                    str(live_model),
-                    "--device",
-                    "cpu",
-                    "--confidence",
-                    str(LIVE_DETECTOR_PROFILE["confidence"]),
-                    "--image-size",
-                    str(LIVE_DETECTOR_PROFILE["image_size"]),
-                    "--stride",
-                    str(LIVE_DETECTOR_PROFILE["stride"]),
-                    "--tile-width",
-                    str(LIVE_DETECTOR_PROFILE["tile_width"]),
-                    "--tile-height",
-                    str(LIVE_DETECTOR_PROFILE["tile_height"]),
-                    "--overlap",
-                    str(LIVE_DETECTOR_PROFILE["overlap"]),
-                    "--nms-iou",
-                    str(LIVE_DETECTOR_PROFILE["nms_iou"]),
-                    "--frame-batch-size",
-                    str(LIVE_DETECTOR_PROFILE["frame_batch_size"]),
+                    *live_detection_arguments(
+                        live_model, cache, runtime_manifest
+                    ),
                 )
                 status(
                     "ball_track",
@@ -779,12 +743,8 @@ def main() -> None:
                 ),
             },
         }
-        if ball_source == "bac":
-            provenance["detector_profile"] = BAC_DETECTOR_PROFILE
-            provenance["detector_model_sha256"] = BAC_DETECTOR_MODEL_SHA256
-        else:
-            provenance["detector_profile"] = LIVE_DETECTOR_PROFILE
-            provenance["detector_model_sha256"] = LIVE_DETECTOR_MODEL_SHA256
+        provenance["detector_profile"] = LIVE_DETECTOR_PROFILE
+        provenance["detector_model_sha256"] = LIVE_DETECTOR_MODEL_SHA256
         (results / "run-provenance.json").write_text(
             json.dumps(provenance, indent=2) + "\n",
             encoding="utf-8",

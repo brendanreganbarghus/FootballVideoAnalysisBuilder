@@ -9,7 +9,7 @@ claim that every stage is production-ready.
 | Stage | Pilot choice | Current status |
 | --- | --- | --- |
 | Video I/O | OpenCV for recorded files, frame decoding, drawing, and output | Implemented |
-| Detection | YOLO11 exported to ONNX, benchmarked on the pilot laptop | Export command implemented; ONNX laptop benchmark pending |
+| Detection | YOLO26n exported to ONNX, benchmarked on the pilot laptop | Export command implemented; ONNX laptop benchmark pending |
 | Tracking | ByteTrack through `model.track(..., tracker="bytetrack.yaml")` | Implemented in the single-video runner |
 | Team grouping | Upper-torso crop, OpenCV K-Means dominant colour, pre-match team/referee references | Implemented as an optional cached-track classifier |
 | Pitch mapping | Four or more image/pitch point pairs and OpenCV homography | Implemented |

@@ -23,23 +23,29 @@ def test_explicit_artifact_root_must_exist(
         discover_artifact_root()
 
 
-def test_detector_uses_shared_approved_model(
+def test_detector_uses_yolo26_model(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    artifact_root = tmp_path / "artifacts"
-    model = (
-        artifact_root
-        / "20-approved-models"
-        / "internal-poc-only"
-        / "ultralytics-yolo11n"
-        / "yolo11n.pt"
-    )
+    model = tmp_path / "models" / "yolo26n.pt"
     model.parent.mkdir(parents=True)
     model.touch()
-    monkeypatch.setenv("FOOTBALL_ARTIFACT_ROOT", str(artifact_root))
+    monkeypatch.setenv("FOOTBALL_YOLO26_MODEL", str(model))
     monkeypatch.delenv("FOOTBALL_DETECTOR_MODEL", raising=False)
 
     assert resolve_detector_model(tmp_path / "repo") == model.resolve()
+
+
+def test_detector_uses_local_yolo26_model(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "yolo11n.pt").touch()
+    (repo / "yolo26n.pt").touch()
+    monkeypatch.delenv("FOOTBALL_YOLO26_MODEL", raising=False)
+    monkeypatch.delenv("FOOTBALL_DETECTOR_MODEL", raising=False)
+
+    assert resolve_detector_model(repo) == (repo / "yolo26n.pt").resolve()
 
 
 def test_explicit_detector_override_wins(

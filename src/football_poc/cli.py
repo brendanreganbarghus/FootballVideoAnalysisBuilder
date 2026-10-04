@@ -21,7 +21,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("video", type=Path, help="Input video file")
     parser.add_argument("--output", type=Path, default=Path("output"))
-    parser.add_argument("--model", default="yolo11n.pt")
+    parser.add_argument("--model", default="yolo26n.pt")
     parser.add_argument("--confidence", type=float, default=0.2)
     parser.add_argument("--image-size", type=int, default=640)
     parser.add_argument("--device", default=None)

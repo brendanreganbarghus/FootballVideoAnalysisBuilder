@@ -504,8 +504,9 @@ of bypassing PostgreSQL, copying mutable JSON, or changing a rule to fit one
 segment.
 
 The detector is resolved in this order: explicit
-`FOOTBALL_DETECTOR_MODEL`, the checksummed shared approved model, then a local
-generic `yolo11n.pt`. The football-specific checkpoint is never selected
+`FOOTBALL_DETECTOR_MODEL`, then `FOOTBALL_YOLO26_MODEL`, then a local
+`yolo26n.pt`. Both ball sources (`bac` and `detected`) use the same YOLO26n
+detector for players. The football-specific checkpoint is never selected
 implicitly because its training-data and licence provenance are unresolved.
 The exact model path and SHA-256 are written into each cold-run performance
 receipt.
