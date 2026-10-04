@@ -46,7 +46,8 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help=(
             "Optional generated trajectory states used for continuity only; "
-            "estimated states never provide speed or direction evidence."
+            "estimated states never provide speed or direction evidence. "
+            "Not auto-loaded: by default ball states are review-only."
         ),
     )
     parser.add_argument(
@@ -186,11 +187,9 @@ def run(args: Any) -> Path:
 
 
 def _infer(args: Any) -> Path:
+    # Ball states (seen/estimate/hidden) are review-only: coordinates reach
+    # the rules engine exactly like BAC unless states are passed explicitly.
     ball_state_estimates = args.ball_state_estimates
-    if ball_state_estimates is None:
-        candidate = args.ball_tracks.parent / "ball-state-estimates.json"
-        if candidate.is_file():
-            ball_state_estimates = candidate
     return infer_cached_possession(
         manifest_path=args.manifest,
         player_tracks_path=args.player_tracks,
