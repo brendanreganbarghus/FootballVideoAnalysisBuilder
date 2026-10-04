@@ -49,6 +49,9 @@ LIVE_DETECTOR_PROFILE = {
     "nms_iou": 0.5,
     "frame_batch_size": 2,
 }
+# YOLO26n scores half-hidden players at 0.10-0.19; player tracking keeps every
+# box the detector keeps so those players stay visible to the rules engine.
+PLAYER_TRACKING_CONFIDENCE = LIVE_DETECTOR_PROFILE["confidence"]
 BAC_SOURCE_KINDS = frozenset(
     {
         "evaluation_only_provider_coordinates",
@@ -437,7 +440,7 @@ def main() -> None:
             "--output",
             str(results),
             "--confidence",
-            "0.2",
+            str(PLAYER_TRACKING_CONFIDENCE),
             "--max-gap",
             "0.5",
             "--max-speed",
