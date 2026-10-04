@@ -263,34 +263,88 @@ class _BoundedColorFrameReader:
         }
 
 
+class _BackgroundColorFrames(Mapping):
+    """Decodes the requested frames in video order on a background thread.
+
+    Lookups wait only until their own frame is decoded, so the detector can
+    start on early frames while later ones are still being read. The frames
+    are exactly those a full read-first pass would return.
+    """
+
+    def __init__(self, video: Path, required: set[int]) -> None:
+        self._video = video
+        self._required = frozenset(required)
+        self._frames: dict[int, np.ndarray] = {}
+        self._decoded_through = -1
+        self._error: BaseException | None = None
+        self._done = False
+        self._condition = threading.Condition()
+        self._thread = threading.Thread(target=self._read, daemon=True)
+        self._thread.start()
+
+    def _read(self) -> None:
+        capture = cv2.VideoCapture(str(self._video))
+        try:
+            if not capture.isOpened():
+                raise ValueError(f"Could not open benchmark video: {self._video}")
+            for source_frame in range(max(self._required) + 1):
+                if source_frame not in self._required:
+                    if not capture.grab():
+                        raise RuntimeError(
+                            f"Could not skip to source frame {source_frame} in {self._video}"
+                        )
+                    continue
+                ok, frame = capture.read()
+                if not ok:
+                    raise RuntimeError(
+                        f"Could not read source frame {source_frame} from {self._video}"
+                    )
+                with self._condition:
+                    self._frames[source_frame] = frame
+                    self._decoded_through = source_frame
+                    self._condition.notify_all()
+        except BaseException as error:  # surfaced to the caller on lookup
+            self._error = error
+        finally:
+            capture.release()
+            with self._condition:
+                self._done = True
+                self._condition.notify_all()
+
+    def _wait_for(self, source_frame: int | None) -> None:
+        with self._condition:
+            while not self._done and (
+                source_frame is None or self._decoded_through < source_frame
+            ):
+                self._condition.wait()
+            if self._error is not None:
+                raise self._error
+
+    def __getitem__(self, source_frame: int) -> np.ndarray:
+        if source_frame not in self._required:
+            raise KeyError(source_frame)
+        self._wait_for(source_frame)
+        return self._frames[source_frame]
+
+    def __contains__(self, source_frame: object) -> bool:
+        return source_frame in self._required
+
+    def __iter__(self):
+        self._wait_for(None)
+        return iter(self._frames)
+
+    def __len__(self) -> int:
+        return len(self._required)
+
+
 def _read_sampled_color_frames(
     video: Path,
     source_frames: Iterable[int],
-) -> dict[int, np.ndarray]:
+) -> Mapping[int, np.ndarray]:
     required = set(source_frames)
     if not required:
         return {}
-    frames: dict[int, np.ndarray] = {}
-    capture = cv2.VideoCapture(str(video))
-    try:
-        if not capture.isOpened():
-            raise ValueError(f"Could not open benchmark video: {video}")
-        for source_frame in range(max(required) + 1):
-            if source_frame not in required:
-                if not capture.grab():
-                    raise RuntimeError(
-                        f"Could not skip to source frame {source_frame} in {video}"
-                    )
-                continue
-            ok, frame = capture.read()
-            if not ok:
-                raise RuntimeError(
-                    f"Could not read source frame {source_frame} from {video}"
-                )
-            frames[source_frame] = frame
-    finally:
-        capture.release()
-    return frames
+    return _BackgroundColorFrames(video, required)
 
 
 def _trajectory_corridor_history_is_supported(
