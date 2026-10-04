@@ -333,3 +333,5 @@ When the workflow or another current workstream boundary changes, update
 this file, `AGENTS.md`, and `CLAUDE.md` together.
 
 Shots on target is an always-analysed, evidence-gated project statistic (no opt-in setting) that requires a runtime `shot-evidence.json` in the segment root built by `shot_evidence_adapter.py` from frozen runtime inputs only (height comes only from monocular goal-face arrests; thresholds are provisional until validated across segments); unavailable evidence reports unavailable rather than zero.
+
+Image coordinate sizes: every position belongs to the image size it was measured on. Camera configuration (`pitch-calibration.json`, `goalkeeper-affiliations.json`) declares `image_width`/`image_height` and is converted on read by `src\football_poc\image_space.py` to the size of the positions it is compared with (video frame size for YOLO, player tracks and the `detected` ball; provider panorama size for BAC). Never compare positions from different image sizes without that conversion; see `docs/RULES_ENGINE_ARCHITECTURE.md`.

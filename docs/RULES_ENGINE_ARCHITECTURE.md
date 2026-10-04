@@ -514,6 +514,21 @@ from frozen runtime inputs
 only: BAC ball tracks, cached player tracks and goalkeeper roles, the
 goalkeeper-affiliation config (attacking directions), engine match state,
 and the calibrated goal mouths in `pitch-calibration.json`.
+
+**Image coordinate sizes.** Every position is only meaningful together with
+the image size it was measured on. Camera configuration
+(`pitch-calibration.json`, `goalkeeper-affiliations.json`) must declare the
+size it was drawn on with `image_width`/`image_height` (Alfheim: the
+4450×2000 panorama). `src\football_poc\image_space.py` converts it, when it is
+read, to the size of the positions it is compared with: the video frame size
+for YOLO detections, player tracks and the `detected` ball; the
+configuration's own size for provider (BAC) and reviewer-corrected
+coordinates, which stay in the provider panorama space. Never compare
+positions from different image sizes without this conversion, and never
+resize stored artifacts to hide a mismatch. A resized `segment.mp4` changes
+the video frame size, so its detections and tracks are in that new size.
+The Canvas draws everything in the segment display size and converts the
+`detected` ball and YOLO candidates with `detectorDisplayScale`.
 `goal_calibration.py` (`innovation-goal-face-v1`) fits one goal-face
 homography per goal from the four image corners and the Law 1 goal size
 (7.32 m × 2.44 m). Its uncertainty is the worst-case shift under ±4 px corner
