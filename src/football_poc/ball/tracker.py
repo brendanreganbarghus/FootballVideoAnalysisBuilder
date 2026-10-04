@@ -232,6 +232,41 @@ def _withdraw_off_path_attention_fallbacks(ledger: FrameLedger, module: str) -> 
         ledger.withdraw(frame, module, "attention_fallback_off_neighbour_path")
 
 
+# A moving ball cannot nearly stop for one sample and then speed off again in
+# the next. A flipbook pick whose arrival step is far shorter than both the
+# step before and the step after, while the ball moves fast on both sides,
+# is a slower object (a boot) the ball passed, so the module takes it back.
+STALL_STEP_FRACTION = 0.35
+STALL_MINIMUM_NEIGHBOUR_SPEED_PIXELS_PER_FRAME = 6.0
+
+
+def _withdraw_stalled_flipbook_picks(ledger: FrameLedger, frame_step: int) -> None:
+    if frame_step < 1:
+        return
+    confirmed = {point.source_frame: point for point in ledger.confirmed_points()}
+
+    def step(a: BallPoint, b: BallPoint) -> float:
+        return hypot(b.x - a.x, b.y - a.y) / (b.source_frame - a.source_frame)
+
+    stalled: list[int] = []
+    for frame, point in confirmed.items():
+        if point.confirming_module != FLIPBOOK_MODULE:
+            continue
+        previous = confirmed.get(frame - frame_step)
+        earlier = confirmed.get(frame - 2 * frame_step)
+        following = confirmed.get(frame + frame_step)
+        if previous is None or earlier is None or following is None:
+            continue
+        neighbours = min(step(earlier, previous), step(point, following))
+        if (
+            neighbours >= STALL_MINIMUM_NEIGHBOUR_SPEED_PIXELS_PER_FRAME
+            and step(previous, point) < STALL_STEP_FRACTION * neighbours
+        ):
+            stalled.append(frame)
+    for frame in stalled:
+        ledger.withdraw(frame, FLIPBOOK_MODULE, "stalled_between_fast_steps")
+
+
 def _run_motion_and_optical_flow_module(
     ledger: FrameLedger,
     *,
@@ -623,6 +658,7 @@ def _track_cached_balls_impl(
     # Later modules may have filled the neighbours an attention fallback lacked
     # when step 03 judged it, so it is judged again against the final path.
     _withdraw_off_path_attention_fallbacks(ledger, "03_motion_and_optical_flow")
+    _withdraw_stalled_flipbook_picks(ledger, frame_step)
     # The time machine runs last so visual recovery modules see every gap
     # first; it then gives each remaining frame an estimate or possible region.
     ledger = _timed_tracker_call(
