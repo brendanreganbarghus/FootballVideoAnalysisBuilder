@@ -75,3 +75,5 @@ baseline suites (`tests/test_possession.py`, `tests/test_match_state.py`,
 | 20261004T200842979Z | rules | stable colours keep turnover and quick pass | `tests/rules/test_label_flicker_tackle_20261004T200842978Z.py::test_stable_colours_keep_turnover_and_quick_pass_20261004T200842979Z` |
 | 20261004T201514367Z | rules | near simultaneous releases count once | `tests/rules/test_simultaneous_release_same_receiver_20261004T201514367Z.py::test_near_simultaneous_releases_count_once_20261004T201514367Z` |
 | 20261004T201514383Z | rules | separate releases to same receiver are kept | `tests/rules/test_simultaneous_release_same_receiver_20261004T201514367Z.py::test_separate_releases_to_same_receiver_are_kept_20261004T201514383Z` |
+| 20261004T201915764Z | rules | turnover into receiver blocks recovered pass | `tests/rules/test_recovered_pass_already_received_20261004T201915764Z.py::test_turnover_into_receiver_blocks_recovered_pass_20261004T201915764Z` |
+| 20261004T201915765Z | rules | unexplained reception is still recovered | `tests/rules/test_recovered_pass_already_received_20261004T201915764Z.py::test_unexplained_reception_is_still_recovered_20261004T201915765Z` |

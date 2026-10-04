@@ -380,8 +380,7 @@ def infer_pre_release_flight_receptions(
             continue
         sender = max(senders, key=lambda observation: observation.clip_seconds)
         if any(
-            event.event_type == "pass_candidate"
-            and event.team == receiver.team
+            event.event_type in {"pass_candidate", "turnover_candidate"}
             and event.to_player_track_id == receiver.player_track_id
             and event.completion_seconds is not None
             and sender.clip_seconds
