@@ -740,3 +740,118 @@ def infer_short_exchange_receptions(
             )
         )
     return _deduplicate_receptions([*source, *inferred])
+
+def suppress_label_flicker_tackle_artifacts(
+    events: Iterable[PredictedEvent],
+    players: dict[int, list[dict[str, Any]]],
+    *,
+    maximum_tail_gap_seconds: float = 0.2,
+    maximum_tail_flight_seconds: float = 0.4,
+    label_match_seconds: float = 0.25,
+) -> list[PredictedEvent]:
+    """Count a tackle once when a challenged player's box flips team colour.
+
+    During a physical challenge two opposing players overlap, so one tracked
+    box can carry both kits within a second. Only when such a colour flicker is
+    observed, two artifacts are rejected: a turnover whose receiver wears the
+    losing team's colour and immediately "loses" the ball again, and a very
+    short same-team pass that starts exactly where the tackle turnover ends.
+    """
+    labels: dict[int, list[tuple[float, str]]] = defaultdict(list)
+    for frame_players in players.values():
+        for player in frame_players:
+            track_id = player.get("track_id")
+            team = player.get("team")
+            if track_id is not None and team in {"red", "black", "blue", "white"}:
+                labels[int(track_id)].append((float(player["clip_seconds"]), str(team)))
+    for points in labels.values():
+        points.sort()
+
+    def flickers(track_id: int | None, start: float, end: float) -> bool:
+        if track_id is None:
+            return False
+        teams = {
+            team
+            for seconds, team in labels.get(track_id, [])
+            if start - 1e-6 <= seconds <= end + 1e-6
+        }
+        return len(teams) >= 2
+
+    def label_at(track_id: int | None, seconds: float) -> str | None:
+        if track_id is None:
+            return None
+        nearest = min(
+            labels.get(track_id, []),
+            key=lambda point: abs(point[0] - seconds),
+            default=None,
+        )
+        if nearest is None or abs(nearest[0] - seconds) > label_match_seconds:
+            return None
+        return nearest[1]
+
+    ordered = sorted(events, key=lambda event: event.clip_seconds)
+    rejected: set[int] = set()
+    for index, turnover in enumerate(ordered):
+        if turnover.event_type != "turnover_candidate" or turnover.team is None:
+            continue
+        completion = turnover.completion_seconds or turnover.clip_seconds
+        following = [
+            (later_index, event)
+            for later_index, event in enumerate(ordered[index + 1 :], start=index + 1)
+            if later_index not in rejected
+        ]
+        next_turnover = next(
+            (
+                (later_index, event)
+                for later_index, event in following
+                if event.event_type == "turnover_candidate"
+            ),
+            None,
+        )
+        receiver = turnover.to_player_track_id
+        if (
+            next_turnover is not None
+            and receiver is not None
+            and next_turnover[1].team not in {None, turnover.team}
+            and next_turnover[1].from_player_track_id == receiver
+            and label_at(receiver, completion) == turnover.team
+            and flickers(
+                receiver,
+                completion,
+                next_turnover[1].completion_seconds or next_turnover[1].clip_seconds,
+            )
+        ):
+            rejected.add(index)
+            continue
+        tail = next(
+            (
+                (later_index, event)
+                for later_index, event in following
+                if event.event_type == "pass_candidate"
+            ),
+            None,
+        )
+        if tail is None:
+            continue
+        tail_index, tail_pass = tail
+        tail_completion = tail_pass.completion_seconds
+        if (
+            tail_pass.team is None
+            or tail_pass.team == turnover.team
+            or tail_completion is None
+            or receiver is None
+            or tail_pass.from_player_track_id != receiver
+            or abs(tail_pass.clip_seconds - completion) > maximum_tail_gap_seconds
+            or tail_completion - tail_pass.clip_seconds > maximum_tail_flight_seconds
+        ):
+            continue
+        if any(
+            flickers(track_id, turnover.clip_seconds, tail_completion)
+            for track_id in (
+                turnover.from_player_track_id,
+                receiver,
+                tail_pass.to_player_track_id,
+            )
+        ):
+            rejected.add(tail_index)
+    return [event for index, event in enumerate(ordered) if index not in rejected]

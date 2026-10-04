@@ -71,3 +71,5 @@ baseline suites (`tests/test_possession.py`, `tests/test_match_state.py`,
 | 20261004T185903310Z | rules | direct short handover needs distinct co visible players | `tests/rules/test_direct_short_teammate_handover_20261004T185903313Z.py::test_direct_short_handover_needs_distinct_co_visible_players_20261004T185903310Z` |
 | 20261004T194306489Z | tracking | goalkeeper region scales to video size | `tests/tracking/test_config_scales_to_image_size_20261004T194306489Z.py::test_goalkeeper_region_scales_to_video_size_20261004T194306489Z` |
 | 20261004T194306490Z | tracking | goal faces scale to ball coordinate size | `tests/tracking/test_config_scales_to_image_size_20261004T194306489Z.py::test_goal_faces_scale_to_ball_coordinate_size_20261004T194306490Z` |
+| 20261004T200842978Z | rules | flickering tackle counts once | `tests/rules/test_label_flicker_tackle_20261004T200842978Z.py::test_flickering_tackle_counts_once_20261004T200842978Z` |
+| 20261004T200842979Z | rules | stable colours keep turnover and quick pass | `tests/rules/test_label_flicker_tackle_20261004T200842978Z.py::test_stable_colours_keep_turnover_and_quick_pass_20261004T200842979Z` |
