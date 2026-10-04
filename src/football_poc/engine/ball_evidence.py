@@ -40,6 +40,7 @@ def _control_observations(
     if future_control_confirmation_seconds < 0:
         raise ValueError("Future control confirmation cannot be negative")
     motion = _ball_motion_evidence(balls)
+    wide_turns = _ball_wide_turn_cosines(balls)
     proximity_by_track: dict[int, list[tuple[float, float, float]]] = defaultdict(
         list
     )
@@ -115,8 +116,14 @@ def _control_observations(
                     and not future_control_confirmed
                     and (
                         evidence is None
-                        or evidence[1]
-                        > maximum_aerial_contact_direction_cosine
+                        or (
+                            evidence[1] > maximum_aerial_contact_direction_cosine
+                            and wide_turns.get(
+                                (int(ball["track_id"]), int(source_frame)),
+                                1.0,
+                            )
+                            > WIDE_TURN_MAXIMUM_COSINE
+                        )
                         or horizontal_ratio > 0.5
                     )
                 )
@@ -203,6 +210,48 @@ def _control_observations(
             )
         )
     return observations
+
+# A ball nearly at rest against a player's body moves only a few pixels per
+# sample, so the turn of a head or chest touch can hide inside one sample of
+# position noise. Measuring the turn across two samples on each side shows it.
+WIDE_TURN_SAMPLES = 2
+# The wider window smooths over a real bend, so it must show a clear turn of
+# at least a right angle; a slight bend is not evidence of a touch.
+WIDE_TURN_MAXIMUM_COSINE = 0.0
+
+
+def _ball_wide_turn_cosines(
+    balls: dict[int, list[dict[str, Any]]],
+) -> dict[tuple[int, int], float]:
+    tracks: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    for frame_points in balls.values():
+        for point in frame_points:
+            if not point.get("interpolated", False):
+                tracks[int(point["track_id"])].append(point)
+    cosines: dict[tuple[int, int], float] = {}
+    for track_id, points in tracks.items():
+        ordered = sorted(points, key=lambda point: float(point["clip_seconds"]))
+        for index in range(WIDE_TURN_SAMPLES, len(ordered) - WIDE_TURN_SAMPLES):
+            previous = ordered[index - WIDE_TURN_SAMPLES]
+            current = ordered[index]
+            following = ordered[index + WIDE_TURN_SAMPLES]
+            incoming = (
+                float(current["x"]) - float(previous["x"]),
+                float(current["y"]) - float(previous["y"]),
+            )
+            outgoing = (
+                float(following["x"]) - float(current["x"]),
+                float(following["y"]) - float(current["y"]),
+            )
+            incoming_distance = hypot(*incoming)
+            outgoing_distance = hypot(*outgoing)
+            if incoming_distance == 0 or outgoing_distance == 0:
+                continue
+            cosines[(track_id, int(current["source_frame"]))] = (
+                incoming[0] * outgoing[0] + incoming[1] * outgoing[1]
+            ) / (incoming_distance * outgoing_distance)
+    return cosines
+
 
 def _ball_motion_evidence(
     balls: dict[int, list[dict[str, Any]]],
