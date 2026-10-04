@@ -41,6 +41,7 @@ def _control_observations(
         raise ValueError("Future control confirmation cannot be negative")
     motion = _ball_motion_evidence(balls)
     wide_turns = _ball_wide_turn_cosines(balls)
+    shortest_steps = _ball_shortest_neighbour_steps(balls)
     proximity_by_track: dict[int, list[tuple[float, float, float]]] = defaultdict(
         list
     )
@@ -125,6 +126,11 @@ def _control_observations(
                             > WIDE_TURN_MAXIMUM_COSINE
                         )
                         or horizontal_ratio > 0.5
+                        or shortest_steps.get(
+                            (int(ball["track_id"]), int(source_frame)),
+                            float("inf"),
+                        )
+                        < BALL_AT_REST_HEIGHTS_PER_SAMPLE * height
                     )
                 )
                 if elevated_without_deflection:
@@ -218,6 +224,38 @@ WIDE_TURN_SAMPLES = 2
 # The wider window smooths over a real bend, so it must show a clear turn of
 # at least a right angle; a slight bend is not evidence of a touch.
 WIDE_TURN_MAXIMUM_COSINE = 0.0
+# A ball cannot hang still in the air. When it is at rest beside a raised
+# contact (moving less than this many player heights per sample), it is lying
+# on the ground behind the player, so the apparent turn is position noise and
+# not a head or chest touch.
+BALL_AT_REST_HEIGHTS_PER_SAMPLE = 0.03
+
+
+def _ball_shortest_neighbour_steps(
+    balls: dict[int, list[dict[str, Any]]],
+) -> dict[tuple[int, int], float]:
+    tracks: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    for frame_points in balls.values():
+        for point in frame_points:
+            if not point.get("interpolated", False):
+                tracks[int(point["track_id"])].append(point)
+    steps: dict[tuple[int, int], float] = {}
+    for track_id, points in tracks.items():
+        ordered = sorted(points, key=lambda point: float(point["clip_seconds"]))
+        for previous, current, following in zip(
+            ordered, ordered[1:], ordered[2:]
+        ):
+            steps[(track_id, int(current["source_frame"]))] = min(
+                hypot(
+                    float(current["x"]) - float(previous["x"]),
+                    float(current["y"]) - float(previous["y"]),
+                ),
+                hypot(
+                    float(following["x"]) - float(current["x"]),
+                    float(following["y"]) - float(current["y"]),
+                ),
+            )
+    return steps
 
 
 def _ball_wide_turn_cosines(

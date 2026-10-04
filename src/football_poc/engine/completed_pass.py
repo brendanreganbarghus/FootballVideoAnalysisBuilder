@@ -510,6 +510,11 @@ def infer_flight_transfer_events(
         )
     return _deduplicate_receptions(events)
 
+# A pass can take about a second to reach its receiver. Ball positions arrive
+# only once per sample, so one sample interval is added as margin.
+DECELERATION_MAXIMUM_FLIGHT_SECONDS = 1.0
+
+
 def infer_deceleration_transfer_events(
     balls: dict[int, list[dict[str, Any]]],
     possession_segments: Iterable[PossessionSegment],
@@ -535,6 +540,19 @@ def infer_deceleration_transfer_events(
     all_points = sorted(
         (point for points in tracks.values() for point in points),
         key=lambda point: float(point["clip_seconds"]),
+    )
+    sample_gaps = sorted(
+        gap
+        for gap in (
+            float(second["clip_seconds"]) - float(first["clip_seconds"])
+            for first, second in zip(all_points, all_points[1:])
+        )
+        if gap > 0
+    )
+    sample_seconds = sample_gaps[len(sample_gaps) // 2] if sample_gaps else 0.0
+    maximum_flight_seconds = min(
+        sender_lookback_seconds,
+        DECELERATION_MAXIMUM_FLIGHT_SECONDS + sample_seconds,
     )
     for sender, receiver in zip(segments, segments[1:]):
         if sender.team != receiver.team:
@@ -569,7 +587,7 @@ def infer_deceleration_transfer_events(
             if (
                 not sender.end_seconds < completion < receiver.start_seconds
                 or completion - sender.end_seconds
-                > min(sender_lookback_seconds, 0.75)
+                > maximum_flight_seconds
                 or receiver.start_seconds - completion
                 > receiver_window_seconds
                 or receiver.start_seconds - completion < 0.6
