@@ -7961,6 +7961,16 @@ export function renderHtml({ adapter } = {}) {
     const AUTO_AGREE_DISTANCE_PX = 25;
     // Reported only; the 25 px limit stays the pass mark.
     const NEAR_MISS_DISTANCE_PX = 30;
+    // Review display only: a frame the reviewer already marked that the
+    // engine misses by at most this much is accepted as a known limit.
+    const ACCEPTED_MISS_DISTANCE_PX = 100;
+
+    function acceptedMiss(frame, result) {
+      return result?.kind === "off"
+        && Number.isFinite(result.distance)
+        && result.distance <= ACCEPTED_MISS_DISTANCE_PX
+        && Boolean(ballCoordinateObservations[String(frame)]?.decision);
+    }
     const SPOT_CHECK_RATE = 0.1;
     let comparisonTriageCache = null;
 
@@ -8062,16 +8072,20 @@ export function renderHtml({ adapter } = {}) {
       }
       if (result.kind === "near") {
         return {
-          label: "Near miss (" + result.distance.toFixed(0) + " px)",
-          className: "checking"
+          label: "Auto-agreed (>" + AUTO_AGREE_DISTANCE_PX + " ≤"
+            + NEAR_MISS_DISTANCE_PX + " px) · "
+            + result.distance.toFixed(0) + " px",
+          className: "direct"
         };
       }
       if (result.kind === "off") {
         const distanceText = Number.isFinite(result.distance)
           ? " (" + result.distance.toFixed(0) + " px)" : "";
-        if (ballCoordinateObservations[String(frame)]?.decision) {
+        if (acceptedMiss(frame, result)) {
           return {
-            label: "Known engine miss" + distanceText,
+            label: "Accepted miss (>" + NEAR_MISS_DISTANCE_PX + " ≤"
+              + ACCEPTED_MISS_DISTANCE_PX + " px) · "
+              + result.distance.toFixed(0) + " px",
             className: "checking"
           };
         }
@@ -8094,10 +8108,7 @@ export function renderHtml({ adapter } = {}) {
       const triage = comparisonTriage();
       if (!triage) return false;
       const kind = triage.results.get(frame)?.kind;
-      if (
-        kind === "off"
-        && ballCoordinateObservations[String(frame)]?.decision
-      ) {
+      if (kind === "near" || acceptedMiss(frame, triage.results.get(frame))) {
         return false;
       }
       return triage.spotCheck.has(frame)
@@ -9263,9 +9274,11 @@ export function renderHtml({ adapter } = {}) {
             : ["agreed", "hidden_estimate"].includes(engineCheck.kind)
               ? " · engine now matches"
             : engineCheck.kind === "near"
-              ? " · engine near miss"
+              ? " · engine within " + NEAR_MISS_DISTANCE_PX + " px"
+            : acceptedMiss(point.frame, engineCheck)
+              ? " · accepted miss"
             : engineCheck.kind === "off"
-              ? " · known engine miss"
+              ? " · engine still off"
               : ""
           );
           if (
