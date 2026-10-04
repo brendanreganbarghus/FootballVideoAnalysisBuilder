@@ -7964,6 +7964,10 @@ export function renderHtml({ adapter } = {}) {
     // Review display only: a frame the reviewer already marked that the
     // engine misses by at most this much is accepted as a known limit.
     const ACCEPTED_MISS_DISTANCE_PX = 100;
+    // Review display only: an engine estimate (ball not directly seen)
+    // within this distance is auto-agreed but labelled separately so the
+    // rules engine treats it with extra care.
+    const ESTIMATE_AGREE_DISTANCE_PX = 80;
 
     function acceptedMiss(frame, result) {
       return result?.kind === "off"
@@ -8055,6 +8059,9 @@ export function renderHtml({ adapter } = {}) {
           estimate: Boolean(point.engineInterpolated)
         };
       }
+      if (point.engineInterpolated && distance <= ESTIMATE_AGREE_DISTANCE_PX) {
+        return {kind: "estimate_near", distance};
+      }
       if (distance <= NEAR_MISS_DISTANCE_PX) return {kind: "near", distance};
       return {kind: "off", distance};
     }
@@ -8069,6 +8076,14 @@ export function renderHtml({ adapter } = {}) {
       }
       if (result.kind === "unclear") {
         return {label: "Needs your review (unclear)", className: "estimated"};
+      }
+      if (result.kind === "estimate_near") {
+        return {
+          label: "Auto-agreed (>" + AUTO_AGREE_DISTANCE_PX + " and <="
+            + ESTIMATE_AGREE_DISTANCE_PX + " px) · "
+            + result.distance.toFixed(0) + " px",
+          className: "direct"
+        };
       }
       if (result.kind === "near") {
         return {
@@ -8108,7 +8123,10 @@ export function renderHtml({ adapter } = {}) {
       const triage = comparisonTriage();
       if (!triage) return false;
       const kind = triage.results.get(frame)?.kind;
-      if (kind === "near" || acceptedMiss(frame, triage.results.get(frame))) {
+      if (
+        kind === "near" || kind === "estimate_near"
+        || acceptedMiss(frame, triage.results.get(frame))
+      ) {
         return false;
       }
       return triage.spotCheck.has(frame)
@@ -9275,6 +9293,8 @@ export function renderHtml({ adapter } = {}) {
               ? " · engine now matches"
             : engineCheck.kind === "near"
               ? " · engine within " + NEAR_MISS_DISTANCE_PX + " px"
+            : engineCheck.kind === "estimate_near"
+              ? " · estimate within " + ESTIMATE_AGREE_DISTANCE_PX + " px"
             : acceptedMiss(point.frame, engineCheck)
               ? " · accepted miss"
             : engineCheck.kind === "off"
