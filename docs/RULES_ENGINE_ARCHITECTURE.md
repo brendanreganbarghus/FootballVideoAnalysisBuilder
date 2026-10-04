@@ -725,6 +725,20 @@ without evidence. Direct provenance in `src\football_poc\ball_provenance.py`
 counts `observed` and `visually_reacquired` frames; time-machine frames are
 never direct and carry `interpolated: true`.
 
+Every state in `ball-state-estimates.json` also carries a `trust` label,
+computed only from the tracker's own output:
+
+| `trust` | Meaning |
+| --- | --- |
+| `seen` | The ball was visually found in this frame by any module other than `02_time_machine`. |
+| `estimate` | Filled in, with found frames on both sides, the nearest at most 2 sampled steps away and the two at most 4 steps apart. |
+| `hidden` | Filled in over a longer or one-sided gap, or no position. |
+
+The label is diagnostic context only. It never moves a coordinate or changes
+`event_evidence_eligible`, and rules do not yet read it. A fourth label,
+`doubtful` (found but probably not the ball, e.g. a boot), is not implemented:
+an off-path check did not separate wrong finds from correct ones.
+
 The workflow identity is carried and checked at every review boundary:
 
 | Workflow | Canvas ID | State `workflowId` | Artifact layout |

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from bisect import bisect_left
+
 from .settings import *  # noqa: F401,F403
 
 # Modules whose confirmation rests on visual evidence in that frame. The time
@@ -209,7 +211,52 @@ def _sampled_ball_state_estimates(
                 "event_evidence_eligible": False,
             }
         )
+    _label_ball_state_trust(states, frame_step=frame_step)
     return states
+
+
+# A filled-in frame counts as a short "estimate" only when visually found frames
+# sit close on both sides; longer or one-sided fills are "hidden".
+TRUST_ESTIMATE_MAX_NEAREST_GAP_STEPS = 2
+TRUST_ESTIMATE_MAX_SPAN_STEPS = 4
+
+
+def _ball_state_was_found(state: dict[str, Any]) -> bool:
+    return (
+        state.get("x") is not None
+        and not str(state.get("evidence") or "").startswith("trajectory_estimated")
+        and state.get("confirming_module") != "02_time_machine"
+    )
+
+
+def _label_ball_state_trust(states: list[dict[str, Any]], *, frame_step: int) -> None:
+    """Add a trust label (seen / estimate / hidden) to every sampled frame.
+
+    The label is diagnostic context for the rules engine; it never moves a
+    coordinate or changes event-evidence eligibility.
+    """
+    found = sorted(
+        int(state["source_frame"]) for state in states if _ball_state_was_found(state)
+    )
+    for state in states:
+        frame = int(state["source_frame"])
+        if _ball_state_was_found(state):
+            state["trust"] = "seen"
+            continue
+        if state.get("x") is None:
+            state["trust"] = "hidden"
+            continue
+        index = bisect_left(found, frame)
+        previous = found[index - 1] if index > 0 else None
+        following = found[index] if index < len(found) else None
+        short_fill = (
+            previous is not None
+            and following is not None
+            and min(frame - previous, following - frame)
+            <= TRUST_ESTIMATE_MAX_NEAREST_GAP_STEPS * frame_step
+            and following - previous <= TRUST_ESTIMATE_MAX_SPAN_STEPS * frame_step
+        )
+        state["trust"] = "estimate" if short_fill else "hidden"
 
 
 def _discard_final_trajectory_conflicts(
