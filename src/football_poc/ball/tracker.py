@@ -620,6 +620,9 @@ def _track_cached_balls_impl(
         ledger,
         video=manifest.video,
     )
+    # Later modules may have filled the neighbours an attention fallback lacked
+    # when step 03 judged it, so it is judged again against the final path.
+    _withdraw_off_path_attention_fallbacks(ledger, "03_motion_and_optical_flow")
     # The time machine runs last so visual recovery modules see every gap
     # first; it then gives each remaining frame an estimate or possible region.
     ledger = _timed_tracker_call(

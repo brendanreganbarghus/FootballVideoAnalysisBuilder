@@ -856,6 +856,39 @@ def test_motion_step_withdraws_attention_fallback_off_neighbour_path_20261004T10
     assert far_apart.confirmed(20) is not None
 
 
+def test_attention_fallback_rechecked_after_later_neighbours_20261004T100801100Z() -> None:
+    """A fallback kept for lack of close neighbours is judged again once later
+    modules fill them, and withdrawn when it sits off their path."""
+    from football_poc import ball_tracking
+
+    ledger = ball_tracking.FrameLedger((frame, frame / 25) for frame in range(41))
+    for frame in (0, 40):
+        ledger.confirm(
+            frame, x=frame, y=0, confirming_module="00_lock_yolo_chains",
+            evidence={}, confidence=0.8, clip_seconds=frame / 25, box_diagonal=10,
+        )
+    ledger.confirm(
+        20, x=20, y=60, confirming_module="03_motion_and_optical_flow",
+        evidence={}, confidence=0.85, clip_seconds=20 / 25, box_diagonal=10,
+        point_evidence="raw_motion_attention_convergence_global_fallback",
+    )
+    ball_tracking._withdraw_off_path_attention_fallbacks(
+        ledger, "03_motion_and_optical_flow"
+    )
+    assert ledger.confirmed(20) is not None
+
+    for frame in (15, 25):
+        ledger.confirm(
+            frame, x=frame, y=0, confirming_module="04_focused_multiscale",
+            evidence={}, confidence=0.5, clip_seconds=frame / 25, box_diagonal=10,
+        )
+    ball_tracking._withdraw_off_path_attention_fallbacks(
+        ledger, "03_motion_and_optical_flow"
+    )
+    assert ledger.confirmed(20) is None
+    assert 20 in ledger.unresolved_frames()
+
+
 def test_aerial_flight_needs_ends_that_travel_20261004T030000000Z(tmp_path) -> None:
     """No flight is fitted between confirmed ends that barely moved."""
     def run(end_x: float):
