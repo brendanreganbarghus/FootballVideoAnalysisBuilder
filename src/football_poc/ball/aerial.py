@@ -81,8 +81,29 @@ def _aerial_fit(s, e, points):
     return (float(a), float(b), float(c), float(d))
 
 
-def _aerial_inliers(s, e, params, blobs):
+def _aerial_blob_index(blobs):
+    times = sorted(blobs)
+    if any(not blobs[t] for t in times):
+        return None
+    counts = np.asarray([len(blobs[t]) for t in times], dtype=np.int64)
+    starts = np.concatenate(([0], np.cumsum(counts)[:-1]))
+    coordinates = np.asarray(
+        [point for t in times for point in blobs[t]], dtype=np.float64
+    ).reshape(-1, 2)
+    return np.asarray(times, dtype=np.int64), starts, counts, coordinates
+
+
+def _aerial_inliers(s, e, params, blobs, index=None):
     tolerance = float(AERIAL_PROFILE["inlier_pixels"])
+    if index is not None and blobs:
+        times, starts, counts, coordinates = index
+        low = int(np.searchsorted(times, min(blobs)))
+        high = int(np.searchsorted(times, max(blobs), side="right"))
+        if high - low == len(blobs):
+            return _aerial_inliers_indexed(
+                s, e, params, blobs, tolerance,
+                times[low:high], starts[low:high], counts[low:high], coordinates,
+            )
     inliers = {}
     for t, candidates in blobs.items():
         px, py = _aerial_path(s, e, params, t)
@@ -95,45 +116,128 @@ def _aerial_inliers(s, e, params, blobs):
     return inliers
 
 
+def _aerial_inliers_indexed(
+    s, e, params, blobs, tolerance, times, starts, counts, coordinates
+):
+    # A vectorised distance pass shortlists the frames and blobs that can
+    # possibly be nearest; the exact scalar comparison then decides, so the
+    # result is identical to checking every blob.
+    a, b, c, d = params
+    u = (times - s[0]) / (e[0] - s[0])
+    w = u * (1.0 - u)
+    px = s[1] + (e[1] - s[1]) * u + w * (a + b * u)
+    py = s[2] + (e[2] - s[2]) * u + w * (c + d * u)
+    first = int(starts[0])
+    last = int(starts[-1] + counts[-1])
+    points = coordinates[first:last]
+    dx = points[:, 0] - np.repeat(px, counts)
+    dy = points[:, 1] - np.repeat(py, counts)
+    squared = dx * dx + dy * dy
+    nearest = np.sqrt(np.minimum.reduceat(squared, starts - first))
+    margin = 1e-6
+    possible = {
+        int(times[i]): i for i in np.flatnonzero(nearest <= tolerance + margin)
+    }
+    inliers = {}
+    for t, candidates in blobs.items():
+        i = possible.get(t)
+        if i is None:
+            continue
+        begin = int(starts[i]) - first
+        limit = (float(nearest[i]) + margin) ** 2
+        shortlist = [
+            candidates[j]
+            for j in np.flatnonzero(squared[begin : begin + int(counts[i])] <= limit)
+        ]
+        exact_x, exact_y = _aerial_path(s, e, params, t)
+        best = min(
+            (hypot(x - exact_x, y - exact_y), x, y) for x, y in shortlist
+        )
+        if best[0] <= tolerance:
+            inliers[t] = (best[1], best[2])
+    return inliers
+
+
 def _aerial_blobs(gray, start, end, people_by_frame, s, e, max_step):
-    profile = AERIAL_PROFILE
     blobs: dict[int, list[tuple[float, float]]] = {}
     for t in range(start + 1, end):
         if t - 1 not in gray or t + 1 not in gray:
             continue
-        difference = cv2.min(
-            cv2.absdiff(gray[t], gray[t - 1]),
-            cv2.absdiff(gray[t], gray[t + 1]),
+        found = _aerial_frame_blobs(
+            gray[t - 1], gray[t], gray[t + 1], t, people_by_frame, s, e, max_step
         )
-        _, mask = cv2.threshold(
-            difference, int(profile["difference_threshold"]), 255, cv2.THRESH_BINARY
-        )
-        count, _, stats, centres = cv2.connectedComponentsWithStats(mask)
-        people = people_by_frame(t)
-        found = []
-        for index in range(1, count):
-            area = int(stats[index, cv2.CC_STAT_AREA])
-            if not (
-                int(profile["minimum_blob_area"])
-                <= area
-                <= int(profile["maximum_blob_area"])
-            ):
-                continue
-            if max(stats[index, cv2.CC_STAT_WIDTH], stats[index, cv2.CC_STAT_HEIGHT]) > int(
-                profile["maximum_blob_side"]
-            ):
-                continue
-            x, y = float(centres[index][0]), float(centres[index][1])
-            if hypot(x - s[1], y - s[2]) > max_step * (t - s[0]) + 20:
-                continue
-            if hypot(x - e[1], y - e[2]) > max_step * (e[0] - t) + 20:
-                continue
-            if any(x1 <= x <= x2 and y1 <= y <= y2 for x1, y1, x2, y2 in people):
-                continue
-            found.append((x, y))
         if found:
             blobs[t] = found
     return blobs
+
+
+def _aerial_streamed_blobs(video, start, end, people_by_frame, s, e, max_step):
+    # Same blobs as reading the whole range first, but only three decoded
+    # frames are kept, so several gaps can be searched side by side.
+    blobs: dict[int, list[tuple[float, float]]] = {}
+    capture = cv2.VideoCapture(str(video))
+    window: list[tuple[int, np.ndarray]] = []
+    try:
+        first = max(0, start - 1)
+        capture.set(cv2.CAP_PROP_POS_FRAMES, first)
+        for frame in range(first, end + 1):
+            ok, image = capture.read()
+            if not ok:
+                break
+            window.append(
+                (frame, cv2.GaussianBlur(cv2.cvtColor(image, cv2.COLOR_BGR2GRAY), (3, 3), 0))
+            )
+            if len(window) > 3:
+                window.pop(0)
+            if len(window) < 3:
+                continue
+            t = window[1][0]
+            if not start < t < end:
+                continue
+            found = _aerial_frame_blobs(
+                window[0][1], window[1][1], window[2][1], t,
+                people_by_frame, s, e, max_step,
+            )
+            if found:
+                blobs[t] = found
+    finally:
+        capture.release()
+    return blobs
+
+
+def _aerial_frame_blobs(previous, current, following, t, people_by_frame, s, e, max_step):
+    profile = AERIAL_PROFILE
+    difference = cv2.min(
+        cv2.absdiff(current, previous),
+        cv2.absdiff(current, following),
+    )
+    _, mask = cv2.threshold(
+        difference, int(profile["difference_threshold"]), 255, cv2.THRESH_BINARY
+    )
+    count, _, stats, centres = cv2.connectedComponentsWithStats(mask)
+    people = people_by_frame(t)
+    found = []
+    for index in range(1, count):
+        area = int(stats[index, cv2.CC_STAT_AREA])
+        if not (
+            int(profile["minimum_blob_area"])
+            <= area
+            <= int(profile["maximum_blob_area"])
+        ):
+            continue
+        if max(stats[index, cv2.CC_STAT_WIDTH], stats[index, cv2.CC_STAT_HEIGHT]) > int(
+            profile["maximum_blob_side"]
+        ):
+            continue
+        x, y = float(centres[index][0]), float(centres[index][1])
+        if hypot(x - s[1], y - s[2]) > max_step * (t - s[0]) + 20:
+            continue
+        if hypot(x - e[1], y - e[2]) > max_step * (e[0] - t) + 20:
+            continue
+        if any(x1 <= x <= x2 and y1 <= y <= y2 for x1, y1, x2, y2 in people):
+            continue
+        found.append((x, y))
+    return found
 
 
 def _read_background_samples(video: Path, start: int, end: int, step: int) -> dict[int, np.ndarray]:
@@ -308,7 +412,7 @@ def _aerial_position(model, t):
     return _aerial_path(s, e, params, t)
 
 
-def _aerial_model(s, e, points, blobs, window=None):
+def _aerial_model(s, e, points, blobs, window=None, index=None):
     launch, landing = window or _aerial_flight_window(s, e, points)
     s2 = (launch, s[1], s[2])
     e2 = (landing, e[1], e[2])
@@ -317,13 +421,14 @@ def _aerial_model(s, e, points, blobs, window=None):
     if params is None:
         return None
     flight_blobs = {t: c for t, c in blobs.items() if launch < t < landing}
-    inliers = _aerial_inliers(s2, e2, params, flight_blobs)
+    inliers = _aerial_inliers(s2, e2, params, flight_blobs, index)
     return (s2, e2, params), inliers
 
 
 def _aerial_best_path(s, e, blobs):
     profile = AERIAL_PROFILE
     models = []
+    index = _aerial_blob_index(blobs)
     tracks = _aerial_tracklets(blobs)
     windows = [_aerial_flight_window(s, e, track) for track in tracks]
     launches = sorted({s[0], *(w[0] for w in windows)})
@@ -334,7 +439,7 @@ def _aerial_best_path(s, e, blobs):
             for landing in landings:
                 if not (launch < track[0][0] and track[-1][0] < landing):
                     continue
-                fitted = _aerial_model(s, e, track, blobs, (launch, landing))
+                fitted = _aerial_model(s, e, track, blobs, (launch, landing), index)
                 if fitted is not None:
                     options.append(fitted)
         if not options:
@@ -348,6 +453,7 @@ def _aerial_best_path(s, e, blobs):
                 [(t, x, y) for t, (x, y) in sorted(inliers.items())],
                 blobs,
                 (launch, landing),
+                index,
             )
             if refined is None or len(refined[1]) < len(inliers):
                 break
@@ -429,6 +535,7 @@ def _confirm_aerial_flights(
         frame for frame in frames
         if entries[frame].status == "confirmed" and entries[frame].x is not None
     ]
+    plans: list[tuple[list[int], tuple, tuple, bool]] = []
     for left, right in zip(confirmed, confirmed[1:]):
         gap = [f for f in frames if left < f < right]
         if not gap or right - left < int(profile["minimum_gap_frames"]):
@@ -439,27 +546,49 @@ def _confirm_aerial_flights(
             continue
         s = (left, float(entries[left].x), float(entries[left].y))
         e = (right, float(entries[right].x), float(entries[right].y))
-        if hypot(e[1] - s[1], e[2] - s[2]) < float(
+        travelled = hypot(e[1] - s[1], e[2] - s[2]) >= float(
             profile["minimum_end_to_end_pixels_per_frame"]
-        ) * (right - left):
+        ) * (right - left)
+        plans.append((gap, s, e, travelled))
+
+    def search(plan):
+        _, s, e, travelled = plan
+        if not travelled:
+            return None
+        left, right = s[0], e[0]
+        if not profile["empty_pitch_spots"]:
+            blobs = _aerial_streamed_blobs(
+                video, left, right, people_by_frame, s, e, max_step
+            )
+            return _aerial_best_path(s, e, blobs)
+        gray = _read_gray_range(video, left - 1, right + 1)
+        blobs = _aerial_blobs(gray, left, right, people_by_frame, s, e, max_step)
+        reach_frames = int(profile["background_reach_frames"])
+        samples = _read_background_samples(
+            video,
+            left - reach_frames,
+            right + reach_frames,
+            int(profile["background_step_frames"]),
+        )
+        spots = _aerial_empty_pitch_spots(
+            gray, samples, left, right, people_by_frame, s, e, max_step
+        )
+        del gray
+        return _aerial_best_path(s, e, _merge_spots(blobs, spots))
+
+    # Gaps are independent and touch only their own frames, so they are
+    # searched side by side and their results applied in clip order.
+    searches = (
+        _ordered_parallel_map(search, plans)
+        if not profile["empty_pitch_spots"]
+        else [search(plan) for plan in plans]
+    )
+    for (gap, s, e, travelled), best in zip(plans, searches):
+        left, right = s[0], e[0]
+        if not travelled:
             for frame in gap:
                 ledger.reject(frame, AERIAL_MODULE, "aerial_ends_did_not_travel")
             continue
-        gray = _read_gray_range(video, left - 1, right + 1)
-        blobs = _aerial_blobs(gray, left, right, people_by_frame, s, e, max_step)
-        if profile["empty_pitch_spots"]:
-            reach_frames = int(profile["background_reach_frames"])
-            samples = _read_background_samples(
-                video,
-                left - reach_frames,
-                right + reach_frames,
-                int(profile["background_step_frames"]),
-            )
-            spots = _aerial_empty_pitch_spots(
-                gray, samples, left, right, people_by_frame, s, e, max_step
-            )
-            blobs = _merge_spots(blobs, spots)
-        best = _aerial_best_path(s, e, blobs)
         if best is None:
             for frame in gap:
                 ledger.reject(frame, AERIAL_MODULE, "aerial_no_unique_flight_path")
