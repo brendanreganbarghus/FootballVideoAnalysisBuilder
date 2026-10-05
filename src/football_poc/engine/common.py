@@ -23,7 +23,11 @@ from football_poc.player_tracking import (
     classify_color_scores,
 )
 from football_poc.image_space import ball_coordinate_size, scale_factors, video_size
-from football_poc.pitch_geometry import load_pitch_boundary, signed_pitch_distance
+from football_poc.pitch_geometry import (
+    detect_boundary_intervals,
+    load_pitch_boundary,
+    signed_pitch_distance,
+)
 
 LEGACY_NAMESPACES = frozenset({"innovation", "live"})
 
@@ -40,6 +44,45 @@ def scaled_pitch_boundary(
     return tuple(
         (x * sx, y * sy) for x, y in load_pitch_boundary(calibration_path)
     )
+
+
+def runtime_ball_boundary_intervals(
+    balls: dict[int, list[dict[str, Any]]],
+    boundary: Iterable[tuple[float, float]],
+    *,
+    outside_margin_px: float = 12.0,
+    minimum_outside_seconds: float = 0.4,
+) -> list[dict[str, Any]]:
+    """Ball-out-of-pitch candidates from the runtime ball file (Law 9).
+
+    Only frozen runtime inputs are used: the active ball coordinates and the
+    calibrated pitch. An airborne ball can project outside the lines; the
+    match-state guards decide whether a candidate is a real stoppage.
+    """
+    points = [
+        {
+            "frame": frame,
+            "seconds": float(best["clip_seconds"]),
+            "x": float(best["x"]),
+            "y": float(best["y"]),
+        }
+        for frame, frame_points in balls.items()
+        if frame_points
+        for best in [
+            max(frame_points, key=lambda point: float(point.get("confidence", 0)))
+        ]
+    ]
+    if not points:
+        return []
+    return [
+        asdict(interval)
+        for interval in detect_boundary_intervals(
+            points,
+            boundary=boundary,
+            outside_margin_px=outside_margin_px,
+            minimum_outside_seconds=minimum_outside_seconds,
+        )
+    ]
 
 
 def exclude_players_outside_pitch(

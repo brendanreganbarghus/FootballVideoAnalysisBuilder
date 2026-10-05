@@ -127,3 +127,6 @@ baseline suites (`tests/test_possession.py`, `tests/test_match_state.py`,
 | 20261005T095952716Z | rules | player with feet outside pitch is excluded | `tests/rules/test_pitch_boundary_player_filter.py::test_player_with_feet_outside_pitch_is_excluded_20261005T095952716Z` |
 | 20261005T095952717Z | rules | player with feet inside pitch is kept | `tests/rules/test_pitch_boundary_player_filter.py::test_player_with_feet_inside_pitch_is_kept_20261005T095952717Z` |
 | 20261005T095952718Z | rules | boundary is scaled to runtime coordinate space | `tests/rules/test_pitch_boundary_player_filter.py::test_boundary_is_scaled_to_runtime_coordinate_space_20261005T095952718Z` |
+| 20261005T134728452Z | rules | runtime ball out spell is detected | `tests/rules/test_ball_out_relocation_is_not_restart_20261005T134728452Z.py::test_runtime_ball_out_spell_is_detected_20261005T134728452Z` |
+| 20261005T134728453Z | rules | relocation to setup player is not a pass | `tests/rules/test_ball_out_relocation_is_not_restart_20261005T134728452Z.py::test_relocation_to_setup_player_is_not_a_pass_20261005T134728453Z` |
+| 20261005T134728454Z | rules | play resumes at kick after setup | `tests/rules/test_ball_out_relocation_is_not_restart_20261005T134728452Z.py::test_play_resumes_at_kick_after_setup_20261005T134728454Z` |

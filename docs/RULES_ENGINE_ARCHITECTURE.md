@@ -256,6 +256,14 @@ Official and assistant-referee detection can increase confidence but is not a
 mandatory dependency. This keeps the core usable on different platforms while
 avoiding false certainty.
 
+When a pitch calibration is supplied and no `boundary-events.json` is given,
+the engine derives ball-out-of-pitch candidates at runtime from the active
+ball file and the calibrated boundary (12 px margin, at least 0.4 s outside)
+and feeds them through the same aerial, fragmentation and restart guards. A
+ball carried or handed back in to a player who then sets it up is treated as
+repositioning (restart still pending), so touches before the confirmed
+restart, such as a ball boy handing the ball to the goalkeeper, are not passes.
+
 ## 5. Stateful streaming execution contract
 
 The production engine processes a live match as consecutive configurable

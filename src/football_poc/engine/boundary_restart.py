@@ -106,7 +106,13 @@ def extend_restarts_through_ball_setup(
     minimum_restart_speed_pixels_per_second: float = 200.0,
     maximum_restart_search_seconds: float = 2.0,
 ) -> list[dict[str, Any]]:
-    """Keep play stopped when an apparent restart only relocates the ball."""
+    """Keep play stopped when an apparent restart only relocates the ball.
+
+    Applies to in-field stationary-ball restarts and to ball-out-of-pitch
+    spells (intervals with a geometric re-entry): a ball carried or handed
+    to a player who then sets it up has not been restarted (Law 8/9), so
+    touches before the confirmed restart cannot be passes.
+    """
     segments = list(possession_segments)
     balls_by_seconds: dict[float, dict[str, Any]] = {}
     for point in ball_points:
@@ -136,10 +142,11 @@ def extend_restarts_through_ball_setup(
     for source_interval in intervals:
         interval = dict(source_interval)
         release_value = interval.get("play_resumed_seconds")
-        if (
-            interval.get("stoppage_kind") != "stationary_ball_restart"
-            or release_value is None
-        ):
+        relocatable = (
+            interval.get("stoppage_kind") == "stationary_ball_restart"
+            or interval.get("resumed_seconds") is not None
+        )
+        if not relocatable or release_value is None:
             extended.append(interval)
             continue
         release = float(release_value)

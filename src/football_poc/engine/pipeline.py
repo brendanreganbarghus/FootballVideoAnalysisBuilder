@@ -64,9 +64,13 @@ def infer_cached_possession(*, manifest_path: Path, player_tracks_path: Path, ba
     match_state_timeline = build_match_state_timeline([], duration_seconds=clip_duration_seconds)
     rejected_boundary_intervals: list[dict[str, Any]] = []
     aerial_boundary_intervals: list[dict[str, Any]] = []
+    raw_boundary_intervals: list[dict[str, Any]] | None = None
     if boundary_events_path is not None:
         boundary_payload = json.loads(boundary_events_path.read_text(encoding='utf-8'))
         raw_boundary_intervals = boundary_payload.get('intervals', [])
+    elif pitch_calibration_path is not None:
+        raw_boundary_intervals = runtime_ball_boundary_intervals(balls, scaled_pitch_boundary(pitch_calibration_path, ball_tracks_path, manifest.video))
+    if raw_boundary_intervals is not None:
         ball_points = [point for frame_points in balls.values() for point in frame_points]
         state_boundary_intervals, flight_rejections = partition_continuous_flight_candidates(raw_boundary_intervals, ball_points)
         boundary_intervals = filter_aerial_boundary_intervals(raw_boundary_intervals, stable_segments)
@@ -78,6 +82,7 @@ def infer_cached_possession(*, manifest_path: Path, player_tracks_path: Path, ba
         coalesced_state_intervals = coalesce_stoppage_candidates(accepted_state_intervals)
         accepted_state_intervals, fragmented_boundary_rejections = partition_fragmented_boundary_candidates(coalesced_state_intervals, ({'start_seconds': segment.start_seconds, 'end_seconds': segment.end_seconds} for segment in stable_segments))
         accepted_state_intervals = annotate_restart_releases(accepted_state_intervals, balls, minimum_speed_pixels_per_second=minimum_restart_speed_pixels_per_second)
+        accepted_state_intervals = extend_restarts_through_ball_setup(accepted_state_intervals, stable_segments, ball_points)
         in_field_restart_intervals = detect_stationary_ball_restarts(ball_points, (point for frame_points in players.values() for point in frame_points))
         in_field_restart_intervals = extend_restarts_through_ball_setup(in_field_restart_intervals, stable_segments, ball_points)
         accepted_state_intervals = sorted([*accepted_state_intervals, *in_field_restart_intervals], key=lambda interval: float(interval['start_seconds']))
