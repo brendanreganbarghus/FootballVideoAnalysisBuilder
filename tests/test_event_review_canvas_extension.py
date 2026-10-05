@@ -100,7 +100,8 @@ def test_ball_source_selector_and_analyze_payload() -> None:
     assert 'Detected ball (our detector, raw video)' in renderer
     assert '<button id="process-segment" type="button">Run segment</button>' in renderer
     assert '"prepare-bac": "Prepare BAC + player context"' in renderer
-    assert '"resume-detected": "Run ball coordinates (continue)"' in renderer
+    assert '"resume-detected": segment.ballTrackAvailable\n              ? "Run ball coordinates again"' in renderer
+    assert "detection_only: true" in extension
     assert '<button id="process-ai" type="button" hidden disabled>Process AI</button>' in renderer
     assert "void finalizeBallCoordinateReview();" in renderer
     assert "90% is the minimum gate" not in renderer

@@ -5368,6 +5368,9 @@ export function renderHtml({ adapter } = {}) {
     }
 
     function reviewAnalysisMode(segment) {
+      if (segment.ballSource === "detected") {
+        return "rules";
+      }
       if (
         ["bac_coordinates", "player_detection", "player_tracking"]
           .includes(segment.stage)
@@ -5467,15 +5470,27 @@ export function renderHtml({ adapter } = {}) {
         analysisModalMode = reviewAnalysisMode(segment);
         setSegmentLoading(
           true,
-          analysisModalMode === "rules"
-            ? "Processing rules engine"
-            : "Preparing BAC + player context",
+          segment.ballSource === "detected"
+            ? (segment.stage === "detecting"
+              ? "Running YOLO detection (once per segment)"
+              : segment.stage === "events"
+                ? "Processing rules engine"
+                : "Running ball coordinates on cached detections")
+            : analysisModalMode === "rules"
+              ? "Processing rules engine"
+              : "Preparing BAC + player context",
           reviewAnalysisDetail(segment, analysisModalMode),
           segment.runProvenance?.elapsed_seconds
         );
         return;
       }
-      if (analysisModalMode === "evidence" && segment.state === "evidence_ready") {
+      if (analysisModalMode && segment.state === "detections_cached") {
+        completeSegmentLoading(
+          "YOLO detections ready",
+          "Raw-video YOLO detections are cached for this segment. "
+            + "Ball coordinates are built from this cache only."
+        );
+      } else if (analysisModalMode === "evidence" && segment.state === "evidence_ready") {
         completeSegmentLoading(
           "BAC + player context complete",
           reviewAnalysisDetail(segment, "evidence")
@@ -6150,6 +6165,7 @@ export function renderHtml({ adapter } = {}) {
         prepared: "Prepared",
         processing: "AI processing",
         detections_ready: "Detections ready",
+        detections_cached: "YOLO detections ready",
         building: "Building events",
         failed: "AI failed"
       }[status] || status.replaceAll("_", " ");
@@ -6782,7 +6798,9 @@ export function renderHtml({ adapter } = {}) {
             "run-bac": segment.state === "ready"
               ? "Rerun rules engine (BAC)"
               : "Run rules engine (BAC)",
-            "resume-detected": "Run ball coordinates (continue)",
+            "resume-detected": segment.ballTrackAvailable
+              ? "Run ball coordinates again"
+              : "Run ball coordinates",
             "run-detected": segment.ballTrackAvailable
               ? "Run ball coordinates again"
               : "Run ball coordinates",
@@ -6870,6 +6888,10 @@ export function renderHtml({ adapter } = {}) {
           ) + (elapsed ? " · " + elapsed.toFixed(1) + "s elapsed" : "") +
             ". " + reviewWorkflow.detectionMessage;
         }
+      } else if (segment.state === "detections_cached") {
+        segmentRunStatus.textContent =
+          "YOLO detections are cached for this segment. "
+          + "Next: run ball coordinates (no YOLO rerun).";
       } else if (segment.state === "detections_ready") {
         segmentRunStatus.textContent =
           "Step 1 of 6 complete — detections are ready. " +

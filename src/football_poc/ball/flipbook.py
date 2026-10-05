@@ -200,9 +200,9 @@ def _confirm_flipbook_time_machine(
     if not anchors or not unresolved:
         return ledger
     if model is None:
-        from ultralytics import YOLO
+        from football_poc.ball.predict_cache import load_ball_crop_model
 
-        model = YOLO(str(model_path))
+        model = load_ball_crop_model(model_path)
     if color_frames is None:
         color_frames = _read_sampled_color_frames(video, unresolved)
     static_spots = _flipbook_static_spots(records_by_frame, fps)

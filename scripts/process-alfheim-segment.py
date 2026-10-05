@@ -241,6 +241,15 @@ def build_parser() -> argparse.ArgumentParser:
             "persisted runtime track. Not a cold-path benchmark."
         ),
     )
+    mode.add_argument(
+        "--detection-only",
+        action="store_true",
+        help=(
+            "Detected ball source only: run the raw-video YOLO detection pass "
+            "once and cache it, without ball tracking. Ball coordinates are "
+            "built later from this cache with --resume-after-detection."
+        ),
+    )
     parser.add_argument("--skip-events", action="store_true")
     parser.add_argument(
         "--runtime-mode",
@@ -287,11 +296,13 @@ def main() -> None:
             "--evidence-only and --coordinates-updated require --ball-source bac"
         )
     if ball_source == "bac" and (
-        args.resume_after_detection or args.focused_recovery
+        args.resume_after_detection
+        or args.focused_recovery
+        or args.detection_only
     ):
         parser.error(
-            "--resume-after-detection and --focused-recovery require "
-            "--ball-source detected"
+            "--resume-after-detection, --focused-recovery and "
+            "--detection-only require --ball-source detected"
         )
 
     prepared_manifest = segment / "manifest.json"
@@ -383,9 +394,15 @@ def main() -> None:
         if args.focused_recovery
         else "interrupted_run_recovery"
         if args.resume_after_detection
+        else "detection_preparation"
+        if args.detection_only
         else "full_run"
     )
-    cache_reuse = run_mode != "full_run" and run_mode != "evidence_preparation"
+    cache_reuse = run_mode not in {
+        "full_run",
+        "evidence_preparation",
+        "detection_preparation",
+    }
 
     def status(stage: str, message: str) -> None:
         temporary = status_path.with_suffix(".json.tmp")
@@ -644,6 +661,13 @@ def main() -> None:
                         live_model, cache, runtime_manifest
                     ),
                 )
+                if args.detection_only:
+                    status(
+                        "detections_cached",
+                        "Raw-video YOLO detections are cached. Ball "
+                        "coordinates have not been built yet.",
+                    )
+                    return
                 status(
                     "ball_track",
                     "Building ball tracks from raw-video detections.",

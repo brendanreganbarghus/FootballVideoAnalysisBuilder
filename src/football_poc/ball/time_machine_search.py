@@ -238,9 +238,9 @@ def _confirm_time_machine_region_search(
     if not searchable:
         return ledger
     if model is None:
-        from ultralytics import YOLO
+        from football_poc.ball.predict_cache import load_ball_crop_model
 
-        model = YOLO(str(model_path))
+        model = load_ball_crop_model(model_path)
     if color_frames is None:
         color_frames = _read_sampled_color_frames(video, ledger.unresolved_frames())
     searched: dict[int, float] = {}

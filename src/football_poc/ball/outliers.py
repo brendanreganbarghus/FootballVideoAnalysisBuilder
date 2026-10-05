@@ -391,9 +391,9 @@ def _replace_low_confidence_global_fallback_outliers(
                 required_frames.add(point.source_frame)
     color_frames = _read_sampled_color_frames(video, sorted(required_frames))
     if model is None:
-        from ultralytics import YOLO
+        from football_poc.ball.predict_cache import load_ball_crop_model
 
-        model = YOLO(str(model_path))
+        model = load_ball_crop_model(model_path)
     replaced: list[BallTrack] = []
     for track in tracks:
         points = sorted(track.points, key=lambda point: point.source_frame)
@@ -486,9 +486,9 @@ def _recover_focused_multiscale_points(
     fps: float,
     frame_step: int,
 ) -> tuple[BallTrack, ...]:
-    from ultralytics import YOLO
+    from football_poc.ball.predict_cache import load_ball_crop_model
 
-    model = YOLO(str(model_path))
+    model = load_ball_crop_model(model_path)
     recovered = tuple(tracks)
     for _ in range(
         int(

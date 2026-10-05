@@ -4353,7 +4353,7 @@ async function reviewContext(requestedSegment = defaultSegment) {
     selected.performance = status.performance || null;
     selected.ballSource = status.ball_source || selected.ballSource || null;
     selected.recoveryAvailable = selected.ballSource === "detected" && Boolean(
-      selected.state === "failed"
+      !["processing", "detections_ready", "building"].includes(selected.state)
       && selected.expectedFrames > 0
       && selected.processedFrames >= selected.expectedFrames
       && status.detections_reusable !== false
@@ -7128,11 +7128,42 @@ async function handleRequest(request, response, serverInstanceId) {
     } catch (error) {
       console.error("M# copy from sibling ball-source copy failed:", error);
     }
-    setActivity(
-      "ready",
-      "Segment prepared",
-      "Review the video, then start AI explicitly when you are ready.",
+    const preparedBallSource = String(
+      prepared.ball_source || body.ball_source || "",
     );
+    if (preparedBallSource === "detected") {
+      // Run the raw-video YOLO pass once, straight after preparation. Ball
+      // coordinates are built later from this cache only.
+      try {
+        await localJson(workflow.analyzePath, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            cache_key: prepared.cache_key,
+            ball_source: "detected",
+            events_only: false,
+            detection_only: true,
+          }),
+        });
+        setActivity(
+          "ready",
+          "Segment prepared; YOLO detection started",
+          "The raw-video YOLO detection pass runs once now and is cached. Ball coordinates are built later from that cache only.",
+        );
+      } catch (error) {
+        setActivity(
+          "ready",
+          "Segment prepared",
+          `The YOLO detection pass could not start: ${error.message}`,
+        );
+      }
+    } else {
+      setActivity(
+        "ready",
+        "Segment prepared",
+        "Review the video, then start AI explicitly when you are ready.",
+      );
+    }
     sendJson(
       response,
       200,

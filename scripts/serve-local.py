@@ -1232,6 +1232,7 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
             evidence_only = payload.get("evidence_only", False)
             resume_after_detection = payload.get("resume_after_detection", False)
             focused_recovery = payload.get("focused_recovery", False)
+            detection_only = payload.get("detection_only", False)
             coordinates_updated = payload.get("coordinates_updated", False)
             rerun_events = payload.get("rerun_events", True)
             for name, value in (
@@ -1239,6 +1240,7 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
                 ("evidence_only", evidence_only),
                 ("resume_after_detection", resume_after_detection),
                 ("focused_recovery", focused_recovery),
+                ("detection_only", detection_only),
                 ("coordinates_updated", coordinates_updated),
                 ("rerun_events", rerun_events),
             ):
@@ -1253,11 +1255,13 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
                 evidence_only,
                 resume_after_detection,
                 focused_recovery,
+                detection_only,
                 coordinates_updated,
             )) > 1:
                 raise ValueError(
                     "events_only, evidence_only, resume_after_detection, "
-                    "focused_recovery, and coordinates_updated are exclusive"
+                    "focused_recovery, detection_only, and "
+                    "coordinates_updated are exclusive"
                 )
             if not PREPARED_SEGMENT_ID.fullmatch(cache_key):
                 raise ValueError("Invalid segment cache key")
@@ -1293,9 +1297,12 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
             ball_source = str(requested_source)
             if (evidence_only or coordinates_updated) and ball_source != "bac":
                 raise ValueError("evidence_only and coordinates_updated require bac")
-            if (resume_after_detection or focused_recovery) and ball_source != "detected":
+            if (
+                resume_after_detection or focused_recovery or detection_only
+            ) and ball_source != "detected":
                 raise ValueError(
-                    "resume_after_detection and focused_recovery require live"
+                    "resume_after_detection, focused_recovery and "
+                    "detection_only require live"
                 )
             process_key = cache_key
             current = self.analysis_processes.get(process_key)
@@ -1320,6 +1327,8 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
                 arguments.append("--resume-after-detection")
             if focused_recovery:
                 arguments.append("--focused-recovery")
+            if detection_only:
+                arguments.append("--detection-only")
             if coordinates_updated:
                 arguments.append("--coordinates-updated")
                 if not rerun_events:
@@ -1770,7 +1779,7 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
                 analysis_status
                 and not events.is_file()
                 and analysis_status.get("stage")
-                not in {"ready", "failed", "evidence_ready"}
+                not in {"ready", "failed", "evidence_ready", "detections_cached"}
             )
             if interrupted:
                 analysis_status = {
@@ -1789,6 +1798,8 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
                 state = "ready"
             elif analysis_status.get("stage") == "evidence_ready":
                 state = "evidence_ready"
+            elif analysis_status.get("stage") == "detections_cached":
+                state = "detections_cached"
             elif analysis_status and expected_frames and processed_frames >= expected_frames:
                 state = "building"
             elif expected_frames and processed_frames >= expected_frames:

@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from football_poc.ball.predict_cache import set_crop_cache_directory
 from football_poc.ball_tracking import track_cached_balls
 
 
@@ -56,6 +57,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     args = build_parser().parse_args()
+    set_crop_cache_directory(args.output)
     track_cached_balls(
         manifest_path=args.manifest,
         cache_path=args.cache,

@@ -36,11 +36,25 @@ Rebuild cached event output only after the segment already records its
 python scripts\process-alfheim-segment.py $segment --events-only
 ```
 
-Use interrupted-run recovery only for detected-ball runs:
+Run YOLO detection once, on its own, right after preparing a detected-ball
+segment (the Canvas does this automatically after **Prepare**):
+
+```powershell
+python scripts\process-alfheim-segment.py $segment --ball-source detected --detection-only
+```
+
+Rerun ball coordinates on the cached detections (never a full YOLO rerun);
+the Canvas **Run ball coordinates** button uses this once detections exist:
 
 ```powershell
 python scripts\process-alfheim-segment.py $segment --ball-source detected --resume-after-detection
 ```
+
+The tracker's own close-up crop checks are remembered in
+`analytics-cache\ball-crop-predictions.sqlite`, keyed by the exact crop
+pixels, model file and options, so a rerun only runs YOLO on crops it has
+never seen and produces identical output. Delete the file to force fresh crop
+inference.
 
 The processor rebuilds `shot-evidence.json` automatically for event builds
 because shots on target is always analysed. To inspect that evidence manually:
