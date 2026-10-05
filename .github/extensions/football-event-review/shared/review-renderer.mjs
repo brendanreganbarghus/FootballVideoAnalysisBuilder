@@ -4285,7 +4285,7 @@ export function renderHtml({ adapter } = {}) {
                     <th scope="col" id="ball-frame-y-header">Y</th>
                     <th scope="col" class="engine-compare-col" hidden>Eng X</th>
                     <th scope="col" class="engine-compare-col" hidden>Eng Y</th>
-                    <th scope="col" class="engine-compare-col" hidden>Dist</th>
+                    <th scope="col" class="engine-compare-col" hidden>Eng↔BAC</th>
                     <th scope="col">Status</th>
                     <th scope="col">Evidence</th>
                     <th scope="col">Review</th>
@@ -9450,8 +9450,11 @@ export function renderHtml({ adapter } = {}) {
             ballCoordinateObservations[String(point.frame)];
           const observation = latestBallDecision(point.frame)
             || state.trajectoryAudit?.observations?.[String(point.frame)];
+          // In engine comparison the X/Y columns are labelled BAC, so they
+          // must never be replaced by the reviewer's own coordinate.
           const reviewerCoordinate = Boolean(
-            reviewWorkflow.reviewerCorrectedDemoLayer
+            !comparing
+            && reviewWorkflow.reviewerCorrectedDemoLayer
             && observation?.decision === "specified"
             && observation?.approved
             && Number.isFinite(observation.x)
