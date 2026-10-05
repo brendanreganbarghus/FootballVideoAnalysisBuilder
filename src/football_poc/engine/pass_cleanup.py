@@ -1003,3 +1003,89 @@ def merge_rolling_ball_duplicate_receptions(
         )
         removed.add(index + 1)
     return [event for index, event in enumerate(ordered) if index not in removed]
+
+
+def load_unclassified_player_points(path: Path) -> dict[int, list[dict[str, Any]]]:
+    """Player boxes whose kit could not be read as a team (e.g. goalkeepers)."""
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    points: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    for track in payload.get("tracks", []):
+        for point in track.get("points", []):
+            if point.get("team") != "unknown" or track.get("role") == "official":
+                continue
+            value = dict(point)
+            value["track_id"] = int(track["track_id"])
+            points[int(point["source_frame"])].append(value)
+    return points
+
+
+def _feet_ball_ratio(point: dict[str, Any], ball: dict[str, Any]) -> float | None:
+    height = float(point["y2"]) - float(point["y1"])
+    if height <= 0:
+        return None
+    return (
+        hypot(
+            (float(point["x1"]) + float(point["x2"])) / 2 - float(ball["x"]),
+            float(point["y2"]) - float(ball["y"]),
+        )
+        / height
+    )
+
+
+def suppress_releases_from_shadowed_senders(
+    events: Iterable[PredictedEvent],
+    players: dict[int, list[dict[str, Any]]],
+    unclassified_players: dict[int, list[dict[str, Any]]],
+    balls: dict[int, list[dict[str, Any]]],
+    *,
+    lookback_seconds: float = 2.0,
+    reach_heights: float = 1.2,
+    closer_ratio: float = 0.6,
+    minimum_shared_samples: int = 2,
+) -> list[PredictedEvent]:
+    """Only the closest player has the ball, even when his kit is unreadable.
+
+    When a player whose kit is not read as either team (typically a
+    goalkeeper) is clearly closer to the ball than the supposed sender
+    throughout the sender's possession, the sender never had the ball and the
+    release from him is not an event.
+    """
+    kept: list[PredictedEvent] = []
+    for event in events:
+        sender = event.from_player_track_id
+        if event.event_type not in {"pass_candidate", "turnover_candidate"} or sender is None:
+            kept.append(event)
+            continue
+        shared = 0
+        shadowed = 0
+        for frame, frame_balls in balls.items():
+            observed = [ball for ball in frame_balls if not ball.get("interpolated", False)]
+            if not observed:
+                continue
+            ball = observed[0]
+            seconds = float(ball["clip_seconds"])
+            if not event.clip_seconds - lookback_seconds <= seconds <= event.clip_seconds + 1e-06:
+                continue
+            sender_points = [
+                point for point in players.get(frame, []) if int(point["track_id"]) == sender
+            ]
+            others = [
+                ratio
+                for point in unclassified_players.get(frame, [])
+                if (ratio := _feet_ball_ratio(point, ball)) is not None
+            ]
+            if not sender_points or not others:
+                continue
+            sender_ratio = _feet_ball_ratio(sender_points[0], ball)
+            if sender_ratio is None:
+                continue
+            closest = min(others)
+            if closest > reach_heights:
+                continue
+            shared += 1
+            if closest < closer_ratio * sender_ratio:
+                shadowed += 1
+        if shared >= minimum_shared_samples and shadowed == shared:
+            continue
+        kept.append(event)
+    return kept

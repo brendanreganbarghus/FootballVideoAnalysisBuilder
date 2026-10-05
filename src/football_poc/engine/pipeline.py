@@ -174,6 +174,7 @@ def infer_cached_possession(*, manifest_path: Path, player_tracks_path: Path, ba
     transfer_events = suppress_label_flicker_tackle_artifacts(transfer_events, players)
     transfer_events = collapse_simultaneous_releases_to_same_receiver(transfer_events)
     transfer_events = merge_rolling_ball_duplicate_receptions(transfer_events, balls)
+    transfer_events = suppress_releases_from_shadowed_senders(transfer_events, players, load_unclassified_player_points(player_tracks_path), balls)
     width, height = _video_dimensions(manifest.video)
     shot_events = infer_shot_events(balls, stable_segments, width=width, height=height, minimum_speed_pixels_per_second=minimum_shot_speed_pixels_per_second, minimum_goal_cosine=minimum_shot_goal_cosine, prior_events=transfer_events) if infer_shots else []
     events = sorted([*transfer_events, *shot_events], key=lambda event: event.clip_seconds)

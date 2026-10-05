@@ -85,3 +85,5 @@ baseline suites (`tests/test_possession.py`, `tests/test_match_state.py`,
 | 20261005T010452833Z | rules | consistent opponent shirt still corrects switch | `tests/rules/test_mixed_shirt_reading_20261005T010452800Z.py::test_consistent_opponent_shirt_still_corrects_switch_20261005T010452833Z` |
 | 20261005T012621002Z | rules | rolling ball duplicate reception | `tests/rules/test_rolling_ball_duplicate_reception_20261005T012621002Z.py::test_rolling_ball_duplicate_reception_20261005T012621002Z` |
 | 20261005T012621003Z | rules | rolling ball reception with stop is kept | `tests/rules/test_rolling_ball_duplicate_reception_20261005T012621002Z.py::test_rolling_ball_reception_with_stop_is_kept_20261005T012621003Z` |
+| 20261005T013513256Z | rules | shadowed sender by unreadable kit | `tests/rules/test_shadowed_sender_unreadable_kit_20261005T013513256Z.py::test_shadowed_sender_by_unreadable_kit_20261005T013513256Z` |
+| 20261005T013513265Z | rules | sender closer than unreadable kit is kept | `tests/rules/test_shadowed_sender_unreadable_kit_20261005T013513256Z.py::test_sender_closer_than_unreadable_kit_is_kept_20261005T013513265Z` |
