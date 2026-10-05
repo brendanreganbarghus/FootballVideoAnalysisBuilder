@@ -155,6 +155,23 @@ def resolve_live_detector_model(project_root: Path) -> Path:
     return model
 
 
+def require_yolo26_detection_cache(detections: Path) -> None:
+    with detections.open(encoding="utf-8") as handle:
+        first_line = handle.readline()
+    try:
+        metadata = json.loads(first_line) if first_line.strip() else {}
+    except json.JSONDecodeError:
+        metadata = {}
+    model = str(metadata.get("model") or "")
+    model_name = model.replace("\\", "/").rsplit("/", 1)[-1].lower()
+    if model_name != LIVE_DETECTOR_PROFILE["model"]:
+        raise ValueError(
+            "Cached detections were not produced by yolo26n.pt "
+            f"(found {model_name or 'unknown model'!r}). Rerun the segment "
+            "from raw video with the pinned YOLO26 detector."
+        )
+
+
 def recorded_ball_source(run_root: Path) -> str | None:
     for path in (
         run_root / "analytics-data" / "run-provenance.json",
@@ -488,7 +505,8 @@ def main() -> None:
                     "Cannot rebuild from cached artifacts without "
                     + ", ".join(missing)
                 )
-            kind = ball_track_source_kind(active_ball_tracks)
+            require_yolo26_detection_cache(cache / "detections.jsonl")
+            kind =  ball_track_source_kind(active_ball_tracks)
             if ball_source == "detected" and kind in BAC_SOURCE_KINDS:
                 raise ValueError(
                     "Detected-ball event rebuild rejected BAC/evaluation-derived "
@@ -598,6 +616,7 @@ def main() -> None:
                     raise FileNotFoundError(
                         "Cannot resume without completed raw-video detections"
                     )
+                require_yolo26_detection_cache(cache / "detections.jsonl")
                 for path in (ball_tracks, ball_state_estimates, *downstream):
                     path.unlink(missing_ok=True)
                 status(
