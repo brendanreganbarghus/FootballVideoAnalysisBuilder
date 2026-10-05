@@ -653,3 +653,79 @@ def suppress_unestablished_brief_opponent_turnovers(
             accepted.append(event)
             continue
     return accepted
+
+
+def reconcile_self_track_turnovers(
+    events: Iterable[PredictedEvent],
+    possession_segments: Iterable[PossessionSegment],
+    control_observations: Iterable[PossessionObservation],
+    *,
+    maximum_flicker_seconds: float = 1.0,
+) -> list[PredictedEvent]:
+    """Treat a turnover from a player track to itself as a colour flicker.
+
+    One physical player cannot lose the ball to himself. The turnover is
+    dropped and the event that delivered the ball to that player is credited
+    to the team the track settles on afterwards.
+    """
+    segments = list(possession_segments)
+    source = sorted(events, key=lambda item: item.clip_seconds)
+    result: list[PredictedEvent] = []
+    for event in source:
+        completion = event.completion_seconds
+        if (
+            event.event_type != "turnover_candidate"
+            or event.from_player_track_id is None
+            or event.from_player_track_id != event.to_player_track_id
+            or completion is None
+        ):
+            result.append(event)
+            continue
+        flicker_times = [
+            observation.clip_seconds
+            for observation in control_observations
+            if observation.player_track_id == event.from_player_track_id
+            and observation.team == event.team
+        ]
+        if (
+            not flicker_times
+            or max(flicker_times) - min(flicker_times)
+            > maximum_flicker_seconds
+        ):
+            result.append(event)
+            continue
+        settled = next(
+            (
+                segment.team
+                for segment in segments
+                if segment.player_track_id == event.to_player_track_id
+                and segment.team != event.team
+                and segment.end_seconds >= completion - 0.04
+                and segment.start_seconds <= completion + 0.04
+            ),
+            None,
+        )
+        if settled is None:
+            result.append(event)
+            continue
+        delivery_index = next(
+            (
+                index
+                for index in range(len(result) - 1, -1, -1)
+                if result[index].to_player_track_id == event.to_player_track_id
+                and result[index].team == event.team
+                and result[index].event_type == "pass_candidate"
+            ),
+            None,
+        )
+        if delivery_index is not None:
+            delivery = result[delivery_index]
+            result[delivery_index] = replace(
+                delivery,
+                team=settled,
+                details=(
+                    "The receiver's brief opposite-colour reading was a "
+                    f"label flicker on one player track. {delivery.details}"
+                ),
+            )
+    return result

@@ -101,3 +101,5 @@ baseline suites (`tests/test_possession.py`, `tests/test_match_state.py`,
 | 20261005T044704191Z | rules | shadowing defender turnover rejected | `tests/rules/test_unestablished_brief_opponent_turnover_20261005T044704191Z.py::test_shadowing_defender_turnover_rejected_20261005T044704191Z` |
 | 20261005T044704192Z | rules | turnover after recorded gain kept | `tests/rules/test_unestablished_brief_opponent_turnover_20261005T044704191Z.py::test_turnover_after_recorded_gain_kept_20261005T044704192Z` |
 | 20261005T044704193Z | rules | turnover after long control kept | `tests/rules/test_unestablished_brief_opponent_turnover_20261005T044704191Z.py::test_turnover_after_long_control_kept_20261005T044704193Z` |
+| 20261005T045507731Z | rules | brief self track flicker credits delivery to settled team | `tests/rules/test_self_track_turnover_flicker_20261005T045507731Z.py::test_brief_self_track_flicker_credits_delivery_to_settled_team_20261005T045507731Z` |
+| 20261005T045507732Z | rules | long other colour track keeps turnover | `tests/rules/test_self_track_turnover_flicker_20261005T045507731Z.py::test_long_other_colour_track_keeps_turnover_20261005T045507732Z` |

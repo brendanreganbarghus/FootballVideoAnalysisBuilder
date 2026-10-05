@@ -173,6 +173,7 @@ def infer_cached_possession(*, manifest_path: Path, player_tracks_path: Path, ba
             transfer_events = filter_ambiguous_startup_transfers_fn(transfer_events, observations, startup_guard_seconds=startup_guard_seconds, maximum_receiver_control_ratio=startup_receiver_control_radius_heights)
     transfer_events = suppress_label_flicker_tackle_artifacts(transfer_events, players)
     transfer_events = collapse_simultaneous_releases_to_same_receiver(transfer_events)
+    transfer_events = reconcile_self_track_turnovers(transfer_events, state_segments, raw_observations)
     transfer_events = suppress_unestablished_brief_opponent_turnovers(transfer_events, state_segments)
     width, height = _video_dimensions(manifest.video)
     shot_events = infer_shot_events(balls, stable_segments, width=width, height=height, minimum_speed_pixels_per_second=minimum_shot_speed_pixels_per_second, minimum_goal_cosine=minimum_shot_goal_cosine, prior_events=transfer_events) if infer_shots else []
