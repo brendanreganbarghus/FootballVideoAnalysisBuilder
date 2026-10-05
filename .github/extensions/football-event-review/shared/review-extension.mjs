@@ -6092,9 +6092,11 @@ function clipConversationPrompt(
           + "exceptions, or proof. Run focused/protected tests, then perform "
           + "no manual rerun. Call update_ball_coordinate_batch after review, "
           + "after the code fix, and after tests. The tests_completed update "
-          + "automatically starts exactly one bounded focused recovery from "
-          + "saved detections and the persisted runtime track. Never rerun "
-          + "once per frame or launch the broad tracker recovery. The Canvas "
+          + "automatically starts exactly one ball-tracker rerun on the cached "
+          + "YOLO detections (the same path as the prepare-ball-coordinates "
+          + "button; no detector pass). Pass code_changed: false when no "
+          + "tracker code changed. Never rerun "
+          + "once per frame or run YOLO again. The Canvas "
           + "will compare persisted output, complete this immutable batch, "
           + "and create the next unresolved batch automatically. If output "
           + "reaches at least 90% direct provenance, call "
@@ -9976,7 +9978,7 @@ session = await joinSession({
         },
         {
           name: "update_ball_coordinate_batch",
-          description: "Advance the active ball-coordinate batch after review, code correction, or tests. Passing tests automatically starts the saved-detection tracker/YOLO rerun; pass code_changed: false when no tracker code changed to build the next round from the current output without a rerun.",
+          description: "Advance the active ball-coordinate batch after review, code correction, or tests. Passing tests automatically reruns the ball tracker on the cached YOLO detections (no detector pass); pass code_changed: false when no tracker code changed to build the next round from the current output without a rerun.",
           inputSchema: {
             type: "object",
             properties: {
@@ -10097,7 +10099,7 @@ session = await joinSession({
               setActivity(
                 "working",
                 "Starting corrected ball-coordinate rerun",
-                "Running bounded focused recovery while preserving all accepted coordinates.",
+                "Rerunning the ball tracker on the cached YOLO detections (no detector pass).",
               );
               try {
                 const result = await localJson(
@@ -10109,7 +10111,9 @@ session = await joinSession({
                       cache_key: segment,
                       ball_source: "detected",
                       events_only: false,
-                      focused_recovery: true,
+                      // Code fixes rerun only the ball tracker on the cached
+                      // YOLO detections (no detector pass over the video).
+                      resume_after_detection: true,
                     }),
                   },
                 );

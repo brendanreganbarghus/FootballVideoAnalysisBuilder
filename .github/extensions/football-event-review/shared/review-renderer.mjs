@@ -9317,7 +9317,7 @@ export function renderHtml({ adapter } = {}) {
               + batch.after.sampledFrameCount + " after. Read-only."
           : batch?.status === "rerun_started"
             ? "Round " + batch.number + " review and correction are complete. "
-              + "The local tracker/YOLO rerun started "
+              + "The ball-tracker rerun on cached detections started "
               + formatCoordinateBatchTime(batch.rerunStartedAt) + "."
           : coordinateBatchLocked(batch)
             ? "Round " + batch.number + " · "
