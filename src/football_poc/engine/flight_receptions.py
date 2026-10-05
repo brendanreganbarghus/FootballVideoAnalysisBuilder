@@ -156,6 +156,7 @@ def refine_weak_reception_completion_times(
     minimum_terminal_observations: int = 4,
     minimum_speed_pixels_per_second: float = 60.0,
     maximum_contact_direction_cosine: float = -0.1,
+    weak_start_tolerance_seconds: float = 0.41,
 ) -> list[PredictedEvent]:
     source = list(events)
     segments = list(possession_segments)
@@ -167,7 +168,10 @@ def refine_weak_reception_completion_times(
                 candidate
                 for candidate in segments
                 if event.to_player_track_id == candidate.player_track_id
-                and event.completion_seconds == candidate.start_seconds
+                and event.completion_seconds is not None
+                and candidate.start_seconds
+                <= event.completion_seconds
+                <= candidate.start_seconds + weak_start_tolerance_seconds
                 and candidate.observations[0].control_ratio > 1.0
             ),
             None,
@@ -183,7 +187,7 @@ def refine_weak_reception_completion_times(
                 )
                 if observation.clip_seconds
                 <= (
-                    segment.start_seconds
+                    max(segment.start_seconds, event.completion_seconds)
                     + maximum_extended_confirmation_seconds
                 )
             ]
@@ -250,6 +254,11 @@ def refine_weak_reception_completion_times(
                 )
                 and observation.control_ratio <= 0.5
             ]
+        strong_controls = [
+            observation
+            for observation in strong_controls
+            if observation.clip_seconds >= event.completion_seconds
+        ]
         if not strong_controls:
             refined.append(event)
             continue

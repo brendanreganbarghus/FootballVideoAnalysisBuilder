@@ -738,6 +738,31 @@ def merge_transfer_events(
 
     merged = sorted(primary, key=lambda event: event.clip_seconds)
     for event in sorted(fallback, key=lambda item: item.clip_seconds):
+        causal_replacement = next(
+            (
+                index
+                for index, accepted in enumerate(merged)
+                if accepted.event_type == event.event_type
+                and accepted.team == event.team
+                and accepted.from_player_track_id is not None
+                and accepted.from_player_track_id == event.from_player_track_id
+                and accepted.to_player_track_id == event.to_player_track_id
+                and accepted.completion_seconds is not None
+                and accepted.completion_seconds < accepted.clip_seconds
+                and event.completion_seconds is not None
+                and event.completion_seconds > event.clip_seconds
+                and (
+                    abs(event.clip_seconds - accepted.clip_seconds)
+                    <= deduplication_seconds
+                    or abs(event.completion_seconds - accepted.completion_seconds)
+                    <= deduplication_seconds
+                )
+            ),
+            None,
+        )
+        if causal_replacement is not None:
+            merged[causal_replacement] = event
+            continue
         if any(
             abs(event.clip_seconds - accepted.clip_seconds)
             <= deduplication_seconds

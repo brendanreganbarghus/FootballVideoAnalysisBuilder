@@ -135,6 +135,75 @@ def suppress_duplicate_track_handoff_passes(
             accepted.append(event)
     return accepted
 
+def suppress_sequential_track_split_passes(
+    events: Iterable[PredictedEvent],
+    players: dict[int, list[dict[str, Any]]],
+    *,
+    evidence_window_seconds: float = 0.41,
+    maximum_gap_seconds: float = 0.6,
+    maximum_foot_distance_heights: float = 1.5,
+) -> list[PredictedEvent]:
+    """Reject a pass between one player's consecutive tracker fragments.
+
+    When the sender's track ends during the pass and the receiver's track
+    begins moments later at the same place, with the two tracks never visible
+    together, the tracker split one player (for example while he was hidden
+    behind an opponent); the ball never left him, so there is no pass.
+    """
+    points_by_track: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    for frame_players in players.values():
+        for player in frame_players:
+            track_id = player.get("track_id")
+            if track_id is not None:
+                points_by_track[int(track_id)].append(player)
+    for points in points_by_track.values():
+        points.sort(key=lambda point: float(point["clip_seconds"]))
+
+    def foot(point: dict[str, Any]) -> tuple[float, float]:
+        return (
+            (float(point["x1"]) + float(point["x2"])) / 2.0,
+            float(point["y2"]),
+        )
+
+    def height(point: dict[str, Any]) -> float:
+        return float(point["y2"]) - float(point["y1"])
+
+    accepted: list[PredictedEvent] = []
+    for event in events:
+        completion = event.completion_seconds
+        sender_points = points_by_track.get(event.from_player_track_id or -1)
+        receiver_points = points_by_track.get(event.to_player_track_id or -1)
+        if (
+            event.event_type != "pass_candidate"
+            or completion is None
+            or not sender_points
+            or not receiver_points
+            or event.from_player_track_id == event.to_player_track_id
+        ):
+            accepted.append(event)
+            continue
+        sender_last = sender_points[-1]
+        receiver_first = receiver_points[0]
+        sender_end = float(sender_last["clip_seconds"])
+        receiver_start = float(receiver_first["clip_seconds"])
+        sender_foot = foot(sender_last)
+        receiver_foot = foot(receiver_first)
+        foot_distance = hypot(
+            sender_foot[0] - receiver_foot[0],
+            sender_foot[1] - receiver_foot[1],
+        )
+        scale = max(height(sender_last), height(receiver_first), 1.0)
+        split = (
+            event.clip_seconds - evidence_window_seconds
+            <= sender_end
+            <= completion + evidence_window_seconds
+            and sender_end < receiver_start <= sender_end + maximum_gap_seconds
+            and foot_distance <= maximum_foot_distance_heights * scale
+        )
+        if not split:
+            accepted.append(event)
+    return accepted
+
 def suppress_noncausal_nonreturn_passes(
     events: Iterable[PredictedEvent],
     *,
