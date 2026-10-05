@@ -107,3 +107,5 @@ baseline suites (`tests/test_possession.py`, `tests/test_match_state.py`,
 | 20261005T051133275Z | rules | without reestablished sender turnover inferred | `tests/rules/test_deferred_turnover_sender_reestablished_20261005T051133274Z.py::test_without_reestablished_sender_turnover_inferred_20261005T051133275Z` |
 | 20261005T051537051Z | rules | dribbling sender turnover kept | `tests/rules/test_dribbling_sender_release_20261005T051537051Z.py::test_dribbling_sender_turnover_kept_20261005T051537051Z` |
 | 20261005T051537052Z | rules | never controlling sender no turnover | `tests/rules/test_dribbling_sender_release_20261005T051537051Z.py::test_never_controlling_sender_no_turnover_20261005T051537052Z` |
+| 20261005T051907600Z | rules | release frame is not receiver touch | `tests/rules/test_recovered_touch_after_release_20261005T051907600Z.py::test_release_frame_is_not_receiver_touch_20261005T051907600Z` |
+| 20261005T051907601Z | rules | touch after release is recovered | `tests/rules/test_recovered_touch_after_release_20261005T051907600Z.py::test_touch_after_release_is_recovered_20261005T051907601Z` |

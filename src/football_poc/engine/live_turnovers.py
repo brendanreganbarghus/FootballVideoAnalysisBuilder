@@ -249,7 +249,7 @@ def _live_infer_deferred_contested_turnovers(
                     for source_frame, frame_balls in sorted(balls.items())
                     for ball in frame_balls
                     if spanning.clip_seconds
-                    <= float(ball["clip_seconds"])
+                    < float(ball["clip_seconds"])
                     < contact_seconds
                     and spanning.team
                     in _nearby_ball_teams(
