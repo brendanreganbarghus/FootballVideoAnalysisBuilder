@@ -4263,6 +4263,7 @@ export function renderHtml({ adapter } = {}) {
                 <option value="direct">Direct only</option>
                 <option value="needs-review" hidden>Needs my review</option>
                 <option value="ball-check-left" hidden>Not matching yet</option>
+                <option value="unclear" hidden>Needs more checking</option>
               </select>
             </label>
             <div class="ball-coordinate-review-actions">
@@ -7713,6 +7714,64 @@ export function renderHtml({ adapter } = {}) {
       return point?.direct ? "Direct" : "Estimated";
     }
 
+    // Review display only: the reviewer's latest saved decision per frame
+    // (the open round, then later rounds over earlier ones, then the older
+    // trajectory audit). Same merge order as the server's ballCheck score,
+    // so every count on screen agrees. Never saved or fed to the engine.
+    let savedBallDecisionCache = null;
+    function savedBallDecisions() {
+      if (savedBallDecisionCache?.state === state) {
+        return savedBallDecisionCache.decisions;
+      }
+      const decisions = {};
+      const sources = {};
+      for (const [frame, observation] of Object.entries(
+        state?.trajectoryAudit?.observations || {}
+      )) {
+        decisions[frame] = observation;
+        sources[frame] = "earlier review";
+      }
+      for (const batch of state?.coordinateReview?.batches || []) {
+        for (const [frame, observation] of Object.entries(
+          batch.observations || {}
+        )) {
+          decisions[frame] = observation;
+          sources[frame] = "Round " + batch.number;
+        }
+      }
+      savedBallDecisionCache = {state, decisions: {decisions, sources}};
+      return savedBallDecisionCache.decisions;
+    }
+
+    function latestBallDecision(frame) {
+      const key = String(frame);
+      if ((state?.segment?.ballSource || "bac") === "bac") {
+        return ballCoordinateObservations[key];
+      }
+      return ballCoordinateObservations[key]
+        || savedBallDecisions().decisions[key];
+    }
+
+    function latestBallDecisionSource(frame) {
+      const key = String(frame);
+      if (ballCoordinateObservations[key]) {
+        const batch = selectedCoordinateBatch();
+        return batch ? "Round " + batch.number : "this round";
+      }
+      return savedBallDecisions().sources[key] || null;
+    }
+
+    // Uses the server's ballCheck so the row label, the dropdown and the
+    // "Our rules correct" summary always show the same numbers.
+    function engineDecisionCheck(frame) {
+      const decision = latestBallDecision(frame);
+      if (!decision?.decision) return null;
+      if (decision.decision === "needs_more_checking") return "unclear";
+      if (!state.ballCheck) return null;
+      return (state.ballCheck.left || []).includes(frame)
+        ? "differs" : "matches";
+    }
+
     function ballStateCountSummary(points) {
       if ((state?.segment?.ballSource || "bac") === "bac") {
         return points.length + " frozen BAC frames";
@@ -8030,7 +8089,16 @@ export function renderHtml({ adapter } = {}) {
         ...(diagnostic?.new_regression_frames || [])
       ]);
       if (filter === "needs-review" && engineComparisonActive()) {
-        return points.filter(point => comparisonNeedsReview(point.frame));
+        return points.filter(
+          point => engineDecisionCheck(point.frame) === "differs"
+            || (!latestBallDecision(point.frame)
+              && comparisonNeedsReview(point.frame))
+        );
+      }
+      if (filter === "unclear") {
+        return points.filter(
+          point => engineDecisionCheck(point.frame) === "unclear"
+        );
       }
       if (filter === "ball-check-left" && state.ballCheck) {
         const left = new Set(state.ballCheck.left || []);
@@ -8607,9 +8675,7 @@ export function renderHtml({ adapter } = {}) {
         label.textContent = String(candidateIndex + 1);
         yoloMarkers.append(circle, label);
       }
-      const observation = ballCoordinateObservations[
-        String(selectedBallTargetFrame)
-      ];
+      const observation = latestBallDecision(selectedBallTargetFrame);
       const selectedBatch = selectedCoordinateBatch();
       const activeRoundView = Boolean(readyCoordinateBatch());
       const reviewerCorrectionView = Boolean(
@@ -8808,7 +8874,12 @@ export function renderHtml({ adapter } = {}) {
       currentDecision.textContent =
         (selectedBatch?.status === "done"
           ? "Your previous decision: "
-          : "Current decision: ") + currentDecisionLabel;
+          : "Current decision: ") + currentDecisionLabel
+        + (
+          observation?.decision && !frozenBac
+            ? " (" + latestBallDecisionSource(selectedBallTargetFrame) + ")"
+            : ""
+        );
       currentDecision.className =
         "coordinate-review-result "
         + (
@@ -9272,8 +9343,11 @@ export function renderHtml({ adapter } = {}) {
         + (ballTrack?.integrityRejectedFrames?.length || 0) + ")";
       filter.options[2].textContent =
         latestReviewSelected
-          ? "Round " + batch.number + " to review ("
-            + (batch.frames?.length || 0) + " frames)"
+          ? "Round " + batch.number + " ("
+            + (batch.frames?.length || 0) + " frames · "
+            + (batch.frames || []).filter(
+              frame => engineDecisionCheck(frame) !== "matches"
+            ).length + " differ, unclear or not decided)"
           : "Selected round frames (" + flaggedBallFrames.size + ")";
       filter.options[2].classList.toggle(
         "latest-review",
@@ -9299,23 +9373,47 @@ export function renderHtml({ adapter } = {}) {
       const triage = comparisonTriage();
       filter.options[6].hidden = !triage;
       if (triage) {
-        const needsReview = points.filter(
-          point => comparisonNeedsReview(point.frame)
-        );
-        const agreed = [...triage.results.values()].filter(
-          result => ["agreed", "hidden_estimate"].includes(result.kind)
+        const differs = points.filter(
+          point => engineDecisionCheck(point.frame) === "differs"
         ).length;
-        filter.options[6].textContent = "Needs my review ("
-          + needsReview.length + " · "
-          + agreed + " of " + points.length + " engine OK)";
+        const undecidedNeedsReview = points.filter(
+          point => !latestBallDecision(point.frame)
+            && comparisonNeedsReview(point.frame)
+        ).length;
+        filter.options[6].textContent = "Engine differs from my decision ("
+          + differs + ")"
+          + (undecidedNeedsReview
+            ? " + " + undecidedNeedsReview + " not decided, far from BAC"
+            : "");
       }
       const ballCheck = state.ballCheck;
-      filter.options[7].hidden = !ballCheck;
+      // One simple list on the engine-comparison screen: all frames, engine
+      // differs, needs more checking, and the open round.
+      const simpleFilter = engineComparisonActive();
+      for (const index of [0, 1, 3, 5]) {
+        filter.options[index].hidden = simpleFilter;
+      }
+      filter.options[2].hidden = simpleFilter && !latestReviewSelected;
+      filter.options[7].hidden = !ballCheck || simpleFilter;
       if (ballCheck) {
         filter.options[7].textContent = "Not matching yet ("
           + ballCheck.left.length + ")";
       }
-      const ballCheckText = ballCheck
+      const unclearCount = points.filter(
+        point => engineDecisionCheck(point.frame) === "unclear"
+      ).length;
+      filter.options[8].hidden = !simpleFilter;
+      filter.options[8].textContent =
+        "Needs more checking (" + unclearCount + ")";
+      const decidedCount = points.filter(
+        point => latestBallDecision(point.frame)?.decision
+      ).length;
+      const ballCheckText = ballCheck && simpleFilter
+        ? "Your decisions " + decidedCount + "/" + points.length
+          + " · engine matches " + ballCheck.correct
+          + " · differs " + ballCheck.left.length
+          + " · needs more checking " + unclearCount + " · "
+        : ballCheck
         ? "Our rules correct " + ballCheck.correct + "/" + ballCheck.scored
           + " (" + Math.round(100 * ballCheck.correct / ballCheck.scored)
           + "%) · not matching yet: "
@@ -9348,8 +9446,9 @@ export function renderHtml({ adapter } = {}) {
         : "No coordinate states";
       document.getElementById("ball-frame-items").replaceChildren(
         ...visible.map((point, index) => {
-          const observation =
-            ballCoordinateObservations[String(point.frame)]
+          const roundObservation =
+            ballCoordinateObservations[String(point.frame)];
+          const observation = latestBallDecision(point.frame)
             || state.trajectoryAudit?.observations?.[String(point.frame)];
           const reviewerCoordinate = Boolean(
             reviewWorkflow.reviewerCorrectedDemoLayer
@@ -9399,6 +9498,18 @@ export function renderHtml({ adapter } = {}) {
           );
           status.textContent =
             diagnosticStatus?.label || ballStateLabel(point);
+          const decisionCheck = engineComparisonActive()
+            ? engineDecisionCheck(point.frame) : null;
+          if (decisionCheck) {
+            status.className = "ball-frame-status " + (
+              decisionCheck === "matches" ? "direct" : "estimated"
+            );
+            status.textContent = decisionCheck === "matches"
+              ? "Engine matches your decision"
+              : decisionCheck === "differs"
+                ? "Engine differs from your decision"
+                : "Needs more checking";
+          }
           if (bacReadOnly()) {
             status.className = "ball-frame-status direct";
             status.textContent = "Auto-agreed";
@@ -9516,8 +9627,14 @@ export function renderHtml({ adapter } = {}) {
           const engineCheck = observation?.decision && !bacReadOnly()
             ? comparisonTriage()?.results.get(point.frame)
             : null;
-          decisionStatus.textContent = decisionPresentation[0] + (
-            !engineCheck ? ""
+          const decisionSource = observation?.decision && !bacReadOnly()
+            ? latestBallDecisionSource(point.frame) : null;
+          decisionStatus.textContent = decisionPresentation[0]
+            + (decisionSource ? " (" + decisionSource + ")" : "")
+            + (
+            decisionCheck === "matches" ? " · engine matches"
+            : decisionCheck === "differs" ? " · engine differs"
+            : !engineCheck ? ""
             : ["agreed", "hidden_estimate"].includes(engineCheck.kind)
               ? " · engine now matches"
             : engineCheck.kind === "near"
@@ -9562,7 +9679,7 @@ export function renderHtml({ adapter } = {}) {
               ? "Not in Round yet · your decision adds it to Round " + readyCoordinateBatch().number
               : "Inspect only";
           } else if (batch?.status === "done" && batch.closedWithoutRerunAt) {
-            review.textContent = observation?.approved
+            review.textContent = roundObservation?.approved
               ? "Decision kept"
               : "Moved to next round";
           } else if (batch?.status === "done") {
@@ -9590,8 +9707,8 @@ export function renderHtml({ adapter } = {}) {
             const carryForward =
               batch?.carryForward?.[String(point.frame)];
             reviewStatus.className = "coordinate-review-result "
-              + (observation?.approved ? "confirmed" : "pending");
-            reviewStatus.textContent = observation?.approved
+              + (roundObservation?.approved ? "confirmed" : "pending");
+            reviewStatus.textContent = roundObservation?.approved
               ? "Decision saved"
               : carryForward
                 ? "Returned from Round " + carryForward.sourceRound
@@ -9931,6 +10048,10 @@ export function renderHtml({ adapter } = {}) {
                 ? ["Unresolved", "checking"]
                 : (state?.segment?.ballSource || "bac") === "bac"
                   ? ["BAC imported · confirmed", "confirmed"]
+                  : latestBallDecision(point.frame)?.decision
+                    ? ["Not marked in this round · earlier decision ("
+                        + latestBallDecisionSource(point.frame) + ")",
+                      "pending"]
                   : point.direct
                     ? ["Direct coordinate · Not reviewed yet", "pending"]
                     : ["Estimated coordinate · Not reviewed yet", "pending"];
