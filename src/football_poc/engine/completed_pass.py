@@ -9,6 +9,8 @@ def infer_transfer_events(
     minimum_transfer_heights: float,
     receiver_return_confirmation_seconds: float = 1.2,
     control_observations: Iterable[PossessionObservation] = (),
+    maximum_uncontested_transfer_seconds: float = 6.0,
+    co_visible_track_pairs: set[frozenset[int]] = frozenset(),
 ) -> list[PredictedEvent]:
     stable = list(segments)
     controls = list(control_observations)
@@ -66,7 +68,24 @@ def infer_transfer_events(
         if len(current_controls) >= 2:
             current_first = current_controls[0]
         gap = current_first.clip_seconds - previous_last.clip_seconds
-        if gap < 0 or gap > maximum_transfer_seconds:
+        if gap < 0:
+            continue
+        if gap > maximum_transfer_seconds and not (
+            previous.team == current.team
+            and controls
+            and gap <= maximum_uncontested_transfer_seconds
+            and frozenset(
+                (previous.player_track_id, current.player_track_id)
+            )
+            in co_visible_track_pairs
+            and not any(
+                observation.team != previous.team
+                and previous_last.clip_seconds
+                < observation.clip_seconds
+                < current_first.clip_seconds
+                for observation in controls
+            )
+        ):
             continue
         scale = max(
             1.0,
