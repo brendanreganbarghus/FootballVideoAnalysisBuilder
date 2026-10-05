@@ -100,6 +100,7 @@ def infer_deferred_contested_turnovers(
     receiver_window_seconds: float = 0.4,
     contact_lookback_seconds: float = 6.0,
     control_window_seconds: float = 0.6,
+    sender_reestablished_seconds: float = 1.0,
 ) -> list[PredictedEvent]:
     source = list(events)
     controls = list(observations)
@@ -158,6 +159,20 @@ def infer_deferred_contested_turnovers(
             for observation in controls
         )
         if controls and (not losing_control or not gaining_control):
+            continue
+        sender_reestablished = sorted(
+            observation.clip_seconds
+            for observation in controls
+            if event.from_player_track_id is not None
+            and observation.player_track_id == event.from_player_track_id
+            and observation.team == event.team
+            and contact_seconds < observation.clip_seconds <= event.clip_seconds
+        )
+        if (
+            sender_reestablished
+            and sender_reestablished[-1] - sender_reestablished[0]
+            >= sender_reestablished_seconds
+        ):
             continue
         contact_receivers = {
             prior.to_player_track_id
