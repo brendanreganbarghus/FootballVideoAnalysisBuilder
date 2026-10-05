@@ -73,6 +73,15 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--pitch-calibration",
+        type=Path,
+        default=None,
+        help=(
+            "Camera pitch calibration. Player boxes whose feet lie outside "
+            "its calibrated boundary take no part in the event rules."
+        ),
+    )
+    parser.add_argument(
         "--shot-goal-calibration",
         type=Path,
         default=None,
@@ -247,6 +256,7 @@ def _infer(args: Any) -> Path:
             args.future_control_confirmation_seconds
         ),
         boundary_events_path=args.boundary_events,
+        pitch_calibration_path=getattr(args, "pitch_calibration", None),
         initial_possession_team=args.initial_possession_team,
         startup_guard_seconds=args.startup_guard_seconds,
         startup_receiver_control_radius_heights=(

@@ -124,3 +124,6 @@ baseline suites (`tests/test_possession.py`, `tests/test_match_state.py`,
 | 20261005T073700674Z | rules | unseen retouch backdates turnover | `tests/rules/test_unseen_carrier_dispossession_20261005T073700674Z.py::test_unseen_retouch_backdates_turnover_20261005T073700674Z` |
 | 20261005T073700675Z | rules | moving sender keeps completion | `tests/rules/test_unseen_carrier_dispossession_20261005T073700674Z.py::test_moving_sender_keeps_completion_20261005T073700675Z` |
 | 20261005T073700676Z | rules | decaying ball keeps completion | `tests/rules/test_unseen_carrier_dispossession_20261005T073700674Z.py::test_decaying_ball_keeps_completion_20261005T073700676Z` |
+| 20261005T095952716Z | rules | player with feet outside pitch is excluded | `tests/rules/test_pitch_boundary_player_filter.py::test_player_with_feet_outside_pitch_is_excluded_20261005T095952716Z` |
+| 20261005T095952717Z | rules | player with feet inside pitch is kept | `tests/rules/test_pitch_boundary_player_filter.py::test_player_with_feet_inside_pitch_is_kept_20261005T095952717Z` |
+| 20261005T095952718Z | rules | boundary is scaled to runtime coordinate space | `tests/rules/test_pitch_boundary_player_filter.py::test_boundary_is_scaled_to_runtime_coordinate_space_20261005T095952718Z` |

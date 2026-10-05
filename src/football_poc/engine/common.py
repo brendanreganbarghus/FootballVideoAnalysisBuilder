@@ -22,8 +22,52 @@ from football_poc.match_state import (
 from football_poc.player_tracking import (
     classify_color_scores,
 )
+from football_poc.image_space import ball_coordinate_size, scale_factors, video_size
+from football_poc.pitch_geometry import load_pitch_boundary, signed_pitch_distance
 
 LEGACY_NAMESPACES = frozenset({"innovation", "live"})
+
+
+def scaled_pitch_boundary(
+    calibration_path: Path, ball_tracks_path: Path, video: Path
+) -> tuple[tuple[float, float], ...]:
+    """Calibrated pitch boundary in the image space of the runtime positions."""
+    calibration = json.loads(calibration_path.read_text(encoding="utf-8"))
+    ball_payload = json.loads(ball_tracks_path.read_text(encoding="utf-8"))
+    sx, sy = scale_factors(
+        calibration, ball_coordinate_size(ball_payload, video_size(video))
+    )
+    return tuple(
+        (x * sx, y * sy) for x, y in load_pitch_boundary(calibration_path)
+    )
+
+
+def exclude_players_outside_pitch(
+    players: dict[int, list[dict[str, Any]]],
+    boundary: Iterable[tuple[float, float]],
+) -> dict[int, list[dict[str, Any]]]:
+    """Keep only player boxes whose feet are inside the calibrated pitch.
+
+    People beyond the calibrated lines (ball boys, staff, substitutes)
+    take no part in play, so the event rules never see them. The ball
+    itself is not filtered: an airborne ball may project outside.
+    """
+    polygon = tuple(boundary)
+    return {
+        frame: [
+            player
+            for player in frame_players
+            if signed_pitch_distance(
+                (
+                    (float(player["x1"]) + float(player["x2"])) / 2,
+                    float(player["y2"]),
+                ),
+                polygon,
+            )
+            >= 0
+        ]
+        for frame, frame_players in players.items()
+    }
 
 
 @dataclass(frozen=True)

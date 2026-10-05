@@ -717,6 +717,8 @@ def main() -> None:
             ),
             "--shot-evidence",
             str(shot_evidence),
+            "--pitch-calibration",
+            str(alfheim_config_path("pitch-calibration.json")),
             "--shot-goal-calibration",
             str(alfheim_config_path("pitch-calibration.json")),
             "--shot-goalkeeper-affiliations",
