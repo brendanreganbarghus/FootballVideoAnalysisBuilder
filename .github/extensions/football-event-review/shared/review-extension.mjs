@@ -10005,6 +10005,14 @@ session = await joinSession({
             const summary = String(context.input.summary).trim();
             const review = await reviewContext(segment);
             const batch = activeCoordinateBatch(review.state);
+            const rerunStartFailed = batch?.status === "failed"
+              && Boolean(batch.failedAt)
+              && Boolean(batch.codeFixCompletedAt);
+            if (rerunStartFailed && stage === "tests_completed") {
+              batch.status = "code_fix_completed";
+              delete batch.failedAt;
+              delete batch.failure;
+            }
             if (!batch || !["working", "review_completed", "code_fix_completed", "tests_completed"].includes(batch.status)) {
               throw new CanvasError(
                 "ball_coordinate_batch_missing",
@@ -10062,6 +10070,7 @@ session = await joinSession({
                     headers: {"Content-Type": "application/json"},
                     body: JSON.stringify({
                       cache_key: segment,
+                      ball_source: "detected",
                       events_only: false,
                       focused_recovery: true,
                     }),
