@@ -398,6 +398,15 @@ def infer_pre_release_flight_receptions(
             for observation in controls
         ):
             continue
+        if any(
+            observation.player_track_id == receiver.player_track_id
+            and observation.control_ratio <= maximum_control_ratio
+            and sender.clip_seconds
+            < observation.clip_seconds
+            < receiver.clip_seconds
+            for observation in controls
+        ):
+            continue
         flight_steps = [
             (first, second)
             for first, second in zip(points, points[1:])
