@@ -591,3 +591,141 @@ def suppress_passes_crossing_opponent_control(
         if not opponent_control:
             retained.append(event)
     return retained
+
+def backdate_unseen_carrier_dispossessions(
+    events: Iterable[PredictedEvent],
+    players: dict[int, list[dict[str, Any]]],
+    balls: dict[int, list[dict[str, Any]]],
+    *,
+    minimum_speed_pixels_per_second: float,
+    minimum_turnover_seconds: float = 0.6,
+    sample_seconds: float = 0.18,
+    maximum_dip_fraction: float = 0.35,
+    maximum_unseen_contact_ratio: float = 0.5,
+    maximum_sender_displacement_heights: float = 0.5,
+) -> list[PredictedEvent]:
+    """Move a late turnover back to an unseen player's dispossession.
+
+    When the ball leaves a stationary owner, almost stops and is then
+    played away again faster than before with no detected player within
+    control distance, an undetected opponent took the ball at the release.
+    The later first detected control is only where tracking recovered.
+    """
+    ordered = sorted(
+        (
+            point
+            for frame_points in balls.values()
+            for point in frame_points
+            if int(point.get("track_id", 1)) == 1
+            and not point.get("interpolated", False)
+        ),
+        key=lambda point: float(point["clip_seconds"]),
+    )
+    points_by_track: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    for frame_players in players.values():
+        for player in frame_players:
+            points_by_track[int(player["track_id"])].append(player)
+    refined: list[PredictedEvent] = []
+    for event in events:
+        completion = event.completion_seconds
+        release = event.clip_seconds
+        if (
+            event.event_type != "turnover_candidate"
+            or completion is None
+            or event.from_player_track_id is None
+            or completion - release < minimum_turnover_seconds
+        ):
+            refined.append(event)
+            continue
+        samples: list[dict[str, Any]] = []
+        for point in ordered:
+            timestamp = float(point["clip_seconds"])
+            if timestamp < release - 1e-6 or timestamp > completion + 1e-6:
+                continue
+            if (
+                not samples
+                or timestamp - float(samples[-1]["clip_seconds"])
+                >= sample_seconds
+            ):
+                samples.append(point)
+        speeds = [
+            (
+                hypot(
+                    float(current["x"]) - float(previous["x"]),
+                    float(current["y"]) - float(previous["y"]),
+                )
+                / (
+                    float(current["clip_seconds"])
+                    - float(previous["clip_seconds"])
+                ),
+                previous,
+            )
+            for previous, current in zip(samples, samples[1:])
+        ]
+        retouch = None
+        peak = 0.0
+        dip_index = None
+        for index, (speed, _) in enumerate(speeds):
+            if dip_index is None:
+                if peak > 0 and speed <= maximum_dip_fraction * peak:
+                    dip_index = index
+                else:
+                    peak = max(peak, speed)
+            elif speed >= max(peak, minimum_speed_pixels_per_second):
+                retouch = speeds[index][1]
+                break
+        if retouch is None or dip_index is None:
+            refined.append(event)
+            continue
+        retouch_frame = int(retouch["source_frame"])
+        if any(
+            hypot(
+                (float(player["x1"]) + float(player["x2"])) / 2
+                - float(retouch["x"]),
+                float(player["y2"]) - float(retouch["y"]),
+            )
+            / max(1.0, float(player["y2"]) - float(player["y1"]))
+            <= maximum_unseen_contact_ratio
+            for player in players.get(retouch_frame, [])
+        ):
+            refined.append(event)
+            continue
+        sender = [
+            point
+            for point in points_by_track[int(event.from_player_track_id)]
+            if release - 1e-6
+            <= float(point["clip_seconds"])
+            <= completion + 1e-6
+        ]
+        if len(sender) < 2:
+            refined.append(event)
+            continue
+        heights = sorted(
+            float(point["y2"]) - float(point["y1"]) for point in sender
+        )
+        height = max(1.0, heights[len(heights) // 2])
+        start_x = (float(sender[0]["x1"]) + float(sender[0]["x2"])) / 2
+        start_y = float(sender[0]["y2"])
+        if any(
+            hypot(
+                (float(point["x1"]) + float(point["x2"])) / 2 - start_x,
+                float(point["y2"]) - start_y,
+            )
+            >= maximum_sender_displacement_heights * height
+            for point in sender
+        ):
+            refined.append(event)
+            continue
+        refined.append(
+            replace(
+                event,
+                completion_seconds=round(release, 3),
+                details=(
+                    "The ball left a stationary owner, nearly stopped and was "
+                    "played on faster with no detected player in control "
+                    "distance, so an undetected opponent won it at the "
+                    f"release. {event.details}"
+                ),
+            )
+        )
+    return refined

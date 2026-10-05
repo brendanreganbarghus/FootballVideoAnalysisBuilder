@@ -170,6 +170,7 @@ def infer_cached_possession(*, manifest_path: Path, player_tracks_path: Path, ba
         transfer_events = infer_short_controlled_teammate_transfers(transfer_events, state_segments, co_visible_track_pairs=co_visible_track_pairs, minimum_transfer_heights=minimum_transfer_heights, players=players)
         transfer_events = reconcile_brief_opponent_turnover_pairs(transfer_events, raw_observations, players)
         transfer_events = split_sharp_direction_change_passes(transfer_events, players, balls, minimum_speed_pixels_per_second=minimum_pass_speed_pixels_per_second)
+        transfer_events = backdate_unseen_carrier_dispossessions(transfer_events, players, balls, minimum_speed_pixels_per_second=minimum_pass_speed_pixels_per_second)
         if initial_possession_team is None:
             transfer_events = filter_ambiguous_startup_transfers_fn(transfer_events, observations, startup_guard_seconds=startup_guard_seconds, maximum_receiver_control_ratio=startup_receiver_control_radius_heights)
     transfer_events = suppress_label_flicker_tackle_artifacts(transfer_events, players)

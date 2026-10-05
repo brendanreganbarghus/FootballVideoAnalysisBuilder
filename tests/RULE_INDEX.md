@@ -121,3 +121,6 @@ baseline suites (`tests/test_possession.py`, `tests/test_match_state.py`,
 | 20261005T061819372Z | rules | receiver misread with gap before completion drops pass | `tests/rules/test_receiver_misread_not_opponent_control_20261005T061819371Z.py::test_receiver_misread_with_gap_before_completion_drops_pass_20261005T061819372Z` |
 | 20261005T061819373Z | rules | newborn receiver track cannot veto pass | `tests/rules/test_newborn_receiver_track_no_identity_veto_20261005T061819373Z.py::test_newborn_receiver_track_cannot_veto_pass_20261005T061819373Z` |
 | 20261005T061819374Z | rules | established other team receiver vetoes pass | `tests/rules/test_newborn_receiver_track_no_identity_veto_20261005T061819373Z.py::test_established_other_team_receiver_vetoes_pass_20261005T061819374Z` |
+| 20261005T073700674Z | rules | unseen retouch backdates turnover | `tests/rules/test_unseen_carrier_dispossession_20261005T073700674Z.py::test_unseen_retouch_backdates_turnover_20261005T073700674Z` |
+| 20261005T073700675Z | rules | moving sender keeps completion | `tests/rules/test_unseen_carrier_dispossession_20261005T073700674Z.py::test_moving_sender_keeps_completion_20261005T073700675Z` |
+| 20261005T073700676Z | rules | decaying ball keeps completion | `tests/rules/test_unseen_carrier_dispossession_20261005T073700674Z.py::test_decaying_ball_keeps_completion_20261005T073700676Z` |
