@@ -9995,6 +9995,7 @@ session = await joinSession({
                 maxLength: 2_000,
               },
               passed: { type: "boolean" },
+              code_changed: { type: "boolean" },
             },
             required: ["segment", "stage", "summary"],
             additionalProperties: false,
@@ -10008,8 +10009,19 @@ session = await joinSession({
             const rerunStartFailed = batch?.status === "failed"
               && Boolean(batch.failedAt)
               && Boolean(batch.codeFixCompletedAt);
-            if (rerunStartFailed && stage === "tests_completed") {
+            // A rerun that ended before the Canvas ever saw it running is
+            // never observed; let tests_completed retry it.
+            const rerunNeverObserved = batch?.status === "rerun_started"
+              && batch.awaitingRunObservation
+              && !["processing", "detections_ready", "building"].includes(
+                review.selected?.state,
+              );
+            if (
+              (rerunStartFailed || rerunNeverObserved)
+              && stage === "tests_completed"
+            ) {
               batch.status = "code_fix_completed";
+              batch.awaitingRunObservation = false;
               delete batch.failedAt;
               delete batch.failure;
             }
@@ -10056,6 +10068,31 @@ session = await joinSession({
               batch.status = "tests_completed";
               batch.testsCompletedAt = now;
               batch.testsSummary = summary;
+              if (context.input.code_changed === false) {
+                // No tracker code changed, so a rerun would reproduce the
+                // current output: build the next round from it directly.
+                batch.status = "rerun_started";
+                batch.rerunStartedAt = now;
+                batch.rerunSkipped = true;
+                batch.awaitingRunObservation = false;
+                review.state.pendingClipRequest = null;
+                await saveState(segment, review.state);
+                await reconcileCoordinateReviewBatch(review);
+                const next = activeCoordinateBatch(review.state);
+                setActivity(
+                  "idle",
+                  "Next ball-coordinate round ready",
+                  "No tracker code change; round built from current output.",
+                );
+                return {
+                  segment,
+                  batchId: batch.id,
+                  rerunStarted: false,
+                  rerunSkipped: true,
+                  nextBatchId: next?.id || null,
+                  nextFrames: next?.frames?.length ?? null,
+                };
+              }
               await saveState(segment, review.state);
               setActivity(
                 "working",
