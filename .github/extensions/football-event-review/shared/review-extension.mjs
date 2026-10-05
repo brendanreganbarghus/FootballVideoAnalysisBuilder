@@ -9976,7 +9976,7 @@ session = await joinSession({
         },
         {
           name: "update_ball_coordinate_batch",
-          description: "Advance the active ball-coordinate batch after review, code correction, or tests. Passing tests automatically starts the saved-detection tracker/YOLO rerun.",
+          description: "Advance the active ball-coordinate batch after review, code correction, or tests. Passing tests automatically starts the saved-detection tracker/YOLO rerun; pass code_changed: false when no tracker code changed to build the next round from the current output without a rerun.",
           inputSchema: {
             type: "object",
             properties: {
