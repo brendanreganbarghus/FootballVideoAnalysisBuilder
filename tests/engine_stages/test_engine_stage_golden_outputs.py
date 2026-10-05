@@ -12,7 +12,6 @@ SEGMENTS = (
     "segment-0120-020",
     "segment-0240-020",
     "segment-0260-020",
-    "segment-0540-020",
 )
 
 

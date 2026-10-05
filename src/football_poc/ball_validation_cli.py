@@ -126,8 +126,8 @@ def _add_common_run_arguments(
 ) -> None:
     parser.add_argument(
         "--segment",
-        default="segment-0540-020",
-        help="Prepared segment name or path; defaults to the 20-second segment.",
+        default="segment-0540-060",
+        help="Prepared segment name or path; defaults to the 09:00-10:00 segment.",
     )
     parser.add_argument(
         "--run-name",

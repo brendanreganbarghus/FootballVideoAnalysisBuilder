@@ -11,7 +11,7 @@ export const reviewWorkflow = Object.freeze({
   displayName: "Football Event Review",
   description:
     "Review prepared Alfheim segments with selectable BAC diagnostics or raw-video ball tracking.",
-  defaultSegment: "segment-0540-020",
+  defaultSegment: "segment-0540-060",
   theme: "grassroots",
   themeColor: "#080d14",
   homeUrl: "http://127.0.0.1:8080/",

@@ -701,9 +701,9 @@ selected ball source changes only the coordinate input, while BAC and detected
 coordinates run through the same smoothing, segment-building, possession, and
 event rules. During consolidation, adopting the removed Live-only variants as
 the single implementation did not preserve the protected published set: the
-four BAC publications still match exactly on the single path, but the detected
-0540-020 publication remains a pending review mismatch until a general
-evidence-based rule change or re-review resolves the difference.
+four BAC publications still match exactly on the single path. The former
+detected 0540-020 publication was retired; detected review continues on the
+60-second 0540-060 segment.
 
 ### Detected ball confirmation cascade
 

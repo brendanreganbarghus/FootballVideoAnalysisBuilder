@@ -60,10 +60,10 @@ def _write_states(path: Path, states: list[dict[str, object]]) -> None:
     path.write_text(json.dumps({"states": states}), encoding="utf-8")
 
 
-def test_parser_defaults_to_isolated_twenty_second_yolo_run() -> None:
+def test_parser_defaults_to_isolated_0540_060_yolo_run() -> None:
     args = build_parser().parse_args(["yolo"])
 
-    assert args.segment == "segment-0540-020"
+    assert args.segment == "segment-0540-060"
     assert args.models == "n"
     assert args.stride == 5
     assert args.tile_width == 960
@@ -113,17 +113,17 @@ def test_bare_segment_name_is_resolved_under_segment_root(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     segment_root = tmp_path / "generated"
-    segment = segment_root / "segment-0540-020"
+    segment = segment_root / "segment-0540-060"
     cache = segment / "live" / "analytics-cache"
     cache.mkdir(parents=True)
     (segment / "live" / "runtime-manifest.json").touch()
-    unrelated = tmp_path / "segment-0540-020"
+    unrelated = tmp_path / "segment-0540-060"
     unrelated.mkdir()
     monkeypatch.chdir(tmp_path)
 
     paths = _resolve_run_paths(
         Namespace(
-            segment="segment-0540-020",
+            segment="segment-0540-060",
             segment_root=segment_root,
             output_root=None,
             run_name="test-run",
