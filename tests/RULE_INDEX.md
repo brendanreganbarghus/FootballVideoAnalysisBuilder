@@ -105,3 +105,5 @@ baseline suites (`tests/test_possession.py`, `tests/test_match_state.py`,
 | 20261005T045507732Z | rules | long other colour track keeps turnover | `tests/rules/test_self_track_turnover_flicker_20261005T045507731Z.py::test_long_other_colour_track_keeps_turnover_20261005T045507732Z` |
 | 20261005T051133274Z | rules | sender reestablished skips deferred turnover | `tests/rules/test_deferred_turnover_sender_reestablished_20261005T051133274Z.py::test_sender_reestablished_skips_deferred_turnover_20261005T051133274Z` |
 | 20261005T051133275Z | rules | without reestablished sender turnover inferred | `tests/rules/test_deferred_turnover_sender_reestablished_20261005T051133274Z.py::test_without_reestablished_sender_turnover_inferred_20261005T051133275Z` |
+| 20261005T051537051Z | rules | dribbling sender turnover kept | `tests/rules/test_dribbling_sender_release_20261005T051537051Z.py::test_dribbling_sender_turnover_kept_20261005T051537051Z` |
+| 20261005T051537052Z | rules | never controlling sender no turnover | `tests/rules/test_dribbling_sender_release_20261005T051537051Z.py::test_never_controlling_sender_no_turnover_20261005T051537052Z` |

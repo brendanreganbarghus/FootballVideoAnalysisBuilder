@@ -65,6 +65,24 @@ def infer_transfer_events(
         ]
         if previous_controls and len(previous.observations) >= 3:
             previous_last = previous_controls[-1]
+        previous_index = current_index - 1
+        while previous_index >= 0 and stable[previous_index] is not previous:
+            previous_index -= 1
+        earlier = stable[previous_index - 1] if previous_index >= 1 else None
+        sender_dribbling = (
+            not previous_controls
+            and len(previous.observations) >= 3
+            and previous_last.control_ratio <= 1.0
+            and earlier is not None
+            and earlier.player_track_id == previous.player_track_id
+            and earlier.team == previous.team
+            and any(
+                observation.control_ratio <= 0.5
+                for observation in earlier.observations
+            )
+            and previous.start_seconds - earlier.end_seconds
+            <= receiver_return_confirmation_seconds + 1e-9
+        )
         if len(current_controls) >= 2:
             current_first = current_controls[0]
         gap = current_first.clip_seconds - previous_last.clip_seconds
@@ -123,7 +141,7 @@ def infer_transfer_events(
                 ):
                     controlled_teammate_seen = True
         if (
-            previous_last.control_ratio > 0.5
+            (previous_last.control_ratio > 0.5 and not sender_dribbling)
             or (
                 current_first.control_ratio > 0.5
                 and not returning_receiver_control
