@@ -154,7 +154,7 @@ def infer_cached_possession(*, manifest_path: Path, player_tracks_path: Path, ba
         transfer_events = filter_disconnected_low_confidence_startup(transfer_events)
         transfer_events = reconcile_deflected_turnover_sequences(transfer_events, state_segments)
         transfer_events = infer_opening_aerial_reception(transfer_events, raw_observations, rejected_boundary_intervals)
-        transfer_events = infer_opening_live_reception(transfer_events, stable_segments, balls, match_state_timeline, minimum_speed_pixels_per_second=minimum_pass_speed_pixels_per_second, maximum_transfer_seconds=maximum_transfer_seconds)
+        transfer_events = infer_opening_live_reception(transfer_events, stable_segments, balls, match_state_timeline, minimum_speed_pixels_per_second=minimum_pass_speed_pixels_per_second, maximum_transfer_seconds=maximum_transfer_seconds, players=players)
         transfer_events = infer_sparse_control_transfer(transfer_events, raw_observations, balls, co_visible_track_pairs=co_visible_track_pairs, minimum_speed_pixels_per_second=minimum_pass_speed_pixels_per_second)
         transfer_events = split_acceleration_confirmed_one_touch_passes(transfer_events, players, balls, minimum_speed_pixels_per_second=minimum_pass_speed_pixels_per_second)
         transfer_events = infer_terminal_brief_reception(transfer_events, raw_observations, players, balls, segment_end_seconds=manifest.source_frame_count / manifest.fps)

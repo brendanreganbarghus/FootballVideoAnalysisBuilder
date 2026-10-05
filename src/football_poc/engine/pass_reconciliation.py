@@ -348,12 +348,26 @@ def reconcile_track_identity_team_switches(
     def stable_precontact_team(
         track_id: int | None,
         timestamp: float | None,
+        released_at: float | None = None,
     ) -> str | None:
         if track_id is None or timestamp is None:
             return None
+        track_points = points_by_track.get(track_id, [])
+        if not track_points:
+            return None
+        # A track born mid-flight, inside the window, has no established prior
+        # identity; its first boxes often still include the player it
+        # emerged from.
+        born = min(float(point["clip_seconds"]) for point in track_points)
+        if (
+            released_at is not None
+            and born > released_at + 1e-9
+            and born >= timestamp - evidence_window_seconds - 1e-9
+        ):
+            return None
         labels = [
             str(point.get("team"))
-            for point in points_by_track.get(track_id, [])
+            for point in track_points
             if (
                 timestamp - evidence_window_seconds
                 <= float(point["clip_seconds"])
@@ -421,6 +435,7 @@ def reconcile_track_identity_team_switches(
         tracked_receiver_team = stable_precontact_team(
             event.to_player_track_id,
             event.completion_seconds,
+            event.clip_seconds,
         )
         if (
             event.event_type in {
@@ -523,12 +538,42 @@ def suppress_passes_crossing_opponent_control(
         ):
             retained.append(event)
             continue
+
+        def receiver_reception(observation: PossessionObservation) -> bool:
+            # A colour misread on the receiver's own track that runs straight
+            # into the completion is the reception itself, not an opponent.
+            if observation.player_track_id != event.to_player_track_id:
+                return False
+            chain = sorted(
+                (
+                    item
+                    for item in controls
+                    if observation.clip_seconds
+                    <= item.clip_seconds
+                    <= event.completion_seconds + 1e-9
+                ),
+                key=lambda item: item.clip_seconds,
+            )
+            times = [observation.clip_seconds, *(i.clip_seconds for i in chain)]
+            return (
+                all(
+                    item.player_track_id == event.to_player_track_id
+                    for item in chain
+                )
+                and event.completion_seconds - chain[-1].clip_seconds <= 1e-9
+                and all(
+                    later - earlier <= maximum_support_step_seconds
+                    for earlier, later in zip(times, times[1:])
+                )
+            )
+
         intervening = [
             observation
             for observation in controls
             if observation.team != event.team
             and event.clip_seconds < observation.clip_seconds
             < event.completion_seconds
+            and not receiver_reception(observation)
         ]
         opponent_control = any(
             observation.control_ratio <= maximum_control_ratio

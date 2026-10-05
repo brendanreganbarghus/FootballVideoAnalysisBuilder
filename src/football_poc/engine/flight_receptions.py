@@ -588,6 +588,111 @@ def infer_opening_aerial_reception(
         [opening_pass, *source, *exchange_passes]
     )
 
+def _ball_arrest_speeds(
+    balls: dict[int, list[dict[str, Any]]],
+) -> dict[int, tuple[float, float]]:
+    """Incoming and outgoing primary-ball speed at each observed frame."""
+    ordered = sorted(
+        (
+            point
+            for frame_points in balls.values()
+            for point in frame_points
+            if int(point.get("track_id", 1)) == 1
+            and not point.get("interpolated", False)
+        ),
+        key=lambda point: float(point["clip_seconds"]),
+    )
+    speeds: dict[int, tuple[float, float]] = {}
+    for previous, current, following in zip(ordered, ordered[1:], ordered[2:]):
+        incoming_seconds = float(current["clip_seconds"]) - float(
+            previous["clip_seconds"]
+        )
+        outgoing_seconds = float(following["clip_seconds"]) - float(
+            current["clip_seconds"]
+        )
+        if incoming_seconds <= 0 or outgoing_seconds <= 0:
+            continue
+        speeds[int(current["source_frame"])] = (
+            hypot(
+                float(current["x"]) - float(previous["x"]),
+                float(current["y"]) - float(previous["y"]),
+            )
+            / incoming_seconds,
+            hypot(
+                float(following["x"]) - float(current["x"]),
+                float(following["y"]) - float(current["y"]),
+            )
+            / outgoing_seconds,
+        )
+    return speeds
+
+
+def _nested_duplicate_owner_track(
+    first: PossessionSegment,
+    following: PossessionSegment,
+    players: dict[int, list[dict[str, Any]]],
+    *,
+    maximum_gap_seconds: float,
+    minimum_containment: float,
+    minimum_height_ratio: float,
+) -> int | None:
+    """Return the full-body track when two owner fragments are one player."""
+    if (
+        following.team != first.team
+        or following.player_track_id == first.player_track_id
+        or following.start_seconds - first.end_seconds > maximum_gap_seconds
+    ):
+        return None
+    tracks = {first.player_track_id, following.player_track_id}
+    window_start = first.start_seconds
+    window_end = following.end_seconds
+    shared = 0
+    nested = 0
+    outer_track: int | None = None
+    for frame_players in players.values():
+        boxes = {
+            int(player["track_id"]): player
+            for player in frame_players
+            if player.get("track_id") is not None
+            and int(player["track_id"]) in tracks
+            and window_start - 1e-9
+            <= float(player["clip_seconds"])
+            <= window_end + 1e-9
+        }
+        if len(boxes) != 2:
+            continue
+        shared += 1
+        small, large = sorted(
+            boxes.values(),
+            key=lambda player: float(player["y2"]) - float(player["y1"]),
+        )
+        small_height = max(1.0, float(small["y2"]) - float(small["y1"]))
+        large_height = max(1.0, float(large["y2"]) - float(large["y1"]))
+        width = max(
+            0.0,
+            min(float(small["x2"]), float(large["x2"]))
+            - max(float(small["x1"]), float(large["x1"])),
+        )
+        height = max(
+            0.0,
+            min(float(small["y2"]), float(large["y2"]))
+            - max(float(small["y1"]), float(large["y1"])),
+        )
+        area = max(1.0, (float(small["x2"]) - float(small["x1"])) * small_height)
+        if (
+            large_height >= small_height * minimum_height_ratio
+            and width * height / area >= minimum_containment
+        ):
+            track = int(large["track_id"])
+            if outer_track is not None and outer_track != track:
+                return None
+            outer_track = track
+            nested += 1
+    if shared == 0 or nested != shared:
+        return None
+    return outer_track
+
+
 def infer_opening_live_reception(
     events: Iterable[PredictedEvent],
     possession_segments: Iterable[PossessionSegment],
@@ -598,6 +703,11 @@ def infer_opening_live_reception(
     maximum_transfer_seconds: float,
     maximum_first_control_seconds: float = 2.0,
     maximum_contact_direction_cosine: float = -0.8,
+    players: dict[int, list[dict[str, Any]]] | None = None,
+    maximum_fragment_gap_seconds: float = 0.41,
+    minimum_nested_box_containment: float = 0.9,
+    minimum_nested_box_height_ratio: float = 1.2,
+    maximum_arrest_speed_retention: float = 0.25,
 ) -> list[PredictedEvent]:
     """Recover a clip-opening pass that ends at the first controlled touch."""
     source = list(events)
@@ -605,6 +715,23 @@ def infer_opening_live_reception(
     if len(segments) < 2:
         return source
     first, following = segments[:2]
+    nested_owner_track = _nested_duplicate_owner_track(
+        first,
+        following,
+        players or {},
+        maximum_gap_seconds=maximum_fragment_gap_seconds,
+        minimum_containment=minimum_nested_box_containment,
+        minimum_height_ratio=minimum_nested_box_height_ratio,
+    )
+    if nested_owner_track is not None:
+        if len(segments) < 3:
+            return source
+        first = PossessionSegment(
+            team=first.team,
+            player_track_id=nested_owner_track,
+            observations=[*first.observations, *following.observations],
+        )
+        following = segments[2]
     if (
         first.start_seconds <= 0
         or first.start_seconds > maximum_first_control_seconds
@@ -640,6 +767,39 @@ def infer_opening_live_reception(
         and evidence[0] >= minimum_speed_pixels_per_second
         and evidence[1] <= maximum_contact_direction_cosine
     ]
+    if not contacts and nested_owner_track is not None:
+        arrests = _ball_arrest_speeds(balls)
+        arrested = [
+            observation
+            for observation in first.observations
+            if observation.clip_seconds <= first.start_seconds + 0.4
+            and (speeds := arrests.get(observation.source_frame)) is not None
+            and speeds[0] >= minimum_speed_pixels_per_second
+            and speeds[1] <= speeds[0] * maximum_arrest_speed_retention
+        ]
+        if arrested:
+            contact = arrested[0]
+            if not match_state.allows_event(
+                "pass_candidate",
+                0.0,
+                contact.clip_seconds,
+            ):
+                return source
+            opening = PredictedEvent(
+                event_type="pass_candidate",
+                clip_seconds=0.0,
+                team=first.team,
+                from_player_track_id=None,
+                to_player_track_id=first.player_track_id,
+                confidence=0.6,
+                details=(
+                    "The clip opened during a live delivery that was arrested "
+                    "at the feet of one teammate, whose split detections were "
+                    "merged, and sustained team control followed."
+                ),
+                completion_seconds=round(contact.clip_seconds, 3),
+            )
+            return _deduplicate_receptions([opening, *source])
     if not contacts:
         return source
     contact = min(
