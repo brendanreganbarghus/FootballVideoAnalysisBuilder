@@ -91,3 +91,5 @@ baseline suites (`tests/test_possession.py`, `tests/test_match_state.py`,
 | 20261005T033824822Z | tracking | four contradicting votes split the track | `tests/tracking/test_split_track_on_sustained_team_change.py::test_four_contradicting_votes_split_the_track_20261005T033824822Z` |
 | 20261005T033824823Z | tracking | three contradicting votes keep the track | `tests/tracking/test_split_track_on_sustained_team_change.py::test_three_contradicting_votes_keep_the_track_20261005T033824823Z` |
 | 20261005T033824824Z | tracking | unknown and official votes do not count | `tests/tracking/test_split_track_on_sustained_team_change.py::test_unknown_and_official_votes_do_not_count_20261005T033824824Z` |
+| 20261005T035833656Z | rules | weak reception continues past same team flicker | `tests/rules/test_weak_reception_continues_to_later_control_20261005T035833656Z.py::test_weak_reception_continues_past_same_team_flicker_20261005T035833656Z` |
+| 20261005T035833657Z | rules | opponent ownership stops continuation search | `tests/rules/test_weak_reception_continues_to_later_control_20261005T035833656Z.py::test_opponent_ownership_stops_continuation_search_20261005T035833657Z` |

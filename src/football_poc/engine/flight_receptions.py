@@ -116,6 +116,34 @@ def _contact_onset_before_control(
                 candidates.append(previous_seconds)
     return max(candidates, default=receiver.start_seconds)
 
+def _receiver_continuation_observations(
+    segment: PossessionSegment,
+    segments: list[PossessionSegment],
+    *,
+    weak_control_ratio: float = 0.5,
+) -> list[PossessionObservation]:
+    """Join a purely weak reception to the same receiver's later same-team control.
+
+    A pass can be credited on weak proximity while the ball is still rolling
+    toward the receiver; a brief ownership flicker then splits the receiver's
+    possession.  The first clear touch is in the receiver's next segment as
+    long as no opponent owned the ball in between.
+    """
+    observations = list(segment.observations)
+    if any(o.control_ratio <= weak_control_ratio for o in observations):
+        return observations
+    later = sorted(
+        (s for s in segments if s.start_seconds > segment.end_seconds),
+        key=lambda s: s.start_seconds,
+    )
+    for candidate in later:
+        if candidate.team != segment.team:
+            break
+        if candidate.player_track_id == segment.player_track_id:
+            observations.extend(candidate.observations)
+            break
+    return observations
+
 def refine_weak_reception_completion_times(
     events: Iterable[PredictedEvent],
     possession_segments: Iterable[PossessionSegment],
@@ -150,7 +178,9 @@ def refine_weak_reception_completion_times(
         if event.event_type == "pass_candidate":
             extended_controls = [
                 observation
-                for observation in segment.observations
+                for observation in _receiver_continuation_observations(
+                    segment, segments
+                )
                 if observation.clip_seconds
                 <= (
                     segment.start_seconds
