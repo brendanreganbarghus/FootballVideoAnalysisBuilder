@@ -23,6 +23,8 @@ from football_poc.team_colors import (
     dominant_jersey_color,
 )
 
+OUTFIELD_TEAMS = frozenset({"red", "black", "blue", "white"})
+
 
 @dataclass
 class PlayerPoint:
@@ -357,7 +359,6 @@ def _classify_tracks(
         for point in track.points:
             samples_by_frame[point.source_frame].append((track, point))
 
-    feature_samples: dict[int, list[dict[str, float]]] = defaultdict(list)
     capture = cv2.VideoCapture(str(video))
     try:
         if not capture.isOpened():
@@ -387,12 +388,12 @@ def _classify_tracks(
                     point.team = classify_color_scores(
                         features, team_profile=team_profile
                     )
-                    feature_samples[track.track_id].append(features)
     finally:
         capture.release()
 
+    tracks[:] = split_tracks_on_sustained_team_change(tracks)
     for track in tracks:
-        samples = feature_samples.get(track.track_id, [])
+        samples = [point.color_scores for point in track.points if point.color_scores]
         if not samples:
             track.color_scores = {}
             track.team = "unknown"
@@ -598,6 +599,67 @@ def _stabilize_track_team(track: PlayerTrack, team: str) -> None:
     track.team = team
     for point in track.points:
         point.team = team
+
+
+def split_tracks_on_sustained_team_change(
+    tracks: list[PlayerTrack],
+    *,
+    consecutive_votes: int = 4,
+    window_size: int = 7,
+) -> list[PlayerTrack]:
+    """Split a track where its raw kit votes switch to the other outfield team.
+
+    A merged or overlapping box can carry a track identity from one player to
+    a nearby opponent. When ``consecutive_votes`` known kit votes in a row
+    contradict the track's causal team, the track is treated as a new player
+    from the first contradicting vote. Expects raw per-point labels in
+    ``point.team``.
+    """
+    next_id = max((track.track_id for track in tracks), default=0) + 1
+    result: list[PlayerTrack] = []
+    for track in tracks:
+        remaining = track.points
+        first = True
+        while remaining:
+            cut = _sustained_team_change_index(
+                remaining, consecutive_votes, window_size
+            )
+            part = remaining if cut is None else remaining[:cut]
+            remaining = [] if cut is None else remaining[cut:]
+            if first:
+                result.append(
+                    PlayerTrack(track.track_id, part, track.team, track.color_scores, track.role)
+                )
+                first = False
+            else:
+                result.append(PlayerTrack(next_id, part, role=track.role))
+                next_id += 1
+    return result
+
+
+def _sustained_team_change_index(
+    points: list[PlayerPoint], consecutive_votes: int, window_size: int
+) -> int | None:
+    history: deque[str] = deque(maxlen=window_size)
+    current = "unknown"
+    run: list[int] = []
+    for index, point in enumerate(points):
+        vote = point.team
+        if vote == "unknown":
+            continue
+        if current != "unknown" and vote != current and vote in OUTFIELD_TEAMS:
+            run.append(index)
+            if len(run) >= consecutive_votes and run[0] > 0:
+                return run[0]
+        elif vote == current:
+            run = []
+        history.append(vote)
+        counts = Counter(history)
+        highest = max(counts.values())
+        leaders = {team for team, count in counts.items() if count == highest}
+        if current not in leaders:
+            current = next(team for team in reversed(history) if team in leaders)
+    return None
 
 
 def _stabilize_track_team_causally(

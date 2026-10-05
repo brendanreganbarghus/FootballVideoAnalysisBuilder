@@ -88,3 +88,6 @@ baseline suites (`tests/test_possession.py`, `tests/test_match_state.py`,
 | 20261005T032122564Z | tracking | orange vest without white is official | `tests/tracking/test_orange_vest_is_official.py::test_orange_vest_without_white_is_official_20261005T032122564Z` |
 | 20261005T032122565Z | tracking | red kit with white trim stays red | `tests/tracking/test_orange_vest_is_official.py::test_red_kit_with_white_trim_stays_red_20261005T032122565Z` |
 | 20261005T032122566Z | tracking | dark kit still black before vest rule | `tests/tracking/test_orange_vest_is_official.py::test_dark_kit_still_black_before_vest_rule_20261005T032122566Z` |
+| 20261005T033824822Z | tracking | four contradicting votes split the track | `tests/tracking/test_split_track_on_sustained_team_change.py::test_four_contradicting_votes_split_the_track_20261005T033824822Z` |
+| 20261005T033824823Z | tracking | three contradicting votes keep the track | `tests/tracking/test_split_track_on_sustained_team_change.py::test_three_contradicting_votes_keep_the_track_20261005T033824823Z` |
+| 20261005T033824824Z | tracking | unknown and official votes do not count | `tests/tracking/test_split_track_on_sustained_team_change.py::test_unknown_and_official_votes_do_not_count_20261005T033824824Z` |
