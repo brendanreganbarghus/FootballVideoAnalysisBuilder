@@ -9899,7 +9899,7 @@ export function renderHtml({ adapter } = {}) {
       roundResult.className = "ball-frame-modal-status"
         + (batchProcessing ? " coordinate-round-result processing" : "");
       roundResult.textContent = batchProcessing
-        ? "Processing Round " + batch.number
+        ? "Copilot is working… Processing Round " + batch.number
           + ": reviewing evidence, applying a general code fix, running "
           + "tests, then rebuilding ball coordinates for the whole segment."
         : batch?.status === "done"
@@ -9936,6 +9936,9 @@ export function renderHtml({ adapter } = {}) {
           observation.decision
         )
       ).length;
+      // Reviewer coordinates must never feed a detected-ball segment's engine.
+      applyReviewerLayer.hidden = !reviewWorkflow.reviewerCorrectedDemoLayer
+        || (state?.segment?.ballSource || "bac") === "detected";
       applyReviewerLayer.disabled =
         !approvedCoordinateChanges || segmentRunActive();
       applyReviewerLayer.textContent =
