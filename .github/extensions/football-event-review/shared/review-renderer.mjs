@@ -4286,6 +4286,7 @@ export function renderHtml({ adapter } = {}) {
                     <th scope="col" class="engine-compare-col" hidden>Eng X</th>
                     <th scope="col" class="engine-compare-col" hidden>Eng Y</th>
                     <th scope="col" class="engine-compare-col" hidden>Eng↔BAC</th>
+                    <th scope="col" class="engine-compare-col" hidden>Engine used</th>
                     <th scope="col">Status</th>
                     <th scope="col">Evidence</th>
                     <th scope="col">Review</th>
@@ -7726,6 +7727,24 @@ export function renderHtml({ adapter } = {}) {
       return Math.abs(closest[1] - seconds) <= 0.08 ? closest : null;
     }
 
+    function engineUsedLabel(point) {
+      if (!Number.isFinite(point?.engineX)) return "No ball";
+      const module = String(point.engineModule || "");
+      const labels = {
+        "00_lock_yolo_chains": "YOLO saw the ball (locked chain)",
+        "01_confirm_yolo": "YOLO saw the ball",
+        "02_time_machine": "Filled between sightings",
+        "02_aerial_flight": "Guess from flight path",
+        "02_flipbook_time_machine": "Flip-book YOLO close-up",
+        "03_motion_and_optical_flow": "Motion / optical flow",
+        "04_focused_multiscale": "YOLO close-up crop"
+      };
+      const label = labels[module]
+        || (point.engineInterpolated ? "Filled between sightings" : module)
+        || "Engine";
+      return module && labels[module] ? label + " (" + module + ")" : label;
+    }
+
     function ballStateLabel(point) {
       if ((state?.segment?.ballSource || "bac") === "bac") {
         return "Frozen BAC";
@@ -9010,7 +9029,8 @@ export function renderHtml({ adapter } = {}) {
           comparingSources && viewingTarget
             ? Number.isFinite(point.engineX) && Number.isFinite(point.engineY)
               ? " · Engine (red) (" + point.engineX.toFixed(1) + ", "
-                + point.engineY.toFixed(1) + ")"
+                + point.engineY.toFixed(1) + ") · engine used: "
+                + engineUsedLabel(point)
               : " · Engine (red): no ball on this frame"
             : ""
         );
@@ -9512,7 +9532,8 @@ export function renderHtml({ adapter } = {}) {
                     Number.isFinite(point.engineY)
                       ? point.engineY.toFixed(1) : "No ball",
                     Number.isFinite(point.engineDistance)
-                      ? point.engineDistance.toFixed(0) + " px" : "—"
+                      ? point.engineDistance.toFixed(0) + " px" : "—",
+                    engineUsedLabel(point)
                   ]
                 : []
             ),

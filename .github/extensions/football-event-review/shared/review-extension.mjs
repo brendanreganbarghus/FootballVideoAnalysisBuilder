@@ -1930,6 +1930,16 @@ async function loadDetectedBallTrack(
         .filter((point) => point.interpolated)
         .map((point) => Number(point.source_frame))
     ),
+    engineModules: Object.fromEntries(
+      (payload.tracks || []).flatMap((track) =>
+        (track.points || []).map((point) => [
+          String(Number(point.source_frame)),
+          String(
+            point.confirming_module || point.source_attribution || "engine",
+          ),
+        ])
+      ),
+    ),
     states: (statePayload?.states || []).map((state) => ({
       frame: Number(state.source_frame),
       seconds: Number(state.clip_seconds),
@@ -3447,7 +3457,7 @@ async function withBacComparison(selected, track) {
     points[String(frame)] = {
       x,
       y,
-      module: "our rules",
+      module: track.engineModules?.[String(frame)] || "our rules",
       interpolated: interpolated.has(frame),
     };
   }
