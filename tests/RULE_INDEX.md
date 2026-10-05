@@ -85,3 +85,6 @@ baseline suites (`tests/test_possession.py`, `tests/test_match_state.py`,
 | 20261005T010452833Z | rules | consistent opponent shirt still corrects switch | `tests/rules/test_mixed_shirt_reading_20261005T010452800Z.py::test_consistent_opponent_shirt_still_corrects_switch_20261005T010452833Z` |
 | 20261005T014345185Z | tracking | yolo11 detection cache is rejected | `tests/tracking/test_yolo26_only_detection_cache_20261005T014345185Z.py::test_yolo11_detection_cache_is_rejected_20261005T014345185Z` |
 | 20261005T014345186Z | tracking | yolo26 detection cache is accepted | `tests/tracking/test_yolo26_only_detection_cache_20261005T014345185Z.py::test_yolo26_detection_cache_is_accepted_20261005T014345186Z` |
+| 20261005T032122564Z | tracking | orange vest without white is official | `tests/tracking/test_orange_vest_is_official.py::test_orange_vest_without_white_is_official_20261005T032122564Z` |
+| 20261005T032122565Z | tracking | red kit with white trim stays red | `tests/tracking/test_orange_vest_is_official.py::test_red_kit_with_white_trim_stays_red_20261005T032122565Z` |
+| 20261005T032122566Z | tracking | dark kit still black before vest rule | `tests/tracking/test_orange_vest_is_official.py::test_dark_kit_still_black_before_vest_rule_20261005T032122566Z` |

@@ -296,6 +296,10 @@ def classify_color_scores(
             return "official"
         if dark >= 0.3:
             return "black"
+        # Red kits carry white trim; a saturated warm crop with no white is a
+        # high-visibility orange vest (steward or ballboy), not a player.
+        if warm >= 0.2 and white < 0.05:
+            return "official"
         if (
             white >= 0.12
             and warm + yellow >= 0.12

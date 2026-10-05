@@ -81,7 +81,7 @@ def test_color_scores_classify_main_kits_and_roles() -> None:
 
 def test_color_scores_classify_alfheim_kits() -> None:
     assert (
-        classify_color_scores({"warm": 0.7}, team_profile="red-black")
+        classify_color_scores({"warm": 0.3, "white": 0.2}, team_profile="red-black")
         == "red"
     )
     assert (
