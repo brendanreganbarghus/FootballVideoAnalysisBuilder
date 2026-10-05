@@ -6791,18 +6791,26 @@ export function renderHtml({ adapter } = {}) {
       // engine) once coordinates exist and before the engine has run.
       const detectedCopy = selectedBallSource() === "detected"
         && (segment.ballSource || "bac") === "detected";
+      const ballCheckLeft = detectedCopy
+        && state.coordinateReview?.status !== "finalized"
+        ? state.ballCheck?.left?.length || 0
+        : 0;
       processAiButton.hidden = !detectedCopy || !selectedVideoPrepared;
       processAiButton.disabled =
         running
         || referenceLocked()
-        || !segment.ballTrackAvailable;
+        || !segment.ballTrackAvailable
+        || ballCheckLeft > 0;
       processAiButton.textContent =
         state.coordinateReview?.status === "finalized"
           ? "Process AI again"
           : "Process AI";
       processAiButton.title = !segment.ballTrackAvailable
         ? "Run ball coordinates first"
-        : "Run the rules engine on our ball coordinates";
+        : ballCheckLeft
+          ? "Ball coordinates are not 100% yet: the engine still differs "
+            + "from your decision on " + ballCheckLeft + " frames"
+          : "Run the rules engine on our ball coordinates";
       if (ballSourceSelect && segment.ballSource && !ballSourceSelect.dataset.userChanged) {
         ballSourceSelect.value = segment.ballSource;
       }
@@ -9913,18 +9921,43 @@ export function renderHtml({ adapter } = {}) {
               + afterDirect + "/" + afterSampled + " direct provenance ("
               + (afterCoverage * 100).toFixed(1)
               + "%) was not validated as coordinate-correct."
+            : batch.ballCheck
+              ? "Round " + batch.number + " result · engine matches you on "
+                + (batch.ballCheck.before
+                  ? batch.ballCheck.before.correct + " → "
+                  : "")
+                + batch.ballCheck.correct + "/" + batch.ballCheck.scored
+                + " frames · "
+                + (batch.ballCheck.worse?.length
+                  ? batch.ballCheck.worse.length + " got WORSE (frames "
+                    + batch.ballCheck.worse.join(", ") + ") · "
+                  : "none got worse · ")
+                + batch.ballCheck.left.length
+                + (batch.ballCheck.left.length
+                  ? " still differ and moved to Round "
+                    + (Number(batch.number) + 1) + "."
+                  : " still differ. 100%: Process AI is unlocked.")
             : "Round " + batch.number + " result · "
               + supportedFixedCount + " resolved · "
               + unresolvedCount + " unresolved · "
               + regressionCount + " regressed. "
               + "You can review more frames or click Process AI."
+              + (state.ballCheck?.left?.length
+                ? " Process AI unlocks at 100%: "
+                  + state.ballCheck.left.length + " frames still differ."
+                : "")
           : "";
       const finalize = document.getElementById(
         "finalize-ball-coordinate-review"
       );
-      finalize.disabled = segmentRunActive();
+      const coordinatesLeft = (state?.segment?.ballSource || "bac")
+        === "detected" ? state.ballCheck?.left?.length || 0 : 0;
+      finalize.disabled = segmentRunActive() || coordinatesLeft > 0;
       finalize.hidden = state.coordinateReview?.status === "finalized";
-      finalize.textContent = "Continue to rules engine";
+      finalize.textContent = coordinatesLeft
+        ? "Continue to rules engine (at 100%; " + coordinatesLeft
+          + " frames still differ)"
+        : "Continue to rules engine";
       const applyReviewerLayer = document.getElementById(
         "apply-reviewer-coordinate-layer"
       );
@@ -9992,14 +10025,37 @@ export function renderHtml({ adapter } = {}) {
         ? "This progress modal remains open until Copilot and the rerun finish."
         : "";
       const modal = document.getElementById("ball-coordinate-review-modal");
+      const wasProcessing = [
+        "working",
+        "review_completed",
+        "code_fix_completed",
+        "tests_completed",
+        "rerun_started"
+      ].includes(lastCoordinateBatchStatus);
+      const finishedRound = (state.coordinateReview?.batches || []).find(
+        candidate => candidate.id === lastCoordinateBatchId
+      );
       if (
         modal.open
-        && lastCoordinateBatchStatus === "rerun_started"
-        && batch?.status === "ready"
-        && batch.id !== lastCoordinateBatchId
+        && wasProcessing
+        && (
+          (batch?.status === "ready" && batch.id !== lastCoordinateBatchId)
+          || ["done", "failed"].includes(finishedRound?.status)
+        )
       ) {
         modal.close();
-        document.getElementById("ball-frame-filter").value = "flagged";
+        const nextRound = readyCoordinateBatch();
+        if (nextRound && nextRound.id !== lastCoordinateBatchId) {
+          selectedCoordinateBatchId = nextRound.id;
+          requestAnimationFrame(() => {
+            loadBallFrameFlags();
+            renderBallFrames();
+            renderBallCoordinateReviewMessages();
+          });
+        }
+        if (finishedRound?.status !== "failed") {
+          document.getElementById("ball-frame-filter").value = "flagged";
+        }
         const frameReview = document.getElementById("ball-frame-review");
         frameReview.open = true;
         requestAnimationFrame(() => {
@@ -10087,10 +10143,17 @@ export function renderHtml({ adapter } = {}) {
         status.textContent = "Flag at least one estimated frame first.";
         return;
       }
-      const text =
-        "Review this flagged batch of estimated ball coordinates using only "
-        + "the raw-video evidence. Identify genuine visual recoveries and "
-        + "leave ambiguous or occluded frames as estimates.";
+      const text = (state?.segment?.ballSource || "bac") === "detected"
+        ? "Fix the ball tracker where it still differs from my decisions in "
+          + "this batch. My decisions are an evaluation reference only and "
+          + "must never feed the tracker. Use general evidence-based rules "
+          + "only, no YOLO rerun. After every change, rerun the ball check "
+          + "on all decided frames: a change may only make the match count "
+          + "better, never worse; revert any change that breaks a frame that "
+          + "matched before. Frames still differing come back to me."
+        : "Review this flagged batch of estimated ball coordinates using only "
+          + "the raw-video evidence. Identify genuine visual recoveries and "
+          + "leave ambiguous or occluded frames as estimates.";
       const buttons = [
         document.getElementById("send-ball-coordinate-autopilot")
       ];

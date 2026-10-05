@@ -3390,6 +3390,7 @@ async function ballCheckScore(selected, track, observations) {
     && Math.hypot(point.x - reference.x, point.y - reference.y)
       <= BALL_CHECK_MATCH_PX;
   const left = [];
+  const correctFrames = [];
   let correct = 0;
   let fromDecisions = 0;
   for (const frame of track.states.map((state) => state.frame)) {
@@ -3406,14 +3407,17 @@ async function ballCheckScore(selected, track, observations) {
       hit = near(point, bac.get(frame));
     }
     if (decision) fromDecisions += 1;
-    if (hit) correct += 1;
-    else left.push(frame);
+    if (hit) {
+      correct += 1;
+      correctFrames.push(frame);
+    } else left.push(frame);
   }
   const scored = correct + left.length;
   return {
     correct,
     scored,
     left,
+    correctFrames,
     fromDecisions,
     fromBac: scored - fromDecisions,
     matchPx: BALL_CHECK_MATCH_PX,
@@ -5036,7 +5040,49 @@ async function reconcileCoordinateReviewBatch(context) {
   batch.regressionFrames = regressions;
   state.coordinateReview.status = "pending";
   state.coordinateReview.activeBatchId = null;
-  if (after.directProvenance < 0.90 && nextFrames.length) {
+  // Detected-ball segments: the next round holds exactly the frames where
+  // the rebuilt engine still differs from the reviewer's latest decision.
+  // Decisions are an evaluation reference only and never feed the tracker.
+  let checkFrames = null;
+  if (selected.ballSource === "detected") {
+    const decisions = {
+      ...(state.trajectoryAudit?.observations || {}),
+      ...Object.assign(
+        {},
+        ...(state.coordinateReview.batches || [])
+          .map((candidate) => candidate.observations || {}),
+      ),
+    };
+    const check = await ballCheckScore(
+      selected,
+      await loadDetectedBallTrack(selected),
+      decisions,
+    ).catch(() => null);
+    if (check) {
+      // Frames that matched the reviewer before the fix but not after it:
+      // a fix may only make the score better, never worse.
+      const before = new Set(batch.ballCheckBefore?.correctFrames || []);
+      const worse = check.left.filter((frame) => before.has(frame));
+      batch.ballCheck = {
+        correct: check.correct,
+        scored: check.scored,
+        left: check.left,
+        before: batch.ballCheckBefore
+          ? {
+            correct: batch.ballCheckBefore.correct,
+            scored: batch.ballCheckBefore.scored,
+          }
+          : null,
+        worse,
+      };
+      checkFrames = {frames: check.left, decisions};
+    }
+  }
+  const roundFrames = checkFrames ? checkFrames.frames : nextFrames;
+  if (
+    roundFrames.length
+    && (checkFrames || after.directProvenance < 0.90)
+  ) {
     const nextNumber = Math.max(
       0,
       ...state.coordinateReview.batches.map(
@@ -5047,16 +5093,25 @@ async function reconcileCoordinateReviewBatch(context) {
       id: `coordinate-round-${nextNumber}`,
       number: nextNumber,
       status: "ready",
-      frames: nextFrames,
-      observations: {},
+      frames: roundFrames,
+      // The reviewer's latest decision is carried in as a starting point;
+      // they confirm or change it before the next round can be sent.
+      observations: checkFrames
+        ? Object.fromEntries(roundFrames
+          .filter((frame) => checkFrames.decisions[String(frame)])
+          .map((frame) => [
+            String(frame),
+            {...checkFrames.decisions[String(frame)], frame, approved: true},
+          ]))
+        : {},
       createdAt: batch.rerunCompletedAt,
       before: after,
       frameResults: {},
-      carryForward: coordinateCarryForward(batch, nextFrames),
+      carryForward: coordinateCarryForward(batch, roundFrames),
     };
     state.coordinateReview.batches.push(nextBatch);
     state.coordinateReview.activeBatchId = nextBatch.id;
-    state.coordinateReview.flaggedFrames = nextFrames;
+    state.coordinateReview.flaggedFrames = roundFrames;
   }
   await saveState(selected.key, state, {allowAutoAcquire: false});
 }
@@ -9219,6 +9274,27 @@ async function handleRequest(request, response, serverInstanceId) {
       batch.rerunCompletedAt = null;
       batch.failure = null;
       batch.before = before;
+      if (context.selected.ballSource === "detected") {
+        const baseline = await ballCheckScore(
+          context.selected,
+          await loadDetectedBallTrack(context.selected),
+          {
+            ...(context.state.trajectoryAudit?.observations || {}),
+            ...Object.assign(
+              {},
+              ...(context.state.coordinateReview.batches || [])
+                .map((candidate) => candidate.observations || {}),
+            ),
+          },
+        ).catch(() => null);
+        batch.ballCheckBefore = baseline
+          ? {
+            correct: baseline.correct,
+            scored: baseline.scored,
+            correctFrames: baseline.correctFrames,
+          }
+          : null;
+      }
       context.state.coordinateReview.activeBatchId = batch.id;
       context.state.coordinateReview = {
         ...context.state.coordinateReview,
