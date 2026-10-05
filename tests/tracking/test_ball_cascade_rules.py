@@ -928,3 +928,25 @@ def test_detour_between_chain_locked_neighbours_ignores_score_20261004T053000000
 
     assert run("00_lock_yolo_chains") is None
     assert run("01_confirm_yolo") is not None
+
+def test_detour_from_slow_long_bracket_needing_fast_leg_20261005T194744548Z() -> None:
+    """A weak point a slow ball can only reach or leave at high speed is a detour."""
+    def run(far_x: float):
+        frames = range(0, 80, 5)
+        ledger = ball_tracking.FrameLedger((f, f / 25) for f in frames)
+        for frame, x, module, confidence in (
+            (0, 1528.0, "00_lock_yolo_chains", 0.16),
+            (55, far_x, "01_confirm_yolo", 0.2),
+            (75, 1139.0, "01_confirm_yolo", 0.6),
+        ):
+            ledger.confirm(
+                frame, x=x, y=600.0, confirming_module=module,
+                evidence={}, confidence=confidence,
+            )
+        ball_tracking._withdraw_one_frame_detours(
+            ledger, fps=25.0, frame_step=5, max_speed_pixels_per_second=1600.0,
+        )
+        return ledger.confirmed(55)
+
+    assert run(2099.0) is None
+    assert run(1230.0) is not None

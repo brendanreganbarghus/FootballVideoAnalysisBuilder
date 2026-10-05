@@ -674,10 +674,14 @@ def _reachable_from_nearest_confirmed(
 # A short run of weak detections far off the line between the confirmed ball
 # just before and just after it would need the ball to leave and come straight
 # back within a fraction of a second. The detour allowance is a quarter of the
-# maximum ball speed over the bracket.
-DETOUR_BRACKET_STEPS = 4
+# maximum ball speed over the bracket. Over a longer gap the ball may wander
+# further, but when the bracket says the ball moved slowly, a weak run that
+# can only be reached or left at more than half the maximum speed is also a
+# detour: the slow ball would need two hard kicks the detector never saw.
+DETOUR_BRACKET_STEPS = 16
 DETOUR_MAX_RUN_LENGTH = 2
 DETOUR_ALLOWANCE_SPEED_FRACTION = 0.25
+DETOUR_FAST_LEG_SPEED_FRACTION = 0.5
 
 
 def _withdraw_one_frame_detours(
@@ -733,15 +737,15 @@ def _withdraw_one_frame_detours(
                     continue
                 # Only detections weaker than both neighbours are the detour;
                 # a stronger one means the neighbours are the doubtful points.
-                # Neighbours locked as multi-frame detector chains are not
+                # A neighbour locked as a multi-frame detector chain is not
                 # doubtful: agreement across frames outweighs one score.
-                chained = (
-                    previous.confirming_module == LOCK_YOLO_CHAIN_MODULE
-                    and following.confirming_module == LOCK_YOLO_CHAIN_MODULE
+                strongest_member = max(
+                    float(member.confidence or 0.0) for member in members
                 )
-                if not chained and max(float(member.confidence or 0.0) for member in members) >= min(
-                    float(previous.confidence or 0.0),
-                    float(following.confidence or 0.0),
+                if any(
+                    neighbour.confirming_module != LOCK_YOLO_CHAIN_MODULE
+                    and float(neighbour.confidence or 0.0) <= strongest_member
+                    for neighbour in (previous, following)
                 ):
                     continue
                 elapsed = (following.source_frame - previous.source_frame) / fps
@@ -761,7 +765,15 @@ def _withdraw_one_frame_detours(
                     * DETOUR_ALLOWANCE_SPEED_FRACTION
                     * elapsed
                 )
-                if excess > allowance and (worst is None or excess > worst[0]):
+                fast_leg = any(
+                    hypot(b.x - a.x, b.y - a.y)
+                    / ((b.source_frame - a.source_frame) / fps)
+                    > max_speed_pixels_per_second * DETOUR_FAST_LEG_SPEED_FRACTION
+                    for a, b in ((path[0], path[1]), (path[-2], path[-1]))
+                )
+                slow_bracket = direct <= allowance
+                detour = excess > allowance or (fast_leg and slow_bracket)
+                if detour and (worst is None or excess > worst[0]):
                     worst = (excess, members)
         if worst is None:
             return withdrawn
