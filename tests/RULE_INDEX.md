@@ -83,3 +83,5 @@ baseline suites (`tests/test_possession.py`, `tests/test_match_state.py`,
 | 20261005T010452769Z | rules | deceleration with teammate at ball is reception | `tests/rules/test_deceleration_reception_reach_20261005T010452729Z.py::test_deceleration_with_teammate_at_ball_is_reception_20261005T010452769Z` |
 | 20261005T010452800Z | rules | mixed shirt reading keeps turnover | `tests/rules/test_mixed_shirt_reading_20261005T010452800Z.py::test_mixed_shirt_reading_keeps_turnover_20261005T010452800Z` |
 | 20261005T010452833Z | rules | consistent opponent shirt still corrects switch | `tests/rules/test_mixed_shirt_reading_20261005T010452800Z.py::test_consistent_opponent_shirt_still_corrects_switch_20261005T010452833Z` |
+| 20261005T012621002Z | rules | rolling ball duplicate reception | `tests/rules/test_rolling_ball_duplicate_reception_20261005T012621002Z.py::test_rolling_ball_duplicate_reception_20261005T012621002Z` |
+| 20261005T012621003Z | rules | rolling ball reception with stop is kept | `tests/rules/test_rolling_ball_duplicate_reception_20261005T012621002Z.py::test_rolling_ball_reception_with_stop_is_kept_20261005T012621003Z` |

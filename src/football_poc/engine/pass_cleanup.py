@@ -889,3 +889,117 @@ def collapse_simultaneous_releases_to_same_receiver(
         elif event.confidence > accepted[competing_index].confidence:
             accepted[competing_index] = event
     return sorted(accepted, key=lambda event: event.clip_seconds)
+
+
+def _ball_window_velocity(
+    ball_points: list[dict[str, Any]], start: float, end: float
+) -> tuple[float, float] | None:
+    window = [
+        point
+        for point in ball_points
+        if start - 1e-06 <= float(point["clip_seconds"]) <= end + 1e-06
+    ]
+    if len(window) < 2:
+        return None
+    first, last = window[0], window[-1]
+    seconds = float(last["clip_seconds"]) - float(first["clip_seconds"])
+    if seconds <= 0:
+        return None
+    return (
+        (float(last["x"]) - float(first["x"])) / seconds,
+        (float(last["y"]) - float(first["y"])) / seconds,
+    )
+
+
+def _completion_shows_contact(
+    ball_points: list[dict[str, Any]],
+    completion: float,
+    *,
+    window_seconds: float,
+    maximum_carry_speed_ratio: float,
+    minimum_carry_direction_cosine: float,
+) -> bool:
+    incoming = _ball_window_velocity(
+        ball_points, completion - window_seconds, completion
+    )
+    outgoing = _ball_window_velocity(
+        ball_points, completion, completion + window_seconds
+    )
+    if incoming is None or outgoing is None:
+        return True
+    incoming_speed = hypot(*incoming)
+    outgoing_speed = hypot(*outgoing)
+    if incoming_speed <= 0 or outgoing_speed <= 0:
+        return True
+    if outgoing_speed / incoming_speed <= maximum_carry_speed_ratio:
+        return True
+    cosine = (incoming[0] * outgoing[0] + incoming[1] * outgoing[1]) / (
+        incoming_speed * outgoing_speed
+    )
+    return cosine < minimum_carry_direction_cosine
+
+
+def merge_rolling_ball_duplicate_receptions(
+    events: Iterable[PredictedEvent],
+    balls: dict[int, list[dict[str, Any]]],
+    *,
+    maximum_gap_seconds: float = 3.0,
+    window_seconds: float = 0.4,
+    maximum_carry_speed_ratio: float = 0.5,
+    minimum_carry_direction_cosine: float = 0.7,
+) -> list[PredictedEvent]:
+    """Count one pass when the ball merely rolls past the receiver first.
+
+    Ball proximity is not a reception unless the ball also slows sharply or
+    changes direction there. When a same-team pass "completes" while the ball
+    keeps rolling at the same pace and heading, and the engine later finds the
+    same receiver's real touch with no other event in between, both rows
+    describe one pass: its completion moves to the real touch and the
+    sender-less duplicate is dropped.
+    """
+    ball_points = sorted(
+        (
+            point
+            for frame_points in balls.values()
+            for point in frame_points
+            if not point.get("interpolated", False)
+        ),
+        key=lambda point: float(point["clip_seconds"]),
+    )
+    ordered = sorted(events, key=lambda item: item.clip_seconds)
+    removed: set[int] = set()
+    for index, event in enumerate(ordered):
+        if (
+            index in removed
+            or event.event_type != "pass_candidate"
+            or event.from_player_track_id is None
+            or event.to_player_track_id is None
+            or event.completion_seconds is None
+            or index + 1 >= len(ordered)
+        ):
+            continue
+        following = ordered[index + 1]
+        if (
+            following.event_type != "pass_candidate"
+            or following.team != event.team
+            or following.from_player_track_id is not None
+            or following.to_player_track_id != event.to_player_track_id
+            or following.completion_seconds is None
+            or not 0
+            < following.completion_seconds - event.completion_seconds
+            <= maximum_gap_seconds
+        ):
+            continue
+        if _completion_shows_contact(
+            ball_points,
+            event.completion_seconds,
+            window_seconds=window_seconds,
+            maximum_carry_speed_ratio=maximum_carry_speed_ratio,
+            minimum_carry_direction_cosine=minimum_carry_direction_cosine,
+        ):
+            continue
+        ordered[index] = replace(
+            event, completion_seconds=following.completion_seconds
+        )
+        removed.add(index + 1)
+    return [event for index, event in enumerate(ordered) if index not in removed]
