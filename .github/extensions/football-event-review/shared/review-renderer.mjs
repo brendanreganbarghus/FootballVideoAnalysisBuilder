@@ -13409,6 +13409,7 @@ export function renderHtml({ adapter } = {}) {
         return stateRefreshPromise;
       }
       stateRefreshPending = true;
+      let refreshPasses = 0;
       stateRefreshPromise = (async () => {
         try {
           do {
@@ -13533,7 +13534,7 @@ export function renderHtml({ adapter } = {}) {
               selectEvent(0, {seek: false, pause: false});
             }
           }
-          } while (stateRefreshQueued);
+          } while (stateRefreshQueued && ++refreshPasses < 3);
         } finally {
           stateRefreshPending = false;
         }
@@ -13542,6 +13543,13 @@ export function renderHtml({ adapter } = {}) {
         return await stateRefreshPromise;
       } finally {
         stateRefreshPromise = null;
+        // Live events can arrive faster than one state load; run any
+        // remaining queued refresh separately so callers (and the startup
+        // modal) are not starved.
+        if (stateRefreshQueued) {
+          stateRefreshQueued = false;
+          setTimeout(() => { loadState().catch(() => {}); }, 0);
+        }
       }
     }
 
