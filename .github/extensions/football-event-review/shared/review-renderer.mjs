@@ -5124,6 +5124,7 @@ export function renderHtml({ adapter } = {}) {
     let fullscreenEventsRenderSignature = null;
     let forceFullscreenEventsRender = false;
     let activeRegressionBatch = new Set();
+    let activeRegressionBatchStartedAt = 0;
     let regressionDashboardOpen = false;
     let regressionDashboardCloseTimer = null;
     let coordinationHeartbeatTimer = null;
@@ -6191,10 +6192,20 @@ export function renderHtml({ adapter } = {}) {
       const segmentsByKey = new Map(
         state.segments.map(segment => [segment.key, segment])
       );
-      const batchJobs = [...activeRegressionBatch].map(segmentKey => ({
-        segment: segmentsByKey.get(segmentKey),
-        job: jobs[segmentKey]
-      }));
+      // A job from an earlier run of the same segment is not this batch's
+      // result; treat it as queued so the modal waits for the new run.
+      const batchJobs = [...activeRegressionBatch].map(segmentKey => {
+        const job = jobs[segmentKey];
+        const startedAt = Date.parse(job?.startedAt || "");
+        const current = job && !(
+          Number.isFinite(startedAt)
+          && startedAt < activeRegressionBatchStartedAt - 1000
+        );
+        return {
+          segment: segmentsByKey.get(segmentKey),
+          job: current ? job : undefined
+        };
+      });
       const running = batchJobs.some(
         ({job}) => !job || job.status === "running"
       );
@@ -6241,6 +6252,7 @@ export function renderHtml({ adapter } = {}) {
 
     function openRegressionDashboard(segmentKeys) {
       activeRegressionBatch = new Set(segmentKeys);
+      activeRegressionBatchStartedAt = Date.now();
       regressionDashboardOpen = true;
       clearTimeout(regressionDashboardCloseTimer);
       regressionDashboardCloseTimer = null;
@@ -7520,8 +7532,10 @@ export function renderHtml({ adapter } = {}) {
       } catch (error) {
         document.getElementById("composer-status").textContent =
           "Regression could not start: " + error.message;
+        regressionDashboardOpen = false;
+        activeRegressionBatch.clear();
+        setSegmentLoading(false);
         await loadState();
-        renderRegressionDashboard();
         return [];
       }
     }
