@@ -533,6 +533,8 @@ def infer_deceleration_transfer_events(
     sender_lookback_seconds: float,
     receiver_window_seconds: float,
     minimum_transfer_heights: float,
+    players: dict[int, list[dict[str, Any]]] | None = None,
+    reception_reach_heights: float = 1.2,
 ) -> list[PredictedEvent]:
     if minimum_incoming_speed_pixels_per_second <= 0:
         raise ValueError("Minimum incoming speed must be positive")
@@ -629,6 +631,15 @@ def infer_deceleration_transfer_events(
             ) / max(1.0, sender_observation.player_height)
             if travel_heights < minimum_transfer_heights:
                 continue
+            # A ball cannot stop by itself: the slow-down is a reception only
+            # when a receiving-team player is within reach of the ball.
+            if players is not None and not any(
+                _teammate_within_reach(
+                    players, point, receiver.team, reception_reach_heights
+                )
+                for point in (previous, current)
+            ):
+                continue
             candidates.append(
                 (incoming_speed / max(outgoing_speed, 1.0), completion, incoming_speed)
             )
@@ -651,6 +662,24 @@ def infer_deceleration_transfer_events(
             )
         )
     return _deduplicate_receptions(events)
+
+def _teammate_within_reach(
+    players: dict[int, list[dict[str, Any]]],
+    ball: dict[str, Any],
+    team: str,
+    reach_heights: float,
+) -> bool:
+    for player in players.get(int(ball["source_frame"]), []):
+        if player.get("team") != team:
+            continue
+        height = max(1.0, float(player["y2"]) - float(player["y1"]))
+        distance = hypot(
+            (float(player["x1"]) + float(player["x2"])) / 2 - float(ball["x"]),
+            float(player["y2"]) - float(ball["y"]),
+        )
+        if distance <= reach_heights * height:
+            return True
+    return False
 
 def merge_transfer_events(
     primary: Iterable[PredictedEvent],

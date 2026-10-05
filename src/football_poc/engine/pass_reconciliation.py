@@ -326,7 +326,24 @@ def reconcile_track_identity_team_switches(
         if len(labels) < minimum_evidence_points:
             return None
         label, count = Counter(labels).most_common(1)[0]
-        return label if count / len(labels) >= 0.6 else None
+        if count / len(labels) < 0.6:
+            return None
+        # The same box clearly showing the other kit shortly before means the
+        # jersey read is mixed (e.g. a white back number on a black shirt).
+        opposite = team_pair[1] if label == team_pair[0] else team_pair[0]
+        recent_opposite = 0
+        for point in points_by_track.get(track_id, []):
+            offset = timestamp - float(point["clip_seconds"])
+            if not 0 <= offset <= 2 * evidence_window_seconds:
+                continue
+            scores = point.get("color_scores")
+            if isinstance(scores, dict) and classify_color_scores(
+                scores, team_profile=team_profile
+            ) == opposite:
+                recent_opposite += 1
+        if recent_opposite >= minimum_evidence_points:
+            return None
+        return label
 
     def stable_precontact_team(
         track_id: int | None,
