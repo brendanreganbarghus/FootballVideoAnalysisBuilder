@@ -593,3 +593,63 @@ def suppress_uncontrolled_opponent_turnovers(
             continue
         accepted.append(event)
     return accepted
+
+
+def suppress_unestablished_brief_opponent_turnovers(
+    events: Iterable[PredictedEvent],
+    possession_segments: Iterable[PossessionSegment],
+    *,
+    maximum_losing_control_seconds: float = 1.0,
+) -> list[PredictedEvent]:
+    """Reject a turnover by a team that never gained possession.
+
+    A defender shadowing a dribbler can briefly look closest to the ball. When
+    no earlier event gave that defender's team the ball and the apparent
+    control is brief, the ball simply stays with the team that already had it.
+    """
+    segments = list(possession_segments)
+    accepted: list[PredictedEvent] = []
+    for event in sorted(events, key=lambda item: item.clip_seconds):
+        previous = next(
+            (
+                prior
+                for prior in reversed(accepted)
+                if prior.event_type in {"pass_candidate", "turnover_candidate"}
+                and prior.team is not None
+            ),
+            None,
+        )
+        if (
+            event.event_type != "turnover_candidate"
+            or event.team is None
+            or event.from_player_track_id is None
+            or previous is None
+        ):
+            accepted.append(event)
+            continue
+        losing_team_gained = (
+            previous.team == event.team
+            if previous.event_type == "pass_candidate"
+            else previous.team != event.team
+        )
+        losing_segment = next(
+            (
+                segment
+                for segment in segments
+                if segment.team == event.team
+                and segment.player_track_id == event.from_player_track_id
+                and segment.start_seconds - 0.04
+                <= event.clip_seconds
+                <= segment.end_seconds + 0.04
+            ),
+            None,
+        )
+        if (
+            losing_team_gained
+            or losing_segment is None
+            or losing_segment.end_seconds - losing_segment.start_seconds
+            > maximum_losing_control_seconds
+        ):
+            accepted.append(event)
+            continue
+    return accepted
