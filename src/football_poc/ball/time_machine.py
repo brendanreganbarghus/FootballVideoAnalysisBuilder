@@ -19,6 +19,32 @@ KICK_TIMING_SPEED_FACTOR = 1.5
 KICK_TIMING_MINIMUM_SPEED_PIXELS_PER_FRAME = 2.0
 KICK_TIMING_MINIMUM_MOVE_PIXELS = 3.0
 
+# A detector sighting is a trusted gap end only when it starts a run of
+# consecutive detector sightings leading away from the gap; a lone or paired
+# sighting may be a wrong box. A gap between two trusted ends may be filled
+# for longer than usual, because both ends pin the ball's real path.
+DETECTOR_BACKED_RUN_LENGTH = 3
+DETECTOR_BACKED_GAP_FACTOR = 2.0
+
+
+def _detector_backed(
+    confirmed_by_frame: Mapping[int, Any],
+    frame: int,
+    *,
+    frame_step: int,
+    direction: int,
+) -> bool:
+    if frame_step < 1:
+        return False
+    for step in range(DETECTOR_BACKED_RUN_LENGTH):
+        entry = confirmed_by_frame.get(frame + direction * step * frame_step)
+        if entry is None or entry.confirming_module not in {
+            CONFIRM_YOLO_MODULE,
+            LOCK_YOLO_CHAIN_MODULE,
+        }:
+            return False
+    return True
+
 
 def _kick_timing_position(
     frame: int,
@@ -165,6 +191,24 @@ def _confirm_time_machine_estimates(
         max_one_sided_seconds = max(0.1, 2 * frame_step / fps)
     anchors = ledger.confirmed_entries()
     sorted_anchors = sorted(anchors, key=lambda entry: entry.source_frame)
+    anchors_by_frame = {entry.source_frame: entry for entry in anchors}
+
+    def bounded_gap(previous: FrameLedgerEntry, following: FrameLedgerEntry) -> bool:
+        gap_seconds = (following.source_frame - previous.source_frame) / fps
+        if gap_seconds <= max_interpolation_seconds:
+            return True
+        return (
+            gap_seconds <= DETECTOR_BACKED_GAP_FACTOR * max_interpolation_seconds
+            and _detector_backed(
+                anchors_by_frame, previous.source_frame,
+                frame_step=frame_step, direction=-1,
+            )
+            and _detector_backed(
+                anchors_by_frame, following.source_frame,
+                frame_step=frame_step, direction=1,
+            )
+        )
+
     images: Mapping[int, np.ndarray] = {}
     if video is not None and colour_range is not None:
         gap_frames = []
@@ -175,8 +219,7 @@ def _confirm_time_machine_estimates(
             if (
                 previous is not None
                 and following is not None
-                and (following.source_frame - previous.source_frame) / fps
-                <= max_interpolation_seconds
+                and bounded_gap(previous, following)
             ):
                 gap_frames.append(frame)
         if gap_frames:
@@ -189,7 +232,7 @@ def _confirm_time_machine_estimates(
         )
         if previous is not None and following is not None:
             gap_seconds = (following.source_frame - previous.source_frame) / fps
-            bounded = gap_seconds <= max_interpolation_seconds
+            bounded = bounded_gap(previous, following)
             if not bounded and not place_possible_regions:
                 ledger.reject(frame, TIME_MACHINE_MODULE, "gap_too_long_to_estimate")
                 continue

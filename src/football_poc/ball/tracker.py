@@ -232,6 +232,60 @@ def _withdraw_off_path_attention_fallbacks(ledger: FrameLedger, module: str) -> 
         ledger.withdraw(frame, module, "attention_fallback_off_neighbour_path")
 
 
+# A motion point is only a moving blob, often a player's boot. When trusted
+# detector runs bracket it on both sides and it sits far off the straight path
+# between them, the boot moved and the ball did not, so the module takes it
+# back. The time machine then fills the frame from the detector sightings
+# instead of anchoring the gap on the boot.
+MOTION_OFF_PATH_BRACKET_STEPS = 16
+
+
+def _withdraw_off_path_motion_points(
+    ledger: FrameLedger, module: str, frame_step: int
+) -> None:
+    if frame_step < 1:
+        return
+    minimum_path_error_diameters = float(
+        SOCCERTRACK_TRAJECTORY_OUTLIER_PROFILE[
+            "global_fallback_outlier_minimum_path_error_ball_diameters"
+        ]
+    )
+    maximum_span = MOTION_OFF_PATH_BRACKET_STEPS * frame_step
+    points = sorted(
+        ledger.confirmed_points(), key=lambda point: point.source_frame
+    )
+    by_frame = {point.source_frame: point for point in points}
+    off_path: list[int] = []
+    for index in range(1, len(points) - 1):
+        point = points[index]
+        if point.confirming_module != module:
+            continue
+        previous = points[index - 1]
+        following = points[index + 1]
+        span = following.source_frame - previous.source_frame
+        if span <= 0 or span > maximum_span:
+            continue
+        if not (
+            _detector_backed(
+                by_frame, previous.source_frame,
+                frame_step=frame_step, direction=-1,
+            )
+            and _detector_backed(
+                by_frame, following.source_frame,
+                frame_step=frame_step, direction=1,
+            )
+        ):
+            continue
+        alpha = (point.source_frame - previous.source_frame) / span
+        expected_x = previous.x + (following.x - previous.x) * alpha
+        expected_y = previous.y + (following.y - previous.y) * alpha
+        path_error = hypot(point.x - expected_x, point.y - expected_y)
+        if path_error / max(point.box_diagonal, 1.0) > minimum_path_error_diameters:
+            off_path.append(point.source_frame)
+    for frame in off_path:
+        ledger.withdraw(frame, module, "motion_off_detector_neighbour_path")
+
+
 # A moving ball cannot nearly stop for one sample and then speed off again in
 # the next. A flipbook pick whose arrival step is far shorter than both the
 # step before and the step after, while the ball moves fast on both sides,
@@ -658,6 +712,9 @@ def _track_cached_balls_impl(
     # Later modules may have filled the neighbours an attention fallback lacked
     # when step 03 judged it, so it is judged again against the final path.
     _withdraw_off_path_attention_fallbacks(ledger, "03_motion_and_optical_flow")
+    _withdraw_off_path_motion_points(
+        ledger, "03_motion_and_optical_flow", frame_step
+    )
     _withdraw_stalled_flipbook_picks(ledger, frame_step)
     # The time machine runs last so visual recovery modules see every gap
     # first; it then gives each remaining frame an estimate or possible region.

@@ -950,3 +950,58 @@ def test_detour_from_slow_long_bracket_needing_fast_leg_20261005T194744548Z() ->
 
     assert run(2099.0) is None
     assert run(1230.0) is not None
+
+def _detector_runs_ledger(motion=None, following_run=3):
+    ledger = ball_tracking.FrameLedger((f, f / 25) for f in range(0, 65, 5))
+    for frame in (0, 5, 10):
+        ledger.confirm(
+            frame, x=600.0 + frame, y=820.0, confirming_module="01_confirm_yolo",
+            evidence={}, confidence=0.5, clip_seconds=frame / 25, box_diagonal=10,
+        )
+    for frame in (45, 50, 55)[:following_run]:
+        ledger.confirm(
+            frame, x=600.0 + frame, y=820.0, confirming_module="00_lock_yolo_chains",
+            evidence={}, confidence=0.5, clip_seconds=frame / 25, box_diagonal=10,
+        )
+    if motion is not None:
+        ledger.confirm(
+            40, x=motion[0], y=motion[1],
+            confirming_module="03_motion_and_optical_flow", evidence={},
+            confidence=1.0, clip_seconds=40 / 25, box_diagonal=10,
+            point_evidence="raw_motion_near_feet",
+        )
+    return ledger
+
+
+def test_motion_point_off_detector_run_path_20261006T142032054Z() -> None:
+    """A motion blob (a boot) far off the straight path between trusted
+    detector runs on both sides is taken back; one on the path is kept, and
+    one whose bracket end is a lone or paired sighting is left alone."""
+    def run(motion, following_run=3):
+        ledger = _detector_runs_ledger(motion, following_run)
+        ball_tracking._withdraw_off_path_motion_points(
+            ledger, "03_motion_and_optical_flow", 5
+        )
+        return ledger.confirmed(40)
+
+    assert run((720.0, 900.0)) is None
+    assert run((640.0, 820.0)) is not None
+    assert run((720.0, 900.0), following_run=2) is not None
+
+
+def test_time_machine_fills_longer_gap_between_detector_runs_20261006T142032086Z() -> None:
+    """A gap longer than the normal fill limit is filled when trusted detector
+    runs pin both ends, and left open when one end is a short run."""
+    def run(following_run):
+        ledger = ball_tracking._confirm_time_machine_estimates(
+            _detector_runs_ledger(following_run=following_run),
+            fps=25.0, frame_step=5, width=3840, height=1080,
+            max_speed_pixels_per_second=1600.0, place_possible_regions=False,
+        )
+        return ledger.confirmed(25)
+
+    filled = run(3)
+    assert filled is not None
+    assert filled.confirming_module == "02_time_machine"
+    assert abs(filled.x - 625.0) < 1e-6
+    assert run(2) is None
