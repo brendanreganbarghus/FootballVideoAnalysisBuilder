@@ -12,6 +12,7 @@ _MODULE_ORDER = (
     "flipbook.py",
     "aerial.py",
     "scenery.py",
+    "restart_spot.py",
     "tracker.py",
     "state_estimates.py",
     "selection.py",

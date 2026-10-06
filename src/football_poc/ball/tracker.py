@@ -15,6 +15,7 @@ def track_cached_balls(
     analysis_start_seconds: float | None = None,
     analysis_end_seconds: float | None = None,
     reuse_decoded_frame_cache: bool = False,
+    pitch_calibration_path: Path | None = None,
 ) -> Path:
     manifest = BenchmarkManifest.load(manifest_path)
     metadata, records = _load_cache(cache_path, manifest.sha256)
@@ -53,6 +54,7 @@ def track_cached_balls(
             minimum_track_points=minimum_track_points,
             analysis_start_seconds=analysis_start_seconds,
             analysis_end_seconds=analysis_end_seconds,
+            pitch_calibration_path=pitch_calibration_path,
         )
         succeeded = True
         return result
@@ -537,6 +539,7 @@ def _track_cached_balls_impl(
     minimum_track_points: int = 3,
     analysis_start_seconds: float | None = None,
     analysis_end_seconds: float | None = None,
+    pitch_calibration_path: Path | None = None,
 ) -> Path:
     manifest = BenchmarkManifest.load(manifest_path)
     metadata, records = _load_cache(cache_path, manifest.sha256)
@@ -860,6 +863,32 @@ def _track_cached_balls_impl(
     _withdraw_off_path_weak_detector_runs(ledger, frame_step)
     _withdraw_stalled_flipbook_picks(ledger, frame_step)
     _withdraw_isolated_unbacked_islands(ledger, fps=manifest.fps, frame_step=frame_step)
+    learned_colour_range = _learned_ball_colour_range(
+        [point for record in records for point in _ball_points(record)],
+        manifest.video,
+    )
+    strong_diagonals = [
+        float(point.box_diagonal)
+        for point in selected_detector_points
+        if point.source_attribution == "yolo26_observed"
+        and point.confidence >= BALL_COLOUR_STRONG_CONFIDENCE
+        and point.box_diagonal
+    ]
+    ledger = _timed_tracker_call(
+        RESTART_SPOT_MODULE,
+        _confirm_restart_spot_colour,
+        ledger,
+        video=manifest.video,
+        corners=_calibrated_pitch_corners(
+            pitch_calibration_path, (float(width), float(height))
+        ),
+        boundary=_calibrated_pitch_boundary(
+            pitch_calibration_path, (float(width), float(height))
+        ),
+        colour_range=learned_colour_range,
+        ball_diagonal=median(strong_diagonals) if strong_diagonals else 0.0,
+        fps=manifest.fps,
+    )
     # The time machine runs last so visual recovery modules see every gap
     # first; it then gives each remaining frame an estimate or possible region.
     ledger = _timed_tracker_call(
@@ -873,10 +902,7 @@ def _track_cached_balls_impl(
         max_speed_pixels_per_second=max_speed_pixels_per_second,
         place_possible_regions=False,
         video=manifest.video,
-        colour_range=_learned_ball_colour_range(
-            [point for record in records for point in _ball_points(record)],
-            manifest.video,
-        ),
+        colour_range=learned_colour_range,
         records_by_frame=records_by_frame,
     )
     accepted = _single_track_from_ledger(ledger)

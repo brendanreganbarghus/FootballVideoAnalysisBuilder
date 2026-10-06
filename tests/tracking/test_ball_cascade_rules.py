@@ -1155,3 +1155,84 @@ def test_isolated_island_without_detector_run_is_withdrawn_20261006T165540027Z()
     assert ledger.confirmed(105) is None
     assert ledger.confirmed(45) is not None
     assert ledger.confirmed(155) is not None
+
+
+def test_still_ball_spot_at_calibrated_corner_is_recovered_20261006T180937511Z() -> None:
+    """A still, new ball-coloured spot on the pitch at a corner next to a gap is the ball."""
+    corner = (100.0, 100.0)
+    diagonal = 10.0
+    # Pitch lies below and left of the corner; a person by the flag stands outside.
+    boundary = np.array([[0, 100], [100, 100], [100, 300], [0, 300]], dtype=np.float32)
+    origin = (70, 70)
+    grass = np.full((61, 61, 3), (40, 120, 40), dtype=np.uint8)
+    background = cv2.cvtColor(grass, cv2.COLOR_BGR2LAB).astype(np.float32)
+    orange = np.array([[(20, 110, 235)]], dtype=np.uint8)
+    orange_a = float(cv2.cvtColor(orange, cv2.COLOR_BGR2LAB)[0, 0, 1])
+    colour_range = (orange_a - 5.0, orange_a + 5.0)
+
+    def frame(with_spots: bool) -> np.ndarray:
+        image = grass.copy()
+        if with_spots:
+            image[34:37, 24:27] = orange[0, 0]  # ball at (95, 105): on the pitch
+            image[19:22, 39:42] = orange[0, 0]  # person at (110, 90): off the pitch
+        return image
+
+    blobs = ball_tracking._restart_spot_blobs(
+        frame(True),
+        background,
+        origin=origin,
+        corner=corner,
+        colour_range=colour_range,
+        ball_diagonal=diagonal,
+        boundary=boundary,
+    )
+    assert [(round(x), round(y)) for x, y in blobs] == [(95, 105)]
+    assert (
+        ball_tracking._restart_spot_blobs(
+            grass,
+            background,
+            origin=origin,
+            corner=corner,
+            colour_range=colour_range,
+            ball_diagonal=diagonal,
+            boundary=boundary,
+        )
+        == []
+    )
+
+    ledger = ball_tracking.FrameLedger([(f, f / 25) for f in range(0, 60, 5)])
+    ledger.confirm(
+        0, x=130.0, y=140.0, confirming_module="01_confirm_yolo",
+        evidence={}, confidence=0.8,
+    )
+    plan = ball_tracking._restart_spot_search_plan(ledger, [corner, (900.0, 900.0)], diagonal)
+    assert plan == [(tuple(range(5, 60, 5)), corner)]
+
+    gap = plan[0][0]
+    still = ball_tracking._still_restart_spot_run(
+        {f: ([(95.0, 105.0)] if f >= 20 else []) for f in gap},
+        gap,
+        ball_diagonal=diagonal,
+        fps=25.0,
+    )
+    assert [f for f, _, _ in still] == list(range(20, 60, 5))
+    # Two still spots: unclear which is the ball, so nothing is recovered.
+    assert (
+        ball_tracking._still_restart_spot_run(
+            {f: [(95.0, 105.0), (60.0, 140.0)] for f in gap},
+            gap,
+            ball_diagonal=diagonal,
+            fps=25.0,
+        )
+        == []
+    )
+    # A spot seen for less than a second is not a placed ball.
+    assert (
+        ball_tracking._still_restart_spot_run(
+            {f: ([(95.0, 105.0)] if f >= 45 else []) for f in gap},
+            gap,
+            ball_diagonal=diagonal,
+            fps=25.0,
+        )
+        == []
+    )

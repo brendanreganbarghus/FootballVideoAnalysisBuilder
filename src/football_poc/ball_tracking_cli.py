@@ -52,6 +52,12 @@ def build_parser() -> argparse.ArgumentParser:
             "an interrupted run."
         ),
     )
+    parser.add_argument(
+        "--pitch-calibration",
+        type=Path,
+        default=None,
+        help="Static camera pitch calibration; enables the corner restart-spot search.",
+    )
     return parser
 
 
@@ -70,6 +76,7 @@ def main() -> None:
         analysis_start_seconds=args.analysis_start_seconds,
         analysis_end_seconds=args.analysis_end_seconds,
         reuse_decoded_frame_cache=args.reuse_decoded_frame_cache,
+        pitch_calibration_path=args.pitch_calibration,
     )
 
 

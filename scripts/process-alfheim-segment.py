@@ -682,6 +682,8 @@ def main() -> None:
                     str(cache / "detections.jsonl"),
                     "--output",
                     str(cache),
+                    "--pitch-calibration",
+                    str(alfheim_config_path("pitch-calibration.json")),
                     *(
                         ["--reuse-decoded-frame-cache"]
                         if args.resume_after_detection
