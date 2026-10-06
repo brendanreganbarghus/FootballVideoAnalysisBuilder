@@ -382,6 +382,52 @@ def _withdraw_off_path_weak_detector_runs(
         ledger.withdraw(frame, CONFIRM_YOLO_MODULE, "weak_detector_run_off_trusted_path")
 
 
+# A short island of points cut off from the rest of the track by at least a
+# second without any point (or by the clip edge) has nothing outside it to
+# confirm it. Without a detector-backed run inside, its sightings are lone
+# weak boxes (often a boot) plus searches seeded from them, so the island is
+# taken back and the frames are left honestly empty.
+ISOLATED_ISLAND_MINIMUM_GAP_SECONDS = 1.0
+
+
+def _withdraw_isolated_unbacked_islands(
+    ledger: FrameLedger, *, fps: float, frame_step: int
+) -> None:
+    if fps <= 0 or frame_step < 1:
+        return
+    minimum_gap_samples = max(
+        1, int(-(-ISOLATED_ISLAND_MINIMUM_GAP_SECONDS * fps // frame_step))
+    )
+    by_frame = {point.source_frame: point for point in ledger.confirmed_points()}
+    sampled = sorted(ledger.entries)
+    islands: list[list[int]] = []
+    current: list[int] = []
+    empty_run = minimum_gap_samples
+    for frame in sampled:
+        if frame not in by_frame:
+            empty_run += 1
+            continue
+        if current and empty_run >= minimum_gap_samples:
+            islands.append(current)
+            current = []
+        current.append(frame)
+        empty_run = 0
+    if current:
+        islands.append(current)
+    for island in islands:
+        if any(
+            _detector_backed(by_frame, frame, frame_step=frame_step, direction=1)
+            for frame in island
+        ):
+            continue
+        for frame in island:
+            ledger.withdraw(
+                frame,
+                by_frame[frame].confirming_module,
+                "isolated_island_without_detector_run",
+            )
+
+
 # A moving ball cannot nearly stop for one sample and then speed off again in
 # the next. A flipbook pick whose arrival step is far shorter than both the
 # step before and the step after, while the ball moves fast on both sides,
@@ -813,6 +859,7 @@ def _track_cached_balls_impl(
     )
     _withdraw_off_path_weak_detector_runs(ledger, frame_step)
     _withdraw_stalled_flipbook_picks(ledger, frame_step)
+    _withdraw_isolated_unbacked_islands(ledger, fps=manifest.fps, frame_step=frame_step)
     # The time machine runs last so visual recovery modules see every gap
     # first; it then gives each remaining frame an estimate or possible region.
     ledger = _timed_tracker_call(

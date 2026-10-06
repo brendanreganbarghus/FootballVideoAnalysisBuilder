@@ -140,3 +140,4 @@ baseline suites (`tests/test_possession.py`, `tests/test_match_state.py`,
 | 20261006T155808731Z | tracking | A weak proposal at a player's feet that lies on a smooth path across | `tests/tracking/test_ball_cascade_rules.py::test_smooth_gap_path_point_skips_colour_veto_20261006T155808731Z` |
 | 20261006T155808732Z | tracking | A weak detector run far off both the path between trusted detector runs | `tests/tracking/test_ball_cascade_rules.py::test_weak_detector_run_off_trusted_path_20261006T155808732Z` |
 | 20261006T162118974Z | tracking | A detour is withdrawn unless both neighbours are weaker than it. | `tests/tracking/test_ball_cascade_rules.py::test_detour_withdrawn_when_any_neighbour_is_stronger_20261006T162118974Z` |
+| 20261006T165540027Z | tracking | A lone weak island cut off by a second of empty frames is withdrawn. | `tests/tracking/test_ball_cascade_rules.py::test_isolated_island_without_detector_run_is_withdrawn_20261006T165540027Z` |

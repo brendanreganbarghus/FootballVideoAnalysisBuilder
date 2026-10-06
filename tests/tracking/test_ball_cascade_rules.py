@@ -1124,3 +1124,34 @@ def test_detour_withdrawn_when_any_neighbour_is_stronger_20261006T162118974Z() -
     # The earlier neighbour is weaker than the detour but the later one is
     # stronger, so the detour is still withdrawn.
     assert (ledger.confirmed(3).x, ledger.confirmed(3).y) == (130.0, 100.0)
+
+
+def test_isolated_island_without_detector_run_is_withdrawn_20261006T165540027Z() -> None:
+    """A lone weak island cut off by a second of empty frames is withdrawn."""
+    ledger = ball_tracking.FrameLedger([(frame, frame / 25) for frame in range(0, 200, 5)])
+
+    def confirm(frame: int, x: float, module: str) -> None:
+        ledger.confirm(
+            frame,
+            x=x,
+            y=100.0,
+            confirming_module=module,
+            evidence={},
+            confidence=0.3,
+            box_diagonal=10.0,
+            point_source_attribution="yolo26_observed",
+        )
+
+    for frame in range(0, 50, 5):
+        confirm(frame, 100.0 + frame, "00_lock_yolo_chains")
+    confirm(100, 700.0, "01_confirm_yolo")
+    confirm(105, 705.0, "04_focused_multiscale")
+    for frame in (150, 155, 160):
+        confirm(frame, 300.0 + frame, "01_confirm_yolo")
+
+    ball_tracking._withdraw_isolated_unbacked_islands(ledger, fps=25, frame_step=5)
+
+    assert ledger.confirmed(100) is None
+    assert ledger.confirmed(105) is None
+    assert ledger.confirmed(45) is not None
+    assert ledger.confirmed(155) is not None
