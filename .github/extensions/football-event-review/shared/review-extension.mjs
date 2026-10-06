@@ -4803,9 +4803,26 @@ function sameCoordinateDecision(left, right) {
     && Math.abs(Number(left.y) - Number(right.y)) <= 1;
 }
 
+// The round a detected-ball rerun opens holds the frames where the engine
+// still differs from the reviewer's earlier decisions, carried in as starting
+// points. Those frames and carried decisions belong to it by design.
+function engineDiffersSourceFrames(batches, batch) {
+  if (batch.engineDiffers) {
+    return batch.engineDiffersFrames || batch.frames || [];
+  }
+  const previous = batches.find(
+    (candidate) => Number(candidate.number) === Number(batch.number) - 1,
+  );
+  return Array.isArray(previous?.ballCheck?.left) ? previous.ballCheck.left : null;
+}
+
 // A ready round must only hold frames that still need a decision plus the
 // decisions made in it; stale copies of earlier rounds' decisions are dropped.
+// An engine-differs round is left alone: its earlier decisions are carried in.
 function dedupeReadyCoordinateRound(batches, batch) {
+  if (engineDiffersSourceFrames(batches, batch)) {
+    return 0;
+  }
   const earlier = new Map();
   for (const candidate of batches) {
     if (candidate === batch) continue;
@@ -4846,15 +4863,42 @@ async function repairReadyCoordinateRound(segment) {
       "There is no ready coordinate round to repair.",
     );
   }
-  const removed = dedupeReadyCoordinateRound(
-    context.state.coordinateReview.batches || [],
-    batch,
-  );
+  const batches = context.state.coordinateReview.batches || [];
+  const sourceFrames = engineDiffersSourceFrames(batches, batch);
+  let restored = 0;
+  if (sourceFrames) {
+    // Put back frames an earlier cleanup dropped, each with the reviewer's
+    // latest earlier decision as its starting point. Decisions already made
+    // in this round are kept as they are.
+    const decisions = {
+      ...(context.state.trajectoryAudit?.observations || {}),
+      ...Object.assign(
+        {},
+        ...batches
+          .filter((candidate) => candidate !== batch)
+          .map((candidate) => candidate.observations || {}),
+      ),
+    };
+    const frames = new Set((batch.frames || []).map(Number));
+    batch.observations = {...(batch.observations || {})};
+    for (const frame of sourceFrames.map(Number)) {
+      if (frames.has(frame)) continue;
+      frames.add(frame);
+      restored += 1;
+      const decision = decisions[String(frame)];
+      if (decision && !batch.observations[String(frame)]) {
+        batch.observations[String(frame)] = {...decision, frame, approved: true};
+      }
+    }
+    batch.frames = [...frames].sort((left, right) => left - right);
+  }
+  const removed = dedupeReadyCoordinateRound(batches, batch);
   context.state.coordinateReview.flaggedFrames = batch.frames;
   await saveState(segment, context.state);
   return {
     batchId: batch.id,
     removedDuplicates: removed,
+    restoredFrames: restored,
     frameCount: batch.frames.length,
     decisions: Object.keys(batch.observations).length,
   };
@@ -5104,6 +5148,9 @@ async function reconcileCoordinateReviewBatch(context) {
       number: nextNumber,
       status: "ready",
       frames: roundFrames,
+      ...(checkFrames
+        ? {engineDiffers: true, engineDiffersFrames: [...roundFrames]}
+        : {}),
       // The reviewer's latest decision is carried in as a starting point;
       // they confirm or change it before the next round can be sent.
       observations: checkFrames
