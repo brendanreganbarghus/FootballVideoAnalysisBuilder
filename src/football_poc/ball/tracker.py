@@ -158,6 +158,7 @@ def _confirm_track_points_from_module(
             continue
         if (
             ball_colour_matches is not None
+            and not point.smooth_gap_path
             and _is_weak_feet_proposal(point, record)
             and not ball_colour_matches(point)
         ):
@@ -284,6 +285,101 @@ def _withdraw_off_path_motion_points(
             off_path.append(point.source_frame)
     for frame in off_path:
         ledger.withdraw(frame, module, "motion_off_detector_neighbour_path")
+
+
+# A short run of weak detector sightings (often a boot) is taken back when it
+# sits far off both the straight path between trusted detector runs on either
+# side and the path between its immediate confirmed neighbours, and a trusted
+# run has a stronger sighting. Checking the immediate neighbours too keeps a
+# ball that turned during a long gap between the trusted runs.
+WEAK_DETECTOR_OFF_PATH_MAX_RUN = 2
+
+
+def _withdraw_off_path_weak_detector_runs(
+    ledger: FrameLedger, frame_step: int
+) -> None:
+    if frame_step < 1:
+        return
+    minimum_path_error_diameters = float(
+        SOCCERTRACK_TRAJECTORY_OUTLIER_PROFILE[
+            "global_fallback_outlier_minimum_path_error_ball_diameters"
+        ]
+    )
+    detector_modules = {CONFIRM_YOLO_MODULE, LOCK_YOLO_CHAIN_MODULE}
+    by_frame = {point.source_frame: point for point in ledger.confirmed_points()}
+
+    def is_detector(frame: int) -> bool:
+        point = by_frame.get(frame)
+        return point is not None and point.confirming_module in detector_modules
+
+    def anchor(frame: int, direction: int) -> int | None:
+        for offset in range(1, MOTION_OFF_PATH_BRACKET_STEPS + 1):
+            candidate = frame + direction * offset * frame_step
+            if _detector_backed(
+                by_frame, candidate, frame_step=frame_step, direction=direction
+            ):
+                return candidate
+        return None
+
+    def strongest_in_run(frame: int, direction: int) -> float:
+        return max(
+            float(by_frame[frame + direction * step * frame_step].confidence or 0.0)
+            for step in range(DETECTOR_BACKED_RUN_LENGTH)
+        )
+
+    off_path: list[int] = []
+    for frame in sorted(by_frame):
+        point = by_frame[frame]
+        if point.confirming_module != CONFIRM_YOLO_MODULE or is_detector(
+            frame - frame_step
+        ):
+            continue
+        run = [frame]
+        while is_detector(run[-1] + frame_step):
+            run.append(run[-1] + frame_step)
+        if len(run) > WEAK_DETECTOR_OFF_PATH_MAX_RUN or any(
+            by_frame[member].confirming_module != CONFIRM_YOLO_MODULE
+            for member in run
+        ):
+            continue
+        previous_frame = anchor(run[0], -1)
+        following_frame = anchor(run[-1], 1)
+        if previous_frame is None or following_frame is None:
+            continue
+        strongest_member = max(
+            float(by_frame[member].confidence or 0.0) for member in run
+        )
+        if not (
+            strongest_in_run(previous_frame, -1) > strongest_member
+            or strongest_in_run(following_frame, 1) > strongest_member
+        ):
+            continue
+        neighbours = sorted(by_frame)
+        before = [f for f in neighbours if f < run[0]]
+        after = [f for f in neighbours if f > run[-1]]
+        if not before or not after:
+            continue
+
+        def path_errors(start: int, end: int) -> list[float]:
+            first, last = by_frame[start], by_frame[end]
+            errors = []
+            for member in run:
+                alpha = (member - start) / (end - start)
+                expected_x = first.x + (last.x - first.x) * alpha
+                expected_y = first.y + (last.y - first.y) * alpha
+                errors.append(
+                    hypot(by_frame[member].x - expected_x, by_frame[member].y - expected_y)
+                    / max(by_frame[member].box_diagonal, 1.0)
+                )
+            return errors
+
+        if min(
+            path_errors(previous_frame, following_frame)
+            + path_errors(before[-1], after[0])
+        ) > minimum_path_error_diameters:
+            off_path.extend(run)
+    for frame in off_path:
+        ledger.withdraw(frame, CONFIRM_YOLO_MODULE, "weak_detector_run_off_trusted_path")
 
 
 # A moving ball cannot nearly stop for one sample and then speed off again in
@@ -715,6 +811,7 @@ def _track_cached_balls_impl(
     _withdraw_off_path_motion_points(
         ledger, "03_motion_and_optical_flow", frame_step
     )
+    _withdraw_off_path_weak_detector_runs(ledger, frame_step)
     _withdraw_stalled_flipbook_picks(ledger, frame_step)
     # The time machine runs last so visual recovery modules see every gap
     # first; it then gives each remaining frame an estimate or possible region.

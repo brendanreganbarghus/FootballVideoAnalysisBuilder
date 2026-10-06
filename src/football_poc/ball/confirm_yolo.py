@@ -735,14 +735,14 @@ def _withdraw_one_frame_detours(
                 )
                 if previous is None or following is None:
                     continue
-                # Only detections weaker than both neighbours are the detour;
-                # a stronger one means the neighbours are the doubtful points.
+                # Only detections weaker than a neighbour are the detour; when
+                # both neighbours are weaker, they are the doubtful points.
                 # A neighbour locked as a multi-frame detector chain is not
                 # doubtful: agreement across frames outweighs one score.
                 strongest_member = max(
                     float(member.confidence or 0.0) for member in members
                 )
-                if any(
+                if all(
                     neighbour.confirming_module != LOCK_YOLO_CHAIN_MODULE
                     and float(neighbour.confidence or 0.0) <= strongest_member
                     for neighbour in (previous, following)
@@ -792,35 +792,66 @@ def _earlier_object_reason(
     ledger: FrameLedger | None,
     candidates_by_frame: dict[int, list[_BallCandidate]],
     frame_step: int,
+    fps: float = 0.0,
+    max_speed_pixels_per_second: float = 0.0,
 ) -> str | None:
     # A box where the detector already saw something one sample earlier,
     # while the confirmed ball was clearly elsewhere, is that other object
-    # (a boot or a mark), not the ball arriving.
+    # (a boot or a mark), not the ball arriving. Further back, the other
+    # object may have moved at player speed: a box within that reach of an
+    # earlier detection that sat clearly apart from the confirmed ball at the
+    # same moment is still that object, even if the detector missed it in
+    # between. The most recent confirmed ball near the box clears it.
     if ledger is None or frame_step < 1:
         return None
-    previous = ledger.entries.get(point.source_frame - frame_step)
-    if (
-        previous is None
-        or previous.status != "confirmed"
-        or previous.x is None
-        or previous.y is None
-    ):
-        return None
     radius = EARLIER_OBJECT_RADIUS_PIXELS
-    if hypot(previous.x - point.x, previous.y - point.y) <= (
-        EARLIER_OBJECT_BALL_SEPARATION * radius
-    ):
-        return None
-    if any(
-        hypot(candidate.point.x - point.x, candidate.point.y - point.y) <= radius
-        for candidate in candidates_by_frame.get(point.source_frame - frame_step, [])
-    ):
-        return "same_spot_as_earlier_non_ball_detection"
+    separation = EARLIER_OBJECT_BALL_SEPARATION * radius
+    lookback = EARLIER_OBJECT_LOOKBACK_SAMPLES
+    if fps <= 0 or max_speed_pixels_per_second <= 0:
+        lookback = 1
+    for samples in range(1, lookback + 1):
+        earlier_frame = point.source_frame - samples * frame_step
+        ball = ledger.entries.get(earlier_frame)
+        if (
+            ball is None
+            or ball.status != "confirmed"
+            or ball.x is None
+            or ball.y is None
+        ):
+            continue
+        if hypot(ball.x - point.x, ball.y - point.y) <= separation:
+            return None
+        reach = radius
+        if samples > 1:
+            reach += (
+                max_speed_pixels_per_second
+                * EARLIER_OBJECT_PLAYER_SPEED_FRACTION
+                * samples
+                * frame_step
+                / fps
+            )
+        for candidate in candidates_by_frame.get(earlier_frame, []):
+            if hypot(candidate.point.x - point.x, candidate.point.y - point.y) > reach:
+                continue
+            if samples == 1:
+                return "same_spot_as_earlier_non_ball_detection"
+            # A clearly stronger box is a better sighting than that earlier
+            # object, so only a box no stronger than it is that object.
+            if (
+                hypot(candidate.point.x - ball.x, candidate.point.y - ball.y)
+                > separation
+                and point.confidence
+                <= candidate.point.confidence + EARLIER_OBJECT_CONFIDENCE_MARGIN
+            ):
+                return "moved_on_from_earlier_non_ball_detection"
     return None
 
 
 EARLIER_OBJECT_RADIUS_PIXELS = 30.0
 EARLIER_OBJECT_BALL_SEPARATION = 3.0
+EARLIER_OBJECT_LOOKBACK_SAMPLES = 4
+EARLIER_OBJECT_PLAYER_SPEED_FRACTION = 0.125
+EARLIER_OBJECT_CONFIDENCE_MARGIN = 0.05
 
 
 def _long_unseen_jump(
@@ -896,6 +927,8 @@ def _candidate_rejection_reason(
         ledger=ledger,
         candidates_by_frame=candidates_by_frame,
         frame_step=frame_step,
+        fps=fps,
+        max_speed_pixels_per_second=max_speed_pixels_per_second,
     )
     if earlier_reason is not None:
         return earlier_reason, False

@@ -1005,3 +1005,122 @@ def test_time_machine_fills_longer_gap_between_detector_runs_20261006T142032086Z
     assert filled.confirming_module == "02_time_machine"
     assert abs(filled.x - 625.0) < 1e-6
     assert run(2) is None
+
+
+def test_box_near_earlier_object_moved_at_player_speed_20261006T155808730Z() -> None:
+    """A box within player-speed reach of an earlier non-ball detection is
+    that object (a boot), unless the box is clearly stronger than it or the
+    confirmed ball was near the box at that earlier moment."""
+    def reason(box_confidence: float, ball=None):
+        ledger = ball_tracking.FrameLedger((f, f / 25) for f in (0, 5, 10, 15))
+        if ball is not None:
+            ledger.confirm(
+                10, x=ball[0], y=ball[1], confirming_module="01_confirm_yolo",
+                evidence={}, confidence=0.8,
+            )
+        ledger.confirm(
+            0, x=100.0, y=100.0, confirming_module="01_confirm_yolo",
+            evidence={}, confidence=0.8,
+        )
+        earlier_boot = _candidate(0, x=400.0, y=300.0, confidence=0.2)
+        box = ball_tracking.BallPoint(15, 0.6, box_confidence, 440.0, 300.0)
+        return ball_tracking._earlier_object_reason(
+            box,
+            ledger=ledger,
+            candidates_by_frame={0: [earlier_boot]},
+            frame_step=5,
+            fps=25.0,
+            max_speed_pixels_per_second=1600.0,
+        )
+
+    assert reason(0.22) == "moved_on_from_earlier_non_ball_detection"
+    assert reason(0.79) is None
+    assert reason(0.22, ball=(440.0, 290.0)) is None
+
+
+def test_smooth_gap_path_point_skips_colour_veto_20261006T155808731Z() -> None:
+    """A weak proposal at a player's feet that lies on a smooth path across
+    the gap is not vetoed by the colour check, which a nearby boot can fool."""
+    def run(smooth: bool):
+        ledger = ball_tracking.FrameLedger([(0, 0.0), (5, 0.2)])
+        ledger.confirm(
+            5, x=110.0, y=190.0, confirming_module="01_confirm_yolo",
+            evidence={}, confidence=0.6, clip_seconds=0.2,
+        )
+        point = ball_tracking.BallPoint(
+            0, 0.0, 0.05, 105.0, 190.0, evidence="focused_multiscale_detector",
+            source_attribution="focused_multiscale", smooth_gap_path=smooth,
+        )
+        record = {
+            "source_frame": 0,
+            "detections": [{
+                "class_name": "person", "confidence": 0.9,
+                "x1": 90.0, "y1": 100.0, "x2": 120.0, "y2": 200.0,
+            }],
+        }
+        ball_tracking._confirm_track_points_from_module(
+            ledger, "04_focused_multiscale",
+            [ball_tracking.BallTrack(1, [point])],
+            records_by_frame={0: record}, fps=25.0,
+            max_speed_pixels_per_second=1600.0,
+            ball_colour_matches=lambda _point: False,
+        )
+        return ledger.confirmed(0)
+
+    assert run(False) is None
+    assert run(True) is not None
+
+
+def test_weak_detector_run_off_trusted_path_20261006T155808732Z() -> None:
+    """A weak detector run far off both the path between trusted detector runs
+    and the path between its immediate neighbours is taken back; one on the
+    neighbour path (the ball turned) is kept."""
+    def run(off_y: float, neighbour_y: float = 500.0):
+        ledger = ball_tracking.FrameLedger((f, f / 25) for f in range(0, 100, 5))
+        for frame in (0, 5, 10):
+            ledger.confirm(
+                frame, x=100.0 + frame, y=500.0, confirming_module="01_confirm_yolo",
+                evidence={}, confidence=0.7, box_diagonal=20.0,
+            )
+        for frame in (80, 85, 90):
+            ledger.confirm(
+                frame, x=100.0 + frame, y=500.0,
+                confirming_module="00_lock_yolo_chains",
+                evidence={}, confidence=0.3, box_diagonal=20.0,
+            )
+        ledger.confirm(
+            30, x=130.0, y=neighbour_y, confirming_module="03_motion_and_optical_flow",
+            evidence={}, confidence=0.5, box_diagonal=20.0,
+        )
+        ledger.confirm(
+            50, x=150.0, y=off_y, confirming_module="01_confirm_yolo",
+            evidence={}, confidence=0.32, box_diagonal=20.0,
+        )
+        ball_tracking._withdraw_off_path_weak_detector_runs(ledger, 5)
+        return ledger.confirmed(50)
+
+    assert run(800.0) is None
+    assert run(700.0, neighbour_y=800.0) is not None
+
+
+def test_detour_withdrawn_when_any_neighbour_is_stronger_20261006T162118974Z() -> None:
+    """A detour is withdrawn unless both neighbours are weaker than it."""
+    frames = list(range(6))
+    path = {
+        frame: _candidate(frame, x=100.0 + 10 * frame, y=100.0, confidence=0.8)
+        for frame in (4, 5)
+    }
+    path[0] = _candidate(0, x=100.0, y=100.0, confidence=0.2)
+    path[1] = _candidate(1, x=110.0, y=100.0, confidence=0.2)
+    detour = _candidate(3, x=700.0, y=100.0, confidence=0.3)
+    on_path = _candidate(3, x=130.0, y=100.0, confidence=0.25)
+    candidates = {frame: [path[frame]] for frame in path}
+    candidates[2] = []
+    candidates[3] = [detour, on_path]
+    selected = [path[frame].point for frame in path] + [detour.point]
+
+    ledger = _run_confirm(frames, candidates, selected)
+
+    # The earlier neighbour is weaker than the detour but the later one is
+    # stronger, so the detour is still withdrawn.
+    assert (ledger.confirmed(3).x, ledger.confirmed(3).y) == (130.0, 100.0)

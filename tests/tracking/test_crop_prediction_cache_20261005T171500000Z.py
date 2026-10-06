@@ -78,7 +78,7 @@ def test_crop_prediction_cache_hit_returns_identical_boxes_20261005T171500000Z(
     assert second[0].names[32] == "sports ball"
 
 
-def test_crop_prediction_cache_misses_on_changed_pixels_or_options_20261005T171500000Z(
+def test_crop_prediction_cache_misses_on_changed_pixels_or_options_20261005T171500001Z(
     tmp_path, monkeypatch
 ):
     predictor, fake = _predictor(tmp_path, monkeypatch)
@@ -91,7 +91,7 @@ def test_crop_prediction_cache_misses_on_changed_pixels_or_options_20261005T1715
     assert fake.calls == 3
 
 
-def test_crop_model_is_uncached_without_cache_directory_20261005T171500000Z(
+def test_crop_model_is_uncached_without_cache_directory_20261005T171500002Z(
     monkeypatch,
 ):
     sentinel = object()
