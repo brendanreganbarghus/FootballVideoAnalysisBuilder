@@ -13,6 +13,7 @@ _MODULE_ORDER = (
     "aerial.py",
     "scenery.py",
     "restart_spot.py",
+    "colour_walk.py",
     "tracker.py",
     "state_estimates.py",
     "selection.py",

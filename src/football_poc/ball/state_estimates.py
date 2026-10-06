@@ -14,6 +14,7 @@ DIRECT_EVIDENCE_MODULES = frozenset(
         "05_short_stationary",
         "06_time_machine_region_search",
         "08_restart_spot_colour",
+        "09_colour_walk",
     }
 )
 

@@ -889,6 +889,17 @@ def _track_cached_balls_impl(
         ball_diagonal=median(strong_diagonals) if strong_diagonals else 0.0,
         fps=manifest.fps,
     )
+    ledger = _timed_tracker_call(
+        COLOUR_WALK_MODULE,
+        _confirm_colour_walk,
+        ledger,
+        video=manifest.video,
+        records_by_frame=records_by_frame,
+        colour_range=learned_colour_range,
+        ball_diagonal=median(strong_diagonals) if strong_diagonals else 0.0,
+        fps=manifest.fps,
+        max_speed_pixels_per_second=max_speed_pixels_per_second,
+    )
     # The time machine runs last so visual recovery modules see every gap
     # first; it then gives each remaining frame an estimate or possible region.
     ledger = _timed_tracker_call(

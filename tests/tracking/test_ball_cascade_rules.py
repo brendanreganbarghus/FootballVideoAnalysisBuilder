@@ -1236,3 +1236,61 @@ def test_still_ball_spot_at_calibrated_corner_is_recovered_20261006T180937511Z()
         )
         == []
     )
+
+
+def test_ball_colour_followed_from_both_neighbours_fills_gap_20261006T201256004Z() -> None:
+    """A gap is filled only where colour walks from both confirmed neighbours meet."""
+    diagonal = 10.0
+    grass = np.full((200, 400, 3), (40, 120, 40), dtype=np.uint8)
+    orange = np.array([[(20, 110, 235)]], dtype=np.uint8)
+    orange_a = float(cv2.cvtColor(orange, cv2.COLOR_BGR2LAB)[0, 0, 1])
+    colour_range = (orange_a - 5.0, orange_a + 5.0)
+
+    image = grass.copy()
+    image[98:103, 98:103] = orange[0, 0]  # ball at (100, 100)
+    image[48:53, 148:153] = orange[0, 0]  # orange shirt at (150, 50)
+    person = {"detections": [
+        {"class_name": "person", "confidence": 0.9, "x1": 140, "y1": 40, "x2": 160, "y2": 90}
+    ]}
+    blobs = ball_tracking._colour_walk_blobs(
+        image, (120.0, 80.0), 60.0,
+        colour_range=colour_range, ball_diagonal=diagonal, record=person,
+    )
+    assert [(round(x), round(y)) for x, y in blobs] == [(100, 100)]
+
+    ledger = ball_tracking.FrameLedger([(f, f / 25) for f in range(0, 40, 5)])
+    for frame, x in ((0, 0.0), (5, 50.0), (30, 300.0)):
+        ledger.confirm(
+            frame, x=x, y=100.0, confirming_module="01_confirm_yolo",
+            evidence={}, confidence=0.8,
+        )
+    assert ball_tracking._colour_walk_gaps(ledger, 25.0) == [(5, 30, (10, 15, 20, 25))]
+    assert ball_tracking._colour_walk_velocity(ledger, sorted(ledger.entries), 5, 1) == (10.0, 0.0)
+
+    # The ball rolls 10 px per frame; a distractor sits beside it from frame 20.
+    def spots(frame, centre, half):
+        found = [(10.0 * frame, 100.0)]
+        if frame >= 20:
+            found.append((10.0 * frame + 40.0, 130.0))
+        return [b for b in found if abs(b[0] - centre[0]) <= half and abs(b[1] - centre[1]) <= half]
+
+    gap = (10, 15, 20, 25)
+    walk = dict(velocity=(10.0, 0.0), fps=25.0, max_speed_pixels_per_second=1600.0)
+    forward = ball_tracking._colour_walk((5, 50.0, 100.0), list(gap), spots, **walk)
+    backward = ball_tracking._colour_walk(
+        (30, 300.0, 100.0), list(reversed(gap)), spots, **{**walk, "velocity": (10.0, 0.0)}
+    )
+    filled = ball_tracking._colour_walk_meeting(gap, forward, backward, diagonal)
+    assert filled == {f: (10.0 * f, 100.0) for f in gap}
+
+    # A walk that loses the ball before meeting its partner fills nothing.
+    assert ball_tracking._colour_walk_meeting(
+        gap, {10: (100.0, 100.0)}, {25: (250.0, 100.0), 20: (200.0, 100.0)}, diagonal
+    ) == {}
+    # Walks that never agree fill nothing.
+    assert ball_tracking._colour_walk_meeting(
+        gap,
+        {f: (10.0 * f, 100.0) for f in gap},
+        {f: (10.0 * f, 160.0) for f in gap},
+        diagonal,
+    ) == {}
