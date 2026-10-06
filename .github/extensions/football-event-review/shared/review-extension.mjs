@@ -4866,6 +4866,7 @@ async function repairReadyCoordinateRound(segment) {
   const batches = context.state.coordinateReview.batches || [];
   const sourceFrames = engineDiffersSourceFrames(batches, batch);
   let restored = 0;
+  const pruned = [];
   if (sourceFrames) {
     // Put back frames an earlier cleanup dropped, each with the reviewer's
     // latest earlier decision as its starting point. Decisions already made
@@ -4891,6 +4892,28 @@ async function repairReadyCoordinateRound(segment) {
       }
     }
     batch.frames = [...frames].sort((left, right) => left - right);
+    // When the engine output changed after the round was opened, drop the
+    // frames where it now matches the carried earlier decision. Frames
+    // re-decided in this round stay. Decisions remain evaluation-only.
+    const check = await ballCheckScore(
+      context.selected,
+      await loadDetectedBallTrack(context.selected),
+      {...decisions, ...batch.observations},
+    ).catch(() => null);
+    if (check) {
+      const nowMatching = new Set(check.correctFrames);
+      batch.frames = batch.frames.filter((frame) => {
+        const key = String(frame);
+        const carried = !batch.observations[key]
+          || sameCoordinateDecision(batch.observations[key], decisions[key]);
+        if (!(carried && nowMatching.has(frame))) return true;
+        delete batch.observations[key];
+        pruned.push(frame);
+        return false;
+      });
+      batch.engineDiffers = true;
+      batch.engineDiffersFrames = [...batch.frames];
+    }
   }
   const removed = dedupeReadyCoordinateRound(batches, batch);
   context.state.coordinateReview.flaggedFrames = batch.frames;
@@ -4899,6 +4922,7 @@ async function repairReadyCoordinateRound(segment) {
     batchId: batch.id,
     removedDuplicates: removed,
     restoredFrames: restored,
+    nowMatchingRemoved: pruned,
     frameCount: batch.frames.length,
     decisions: Object.keys(batch.observations).length,
   };
