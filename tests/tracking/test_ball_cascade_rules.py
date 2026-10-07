@@ -1377,3 +1377,46 @@ def test_ball_wholly_over_boundary_before_restart_is_out_of_play_20261007T130224
     balls = _load_ball_points(tracks, manifest, state_estimates_path=state_path)
     assert all(f not in balls for f in gap)
 
+
+def test_motion_point_off_trusted_path_withdrawn_past_other_module_neighbour_20261007T135231534Z() -> None:
+    """A boot taken as the ball is withdrawn even when a non-detector point sits beside it."""
+
+    def build(
+        motion_y: float, flipbook_y: float, flipbook_frames: tuple[int, ...] = (25,)
+    ) -> ball_tracking.FrameLedger:
+        ledger = ball_tracking.FrameLedger([(f, f / 25) for f in range(0, 65, 5)])
+        # Trusted detector runs either side; the ball rolls 10 px per frame.
+        for frame in (0, 5, 10, 15, 30, 35, 40, 45, 50, 55, 60):
+            if frame in flipbook_frames:
+                continue
+            ledger.confirm(
+                frame, x=10.0 * frame, y=100.0,
+                confirming_module=ball_tracking.CONFIRM_YOLO_MODULE,
+                evidence={}, confidence=0.8, box_diagonal=8.0,
+            )
+        # A motion blob at a player's feet, far below the ball's path.
+        ledger.confirm(
+            20, x=200.0, y=motion_y, confirming_module="03_motion_and_optical_flow",
+            evidence={}, confidence=1.0, box_diagonal=8.0,
+        )
+        for frame in flipbook_frames:
+            ledger.confirm(
+                frame, x=10.0 * frame, y=flipbook_y,
+                confirming_module="02_flipbook_time_machine",
+                evidence={}, confidence=0.5, box_diagonal=8.0,
+            )
+        return ledger
+
+    ledger = build(motion_y=300.0, flipbook_y=100.0)
+    ball_tracking._withdraw_off_path_motion_points(ledger, "03_motion_and_optical_flow", 5)
+    assert ledger.confirmed(20) is None
+
+    # On the path to its immediate neighbours the ball really turned: it stays.
+    ledger = build(motion_y=200.0, flipbook_y=300.0)
+    ball_tracking._withdraw_off_path_motion_points(ledger, "03_motion_and_optical_flow", 5)
+    assert ledger.confirmed(20) is not None
+
+    # A trusted run more than two steps away is too loose a path: it stays.
+    ledger = build(motion_y=300.0, flipbook_y=100.0, flipbook_frames=(25, 30))
+    ball_tracking._withdraw_off_path_motion_points(ledger, "03_motion_and_optical_flow", 5)
+    assert ledger.confirmed(20) is not None

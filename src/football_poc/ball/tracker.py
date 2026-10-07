@@ -241,6 +241,15 @@ def _withdraw_off_path_attention_fallbacks(ledger: FrameLedger, module: str) -> 
 # back. The time machine then fills the frame from the detector sightings
 # instead of anchoring the gap on the boot.
 MOTION_OFF_PATH_BRACKET_STEPS = 16
+MOTION_OFF_PATH_NEAR_TRUSTED_STEPS = 2
+
+
+def _off_path_error(point: BallPoint, previous: BallPoint, following: BallPoint) -> float:
+    span = following.source_frame - previous.source_frame
+    alpha = (point.source_frame - previous.source_frame) / span
+    expected_x = previous.x + (following.x - previous.x) * alpha
+    expected_y = previous.y + (following.y - previous.y) * alpha
+    return hypot(point.x - expected_x, point.y - expected_y)
 
 
 def _withdraw_off_path_motion_points(
@@ -268,6 +277,7 @@ def _withdraw_off_path_motion_points(
         span = following.source_frame - previous.source_frame
         if span <= 0 or span > maximum_span:
             continue
+        brackets = [(previous, following)]
         if not (
             _detector_backed(
                 by_frame, previous.source_frame,
@@ -278,12 +288,42 @@ def _withdraw_off_path_motion_points(
                 frame_step=frame_step, direction=1,
             )
         ):
-            continue
-        alpha = (point.source_frame - previous.source_frame) / span
-        expected_x = previous.x + (following.x - previous.x) * alpha
-        expected_y = previous.y + (following.y - previous.y) * alpha
-        path_error = hypot(point.x - expected_x, point.y - expected_y)
-        if path_error / max(point.box_diagonal, 1.0) > minimum_path_error_diameters:
+            # Another module's point next to the motion point does not hide
+            # the trusted path when a detector run sits within a few steps on
+            # each side; the point must then be off both paths.
+            near = MOTION_OFF_PATH_NEAR_TRUSTED_STEPS * frame_step
+            trusted_before = next(
+                (
+                    candidate
+                    for candidate in reversed(points[:index])
+                    if point.source_frame - candidate.source_frame <= near
+                    and _detector_backed(
+                        by_frame, candidate.source_frame,
+                        frame_step=frame_step, direction=-1,
+                    )
+                ),
+                None,
+            )
+            trusted_after = next(
+                (
+                    candidate
+                    for candidate in points[index + 1:]
+                    if candidate.source_frame - point.source_frame <= near
+                    and _detector_backed(
+                        by_frame, candidate.source_frame,
+                        frame_step=frame_step, direction=1,
+                    )
+                ),
+                None,
+            )
+            if trusted_before is None or trusted_after is None:
+                continue
+            brackets.append((trusted_before, trusted_after))
+        if all(
+            _off_path_error(point, before, after) / max(point.box_diagonal, 1.0)
+            > minimum_path_error_diameters
+            for before, after in brackets
+        ):
             off_path.append(point.source_frame)
     for frame in off_path:
         ledger.withdraw(frame, module, "motion_off_detector_neighbour_path")
