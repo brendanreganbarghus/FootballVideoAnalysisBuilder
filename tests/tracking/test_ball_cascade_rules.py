@@ -1294,3 +1294,86 @@ def test_ball_colour_followed_from_both_neighbours_fills_gap_20261006T201256004Z
         {f: (10.0 * f, 160.0) for f in gap},
         diagonal,
     ) == {}
+
+
+def test_ball_wholly_over_boundary_before_restart_is_out_of_play_20261007T130224262Z(
+    tmp_path,
+) -> None:
+    """Laws 9 and 17: before a corner restart the ball is out of play from its crossing."""
+    import json
+
+    from football_poc.engine.ball_evidence import _load_ball_points
+
+    diagonal = 10.0
+    ledger = ball_tracking.FrameLedger([(f, f / 25) for f in range(0, 45, 5)])
+    ledger.confirm(
+        0, x=100.0, y=100.0, confirming_module="01_confirm_yolo",
+        evidence={}, confidence=0.8,
+    )
+    for frame in (35, 40):
+        ledger.confirm(
+            frame, x=190.0, y=20.0,
+            confirming_module=ball_tracking.RESTART_SPOT_MODULE,
+            evidence={}, confidence=0.25,
+        )
+    gaps = ball_tracking._restart_gaps(ledger)
+    assert gaps == [(0, 35, (5, 10, 15, 20, 25, 30))]
+
+    # Pitch is x <= 200; the ball rolls out over x = 200, 40 px per sampled frame.
+    def signed_distance(x: float, y: float) -> float:
+        return 200.0 - x
+
+    gap = gaps[0][2]
+    walked = {f: (100.0 + 8.0 * f, 100.0) for f in (5, 10, 15, 20)}
+    in_play, crossing = ball_tracking._split_at_crossing(
+        walked, gap, signed_distance, 0.5 * diagonal
+    )
+    # Frame 15 is more than half a ball diagonal over the line: the crossing.
+    assert crossing == 15
+    assert in_play == {5: (140.0, 100.0), 10: (180.0, 100.0)}
+    # A walk that loses the ball before any crossing proves no crossing.
+    assert ball_tracking._split_at_crossing(
+        {5: (120.0, 100.0)}, gap, signed_distance, 0.5 * diagonal
+    ) == ({5: (120.0, 100.0)}, None)
+
+    # Without a ball colour nothing is walked: the whole gap is out of play,
+    # held at the last confirmed in-play point.
+    boundary = np.array([[0, 0], [200, 0], [200, 200], [0, 200]], dtype=np.float32)
+    ball_tracking._mark_out_of_play(
+        ledger, video=tmp_path / "none.mp4", records_by_frame={},
+        boundary=boundary, colour_range=None, ball_diagonal=diagonal,
+        fps=25.0, max_speed_pixels_per_second=1600.0,
+    )
+    assert ledger.unresolved_frames() == ()
+    held = [ledger.out_of_play(f) for f in gap]
+    assert all(e is not None and (e.x, e.y) == (100.0, 100.0) for e in held)
+    assert ledger.module_summary()["out_of_play_count"] == len(gap)
+
+    states = ball_tracking._sampled_ball_state_estimates(
+        ledger.to_tracks(),
+        records=[{"source_frame": f} for f in range(0, 45, 5)],
+        fps=25.0, frame_step=5, width=400, height=400,
+        max_speed_pixels_per_second=1600.0, ledger=ledger,
+    )
+    out = [s for s in states if s["state"] == "out_of_play"]
+    assert [s["source_frame"] for s in out] == list(gap)
+    assert all(not s["event_evidence_eligible"] and s["trust"] == "out_of_play" for s in out)
+
+    # The engine gives no player a ball that is out of play.
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text("{}", encoding="utf-8")
+    tracks = tmp_path / "ball-tracks.json"
+    tracks.write_text(json.dumps({"manifest": str(manifest), "tracks": [
+        {"track_id": 1, "points": [p.to_dict() if hasattr(p, "to_dict") else {
+            "source_frame": p.source_frame, "x": p.x, "y": p.y,
+        } for p in ledger.to_tracks()[0].points]}
+    ]}), encoding="utf-8")
+    state_path = tmp_path / "ball-states.json"
+    state_path.write_text(json.dumps({
+        "manifest": str(manifest),
+        "policy": {"trajectory_estimates_are_for_continuity_and_search_only": True},
+        "states": states,
+    }), encoding="utf-8")
+    balls = _load_ball_points(tracks, manifest, state_estimates_path=state_path)
+    assert all(f not in balls for f in gap)
+

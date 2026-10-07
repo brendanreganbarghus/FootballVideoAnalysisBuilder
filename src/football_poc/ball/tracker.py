@@ -900,6 +900,20 @@ def _track_cached_balls_impl(
         fps=manifest.fps,
         max_speed_pixels_per_second=max_speed_pixels_per_second,
     )
+    ledger = _timed_tracker_call(
+        OUT_OF_PLAY_MODULE,
+        _mark_out_of_play,
+        ledger,
+        video=manifest.video,
+        records_by_frame=records_by_frame,
+        boundary=_calibrated_pitch_boundary(
+            pitch_calibration_path, (float(width), float(height))
+        ),
+        colour_range=learned_colour_range,
+        ball_diagonal=median(strong_diagonals) if strong_diagonals else 0.0,
+        fps=manifest.fps,
+        max_speed_pixels_per_second=max_speed_pixels_per_second,
+    )
     # The time machine runs last so visual recovery modules see every gap
     # first; it then gives each remaining frame an estimate or possible region.
     ledger = _timed_tracker_call(

@@ -15,6 +15,7 @@ DIRECT_EVIDENCE_MODULES = frozenset(
         "06_time_machine_region_search",
         "08_restart_spot_colour",
         "09_colour_walk",
+        "10_out_of_play",
     }
 )
 
@@ -71,6 +72,29 @@ def _sampled_ball_state_estimates(
                         else round(max(1.0, point.box_diagonal / 2), 3)
                     ),
                     "event_evidence_eligible": is_direct,
+                }
+            )
+            continue
+        out_of_play = ledger.out_of_play(source_frame) if ledger is not None else None
+        if out_of_play is not None:
+            states.append(
+                {
+                    "source_frame": source_frame,
+                    "clip_seconds": round(source_frame / fps, 3),
+                    "confidence": None,
+                    "x": out_of_play.x,
+                    "y": out_of_play.y,
+                    "interpolated": False,
+                    "box_diagonal": None,
+                    "evidence": "out_of_play",
+                    "temporal_score": None,
+                    "source_attribution": "out_of_play",
+                    "state": "out_of_play",
+                    "uncertainty_radius_pixels": None,
+                    "event_evidence_eligible": False,
+                    "confirming_module": out_of_play.confirming_module,
+                    "out_of_play_evidence": dict(out_of_play.evidence or {}),
+                    "rejection_reasons": list(out_of_play.rejection_reasons),
                 }
             )
             continue
@@ -226,6 +250,7 @@ TRUST_ESTIMATE_MAX_SPAN_STEPS = 4
 def _ball_state_was_found(state: dict[str, Any]) -> bool:
     return (
         state.get("x") is not None
+        and state.get("state") != "out_of_play"
         and not str(state.get("evidence") or "").startswith("trajectory_estimated")
         and state.get("confirming_module") != "02_time_machine"
     )
@@ -242,6 +267,9 @@ def _label_ball_state_trust(states: list[dict[str, Any]], *, frame_step: int) ->
     )
     for state in states:
         frame = int(state["source_frame"])
+        if state.get("state") == "out_of_play":
+            state["trust"] = "out_of_play"
+            continue
         if _ball_state_was_found(state):
             state["trust"] = "seen"
             continue

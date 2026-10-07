@@ -14,6 +14,7 @@ _MODULE_ORDER = (
     "scenery.py",
     "restart_spot.py",
     "colour_walk.py",
+    "out_of_play.py",
     "tracker.py",
     "state_estimates.py",
     "selection.py",

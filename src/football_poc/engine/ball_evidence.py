@@ -429,6 +429,10 @@ def _load_ball_points(
             )
         if state.get("x") is None or state.get("y") is None:
             continue
+        # Law 9: a ball out of play has no live position, so no player can
+        # control it; its held last in-play point is for review only.
+        if state.get("state") == "out_of_play":
+            continue
         value = dict(state)
         value["track_id"] = track_id
         value["interpolated"] = True

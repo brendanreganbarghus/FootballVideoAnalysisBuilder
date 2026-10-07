@@ -165,6 +165,39 @@ class FrameLedger:
             ),
         )
 
+    def mark_out_of_play(
+        self,
+        frame: int,
+        *,
+        x: float,
+        y: float,
+        module: str,
+        evidence: dict[str, Any],
+    ) -> None:
+        """Record that the ball is out of play, held at its last in-play point.
+
+        Law 9: once the whole ball has crossed a boundary line it is out of
+        play, so it has no live position until play restarts.
+        """
+        source_frame = int(frame)
+        current = self._entries.get(source_frame)
+        if current is None or current.status != "unresolved":
+            return
+        self._entries[source_frame] = replace(
+            current,
+            status="out_of_play",
+            x=float(x),
+            y=float(y),
+            confirming_module=str(module),
+            evidence=dict(evidence),
+        )
+
+    def out_of_play(self, frame: int) -> FrameLedgerEntry | None:
+        entry = self._entries.get(int(frame))
+        if entry is None or entry.status != "out_of_play":
+            return None
+        return entry
+
     def unresolved_frames(self) -> tuple[int, ...]:
         return tuple(
             frame
@@ -208,6 +241,10 @@ class FrameLedger:
             "confirmed": dict(sorted(confirmed.items())),
             "unresolved_count": sum(
                 entry.status == "unresolved"
+                for entry in self._entries.values()
+            ),
+            "out_of_play_count": sum(
+                entry.status == "out_of_play"
                 for entry in self._entries.values()
             ),
             "top_unresolved_reasons": [
