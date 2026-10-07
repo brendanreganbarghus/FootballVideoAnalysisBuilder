@@ -8388,7 +8388,7 @@ export function renderHtml({ adapter } = {}) {
       }
       if (result.kind === "estimate_near") {
         return {
-          label: "Auto-agreed (>" + AUTO_AGREE_DISTANCE_PX + " and <="
+          label: "Area (estimate >" + AUTO_AGREE_DISTANCE_PX + " ≤"
             + ESTIMATE_AGREE_DISTANCE_PX + " px) · "
             + result.distance.toFixed(0) + " px",
           className: "direct"
@@ -8396,7 +8396,7 @@ export function renderHtml({ adapter } = {}) {
       }
       if (result.kind === "near") {
         return {
-          label: "Auto-agreed (>" + AUTO_AGREE_DISTANCE_PX + " ≤"
+          label: "Close (>" + AUTO_AGREE_DISTANCE_PX + " ≤"
             + NEAR_MISS_DISTANCE_PX + " px) · "
             + result.distance.toFixed(0) + " px",
           className: "direct"
@@ -8407,7 +8407,7 @@ export function renderHtml({ adapter } = {}) {
           ? " (" + result.distance.toFixed(0) + " px)" : "";
         if (acceptedMiss(frame, result)) {
           return {
-            label: "Accepted miss (>" + NEAR_MISS_DISTANCE_PX + " ≤"
+            label: "Known miss (>" + NEAR_MISS_DISTANCE_PX + " ≤"
               + ACCEPTED_MISS_DISTANCE_PX + " px) · "
               + result.distance.toFixed(0) + " px",
             className: "checking"
@@ -8422,7 +8422,7 @@ export function renderHtml({ adapter } = {}) {
         return {label: "Spot-check (auto-agreed)", className: "checking"};
       }
       return {
-        label: "Auto-agreed (≤" + AUTO_AGREE_DISTANCE_PX + " px)"
+        label: "Exact (≤" + AUTO_AGREE_DISTANCE_PX + " px)"
           + (result.estimate ? " · estimate" : ""),
         className: "direct"
       };
