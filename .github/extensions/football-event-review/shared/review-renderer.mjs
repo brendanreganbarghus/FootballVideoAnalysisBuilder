@@ -4774,6 +4774,10 @@ export function renderHtml({ adapter } = {}) {
               <button id="needs-more-checking" type="button" hidden>
                 Needs more checking
               </button>
+              <button id="ball-out-of-play" type="button" hidden
+                title="The whole ball has left the pitch (Laws 9/17). Matches when the tracker also says out of play">
+                Ball out of play
+              </button>
               <button id="accept-tracker-point" type="button" hidden
                 title="Accept the engine (red) point as a known limit: decided, but not counted as exact">
                 Accept tracker point
@@ -7974,7 +7978,7 @@ export function renderHtml({ adapter } = {}) {
               !selectedBatch.observations?.[frame]
               && earlier?.decision === observation?.decision
               && (
-                ["undefined", "needs_more_checking"]
+                ["undefined", "needs_more_checking", "out_of_play"]
                   .includes(observation?.decision)
                 || (
                   Math.abs(Number(earlier.x) - Number(observation.x)) <= 1
@@ -8355,6 +8359,11 @@ export function renderHtml({ adapter } = {}) {
       if (observation?.decision === "needs_more_checking") {
         return {kind: "unclear"};
       }
+      if (observation?.decision === "out_of_play") {
+        return point.engineOutOfPlay || point.state === "out_of_play"
+          ? {kind: "out_of_play"}
+          : {kind: "off", distance: null};
+      }
       if (observation?.decision === "accept_tracker") {
         const moved = hasEngine
           ? Math.hypot(
@@ -8411,6 +8420,9 @@ export function renderHtml({ adapter } = {}) {
       }
       if (result.kind === "unclear") {
         return {label: "Needs your review (unclear)", className: "estimated"};
+      }
+      if (result.kind === "out_of_play") {
+        return {label: "Out of play · engine agrees", className: "direct"};
       }
       if (result.kind === "accepted_tracker") {
         return {label: "Accepted tracker point", className: "direct"};
@@ -8910,6 +8922,8 @@ export function renderHtml({ adapter } = {}) {
             ? "marked as needing more checking"
           : observation?.decision === "accept_tracker"
             ? "accepted the tracker point as a known limit"
+          : observation?.decision === "out_of_play"
+            ? "marked the ball out of play"
           : observation?.decision === "undefined"
             ? observation.hiddenRegion
               ? "ball marked not visible, hidden inside the drawn area"
@@ -8938,6 +8952,8 @@ export function renderHtml({ adapter } = {}) {
             ? "Needs more checking"
           : observation?.decision === "accept_tracker"
             ? "✓ Accepted tracker point (known limit)"
+          : observation?.decision === "out_of_play"
+            ? "✓ Ball out of play"
             : observation?.decision === "undefined"
               ? "Ball undefined / not visible"
               : observation?.decision === "yolo_candidate"
@@ -8970,6 +8986,7 @@ export function renderHtml({ adapter } = {}) {
           || observation?.decision === "agree" && !agreedCoordinateMoved
           || observation?.decision === "yolo_candidate"
           || observation?.decision === "accept_tracker"
+          || observation?.decision === "out_of_play"
           || (
             observation?.decision === "specified"
             && observation.approved
@@ -9079,6 +9096,8 @@ export function renderHtml({ adapter } = {}) {
               ? " · your decision: needs more checking"
             : observation?.decision === "accept_tracker"
               ? " · your decision: accept the tracker point as a known limit"
+            : observation?.decision === "out_of_play"
+              ? " · your decision: ball out of play"
             : observation?.decision === "undefined"
                 ? " · your decision: ball undefined / not visible"
                 : observation?.decision === "yolo_candidate"
@@ -9190,6 +9209,10 @@ export function renderHtml({ adapter } = {}) {
         || selectedCoordinateBatch()?.status === "done";
       const acceptTrackerButton =
         document.getElementById("accept-tracker-point");
+      const outOfPlayButton = document.getElementById("ball-out-of-play");
+      outOfPlayButton.hidden = inspectionOnly || bacReadOnly();
+      outOfPlayButton.disabled =
+        document.getElementById("needs-more-checking").disabled;
       acceptTrackerButton.hidden = inspectionOnly || !comparing;
       acceptTrackerButton.disabled =
         document.getElementById("needs-more-checking").disabled
@@ -9697,7 +9720,8 @@ export function renderHtml({ adapter } = {}) {
                   observation.approved ? "confirmed" : "checking"
                 ],
                 needs_more_checking: ["Needs more checking", "checking"],
-                accept_tracker: ["Accepted tracker point", "confirmed"]
+                accept_tracker: ["Accepted tracker point", "confirmed"],
+                out_of_play: ["Ball out of play", "confirmed"]
               }[observation.decision]
             : null;
           const decisionPresentation =
@@ -11150,6 +11174,19 @@ export function renderHtml({ adapter } = {}) {
         () => void recordBallCoordinateDecision(
           {decision: "needs_more_checking"},
           "marked as needing more checking"
+        ).catch(error => {
+          document.getElementById(
+            "ball-coordinate-review-status"
+          ).textContent = error.message;
+        })
+      );
+      // Evaluation only: records that the reviewer accepts the frozen
+      // tracker point as a known limit. It never feeds the tracker.
+      document.getElementById("ball-out-of-play").addEventListener(
+        "click",
+        () => void recordBallCoordinateDecision(
+          {decision: "out_of_play"},
+          "marked the ball out of play"
         ).catch(error => {
           document.getElementById(
             "ball-coordinate-review-status"

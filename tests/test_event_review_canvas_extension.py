@@ -416,3 +416,15 @@ def test_reviewer_can_accept_the_tracker_point_as_a_known_limit() -> None:
     assert '{decision: "accept_tracker", x: point.engineX, y: point.engineY}' in renderer
     assert 'return "accepted";' in renderer
     assert '" · accepted tracker point "' in renderer
+
+
+def test_reviewer_can_mark_the_ball_out_of_play() -> None:
+    extension = read(SHARED_EXTENSION)
+    renderer = read(SHARED_RENDERER)
+
+    assert 'hit = trackerOutOfPlay.has(frame);' in extension
+    assert 'if (ownOutOfPlay.has(state.frame)) state.engineOutOfPlay = true;' in extension
+    assert extension.count('"out_of_play",') == 3
+    assert 'id="ball-out-of-play"' in renderer
+    assert '{decision: "out_of_play"}' in renderer
+    assert 'out_of_play: ["Ball out of play", "confirmed"]' in renderer

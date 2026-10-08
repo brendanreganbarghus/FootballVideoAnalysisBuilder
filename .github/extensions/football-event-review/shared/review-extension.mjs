@@ -3395,6 +3395,13 @@ async function ballCheckScore(selected, track, observations) {
     (track.points || []).map(([frame, , x, y]) => [frame, {x, y}]),
   );
   const interpolated = new Set(track.interpolatedFrames || []);
+  // The tracker's own out-of-play state (Laws 9/17): it holds no ball point
+  // until the restart.
+  const trackerOutOfPlay = new Set(
+    (track.ownStates || track.states)
+      .filter((state) => state.state === "out_of_play")
+      .map((state) => state.frame),
+  );
   const near = (point, reference) =>
     Boolean(point && reference)
     && Math.hypot(point.x - reference.x, point.y - reference.y)
@@ -3418,7 +3425,9 @@ async function ballCheckScore(selected, track, observations) {
       else left.push(frame);
       continue;
     }
-    if (decision?.decision === "undefined") {
+    if (decision?.decision === "out_of_play") {
+      hit = trackerOutOfPlay.has(frame);
+    } else if (decision?.decision === "undefined") {
       hit = !point || interpolated.has(frame);
     } else if (decision) {
       hit = near(point, decision);
@@ -3492,7 +3501,13 @@ async function withBacComparison(selected, track) {
     && Number.isFinite(state.y)
   ).sort((left, right) => left.frame - right.frame);
   if (!states.length) return track;
+  const ownOutOfPlay = new Set(
+    (track.states || [])
+      .filter((state) => state.state === "out_of_play")
+      .map((state) => state.frame),
+  );
   for (const state of states) {
+    if (ownOutOfPlay.has(state.frame)) state.engineOutOfPlay = true;
     const enginePoint = points[String(state.frame)];
     if (!enginePoint) continue;
     state.engineX = enginePoint.x;
@@ -4808,7 +4823,7 @@ function activeCoordinateBatch(state) {
 
 function sameCoordinateDecision(left, right) {
   if (!left || !right || left.decision !== right.decision) return false;
-  if (["undefined", "needs_more_checking"].includes(left.decision)) {
+  if (["undefined", "needs_more_checking", "out_of_play"].includes(left.decision)) {
     return true;
   }
   return Math.abs(Number(left.x) - Number(right.x)) <= 1
@@ -5065,6 +5080,8 @@ function coordinateCarryForward(batch, frames) {
       reason = "The previous evidence remained visually ambiguous and the persisted rerun did not produce an independently supported direct coordinate.";
     } else if (observation.decision === "accept_tracker") {
       reason = "The reviewer accepted the tracker's earlier point as a known limit, but the persisted rerun moved it, so it requires fresh inspection.";
+    } else if (observation.decision === "out_of_play") {
+      reason = "The reviewer marked the ball out of play, but the persisted rerun did not mark this frame out of play.";
     } else {
       reason = "The persisted rerun did not produce an independently supported direct coordinate.";
     }
@@ -6132,6 +6149,8 @@ function clipConversationPrompt(
                 : "")
             : observation.decision === "needs_more_checking"
               ? `frame ${observation.frame}: needs more checking`
+            : observation.decision === "out_of_play"
+              ? `frame ${observation.frame}: ball out of play`
             : observation.decision === "accept_tracker"
               ? `frame ${observation.frame}: user accepts the tracker point (`
                 + `${observation.x.toFixed(1)}, `
@@ -6157,7 +6176,8 @@ function clipConversationPrompt(
         + "visibly correct but candidate selection failed; needs_more_checking "
         + "as unresolved visual ambiguity; and accept_tracker as the claim "
         + "that the tracker point is close enough to accept as a known "
-        + "limit, not that it is exact. Independently "
+        + "limit, not that it is exact; and out_of_play as the claim that "
+        + "the whole ball has left the field of play. Independently "
         + "verify each claim against raw video and challenge unsupported "
         + "claims explicitly. These are diagnostic leads only, never reference "
         + "coordinates, ground truth, or expected engine targets. Never copy "
@@ -8901,9 +8921,10 @@ async function handleRequest(request, response, serverInstanceId) {
         "yolo_candidate",
         "needs_more_checking",
         "accept_tracker",
+        "out_of_play",
       ].includes(observation.decision)
       && (
-        ["undefined", "needs_more_checking"].includes(observation.decision)
+        ["undefined", "needs_more_checking", "out_of_play"].includes(observation.decision)
         || (
           Number.isFinite(observation.x)
           && observation.x >= 0
@@ -8990,9 +9011,10 @@ async function handleRequest(request, response, serverInstanceId) {
         "yolo_candidate",
         "needs_more_checking",
         "accept_tracker",
+        "out_of_play",
       ].includes(observation.decision)
       && (
-        ["undefined", "needs_more_checking"].includes(observation.decision)
+        ["undefined", "needs_more_checking", "out_of_play"].includes(observation.decision)
         || (
           Number.isFinite(observation.x)
           && observation.x >= 0
@@ -9307,11 +9329,12 @@ async function handleRequest(request, response, serverInstanceId) {
             "yolo_candidate",
             "needs_more_checking",
             "accept_tracker",
+            "out_of_play",
           ].includes(
             observation.decision,
           )
           && (
-            ["undefined", "needs_more_checking"].includes(
+            ["undefined", "needs_more_checking", "out_of_play"].includes(
               observation.decision,
             )
             || (
