@@ -438,3 +438,5 @@ def test_accepted_tracker_points_show_their_band_for_scoring_only() -> None:
     assert '{kind: "accepted_tracker", band: acceptedBand(point)}' in renderer
     assert '"Accepted tracker point · " + result.band.label' in renderer
     assert "+ acceptedBandSummary()" in renderer
+    # The status column must not fall through to "Needs more checking".
+    assert 'decisionCheck === "accepted"\n                ? "Accepted tracker point"' in renderer.replace("\r\n", "\n")

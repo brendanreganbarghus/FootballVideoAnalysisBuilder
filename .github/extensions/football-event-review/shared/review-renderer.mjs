@@ -9711,11 +9711,17 @@ export function renderHtml({ adapter } = {}) {
           const decisionCheck = engineComparisonActive()
             ? engineDecisionCheck(point.frame) : null;
           if (decisionCheck) {
+            const acceptedBandLabel = decisionCheck === "accepted"
+              ? acceptedBand(point)?.label : null;
             status.className = "ball-frame-status " + (
-              decisionCheck === "matches" ? "direct" : "estimated"
+              ["matches", "accepted"].includes(decisionCheck)
+                ? "direct" : "estimated"
             );
             status.textContent = decisionCheck === "matches"
               ? "Engine matches your decision"
+              : decisionCheck === "accepted"
+                ? "Accepted tracker point"
+                  + (acceptedBandLabel ? " · " + acceptedBandLabel : "")
               : decisionCheck === "differs"
                 ? "Engine differs from your decision"
                 : "Needs more checking";
