@@ -950,3 +950,21 @@ def test_identity_registration_is_workflow_independent() -> None:
     )
     assert repository.health().mode is DatabaseMode.AVAILABLE
     assert audit.machine_id == identity.machine_id
+
+def test_repository_reopens_a_connection_the_database_closed() -> None:
+    class FakeConnection:
+        def __init__(self) -> None:
+            self.closed = False
+
+        def execute(self, *_args):
+            return SimpleNamespace(fetchone=lambda: (1,))
+
+    dropped = FakeConnection()
+    fresh = FakeConnection()
+    repository = postgres_module.PostgresCoordinationRepository(
+        dropped, EnvironmentIdentity("test", "test", 1), lambda: fresh
+    )
+    assert repository._connection is dropped
+    dropped.closed = True
+    assert repository.health().mode is DatabaseMode.AVAILABLE
+    assert repository._connection is fresh

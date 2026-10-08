@@ -106,9 +106,21 @@ class PostgresCoordinationRepository:
         self,
         connection: Any,
         environment: EnvironmentIdentity,
+        reconnect: Callable[[], Any] | None = None,
     ) -> None:
-        self._connection = connection
+        self._active_connection = connection
         self._environment = environment
+        self._reconnect = reconnect
+
+    @property
+    def _connection(self) -> Any:
+        # The server keeps one long-lived connection, and the database host
+        # closes idle ones; open a new one instead of failing every request.
+        if self._reconnect is not None and getattr(
+            self._active_connection, "closed", False
+        ):
+            self._active_connection = self._reconnect()
+        return self._active_connection
 
     @property
     def mode(self) -> DatabaseMode:
@@ -1431,8 +1443,8 @@ def bootstrap_coordination(
                 "not_requested", "PostgreSQL is unavailable"
             ),
         )
-    try:
-        connection = psycopg.connect(
+    def connect() -> Any:
+        return psycopg.connect(
             settings.database_url,
             connect_timeout=settings.connect_timeout_seconds,
             # The server keeps one long-lived connection; TCP keepalives stop
@@ -1442,11 +1454,21 @@ def bootstrap_coordination(
             keepalives_interval=10,
             keepalives_count=3,
         )
+
+    def reconnect() -> Any:
+        connection = connect()
+        connection.autocommit = True
+        return connection
+
+    try:
+        connection = connect()
         migrations = apply_migrations(connection, migration_directory)
         connection.autocommit = True
         environment = _register_environment(connection, settings)
         _ensure_workflow_seeds(connection)
-        repository = PostgresCoordinationRepository(connection, environment)
+        repository = PostgresCoordinationRepository(
+            connection, environment, reconnect
+        )
         reconciliation = _run_reconciliation(
             repository, reconciliation_hook
         )
