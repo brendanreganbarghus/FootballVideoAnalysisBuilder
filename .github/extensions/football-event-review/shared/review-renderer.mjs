@@ -6811,7 +6811,7 @@ export function renderHtml({ adapter } = {}) {
       const detectedCopy = selectedBallSource() === "detected"
         && (segment.ballSource || "bac") === "detected";
       const ballCheckLeft = detectedCopy
-        && state.coordinateReview?.status !== "finalized"
+        && !["verified", "finalized"].includes(state.coordinateReview?.status)
         ? state.ballCheck?.left?.length || 0
         : 0;
       processAiButton.hidden = !detectedCopy || !selectedVideoPrepared;
@@ -6963,7 +6963,15 @@ export function renderHtml({ adapter } = {}) {
           (segment.statusMessage || "Local processing is still running.");
         segmentRunStatus.textContent += timingText + " " + stage[1];
       } else if (segment.state === "failed") {
-        segmentRunStatus.textContent = ballCoordinatesNeedReview(segment)
+        const waitingForEngine = segment.key === state?.segment?.key
+          && state?.coordinateReview?.status === "verified"
+          && /ball provenance review required/i.test(
+            segment.statusMessage || ""
+          );
+        segmentRunStatus.textContent = waitingForEngine
+          ? "Ball coordinate gate passed. The rules engine has not run yet: "
+            + "click Process AI."
+          : ballCoordinatesNeedReview(segment)
           ? "Ball coordinates are ready. Check them in the ball check, "
             + "then click Process AI."
           : segment.runProvenance?.interrupted
@@ -9994,7 +10002,9 @@ export function renderHtml({ adapter } = {}) {
         "finalize-ball-coordinate-review"
       );
       const coordinatesLeft = (state?.segment?.ballSource || "bac")
-        === "detected" ? state.ballCheck?.left?.length || 0 : 0;
+        === "detected"
+        && state.coordinateReview?.status !== "verified"
+        ? state.ballCheck?.left?.length || 0 : 0;
       finalize.disabled = segmentRunActive() || coordinatesLeft > 0;
       finalize.hidden = state.coordinateReview?.status === "finalized";
       finalize.textContent = coordinatesLeft
