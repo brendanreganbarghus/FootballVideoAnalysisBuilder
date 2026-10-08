@@ -3401,6 +3401,7 @@ async function ballCheckScore(selected, track, observations) {
       <= BALL_CHECK_MATCH_PX;
   const left = [];
   const correctFrames = [];
+  const acceptedFrames = [];
   let correct = 0;
   let fromDecisions = 0;
   for (const frame of track.states.map((state) => state.frame)) {
@@ -3408,6 +3409,15 @@ async function ballCheckScore(selected, track, observations) {
     const decision = observations?.[String(frame)];
     let hit;
     if (decision?.decision === "needs_more_checking") continue;
+    // The reviewer accepted the tracker's point as a known limit. It stays
+    // decided only while the tracker still publishes that point; a moved
+    // point needs a fresh look.
+    if (decision?.decision === "accept_tracker") {
+      fromDecisions += 1;
+      if (near(point, decision)) acceptedFrames.push(frame);
+      else left.push(frame);
+      continue;
+    }
     if (decision?.decision === "undefined") {
       hit = !point || interpolated.has(frame);
     } else if (decision) {
@@ -3422,12 +3432,14 @@ async function ballCheckScore(selected, track, observations) {
       correctFrames.push(frame);
     } else left.push(frame);
   }
-  const scored = correct + left.length;
+  const scored = correct + acceptedFrames.length + left.length;
   return {
     correct,
     scored,
     left,
     correctFrames,
+    accepted: acceptedFrames.length,
+    acceptedFrames,
     fromDecisions,
     fromBac: scored - fromDecisions,
     matchPx: BALL_CHECK_MATCH_PX,
@@ -5051,6 +5063,8 @@ function coordinateCarryForward(batch, frames) {
       reason = "The previously supported coordinate was not retained as direct evidence by the persisted rerun and requires fresh inspection.";
     } else if (observation.decision === "needs_more_checking") {
       reason = "The previous evidence remained visually ambiguous and the persisted rerun did not produce an independently supported direct coordinate.";
+    } else if (observation.decision === "accept_tracker") {
+      reason = "The reviewer accepted the tracker's earlier point as a known limit, but the persisted rerun moved it, so it requires fresh inspection.";
     } else {
       reason = "The persisted rerun did not produce an independently supported direct coordinate.";
     }
@@ -6118,6 +6132,10 @@ function clipConversationPrompt(
                 : "")
             : observation.decision === "needs_more_checking"
               ? `frame ${observation.frame}: needs more checking`
+            : observation.decision === "accept_tracker"
+              ? `frame ${observation.frame}: user accepts the tracker point (`
+                + `${observation.x.toFixed(1)}, `
+                + `${observation.y.toFixed(1)}) as a known limit`
             : observation.decision === "yolo_candidate"
               ? `frame ${observation.frame}: YOLO candidate `
                 + `${observation.candidateIndex + 1} visibly correct at (`
@@ -6137,7 +6155,9 @@ function clipConversationPrompt(
         + "visually locatable by the current camera, including occlusion; and "
         + "yolo_candidate as the claim that the numbered raw YOLO detection is "
         + "visibly correct but candidate selection failed; needs_more_checking "
-        + "as unresolved visual ambiguity. Independently "
+        + "as unresolved visual ambiguity; and accept_tracker as the claim "
+        + "that the tracker point is close enough to accept as a known "
+        + "limit, not that it is exact. Independently "
         + "verify each claim against raw video and challenge unsupported "
         + "claims explicitly. These are diagnostic leads only, never reference "
         + "coordinates, ground truth, or expected engine targets. Never copy "
@@ -8880,6 +8900,7 @@ async function handleRequest(request, response, serverInstanceId) {
         "specified",
         "yolo_candidate",
         "needs_more_checking",
+        "accept_tracker",
       ].includes(observation.decision)
       && (
         ["undefined", "needs_more_checking"].includes(observation.decision)
@@ -8968,6 +8989,7 @@ async function handleRequest(request, response, serverInstanceId) {
         "specified",
         "yolo_candidate",
         "needs_more_checking",
+        "accept_tracker",
       ].includes(observation.decision)
       && (
         ["undefined", "needs_more_checking"].includes(observation.decision)
@@ -9284,6 +9306,7 @@ async function handleRequest(request, response, serverInstanceId) {
             "specified",
             "yolo_candidate",
             "needs_more_checking",
+            "accept_tracker",
           ].includes(
             observation.decision,
           )

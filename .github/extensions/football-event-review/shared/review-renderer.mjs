@@ -4774,6 +4774,10 @@ export function renderHtml({ adapter } = {}) {
               <button id="needs-more-checking" type="button" hidden>
                 Needs more checking
               </button>
+              <button id="accept-tracker-point" type="button" hidden
+                title="Accept the engine (red) point as a known limit: decided, but not counted as exact">
+                Accept tracker point
+              </button>
               <button id="mark-ball-location" type="button"${
                 adapter.coordinateCorrectionEnabled ? "" : " hidden"
               }>
@@ -7825,6 +7829,9 @@ export function renderHtml({ adapter } = {}) {
       if (!decision?.decision) return null;
       if (decision.decision === "needs_more_checking") return "unclear";
       if (!state.ballCheck) return null;
+      if ((state.ballCheck.acceptedFrames || []).includes(frame)) {
+        return "accepted";
+      }
       return (state.ballCheck.left || []).includes(frame)
         ? "differs" : "matches";
     }
@@ -8348,6 +8355,17 @@ export function renderHtml({ adapter } = {}) {
       if (observation?.decision === "needs_more_checking") {
         return {kind: "unclear"};
       }
+      if (observation?.decision === "accept_tracker") {
+        const moved = hasEngine
+          ? Math.hypot(
+              Number(observation.x) - point.engineX,
+              Number(observation.y) - point.engineY
+            )
+          : null;
+        return Number.isFinite(moved) && moved <= AUTO_AGREE_DISTANCE_PX
+          ? {kind: "accepted_tracker"}
+          : {kind: "off", distance: null};
+      }
       if (observation?.decision === "undefined") {
         return !hasEngine || point.engineInterpolated
           ? {kind: "hidden_estimate"}
@@ -8393,6 +8411,9 @@ export function renderHtml({ adapter } = {}) {
       }
       if (result.kind === "unclear") {
         return {label: "Needs your review (unclear)", className: "estimated"};
+      }
+      if (result.kind === "accepted_tracker") {
+        return {label: "Accepted tracker point", className: "direct"};
       }
       if (result.kind === "estimate_near") {
         return {
@@ -8887,6 +8908,8 @@ export function renderHtml({ adapter } = {}) {
           ? "agreed with the current coordinate"
           : observation?.decision === "needs_more_checking"
             ? "marked as needing more checking"
+          : observation?.decision === "accept_tracker"
+            ? "accepted the tracker point as a known limit"
           : observation?.decision === "undefined"
             ? observation.hiddenRegion
               ? "ball marked not visible, hidden inside the drawn area"
@@ -8913,6 +8936,8 @@ export function renderHtml({ adapter } = {}) {
               : "✓ Agreed with coordinate")
           : observation?.decision === "needs_more_checking"
             ? "Needs more checking"
+          : observation?.decision === "accept_tracker"
+            ? "✓ Accepted tracker point (known limit)"
             : observation?.decision === "undefined"
               ? "Ball undefined / not visible"
               : observation?.decision === "yolo_candidate"
@@ -8944,6 +8969,7 @@ export function renderHtml({ adapter } = {}) {
           || frozenBac && reviewerChangeStatus === "base"
           || observation?.decision === "agree" && !agreedCoordinateMoved
           || observation?.decision === "yolo_candidate"
+          || observation?.decision === "accept_tracker"
           || (
             observation?.decision === "specified"
             && observation.approved
@@ -9051,6 +9077,8 @@ export function renderHtml({ adapter } = {}) {
               ? " · your decision: agree with current coordinate"
             : observation?.decision === "needs_more_checking"
               ? " · your decision: needs more checking"
+            : observation?.decision === "accept_tracker"
+              ? " · your decision: accept the tracker point as a known limit"
             : observation?.decision === "undefined"
                 ? " · your decision: ball undefined / not visible"
                 : observation?.decision === "yolo_candidate"
@@ -9160,6 +9188,13 @@ export function renderHtml({ adapter } = {}) {
           && !reviewerCorrectionView
         )
         || selectedCoordinateBatch()?.status === "done";
+      const acceptTrackerButton =
+        document.getElementById("accept-tracker-point");
+      acceptTrackerButton.hidden = inspectionOnly || !comparing;
+      acceptTrackerButton.disabled =
+        document.getElementById("needs-more-checking").disabled
+        || !Number.isFinite(point.engineX)
+        || !Number.isFinite(point.engineY);
       document.getElementById("approve-ball-location").disabled =
         selectedRawBallFrame !== selectedBallTargetFrame
         || observation?.decision !== "specified"
@@ -9469,12 +9504,17 @@ export function renderHtml({ adapter } = {}) {
       const ballCheckText = ballCheck && simpleFilter
         ? "Your decisions " + decidedCount + "/" + points.length
           + " · engine matches " + ballCheck.correct
+          + (ballCheck.accepted
+            ? " · accepted tracker point " + ballCheck.accepted : "")
           + " · differs " + ballCheck.left.length
           + " · needs more checking " + unclearCount + " · "
         : ballCheck
         ? "Our rules correct " + ballCheck.correct + "/" + ballCheck.scored
           + " (" + Math.round(100 * ballCheck.correct / ballCheck.scored)
-          + "%) · not matching yet: "
+          + "%)"
+          + (ballCheck.accepted
+            ? " · accepted tracker point " + ballCheck.accepted : "")
+          + " · not matching yet: "
           + (ballCheck.left.length ? ballCheck.left.join(", ") : "none")
           + " · "
         : "";
@@ -9656,7 +9696,8 @@ export function renderHtml({ adapter } = {}) {
                     : "Custom coordinate awaiting confirmation",
                   observation.approved ? "confirmed" : "checking"
                 ],
-                needs_more_checking: ["Needs more checking", "checking"]
+                needs_more_checking: ["Needs more checking", "checking"],
+                accept_tracker: ["Accepted tracker point", "confirmed"]
               }[observation.decision]
             : null;
           const decisionPresentation =
@@ -9695,7 +9736,11 @@ export function renderHtml({ adapter } = {}) {
             + (decisionSource ? " (" + decisionSource + ")" : "")
             + (
             decisionCheck === "matches" ? " · engine matches"
-            : decisionCheck === "differs" ? " · engine differs"
+            : decisionCheck === "accepted" ? ""
+            : decisionCheck === "differs"
+              ? observation?.decision === "accept_tracker"
+                ? " · engine moved since you accepted · please recheck"
+                : " · engine differs"
             : !engineCheck ? ""
             : ["agreed", "hidden_estimate"].includes(engineCheck.kind)
               ? " · engine now matches"
@@ -11110,6 +11155,25 @@ export function renderHtml({ adapter } = {}) {
             "ball-coordinate-review-status"
           ).textContent = error.message;
         })
+      );
+      // Evaluation only: records that the reviewer accepts the frozen
+      // tracker point as a known limit. It never feeds the tracker.
+      document.getElementById("accept-tracker-point").addEventListener(
+        "click",
+        () => {
+          const point = (ballTrack?.states || []).find(
+            candidate => candidate.frame === selectedBallTargetFrame
+          );
+          if (!Number.isFinite(point?.engineX)) return;
+          void recordBallCoordinateDecision(
+            {decision: "accept_tracker", x: point.engineX, y: point.engineY},
+            "accepted the tracker point as a known limit"
+          ).catch(error => {
+            document.getElementById(
+              "ball-coordinate-review-status"
+            ).textContent = error.message;
+          });
+        }
       );
       document.getElementById("show-engine-ball-marker").addEventListener(
         "change",

@@ -402,3 +402,17 @@ def test_our_rules_copy_shows_saved_decisions_and_ball_check_score() -> None:
     assert "|| state.trajectoryAudit?.observations?.[String(point.frame)];" in renderer
     assert '<option value="ball-check-left" hidden>Not matching yet</option>' in renderer
     assert '"Our rules correct "' in renderer
+
+
+def test_reviewer_can_accept_the_tracker_point_as_a_known_limit() -> None:
+    extension = read(SHARED_EXTENSION)
+    renderer = read(SHARED_RENDERER)
+
+    assert 'if (decision?.decision === "accept_tracker") {' in extension
+    assert "if (near(point, decision)) acceptedFrames.push(frame);" in extension
+    assert "const scored = correct + acceptedFrames.length + left.length;" in extension
+    assert extension.count('"accept_tracker",') == 3
+    assert 'id="accept-tracker-point"' in renderer
+    assert '{decision: "accept_tracker", x: point.engineX, y: point.engineY}' in renderer
+    assert 'return "accepted";' in renderer
+    assert '" · accepted tracker point "' in renderer
