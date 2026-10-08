@@ -428,3 +428,13 @@ def test_reviewer_can_mark_the_ball_out_of_play() -> None:
     assert 'id="ball-out-of-play"' in renderer
     assert '{decision: "out_of_play"}' in renderer
     assert 'out_of_play: ["Ball out of play", "confirmed"]' in renderer
+
+
+def test_accepted_tracker_points_show_their_band_for_scoring_only() -> None:
+    renderer = read(SHARED_RENDERER)
+
+    assert "function earlierReviewerReference(point) {" in renderer
+    assert "function acceptedBand(point) {" in renderer
+    assert '{kind: "accepted_tracker", band: acceptedBand(point)}' in renderer
+    assert '"Accepted tracker point · " + result.band.label' in renderer
+    assert "+ acceptedBandSummary()" in renderer

@@ -8297,6 +8297,86 @@ export function renderHtml({ adapter } = {}) {
     // rules engine treats it with extra care.
     const ESTIMATE_AGREE_DISTANCE_PX = 80;
 
+    // Scoring display only: an accepted tracker point is banded against the
+    // reviewer's latest earlier visible click or hidden-ball area. Leftover
+    // points on "needs more checking" marks and engine-confirmed points are
+    // not the reviewer's own click, so they are skipped.
+    function earlierReviewerReference(point) {
+      const engineMatch = observation =>
+        Number.isFinite(point.engineX)
+        && Math.hypot(
+          Number(observation.x) - point.engineX,
+          Number(observation.y) - point.engineY
+        ) < 0.5;
+      const history = [
+        ...[...(state.coordinateReview?.batches || [])]
+          .sort((left, right) => right.number - left.number)
+          .map(batch => batch.observations?.[String(point.frame)]),
+        state.trajectoryAudit?.observations?.[String(point.frame)]
+      ];
+      for (const observation of history) {
+        if (!observation) continue;
+        if (observation.decision === "undefined" && observation.hiddenRegion) {
+          return {region: observation.hiddenRegion};
+        }
+        if (
+          ["specified", "yolo_candidate", "agree"]
+            .includes(observation.decision)
+          && Number.isFinite(Number(observation.x))
+          && Number.isFinite(Number(observation.y))
+          && !engineMatch(observation)
+        ) {
+          return {x: Number(observation.x), y: Number(observation.y)};
+        }
+      }
+      return null;
+    }
+
+    function acceptedBand(point) {
+      const reference = earlierReviewerReference(point);
+      if (!reference || !Number.isFinite(point.engineX)) {
+        return {key: "none", label: "no earlier click"};
+      }
+      if (reference.region) {
+        const {x1, x2, y1, y2} = reference.region;
+        return point.engineX >= x1 && point.engineX <= x2
+          && point.engineY >= y1 && point.engineY <= y2
+          ? {key: "hidden", label: "inside your hidden-ball area"}
+          : {key: "hidden_outside", label: "outside your hidden-ball area"};
+      }
+      const distance = Math.hypot(
+        reference.x - point.engineX,
+        reference.y - point.engineY
+      );
+      const px = " " + distance.toFixed(0) + " px";
+      if (distance <= AUTO_AGREE_DISTANCE_PX) {
+        return {key: "exact", label: "exact" + px};
+      }
+      if (distance <= NEAR_MISS_DISTANCE_PX) {
+        return {key: "close", label: "close" + px};
+      }
+      if (point.engineInterpolated && distance <= ESTIMATE_AGREE_DISTANCE_PX) {
+        return {key: "area", label: "area" + px};
+      }
+      if (distance <= ACCEPTED_MISS_DISTANCE_PX) {
+        return {key: "known_miss", label: "known miss" + px};
+      }
+      return {key: "beyond", label: "beyond 100 px ·" + px};
+    }
+
+    function acceptedBandSummary() {
+      const counts = new Map();
+      for (const result of comparisonTriage()?.results.values() || []) {
+        if (result.kind !== "accepted_tracker") continue;
+        const name = result.band.label.replace(/\s*·?\s*\d+ px$/, "");
+        counts.set(name, (counts.get(name) || 0) + 1);
+      }
+      return counts.size
+        ? " (" + [...counts].map(([name, count]) => name + " " + count)
+            .join(", ") + ")"
+        : "";
+    }
+
     function acceptedMiss(frame, result) {
       return result?.kind === "off"
         && Number.isFinite(result.distance)
@@ -8372,7 +8452,7 @@ export function renderHtml({ adapter } = {}) {
             )
           : null;
         return Number.isFinite(moved) && moved <= AUTO_AGREE_DISTANCE_PX
-          ? {kind: "accepted_tracker"}
+          ? {kind: "accepted_tracker", band: acceptedBand(point)}
           : {kind: "off", distance: null};
       }
       if (observation?.decision === "undefined") {
@@ -8425,7 +8505,10 @@ export function renderHtml({ adapter } = {}) {
         return {label: "Out of play · engine agrees", className: "direct"};
       }
       if (result.kind === "accepted_tracker") {
-        return {label: "Accepted tracker point", className: "direct"};
+        return {
+          label: "Accepted tracker point · " + result.band.label,
+          className: "direct"
+        };
       }
       if (result.kind === "estimate_near") {
         return {
@@ -9528,7 +9611,9 @@ export function renderHtml({ adapter } = {}) {
         ? "Your decisions " + decidedCount + "/" + points.length
           + " · engine matches " + ballCheck.correct
           + (ballCheck.accepted
-            ? " · accepted tracker point " + ballCheck.accepted : "")
+            ? " · accepted tracker point " + ballCheck.accepted
+              + acceptedBandSummary()
+            : "")
           + " · differs " + ballCheck.left.length
           + " · needs more checking " + unclearCount + " · "
         : ballCheck
@@ -9760,7 +9845,8 @@ export function renderHtml({ adapter } = {}) {
             + (decisionSource ? " (" + decisionSource + ")" : "")
             + (
             decisionCheck === "matches" ? " · engine matches"
-            : decisionCheck === "accepted" ? ""
+            : decisionCheck === "accepted"
+              ? engineCheck?.band ? " · " + engineCheck.band.label : ""
             : decisionCheck === "differs"
               ? observation?.decision === "accept_tracker"
                 ? " · engine moved since you accepted · please recheck"
