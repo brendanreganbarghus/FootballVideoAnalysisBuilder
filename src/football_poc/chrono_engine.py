@@ -41,6 +41,15 @@ class ChronoSettings:
     touch_speed_ratio: float = 2.0
     touch_radius_heights: float = 0.35
     touch_neighbour_gap_seconds: float = 0.3
+    # A ball in the air that hangs almost still and then leaves this many
+    # times faster than "stopped", with a turn, was headed on.
+    aerial_restart_speed_ratio: float = 3.0
+    # Top share of a box that is the head.
+    head_zone_share: float = 0.25
+    # A ball in the air is contested only by an opponent standing at about
+    # the same spot: feet within this many of the toucher's heights. The
+    # camera draws players metres apart on top of each other.
+    aerial_contest_feet_heights: float = 0.75
     lofted_min_rise_heights: float = 0.3
     lofted_min_fall_ratio: float = 0.3
     lofted_noise_px: float = 3.0
@@ -192,18 +201,30 @@ def _ball_deflected(
     at: tuple[float, float, float],
     after: tuple[float, float, float],
     settings: ChronoSettings,
+    *,
+    aerial: bool = False,
 ) -> bool:
-    """Law 12 touch evidence: the ball clearly turns or changes speed here."""
+    """Law 12 touch evidence: the ball clearly turns or changes speed here.
+
+    A ball in the air can hang almost still in the picture and then leave
+    fast in a new direction: that is a header, not a still ball.
+    """
     v1 = (at[1] - before[1], at[2] - before[2])
     v2 = (after[1] - at[1], after[2] - at[2])
     d1, d2 = at[0] - before[0], after[0] - at[0]
-    if d1 <= 0 or d2 <= 0:
+    if d1 <= 0 or d2 <= 0 or hypot(*v1) == 0 or hypot(*v2) == 0:
         return False
     s1, s2 = hypot(*v1) / d1, hypot(*v2) / d2
-    if s1 < settings.stopped_speed_px_per_second or s2 < settings.stopped_speed_px_per_second:
-        return False
     cos = (v1[0] * v2[0] + v1[1] * v2[1]) / (hypot(*v1) * hypot(*v2))
     turn = degrees(acos(max(-1.0, min(1.0, cos))))
+    stopped = settings.stopped_speed_px_per_second
+    if s1 < stopped or s2 < stopped:
+        return (
+            aerial
+            and s1 < stopped
+            and s2 >= settings.aerial_restart_speed_ratio * stopped
+            and turn >= settings.touch_turn_degrees
+        )
     ratio = max(s1, s2) / min(s1, s2)
     return turn >= settings.touch_turn_degrees or ratio >= settings.touch_speed_ratio
 
@@ -240,13 +261,21 @@ def _toucher(
     ball: tuple[float, float],
     boxes: Iterable[dict[str, Any]],
     settings: ChronoSettings,
+    *,
+    aerial: bool = False,
 ) -> dict[str, Any] | None:
     """The one player whose body (head to feet) is at a deflected ball.
 
     A touch may be with any part of the body except the hands (a header,
     for example), so the whole box counts, not just the feet. An opponent
-    about as close means a contested ball, so nobody is credited.
+    about as close means a contested ball, so nobody is credited. When a
+    ball in the air is at one player's head and above an opponent's head,
+    that opponent is not contesting it.
     """
+
+    def ball_height(box: dict[str, Any]) -> float:
+        return (ball[1] - float(box["y1"])) / (float(box["y2"]) - float(box["y1"]))
+
     ranked: list[tuple[float, dict[str, Any]]] = []
     for box in boxes:
         if box.get("role") == "official" or box.get("team") not in TEAMS:
@@ -261,8 +290,19 @@ def _toucher(
     ratio, best = ranked[0]
     if ratio > settings.touch_radius_heights:
         return None
+    headed = aerial and 0.0 <= ball_height(best) <= settings.head_zone_share
     for other_ratio, other in ranked[1:]:
         if other["team"] != best["team"]:
+            if headed and ball_height(other) < 0.0:
+                continue
+            if aerial:
+                best_feet, other_feet = _feet(best), _feet(other)
+                if hypot(
+                    best_feet[0] - other_feet[0], best_feet[1] - other_feet[1]
+                ) > settings.aerial_contest_feet_heights * (
+                    float(best["y2"]) - float(best["y1"])
+                ):
+                    continue
             if other_ratio - ratio < settings.duel_margin_heights:
                 return None
             break
@@ -533,8 +573,12 @@ def run_chronological(
                 t - before[0] <= settings.touch_neighbour_gap_seconds
                 and after[0] - t <= settings.touch_neighbour_gap_seconds
             ):
-                if _ball_deflected(before, (t, x, y), after, settings):
-                    touch = _toucher((x, y), players.get(frame, []), settings)
+                if _ball_deflected(
+                    before, (t, x, y), after, settings, aerial=index in lofted
+                ):
+                    touch = _toucher(
+                        (x, y), players.get(frame, []), settings, aerial=index in lofted
+                    )
                 rolling = not estimated.intersection(
                     (index - 1, index, index + 1)
                 ) and _rolling_through(before, (t, x, y), after, settings)
