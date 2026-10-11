@@ -42,7 +42,11 @@ class ChronoSettings:
     touch_radius_heights: float = 0.35
     touch_neighbour_gap_seconds: float = 0.3
     lofted_min_rise_heights: float = 0.3
+    lofted_min_fall_ratio: float = 0.3
     lofted_noise_px: float = 3.0
+    rolling_turn_degrees: float = 20.0
+    rolling_min_speed_ratio: float = 0.7
+    rolling_max_speed_ratio: float = 1.15
 
 
 @dataclass
@@ -142,6 +146,34 @@ def _ball_deflected(
     return turn >= settings.touch_turn_degrees or ratio >= settings.touch_speed_ratio
 
 
+def _rolling_through(
+    before: tuple[float, float, float],
+    at: tuple[float, float, float],
+    after: tuple[float, float, float],
+    settings: ChronoSettings,
+) -> bool:
+    """The ball rolls on here unchanged: same line, same gently slowing pace.
+
+    A player the ball merely rolls past has not received it; receiving it
+    stops, slows, turns or kicks the ball on.
+    """
+    v1 = (at[1] - before[1], at[2] - before[2])
+    v2 = (after[1] - at[1], after[2] - at[2])
+    d1, d2 = at[0] - before[0], after[0] - at[0]
+    if d1 <= 0 or d2 <= 0:
+        return False
+    s1, s2 = hypot(*v1) / d1, hypot(*v2) / d2
+    if s1 < settings.stopped_speed_px_per_second or s2 < settings.stopped_speed_px_per_second:
+        return False
+    cos = (v1[0] * v2[0] + v1[1] * v2[1]) / (hypot(*v1) * hypot(*v2))
+    turn = degrees(acos(max(-1.0, min(1.0, cos))))
+    ratio = s2 / s1
+    return (
+        turn < settings.rolling_turn_degrees
+        and settings.rolling_min_speed_ratio <= ratio <= settings.rolling_max_speed_ratio
+    )
+
+
 def _toucher(
     ball: tuple[float, float],
     boxes: Iterable[dict[str, Any]],
@@ -185,7 +217,9 @@ def _lofted_samples(
     A ball in the air is drawn at the feet of whoever stands behind it, so it
     cannot be controlled at the feet there; only a body touch (for example a
     header) counts. The flight lasts from the rise until the ball has come
-    back down to the level it rose from, or stops falling.
+    back down to the level it rose from, or stops falling. The ball must
+    fall back by a clear share of its rise; otherwise it was rolling away
+    from the camera.
     """
     lofted: set[int] = set()
     noise = settings.lofted_noise_px
@@ -223,6 +257,11 @@ def _lofted_samples(
         rise = track[start][3] - y
         fall = track[end][3] - y
         if min(rise, fall) < settings.lofted_min_rise_heights * height:
+            continue
+        # A ball in the air comes back down. A ball rolling away from the
+        # camera only climbs in the picture, so a tiny dip after a long climb
+        # is not a flight.
+        if fall < settings.lofted_min_fall_ratio * rise:
             continue
         lofted.update(range(start + 1, end))
     return lofted
@@ -312,6 +351,12 @@ def run_chronological(
         if (b := _best_ball(balls[frame])) is not None
     ]
     lofted = _lofted_samples(track, players, settings)
+    # Gap-filled positions are a straight guess, not evidence of a free roll.
+    estimated = {
+        index
+        for index, (frame, *_rest) in enumerate(track)
+        if (_best_ball(balls[frame]) or {}).get("source_attribution") == "interpolated"
+    }
     for index, (frame, t, x, y) in enumerate(track):
         last_seconds = t
         inside = signed_pitch_distance((x, y), boundary) >= -settings.outside_margin_px
@@ -387,14 +432,18 @@ def run_chronological(
         # is a touch on its own; otherwise control needs repeated checks at
         # the feet.
         touch = None
+        rolling = False
         if 0 < index < len(track) - 1:
             before, after = track[index - 1][1:], track[index + 1][1:]
             if (
                 t - before[0] <= settings.touch_neighbour_gap_seconds
                 and after[0] - t <= settings.touch_neighbour_gap_seconds
-                and _ball_deflected(before, (t, x, y), after, settings)
             ):
-                touch = _toucher((x, y), players.get(frame, []), settings)
+                if _ball_deflected(before, (t, x, y), after, settings):
+                    touch = _toucher((x, y), players.get(frame, []), settings)
+                rolling = not estimated.intersection(
+                    (index - 1, index, index + 1)
+                ) and _rolling_through(before, (t, x, y), after, settings)
         if touch is None and index in lofted:
             continue
         box = touch or _closest_controller(
@@ -416,6 +465,10 @@ def run_chronological(
             candidate.last_seconds = t
             candidate.feet = _feet(box)
         else:
+            if rolling and touch is None and (owner is None or owner.track_id != track_id):
+                # The ball rolls past this player unchanged: not received yet.
+                candidate = None
+                continue
             candidate = _Control(track_id, team, t, t, _feet(box), height)
         if touch is not None:
             candidate.samples = max(candidate.samples, settings.control_confirm_samples)

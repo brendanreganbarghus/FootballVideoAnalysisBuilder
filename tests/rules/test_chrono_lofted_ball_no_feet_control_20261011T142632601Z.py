@@ -39,6 +39,7 @@ def test_lofted_ball_is_not_controlled_at_feet_behind_it_20261011T142632601Z():
 
 def test_low_arc_is_not_a_flight_20261011T142632602Z():
     players, balls = _lob_over_opponent()
-    no_lob = ChronoSettings(lofted_min_rise_heights=10.0)
+    # Also switch off the rolling-past rule so only the flight rule is tested.
+    no_lob = ChronoSettings(lofted_min_rise_heights=10.0, rolling_turn_degrees=0.0)
     events = run_chronological(players, balls, BOUNDARY, no_lob).events
     assert 9 in {e["to_player_track_id"] for e in events}
