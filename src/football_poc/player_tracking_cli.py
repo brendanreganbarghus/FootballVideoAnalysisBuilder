@@ -52,6 +52,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional BGR reference colors for K-Means jersey classification.",
     )
     parser.add_argument("--no-video", action="store_true")
+    parser.add_argument(
+        "--pitch-calibration",
+        type=Path,
+        default=None,
+        help="Calibrated pitch boundary; replaces the generic pitch curve.",
+    )
     return parser
 
 
@@ -70,6 +76,7 @@ def main() -> None:
         team_profile=args.team_profile,
         goalkeeper_affiliations_path=args.goalkeeper_affiliations,
         team_color_references_path=args.team_colors,
+        pitch_calibration_path=args.pitch_calibration,
     )
 
 

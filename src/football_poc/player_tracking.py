@@ -6,18 +6,19 @@ from dataclasses import asdict, dataclass
 from math import hypot
 from pathlib import Path
 from statistics import median
-from typing import Any, Iterable
+from typing import Any, Iterable, Sequence
 
 import cv2
 import numpy as np
 
 from football_poc.benchmark import BenchmarkManifest
-from football_poc.image_space import scale_goalkeeper_affiliations
+from football_poc.image_space import scale_factors, scale_goalkeeper_affiliations
 from football_poc.match_initialization import (
     MatchInitialization,
     TrackInitializationEvidence,
     infer_match_initialization,
 )
+from football_poc.pitch_geometry import load_pitch_boundary, signed_pitch_distance
 from football_poc.team_colors import (
     assign_color_group,
     dominant_jersey_color,
@@ -89,6 +90,7 @@ def track_cached_players(
     team_profile: str = "auto",
     goalkeeper_affiliations_path: Path | None = None,
     team_color_references_path: Path | None = None,
+    pitch_calibration_path: Path | None = None,
 ) -> Path:
     manifest = BenchmarkManifest.load(manifest_path)
     metadata, records = _load_player_cache(
@@ -102,22 +104,45 @@ def track_cached_players(
     )
     width, height = _video_dimensions(manifest.video)
     balls_by_frame = _load_ball_points(ball_tracks_path)
-    points = [
-        point
-        for record in records
-        for point in _player_points(record, confidence)
-        if (
-            _inside_pitch(point.foot[0], point.foot[1], width, height)
-            or _near_ball(
-                point,
-                balls_by_frame.get(point.source_frame, ()),
-            )
+    calibrated_boundary = (
+        _calibrated_pitch_boundary(pitch_calibration_path, (width, height))
+        if pitch_calibration_path is not None
+        else None
+    )
+
+    def on_pitch(point: PlayerPoint) -> bool:
+        if calibrated_boundary is not None:
+            return signed_pitch_distance(point.foot, calibrated_boundary) >= 0
+        return _inside_pitch(point.foot[0], point.foot[1], width, height)
+
+    points: list[PlayerPoint] = []
+    # People outside the lines (officials, staff, ball boys) are kept as
+    # objects in their own file and never take part as players.
+    outside_points: list[PlayerPoint] = []
+    for record in records:
+        for point in _player_points(record, confidence):
+            if on_pitch(point) or _near_ball(
+                point, balls_by_frame.get(point.source_frame, ())
+            ):
+                points.append(point)
+            else:
+                outside_points.append(point)
+    points = _drop_piece_boxes(points)
+    player_teams = PLAYER_TEAMS_BY_PROFILE.get(team_profile, frozenset())
+    colors_read = (
+        team_color_references_path is None and bool(player_teams)
+    )
+    if colors_read:
+        team_colors = _read_point_colors(
+            points, manifest.video, team_profile=team_profile
         )
-    ]
+    else:
+        team_colors = {}
     tracks = _associate_players(
         points,
         max_gap_seconds=max_gap_seconds,
         max_speed_pixels_per_second=max_speed_pixels_per_second,
+        player_teams=player_teams if colors_read else frozenset(),
     )
     accepted = [
         track for track in tracks if len(track.points) >= minimum_track_points
@@ -143,7 +168,12 @@ def track_cached_players(
             starts_at_kickoff=manifest.starts_at_kickoff,
         )
     else:
-        _classify_tracks(accepted, manifest.video, team_profile=team_profile)
+        team_colors = _classify_tracks(
+            accepted,
+            manifest.video,
+            team_profile=team_profile,
+            colors_read=colors_read,
+        ) or team_colors
     if goalkeeper_affiliations_path is not None:
         affiliations = json.loads(
             goalkeeper_affiliations_path.read_text(encoding="utf-8")
@@ -152,8 +182,21 @@ def track_cached_players(
             accepted,
             scale_goalkeeper_affiliations(affiliations, (width, height)),
         )
+    if colors_read:
+        accepted = [track for track in accepted if not _is_still_object(track)]
+    overlaps = (
+        resolve_overlap_teams(
+            accepted, team_profile=team_profile, team_colors=team_colors
+        )
+        if team_profile in ("red-black", "blue-white")
+        else None
+    )
 
     output.mkdir(parents=True, exist_ok=True)
+    if overlaps is not None:
+        (output / "player-overlaps.json").write_text(
+            json.dumps(overlaps, indent=2), encoding="utf-8"
+        )
     destination = output / "player-tracks.json"
     destination.write_text(
         json.dumps(
@@ -173,6 +216,31 @@ def track_cached_players(
                         "points": [asdict(point) for point in track.points],
                     }
                     for track in accepted
+                ],
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    outside_tracks = [
+        track
+        for track in _associate_players(
+            outside_points,
+            max_gap_seconds=max_gap_seconds,
+            max_speed_pixels_per_second=max_speed_pixels_per_second,
+        )
+        if len(track.points) >= minimum_track_points
+    ]
+    (output / "outside-pitch-objects.json").write_text(
+        json.dumps(
+            {
+                "role": "outside_pitch",
+                "objects": [
+                    {
+                        "object_id": f"O{track.track_id}",
+                        "points": [asdict(point) for point in track.points],
+                    }
+                    for track in outside_tracks
                 ],
             },
             indent=2,
@@ -202,6 +270,7 @@ def _associate_players(
     *,
     max_gap_seconds: float,
     max_speed_pixels_per_second: float,
+    player_teams: frozenset[str] = frozenset(),
 ) -> tuple[PlayerTrack, ...]:
     by_frame: dict[int, list[PlayerPoint]] = {}
     for point in points:
@@ -219,10 +288,11 @@ def _associate_players(
             for track in tracks
             if timestamp - track.last.clip_seconds <= max_gap_seconds
         ]
-        pairs: list[tuple[float, int, int]] = []
+        pairs: list[tuple[tuple[bool, float], int, int]] = []
         for track_index, track in enumerate(active):
             predicted_x, predicted_y = track.predicted_foot(timestamp)
             elapsed = timestamp - track.last.clip_seconds
+            history_team = _clear_team_history(track, player_teams)
             if track.track_id in duplicated:
                 max_distance = max(25.0, track.last.height * 0.8)
             else:
@@ -232,13 +302,35 @@ def _associate_players(
                     + max_speed_pixels_per_second * elapsed,
                 )
             for point_index, point in enumerate(frame_points):
+                if (
+                    history_team is not None
+                    and point.team in player_teams
+                    and point.team != history_team
+                ):
+                    # The box's own shirt clearly shows the other team.
+                    continue
                 point_x, point_y = point.foot
                 distance = hypot(point_x - predicted_x, point_y - predicted_y)
                 if distance <= max_distance:
-                    cost = distance / max_distance - 0.25 * _box_iou(
-                        track.last, point
+                    # A person keeps roughly the same height between samples,
+                    # so a cut-off piece must not take over from a full box.
+                    cost = (
+                        distance / max_distance
+                        - 0.25 * _box_iou(track.last, point)
+                        + HEIGHT_CHANGE_COST
+                        * abs(point.height - track.last.height)
+                        / max(point.height, track.last.height, 1.0)
                     )
-                    pairs.append((cost, track_index, point_index))
+                    # A track that last shared its player with a stronger
+                    # track picks only after every independent track, so a
+                    # merged box cannot take a hidden player's own box.
+                    pairs.append(
+                        (
+                            (track.track_id in duplicated, cost),
+                            track_index,
+                            point_index,
+                        )
+                    )
 
         assigned_tracks: set[int] = set()
         assigned_points: set[int] = set()
@@ -275,6 +367,47 @@ def _associate_players(
     return tuple(tracks)
 
 
+def _drop_piece_boxes(points: list[PlayerPoint]) -> list[PlayerPoint]:
+    """Drop boxes that are only a short piece (legs, head) of a taller box.
+
+    A box lying almost fully inside a much taller box in the same frame is
+    the same person cut off by YOLO, not another player.
+    """
+    by_frame: dict[int, list[PlayerPoint]] = defaultdict(list)
+    for point in points:
+        by_frame[point.source_frame].append(point)
+    kept: list[PlayerPoint] = []
+    for frame_points in by_frame.values():
+        for point in frame_points:
+            if not any(
+                other is not point
+                and point.height < PIECE_BOX_HEIGHT_SHARE * other.height
+                and _box_overlap_of_smaller(point, other) >= PIECE_BOX_CONTAINMENT
+                for other in frame_points
+            ):
+                kept.append(point)
+    return kept
+
+
+def _clear_team_history(
+    track: PlayerTrack, player_teams: frozenset[str]
+) -> str | None:
+    """Return the team a track has clearly shown in its recent readable boxes."""
+    if not player_teams:
+        return None
+    recent = [
+        point.team
+        for point in track.points[-TEAM_HISTORY_POINTS * 3 :]
+        if point.team != "unknown"
+    ][-TEAM_HISTORY_POINTS:]
+    if len(recent) < TEAM_HISTORY_POINTS:
+        return None
+    team, count = Counter(recent).most_common(1)[0]
+    if team in player_teams and count >= TEAM_HISTORY_AGREEMENT:
+        return team
+    return None
+
+
 def _box_overlap_of_smaller(first: PlayerPoint, second: PlayerPoint) -> float:
     width = max(0.0, min(first.x2, second.x2) - max(first.x1, second.x1))
     height = max(0.0, min(first.y2, second.y2) - max(first.y1, second.y1))
@@ -283,6 +416,216 @@ def _box_overlap_of_smaller(first: PlayerPoint, second: PlayerPoint) -> float:
         (second.x2 - second.x1) * (second.y2 - second.y1),
     )
     return width * height / smaller if smaller > 0 else 0.0
+
+
+def _resolve_part_boxes(
+    tracks: list[PlayerTrack],
+    members_by_frame: dict[int, list[tuple[PlayerTrack, PlayerPoint]]],
+) -> list[dict[str, Any]]:
+    """Give a box that is only a piece of a person the team of that person.
+
+    YOLO sometimes boxes only a head, legs or a slice of a player who already
+    has a full box. Such a box lies mostly inside the larger box in the same
+    frame, so it is a piece of that person, not another player.
+    """
+    part_boxes: list[dict[str, Any]] = []
+    for source_frame in sorted(members_by_frame):
+        members = members_by_frame[source_frame]
+        for track, point in members:
+            if point.team != "unknown":
+                continue
+            hosts = [
+                (other_track, other)
+                for other_track, other in members
+                if other is not point
+                and other.team != "unknown"
+                and _area(other) > _area(point)
+                and _box_overlap_of_smaller(point, other) >= MERGED_BOX_CONTAINMENT
+            ]
+            if not hosts:
+                continue
+            host_track, host = max(
+                hosts, key=lambda item: _box_overlap_of_smaller(point, item[1])
+            )
+            point.team = host.team
+            part_boxes.append(
+                {
+                    "source_frame": source_frame,
+                    "clip_seconds": point.clip_seconds,
+                    "track_id": track.track_id,
+                    "inside_track_id": host_track.track_id,
+                    "team": host.team,
+                }
+            )
+    for track in tracks:
+        known = [
+            (point.clip_seconds, point.team)
+            for point in track.points
+            if point.team != "unknown"
+        ]
+        if not known:
+            continue
+        for point in track.points:
+            if point.team == "unknown":
+                point.team = min(
+                    known, key=lambda item: abs(item[0] - point.clip_seconds)
+                )[1]
+    return part_boxes
+
+
+def resolve_overlap_teams(
+    tracks: list[PlayerTrack],
+    *,
+    team_profile: str,
+    minimum_overlap: float = 0.2,
+    contact_radius_heights: float = 0.75,
+    clear_votes: int = 3,
+    team_colors: dict[str, tuple[list[float], list[float]]] | None = None,
+) -> dict[str, Any]:
+    """Settle the team of overlapped or uncoloured boxes from evidence.
+
+    An overlapped box is read only on its own, unshared jersey pixels (see
+    ``_jersey_features``); that reading beats the track history, because a
+    track can jump to another person during an overlap. Without a reading, the
+    same track's nearest frames where the person stands alone with a readable
+    kit decide. Every overlap group is returned so later rules can see which
+    people shared a location.
+    """
+    members_by_frame: dict[int, list[tuple[PlayerTrack, PlayerPoint]]] = (
+        defaultdict(list)
+    )
+    for track in tracks:
+        for point in track.points:
+            members_by_frame[point.source_frame].append((track, point))
+
+    overlapped: set[int] = set()
+    frames: list[dict[str, Any]] = []
+    for source_frame in sorted(members_by_frame):
+        members = members_by_frame[source_frame]
+        parent = list(range(len(members)))
+
+        def find(index: int) -> int:
+            while parent[index] != index:
+                parent[index] = parent[parent[index]]
+                index = parent[index]
+            return index
+
+        for first in range(len(members)):
+            for second in range(first + 1, len(members)):
+                one, other = members[first][1], members[second][1]
+                if (
+                    _box_overlap_of_smaller(one, other) >= minimum_overlap
+                    or hypot(
+                        one.foot[0] - other.foot[0], one.foot[1] - other.foot[1]
+                    )
+                    <= contact_radius_heights * max(one.height, other.height)
+                ):
+                    parent[find(first)] = find(second)
+        grouped: dict[int, list[int]] = defaultdict(list)
+        for index in range(len(members)):
+            grouped[find(index)].append(index)
+        groups = [indices for indices in grouped.values() if len(indices) > 1]
+        if not groups:
+            continue
+        for indices in groups:
+            for index in indices:
+                overlapped.add(id(members[index][1]))
+        frames.append(
+            {
+                "source_frame": source_frame,
+                "clip_seconds": members[0][1].clip_seconds,
+                "groups": [[members[index] for index in indices] for indices in groups],
+            }
+        )
+
+    resolved = 0
+
+    def read(scores: dict[str, float]) -> str:
+        if team_colors:
+            return nearest_team_color(scores, team_colors)
+        return classify_color_scores(scores, team_profile=team_profile)
+
+    for track in tracks:
+        if track.role == "goalkeeper":
+            continue
+        clear: list[tuple[float, str]] = []
+        for point in track.points:
+            # A box in contact is still clear: it was read on its own
+            # unshared pixels with the people in front masked out.
+            if not point.color_scores:
+                continue
+            reading = read(point.color_scores)
+            if reading != "unknown":
+                clear.append((point.clip_seconds, reading))
+        for point in track.points:
+            if id(point) not in overlapped and point.team != "unknown":
+                continue
+            own_reading = (
+                read(point.color_scores) if point.color_scores else "unknown"
+            )
+            if own_reading != "unknown":
+                if own_reading != point.team:
+                    resolved += 1
+                point.team = own_reading
+                continue
+            if not clear:
+                continue
+            nearest = sorted(
+                clear, key=lambda item: abs(item[0] - point.clip_seconds)
+            )[:clear_votes]
+            counts = Counter(team for _, team in nearest)
+            highest = max(counts.values())
+            team = next(team for _, team in nearest if counts[team] == highest)
+            if team != point.team:
+                resolved += 1
+            point.team = team
+
+    part_boxes = _resolve_part_boxes(tracks, members_by_frame)
+    resolved += len(part_boxes)
+
+    total = sum(len(track.points) for track in tracks)
+    return {
+        "minimum_overlap_of_smaller_box": minimum_overlap,
+        "contact_radius_heights": contact_radius_heights,
+        "part_boxes": part_boxes,
+        "learned_team_colors": {
+            team: dict(zip(COLOR_VECTOR_NAMES, (round(v, 4) for v in centre)))
+            for team, (centre, _) in (team_colors or {}).items()
+        },
+        "summary": {
+            "points": total,
+            "overlapped_points": len(overlapped),
+            "teams_changed": resolved,
+            "part_boxes": len(part_boxes),
+            "unknown_left": sum(
+                1
+                for track in tracks
+                for point in track.points
+                if point.team == "unknown"
+            ),
+        },
+        "frames": [
+            {
+                "source_frame": frame["source_frame"],
+                "clip_seconds": frame["clip_seconds"],
+                "groups": [
+                    [
+                        {
+                            "track_id": track.track_id,
+                            "team": point.team,
+                            "x1": point.x1,
+                            "y1": point.y1,
+                            "x2": point.x2,
+                            "y2": point.y2,
+                        }
+                        for track, point in group
+                    ]
+                    for group in frame["groups"]
+                ],
+            }
+            for frame in frames
+        ],
+    }
 
 
 def classify_color_scores(
@@ -351,13 +694,36 @@ def _classify_tracks(
     video: Path,
     *,
     team_profile: str,
-) -> None:
-    samples_by_frame: dict[int, list[tuple[PlayerTrack, PlayerPoint]]] = defaultdict(
-        list
-    )
-    for track in tracks:
-        for point in track.points:
-            samples_by_frame[point.source_frame].append((track, point))
+    colors_read: bool = False,
+) -> dict[str, tuple[list[float], list[float]]]:
+    team_colors: dict[str, tuple[list[float], list[float]]] = {}
+    if not colors_read:
+        team_colors = _read_point_colors(
+            [point for track in tracks for point in track.points],
+            video,
+            team_profile=team_profile,
+        )
+    _settle_track_teams(tracks)
+    return team_colors
+
+
+def _read_point_colors(
+    points: Sequence[PlayerPoint],
+    video: Path,
+    *,
+    team_profile: str,
+) -> dict[str, tuple[list[float], list[float]]]:
+    """Read each box's own jersey colour and set its per-frame team.
+
+    Returns the team colours learned from this clip (see
+    ``learn_team_colors``); every read box takes the closest one.
+    """
+    samples_by_frame: dict[int, list[PlayerPoint]] = defaultdict(list)
+    for point in points:
+        samples_by_frame[point.source_frame].append(point)
+    if not samples_by_frame:
+        return {}
+    expected_height = _expected_person_heights(points)
 
     capture = cv2.VideoCapture(str(video))
     try:
@@ -379,8 +745,14 @@ def _classify_tracks(
                 )
             current_frame = source_frame + 1
             frame_samples = samples_by_frame[source_frame]
-            for track, point in frame_samples:
-                features = _jersey_features(frame, point)
+            merged = _merged_box_ids(frame_samples)
+            occluders = [other for other in frame_samples if id(other) not in merged]
+            for point in frame_samples:
+                if _is_cut_off(point, expected_height):
+                    # Too short to contain the shirt; the track's clear
+                    # frames decide its team instead.
+                    continue
+                features = _jersey_features(frame, point, occluders)
                 if features is not None:
                     point.color_scores = {
                         key: round(value, 4) for key, value in features.items()
@@ -390,7 +762,147 @@ def _classify_tracks(
                     )
     finally:
         capture.release()
+    team_colors = learn_team_colors(points, team_profile=team_profile)
+    for point in points:
+        if point.color_scores:
+            point.team = nearest_team_color(point.color_scores, team_colors)
+    return team_colors
 
+
+HEIGHT_CHANGE_COST = 0.5
+PIECE_BOX_HEIGHT_SHARE = 0.6
+PIECE_BOX_CONTAINMENT = 0.8
+# A kit is a shirt and shorts; each is read on its own band.
+KIT_PARTS = {"shirt": (0.12, 0.45), "shorts": (0.45, 0.70)}
+COLOR_FEATURES = ("blue", "white", "dark", "warm", "yellow")
+MINIMUM_TEAM_COLOR_SAMPLES = 20
+STILL_OBJECT_MOVEMENT_HEIGHTS = 0.5
+
+
+def _is_still_object(track: PlayerTrack) -> bool:
+    """A box that never moves and never shows a shirt is not a person.
+
+    YOLO sometimes calls an object (a bag in the goal net, a post) a person.
+    A person on the pitch either moves or has a readable shirt; a track with
+    neither, whose feet stay within half a body height, is dropped.
+    """
+    if track.role == "goalkeeper":
+        return False
+    if any(point.color_scores for point in track.points):
+        return False
+    heights = [point.y2 - point.y1 for point in track.points]
+    body_height = median(heights)
+    first_x, first_y = track.points[0].foot
+    return all(
+        hypot(point.foot[0] - first_x, point.foot[1] - first_y)
+        <= STILL_OBJECT_MOVEMENT_HEIGHTS * body_height
+        for point in track.points
+    )
+
+
+COLOR_VECTOR_NAMES = tuple(
+    f"{part}_{key}" for part in KIT_PARTS for key in COLOR_FEATURES
+)
+
+
+def _color_vector(scores: dict[str, float]) -> list[float]:
+    """A box's kit: shirt and shorts colour mixes, read separately.
+
+    Bright and shaded yellow are one colour. A part that could not be read
+    (hidden behind someone) falls back to the whole-kit reading.
+    """
+    vector: list[float] = []
+    for part in KIT_PARTS:
+        prefix = f"{part}_" if f"{part}_dark" in scores else ""
+        mix = {key: scores.get(prefix + key, 0.0) for key in COLOR_FEATURES}
+        mix["yellow"] += scores.get(prefix + "shaded_yellow", 0.0)
+        vector.extend(mix[key] for key in COLOR_FEATURES)
+    return vector
+
+
+def learn_team_colors(
+    points: Sequence[PlayerPoint], *, team_profile: str
+) -> dict[str, tuple[list[float], list[float]]]:
+    """Learn each team's colour mix from the boxes this clip reads clearly.
+
+    A box that the fixed colour limits read as one team is a clear example of
+    that team. The average mix of those examples is the team's colour in this
+    clip's light; the spread of all clear examples scales each measure.
+    """
+    examples: dict[str, list[list[float]]] = defaultdict(list)
+    for point in points:
+        if not point.color_scores:
+            continue
+        team = classify_color_scores(point.color_scores, team_profile=team_profile)
+        if team != "unknown":
+            examples[team].append(_color_vector(point.color_scores))
+    examples = {
+        team: rows
+        for team, rows in examples.items()
+        if len(rows) >= MINIMUM_TEAM_COLOR_SAMPLES
+    }
+    if not examples:
+        return {}
+    every = np.array([row for rows in examples.values() for row in rows])
+    spread = (every.std(axis=0) + 1e-6).tolist()
+    return {
+        team: (np.array(rows).mean(axis=0).tolist(), spread)
+        for team, rows in examples.items()
+    }
+
+
+def nearest_team_color(
+    scores: dict[str, float],
+    team_colors: dict[str, tuple[list[float], list[float]]],
+) -> str:
+    """The learned team whose colour mix is closest to this box's reading."""
+    if not team_colors:
+        return "unknown"
+    reading = np.array(_color_vector(scores))
+    return min(
+        team_colors,
+        key=lambda team: float(
+            np.linalg.norm(
+                (reading - np.array(team_colors[team][0]))
+                / np.array(team_colors[team][1])
+            )
+        ),
+    )
+
+
+def _height_cell(point: PlayerPoint) -> tuple[int, int]:
+    return (
+        int(point.y2 // PERSON_HEIGHT_BAND_PIXELS),
+        int(((point.x1 + point.x2) / 2) // PERSON_HEIGHT_COLUMN_PIXELS),
+    )
+
+
+def _expected_person_heights(
+    points: Sequence[PlayerPoint],
+) -> dict[tuple[int, int], float]:
+    """Median box height of people whose feet stand in the same image cell.
+
+    The cell is both a row and a column band, because in a panorama people at
+    the same image row look smaller at the sides than in the middle.
+    """
+    by_cell: dict[tuple[int, int], list[float]] = defaultdict(list)
+    for point in points:
+        by_cell[_height_cell(point)].append(point.height)
+    return {
+        cell: median(heights)
+        for cell, heights in by_cell.items()
+        if len(heights) >= PERSON_HEIGHT_MINIMUM_SAMPLES
+    }
+
+
+def _is_cut_off(
+    point: PlayerPoint, expected_height: dict[tuple[int, int], float]
+) -> bool:
+    expected = expected_height.get(_height_cell(point))
+    return expected is not None and point.height < CUT_OFF_HEIGHT_SHARE * expected
+
+
+def _settle_track_teams(tracks: list[PlayerTrack]) -> None:
     tracks[:] = split_tracks_on_sustained_team_change(tracks)
     for track in tracks:
         samples = [point.color_scores for point in track.points if point.color_scores]
@@ -688,45 +1200,142 @@ def _stabilize_track_team_causally(
     track.team = current_team
 
 
+MINIMUM_UNSHARED_JERSEY_SHARE = 0.25
+MERGED_BOX_CONTAINMENT = 0.6
+TEAM_HISTORY_POINTS = 5
+TEAM_HISTORY_AGREEMENT = 4
+PERSON_HEIGHT_BAND_PIXELS = 20
+PERSON_HEIGHT_COLUMN_PIXELS = 200
+PERSON_HEIGHT_MINIMUM_SAMPLES = 20
+CUT_OFF_HEIGHT_SHARE = 0.6
+# Height bands of a box (share of its height from the top) read as the kit.
+JERSEY_CROP_TOP = 0.12
+JERSEY_CROP_BOTTOM = 0.58
+PLAYER_TEAMS_BY_PROFILE = {
+    "red-black": frozenset({"red", "black"}),
+    "blue-white": frozenset({"blue", "white"}),
+}
+
+
+def _merged_box_ids(points: Sequence[PlayerPoint]) -> set[int]:
+    """Return boxes that each enclose two or more other boxes in the frame.
+
+    Such a box is drawn around a group of people rather than one person, so it
+    must not count as a person standing in front of the people inside it.
+    """
+    merged: set[int] = set()
+    for point in points:
+        inside = sum(
+            1
+            for other in points
+            if other is not point
+            and _area(other) < _area(point)
+            and _box_overlap_of_smaller(point, other) >= MERGED_BOX_CONTAINMENT
+        )
+        if inside >= 2:
+            merged.add(id(point))
+    return merged
+
+
+def _area(point: PlayerPoint) -> float:
+    return max(0.0, point.x2 - point.x1) * max(0.0, point.y2 - point.y1)
+
+
 def _jersey_features(
-    frame: np.ndarray, point: PlayerPoint
+    frame: np.ndarray,
+    point: PlayerPoint,
+    occluders: Iterable[PlayerPoint] = (),
 ) -> dict[str, float] | None:
-    crop = _jersey_crop(frame, point)
+    """Measure kit colours on the jersey pixels that belong to this person.
+
+    Pixels covered by a person standing in front (a lower foot is nearer the
+    camera) show that other person, so they are left out. When too little of
+    the jersey remains visible, there is no reading.
+    """
+    occluders = list(occluders)
+    scores = _kit_shares(frame, point, occluders, JERSEY_CROP_TOP, JERSEY_CROP_BOTTOM)
+    if scores is None:
+        return None
+    for part, (top, bottom) in KIT_PARTS.items():
+        part_scores = _kit_shares(frame, point, occluders, top, bottom)
+        if part_scores is not None:
+            scores.update(
+                {f"{part}_{key}": share for key, share in part_scores.items()}
+            )
+    return scores
+
+
+def _kit_shares(
+    frame: np.ndarray,
+    point: PlayerPoint,
+    occluders: Sequence[PlayerPoint],
+    top: float,
+    bottom: float,
+) -> dict[str, float] | None:
+    """Kit colour shares in one height band of the box (0 = top, 1 = feet)."""
+    crop = _jersey_crop(frame, point, top, bottom)
     if crop is None:
         return None
     hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
     hue, saturation, value = cv2.split(hsv)
+    own = np.ones(hue.shape, dtype=bool)
+    crop_x1, crop_y1 = _jersey_crop_origin(point, top)
+    for other in occluders:
+        if other is point or other.y2 <= point.y2:
+            continue
+        left = max(0, int(other.x1) - crop_x1)
+        right = min(own.shape[1], int(other.x2) - crop_x1)
+        upper = max(0, int(other.y1) - crop_y1)
+        lower = min(own.shape[0], int(other.y2) - crop_y1)
+        if right > left and lower > upper:
+            own[upper:lower, left:right] = False
+    if own.mean() < MINIMUM_UNSHARED_JERSEY_SHARE:
+        return None
+
+    def share(mask: np.ndarray) -> float:
+        return float(np.mean(mask[own]))
+
+    # A strongly yellow pixel in shadow is a yellow kit, not a black one.
+    shaded_yellow = (
+        (value < 80) & (hue >= 15) & (hue <= 35) & (saturation >= 130)
+    )
     return {
-        "blue": float(np.mean((hue >= 90) & (hue <= 135) & (saturation > 70))),
-        "white": float(np.mean((saturation < 60) & (value > 135))),
-        "dark": float(np.mean(value < 80)),
-        "warm": float(
-            np.mean(
-                ((hue < 15) | (hue > 165))
-                & (saturation > 80)
-                & (value > 100)
-            )
+        "blue": share((hue >= 90) & (hue <= 135) & (saturation > 70)),
+        "white": share((saturation < 60) & (value > 135)),
+        "dark": share((value < 80) & ~shaded_yellow),
+        "warm": share(
+            ((hue < 15) | (hue > 165)) & (saturation > 80) & (value > 100)
         ),
-        "yellow": float(
-            np.mean(
-                (hue >= 15)
-                & (hue <= 40)
-                & (saturation > 80)
-                & (value > 100)
-            )
+        "yellow": share(
+            (hue >= 15) & (hue <= 40) & (saturation > 80) & (value > 100)
         ),
+        "shaded_yellow": share(shaded_yellow),
     }
 
 
+def _jersey_crop_origin(
+    point: PlayerPoint, top: float = 0.12
+) -> tuple[int, int]:
+    width = point.x2 - point.x1
+    height = point.y2 - point.y1
+    return (
+        max(0, int(point.x1 + width * 0.2)),
+        max(0, int(point.y1 + height * top)),
+    )
+
+
 def _jersey_crop(
-    frame: np.ndarray, point: PlayerPoint
+    frame: np.ndarray,
+    point: PlayerPoint,
+    top: float = 0.12,
+    bottom: float = 0.58,
 ) -> np.ndarray | None:
     width = point.x2 - point.x1
     height = point.y2 - point.y1
     x1 = max(0, int(point.x1 + width * 0.2))
     x2 = min(frame.shape[1], int(point.x2 - width * 0.2))
-    y1 = max(0, int(point.y1 + height * 0.12))
-    y2 = min(frame.shape[0], int(point.y1 + height * 0.58))
+    y1 = max(0, int(point.y1 + height * top))
+    y2 = min(frame.shape[0], int(point.y1 + height * bottom))
     if x2 <= x1 or y2 <= y1:
         return None
     crop = frame[y1:y2, x1:x2]
@@ -774,6 +1383,15 @@ def _player_points(
         if detection.get("class_name") == "person"
         and float(detection["confidence"]) >= confidence
     ]
+
+
+def _calibrated_pitch_boundary(
+    calibration_path: Path, frame_size: tuple[float, float]
+) -> tuple[tuple[float, float], ...]:
+    """Calibrated pitch lines converted to the video frame size of the boxes."""
+    calibration = json.loads(calibration_path.read_text(encoding="utf-8"))
+    sx, sy = scale_factors(calibration, frame_size)
+    return tuple((x * sx, y * sy) for x, y in load_pitch_boundary(calibration_path))
 
 
 def _inside_pitch(x: float, y: float, width: int, height: int) -> bool:

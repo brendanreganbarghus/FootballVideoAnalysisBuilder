@@ -485,6 +485,8 @@ def main() -> None:
             "red-black",
             "--goalkeeper-affiliations",
             str(alfheim_config_path("goalkeeper-affiliations.json")),
+            "--pitch-calibration",
+            str(alfheim_config_path("pitch-calibration.json")),
             "--no-video",
         )
 
