@@ -1290,16 +1290,22 @@ def _sustained_team_change_index(
     history: deque[str] = deque(maxlen=window_size)
     current = "unknown"
     run: list[int] = []
+    # The team the track had when the contradicting run began. The window
+    # majority may flip during the run; the run still contradicts this team.
+    anchor = "unknown"
     for index, point in enumerate(points):
         vote = point.team
         if vote == "unknown":
             continue
-        if current != "unknown" and vote != current and vote in OUTFIELD_TEAMS:
-            run.append(index)
-            if len(run) >= consecutive_votes and run[0] > 0:
-                return run[0]
-        elif vote == current:
+        if run and vote == anchor:
             run = []
+        if run and vote != anchor and vote in OUTFIELD_TEAMS:
+            run.append(index)
+        elif current != "unknown" and vote != current and vote in OUTFIELD_TEAMS:
+            anchor = current
+            run = [index]
+        if len(run) >= consecutive_votes and run[0] > 0:
+            return run[0]
         history.append(vote)
         counts = Counter(history)
         highest = max(counts.values())
