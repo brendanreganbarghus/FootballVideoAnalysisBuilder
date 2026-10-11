@@ -183,6 +183,7 @@ def run_chronological(
     candidate: _Control | None = None
     exit_path: list[tuple[float, float, float]] | None = None
     previous: tuple[float, float, float] | None = None
+    previous_frame: int | None = None
     last_seconds = 0.0
 
     for frame in sorted(balls):
@@ -237,7 +238,27 @@ def run_chronological(
                         "goal_kick_taken" if in_goal_area else "restart_taken_type_unknown",
                     )
                 )
+                # Law 8/16/17: the player standing at the still ball takes the
+                # restart, so the restart's team owns the ball as it is kicked.
+                taker = _closest_controller(
+                    (previous[1], previous[2]),
+                    players.get(previous_frame, []),
+                    settings.control_radius_heights,
+                    settings.duel_margin_heights,
+                )
+                if taker is not None:
+                    owner = _Control(
+                        int(taker["track_id"]),
+                        str(taker["team"]),
+                        previous[0],
+                        previous[0],
+                        _feet(taker),
+                        float(taker["y2"]) - float(taker["y1"]),
+                        settings.control_confirm_samples,
+                    )
+                    candidate = None
         previous = (t, x, y)
+        previous_frame = frame
         if state != "in_play" or exit_path is not None:
             continue
 
@@ -303,7 +324,6 @@ def _scaled_goal_areas(
     from football_poc.image_space import ball_coordinate_size, scale_factors, video_size
 
     calibration = json.loads(calibration_path.read_text(encoding="utf-8"))
-    features = calibration.get("features", {})
     sx, sy = scale_factors(
         calibration,
         ball_coordinate_size(
@@ -311,9 +331,23 @@ def _scaled_goal_areas(
         ),
     )
     return tuple(
-        tuple((float(x) * sx, float(y) * sy) for x, y in features[name])
-        for name in ("left_goal_area", "right_goal_area")
-        if len(features.get(name, [])) >= 3
+        tuple((x * sx, y * sy) for x, y in area) for area in goal_areas_from_calibration(calibration)
+    )
+
+
+def goal_areas_from_calibration(
+    calibration: dict[str, Any],
+) -> tuple[tuple[tuple[float, float], ...], ...]:
+    """Manually calibrated goal areas (Law 1), in calibration image space.
+
+    Only marked ``{side}_goal_area`` polygons are used; a missing goal area
+    is not guessed.
+    """
+    features = calibration.get("features", {})
+    return tuple(
+        tuple((float(x), float(y)) for x, y in features.get(f"{side}_goal_area", []))
+        for side in ("left", "right")
+        if len(features.get(f"{side}_goal_area", [])) >= 3
     )
 
 

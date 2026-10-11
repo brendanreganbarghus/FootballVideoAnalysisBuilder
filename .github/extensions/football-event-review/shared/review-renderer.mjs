@@ -4156,6 +4156,8 @@ export function renderHtml({ adapter } = {}) {
                 <option value="right_goal_line">Right narrow side</option>
                 <option value="left_goal_mouth">Left goal posts</option>
                 <option value="right_goal_mouth">Right goal posts</option>
+                <option value="left_goal_area">Left goal area (4 corners)</option>
+                <option value="right_goal_area">Right goal area (4 corners)</option>
               </select>
             </label>
             <button id="edit-geometry" type="button">Redraw</button>
@@ -5986,6 +5988,8 @@ export function renderHtml({ adapter } = {}) {
           false,
           true,
         );
+        drawLine(geometry.features.left_goal_area, goalLineColor, 2, false, true);
+        drawLine(geometry.features.right_goal_area, goalLineColor, 2, false, true);
       }
     }
 
@@ -16432,7 +16436,7 @@ export function renderHtml({ adapter } = {}) {
     });
     document.getElementById("finish-geometry").addEventListener("click", () => {
       if (!editingFeature) return;
-      const minimumPoints = editingFeature.endsWith("goal_mouth") ? 4 : 2;
+      const minimumPoints = /goal_(mouth|area)$/.test(editingFeature) ? 4 : 2;
       if (geometry.features[editingFeature].length < minimumPoints) {
         geometryStatus.textContent =
           "Add at least " + minimumPoints + " points before finishing.";
