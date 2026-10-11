@@ -153,3 +153,5 @@ baseline suites (`tests/test_possession.py`, `tests/test_match_state.py`,
 | 20261011T125751150Z | rules | dead ball kicked from goal area is goal kick | `tests/rules/test_chrono_duel_and_dead_ball_start_20261011T125109705Z.py::test_dead_ball_kicked_from_goal_area_is_goal_kick_20261011T125751150Z` |
 | 20261011T133803795Z | rules | restart taker owns ball and completes pass | `tests/rules/test_chrono_restart_owner_and_calibrated_goal_area_20261011T133803795Z.py::test_restart_taker_owns_ball_and_completes_pass_20261011T133803795Z` |
 | 20261011T133803796Z | rules | goal area only from calibration | `tests/rules/test_chrono_restart_owner_and_calibrated_goal_area_20261011T133803795Z.py::test_goal_area_only_from_calibration_20261011T133803796Z` |
+| 20261011T141158850Z | rules | header deflection is a touch | `tests/rules/test_chrono_body_touch_on_deflection_20261011T141158850Z.py::test_header_deflection_is_a_touch_20261011T141158850Z` |
+| 20261011T141158851Z | rules | straight ball past head is not a touch | `tests/rules/test_chrono_body_touch_on_deflection_20261011T141158850Z.py::test_straight_ball_past_head_is_not_a_touch_20261011T141158851Z` |

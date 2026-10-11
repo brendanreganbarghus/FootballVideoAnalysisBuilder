@@ -16,7 +16,7 @@ from __future__ import annotations
 import argparse
 import json
 from dataclasses import asdict, dataclass, field
-from math import hypot
+from math import acos, degrees, hypot
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -37,6 +37,10 @@ class ChronoSettings:
     dead_ball_start_seconds: float = 1.0
     identity_swap_radius_heights: float = 0.75
     identity_swap_gap_seconds: float = 0.5
+    touch_turn_degrees: float = 40.0
+    touch_speed_ratio: float = 2.0
+    touch_radius_heights: float = 0.35
+    touch_neighbour_gap_seconds: float = 0.3
 
 
 @dataclass
@@ -103,6 +107,67 @@ def _closest_controller(
     for other_ratio, other in ranked[1:]:
         if other["team"] != best["team"]:
             if other_ratio - ratio < duel_margin_heights:
+                return None
+            break
+    return best
+
+
+def _box_distance(ball: tuple[float, float], box: dict[str, Any]) -> float:
+    """Distance from the ball to the nearest point of the player, head to feet."""
+    dx = max(float(box["x1"]) - ball[0], 0.0, ball[0] - float(box["x2"]))
+    dy = max(float(box["y1"]) - ball[1], 0.0, ball[1] - float(box["y2"]))
+    return hypot(dx, dy)
+
+
+def _ball_deflected(
+    before: tuple[float, float, float],
+    at: tuple[float, float, float],
+    after: tuple[float, float, float],
+    settings: ChronoSettings,
+) -> bool:
+    """Law 12 touch evidence: the ball clearly turns or changes speed here."""
+    v1 = (at[1] - before[1], at[2] - before[2])
+    v2 = (after[1] - at[1], after[2] - at[2])
+    d1, d2 = at[0] - before[0], after[0] - at[0]
+    if d1 <= 0 or d2 <= 0:
+        return False
+    s1, s2 = hypot(*v1) / d1, hypot(*v2) / d2
+    if s1 < settings.stopped_speed_px_per_second or s2 < settings.stopped_speed_px_per_second:
+        return False
+    cos = (v1[0] * v2[0] + v1[1] * v2[1]) / (hypot(*v1) * hypot(*v2))
+    turn = degrees(acos(max(-1.0, min(1.0, cos))))
+    ratio = max(s1, s2) / min(s1, s2)
+    return turn >= settings.touch_turn_degrees or ratio >= settings.touch_speed_ratio
+
+
+def _toucher(
+    ball: tuple[float, float],
+    boxes: Iterable[dict[str, Any]],
+    settings: ChronoSettings,
+) -> dict[str, Any] | None:
+    """The one player whose body (head to feet) is at a deflected ball.
+
+    A touch may be with any part of the body except the hands (a header,
+    for example), so the whole box counts, not just the feet. An opponent
+    about as close means a contested ball, so nobody is credited.
+    """
+    ranked: list[tuple[float, dict[str, Any]]] = []
+    for box in boxes:
+        if box.get("role") == "official" or box.get("team") not in TEAMS:
+            continue
+        height = float(box["y2"]) - float(box["y1"])
+        if height <= 0:
+            continue
+        ranked.append((_box_distance(ball, box) / height, box))
+    if not ranked:
+        return None
+    ranked.sort(key=lambda item: item[0])
+    ratio, best = ranked[0]
+    if ratio > settings.touch_radius_heights:
+        return None
+    for other_ratio, other in ranked[1:]:
+        if other["team"] != best["team"]:
+            if other_ratio - ratio < settings.duel_margin_heights:
                 return None
             break
     return best
@@ -186,12 +251,12 @@ def run_chronological(
     previous_frame: int | None = None
     last_seconds = 0.0
 
-    for frame in sorted(balls):
-        ball = _best_ball(balls[frame])
-        if ball is None:
-            continue
-        t = float(ball["clip_seconds"])
-        x, y = float(ball["x"]), float(ball["y"])
+    track: list[tuple[int, float, float, float]] = [
+        (frame, float(b["clip_seconds"]), float(b["x"]), float(b["y"]))
+        for frame in sorted(balls)
+        if (b := _best_ball(balls[frame])) is not None
+    ]
+    for index, (frame, t, x, y) in enumerate(track):
         last_seconds = t
         inside = signed_pitch_distance((x, y), boundary) >= -settings.outside_margin_px
 
@@ -262,8 +327,19 @@ def run_chronological(
         if state != "in_play" or exit_path is not None:
             continue
 
-        # 2. Who controls the ball.
-        box = _closest_controller(
+        # 2. Who controls the ball. A clear deflection at one player's body
+        # is a touch on its own; otherwise control needs repeated checks at
+        # the feet.
+        touch = None
+        if 0 < index < len(track) - 1:
+            before, after = track[index - 1][1:], track[index + 1][1:]
+            if (
+                t - before[0] <= settings.touch_neighbour_gap_seconds
+                and after[0] - t <= settings.touch_neighbour_gap_seconds
+                and _ball_deflected(before, (t, x, y), after, settings)
+            ):
+                touch = _toucher((x, y), players.get(frame, []), settings)
+        box = touch or _closest_controller(
             (x, y),
             players.get(frame, []),
             settings.control_radius_heights,
@@ -283,6 +359,8 @@ def run_chronological(
             candidate.feet = _feet(box)
         else:
             candidate = _Control(track_id, team, t, t, _feet(box), height)
+        if touch is not None:
+            candidate.samples = max(candidate.samples, settings.control_confirm_samples)
         if candidate.samples < settings.control_confirm_samples:
             continue
         if owner is not None and owner.track_id == candidate.track_id:
