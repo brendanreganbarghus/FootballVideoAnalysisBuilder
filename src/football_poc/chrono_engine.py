@@ -66,6 +66,12 @@ class ChronoSettings:
     stretched_box_ratio: float = 1.3
     stretched_box_window_seconds: float = 0.5
     stretched_box_min_points: int = 5
+    # A dribbler hides the ball behind his own body: across a short hidden
+    # gap he covers the same path as the ball, players standing still do not.
+    hidden_gap_max_seconds: float = 0.8
+    hidden_reach_heights: float = 1.2
+    hidden_min_ball_move_heights: float = 1.0
+    hidden_max_offset_change_heights: float = 0.4
 
 
 @dataclass
@@ -218,6 +224,48 @@ def _closest_controller(
                 return None
             break
     return best
+
+
+def _moved_with_hidden_ball(
+    before: tuple[float, float],
+    before_boxes: Iterable[dict[str, Any]],
+    ball: tuple[float, float],
+    boxes: Iterable[dict[str, Any]],
+    settings: ChronoSettings,
+) -> dict[str, Any] | None:
+    """The one player who carried the ball while it was hidden, or None."""
+    earlier = {
+        int(b["track_id"]): b
+        for b in before_boxes
+        if b.get("role") != "official" and b.get("team") in TEAMS
+    }
+    found: list[dict[str, Any]] = []
+    for box in boxes:
+        if box.get("role") == "official" or box.get("team") not in TEAMS:
+            continue
+        old = earlier.get(int(box["track_id"]))
+        if old is None or old.get("team") != box.get("team"):
+            continue
+        height = (
+            float(box["y2"]) - float(box["y1"]) + float(old["y2"]) - float(old["y1"])
+        ) / 2
+        if height <= 0:
+            continue
+        (fx, fy), (ox, oy) = _feet(box), _feet(old)
+        if (
+            hypot(ball[0] - before[0], ball[1] - before[1]) / height
+            < settings.hidden_min_ball_move_heights
+        ):
+            continue
+        if (
+            hypot(ball[0] - fx, ball[1] - fy) / height > settings.hidden_reach_heights
+            or hypot(before[0] - ox, before[1] - oy) / height > settings.hidden_reach_heights
+        ):
+            continue
+        change = hypot((ball[0] - fx) - (before[0] - ox), (ball[1] - fy) - (before[1] - oy))
+        if change / height <= settings.hidden_max_offset_change_heights:
+            found.append(box)
+    return found[0] if len(found) == 1 else None
 
 
 def _box_distance(ball: tuple[float, float], box: dict[str, Any]) -> float:
@@ -615,7 +663,18 @@ def run_chronological(
                 ) and _rolling_through(before, (t, x, y), after, settings)
         if touch is None and index in lofted:
             continue
-        box = touch or _closest_controller(
+        carried = None
+        if touch is None and index > 0 and index - 1 not in lofted:
+            before_frame, before_t, bx, by = track[index - 1]
+            if (
+                settings.touch_neighbour_gap_seconds
+                < t - before_t
+                <= settings.hidden_gap_max_seconds
+            ):
+                carried = _moved_with_hidden_ball(
+                    (bx, by), players.get(before_frame, []), (x, y), players.get(frame, []), settings
+                )
+        box = touch or carried or _closest_controller(
             (x, y),
             players.get(frame, []),
             settings.control_radius_heights,
@@ -623,7 +682,7 @@ def run_chronological(
         )
         if box is None:
             continue
-        if touch is None and owner is not None:
+        if touch is None and carried is None and owner is not None:
             box = _owner_keeps(box, owner, (x, y), players.get(frame, []), settings)
         track_id, team = int(box["track_id"]), str(box["team"])
         height = float(box["y2"]) - float(box["y1"])
@@ -641,7 +700,7 @@ def run_chronological(
                 candidate = None
                 continue
             candidate = _Control(track_id, team, t, t, _feet(box), height)
-            if index > 0 and touch is None:
+            if index > 0 and touch is None and carried is None:
                 # Trajectory estimates between the previous seen frame and
                 # this one support (never start) control by the player who
                 # is also clearly nearest on this seen frame.
@@ -667,6 +726,10 @@ def run_chronological(
                     candidate.samples += len(support)
         if touch is not None:
             candidate.samples = max(candidate.samples, settings.control_confirm_samples)
+        if carried is not None:
+            # He had the ball from the moment it went out of sight.
+            candidate.samples = max(candidate.samples, settings.control_confirm_samples)
+            candidate.first_seconds = min(candidate.first_seconds, track[index - 1][1])
         if candidate.samples < settings.control_confirm_samples:
             continue
         if owner is not None and owner.track_id == candidate.track_id:
