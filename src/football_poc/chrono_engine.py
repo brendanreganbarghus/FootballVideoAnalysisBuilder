@@ -76,6 +76,16 @@ class ChronoResult:
 SEEN_BALL_STATES = frozenset({"observed", "visually_reacquired"})
 
 
+def _estimate_ball(points: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """The tracker's trajectory estimate for a frame where it did not see the ball."""
+    if _best_ball(points) is not None:
+        return None
+    usable = [
+        p for p in points if str(p.get("state", "")).startswith("trajectory_estimated")
+    ]
+    return max(usable, key=lambda p: float(p.get("confidence", 0))) if usable else None
+
+
 def _best_ball(points: list[dict[str, Any]]) -> dict[str, Any] | None:
     # The ball tracker's status decides: only frames where it saw the ball
     # count. Trajectory estimates, hidden and out-of-play frames do not.
@@ -389,6 +399,11 @@ def run_chronological(
         for index, (frame, *_rest) in enumerate(track)
         if (_best_ball(balls[frame]) or {}).get("source_attribution") == "interpolated"
     }
+    estimates = [
+        (frame, float(b["clip_seconds"]), float(b["x"]), float(b["y"]))
+        for frame in sorted(balls)
+        if (b := _estimate_ball(balls[frame])) is not None
+    ]
     for index, (frame, t, x, y) in enumerate(track):
         last_seconds = t
         inside = signed_pitch_distance((x, y), boundary) >= -settings.outside_margin_px
@@ -516,6 +531,30 @@ def run_chronological(
                 candidate = None
                 continue
             candidate = _Control(track_id, team, t, t, _feet(box), height)
+            if index > 0 and touch is None:
+                # Trajectory estimates between the previous seen frame and
+                # this one support (never start) control by the player who
+                # is also clearly nearest on this seen frame.
+                since = track[index - 1][1]
+                support = [
+                    seconds
+                    for est_frame, seconds, ex, ey in estimates
+                    if since < seconds < t
+                    and t - seconds <= settings.control_confirm_gap_seconds
+                    and (
+                        near := _closest_controller(
+                            (ex, ey),
+                            players.get(est_frame, []),
+                            settings.control_radius_heights,
+                            settings.duel_margin_heights,
+                        )
+                    )
+                    is not None
+                    and int(near["track_id"]) == track_id
+                ]
+                if support:
+                    candidate.first_seconds = min(support)
+                    candidate.samples += len(support)
         if touch is not None:
             candidate.samples = max(candidate.samples, settings.control_confirm_samples)
         if candidate.samples < settings.control_confirm_samples:
