@@ -317,10 +317,7 @@ def reconcile_track_identity_team_switches(
                 > evidence_window_seconds
             ):
                 continue
-            scores = point.get("color_scores")
-            if not isinstance(scores, dict):
-                continue
-            label = classify_color_scores(scores, team_profile=team_profile)
+            label = tracker_team(point, team_profile)
             if label in team_pair:
                 labels.append(label)
         if len(labels) < minimum_evidence_points:
@@ -336,10 +333,7 @@ def reconcile_track_identity_team_switches(
             offset = timestamp - float(point["clip_seconds"])
             if not 0 <= offset <= 2 * evidence_window_seconds:
                 continue
-            scores = point.get("color_scores")
-            if isinstance(scores, dict) and classify_color_scores(
-                scores, team_profile=team_profile
-            ) == opposite:
+            if tracker_team(point, team_profile) == opposite:
                 recent_opposite += 1
         if recent_opposite >= minimum_evidence_points:
             return None

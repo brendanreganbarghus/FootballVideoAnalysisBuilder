@@ -232,10 +232,7 @@ def reconcile_delayed_turnover_chains(
                     or abs(float(player["clip_seconds"]) - timestamp) > 0.3
                 ):
                     continue
-                scores = player.get("color_scores")
-                if not isinstance(scores, dict):
-                    continue
-                label = classify_color_scores(scores, team_profile=profile)
+                label = tracker_team(player, profile)
                 if label in team_pair:
                     labels.append(label)
         if not labels:

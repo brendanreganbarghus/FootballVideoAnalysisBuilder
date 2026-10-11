@@ -32,6 +32,24 @@ from football_poc.pitch_geometry import (
 LEGACY_NAMESPACES = frozenset({"innovation", "live"})
 
 
+def tracker_team(point: dict[str, Any], team_profile: str) -> str:
+    """This player box's own team, as read by the player tracker.
+
+    The tracker reads each box's kit (shirt and shorts) and saves that
+    reading as ``kit_team`` before it smooths the track's team. Per-box
+    checks (for example spotting a track that jumped onto an opponent) use
+    this quick reading. Boxes from older tracker files without ``kit_team``
+    fall back to their raw colour scores.
+    """
+    kit_team = point.get("kit_team")
+    if kit_team is not None:
+        return str(kit_team) if kit_team in set(team_profile.split("-")) else "unknown"
+    scores = point.get("color_scores")
+    if isinstance(scores, dict):
+        return classify_color_scores(scores, team_profile=team_profile)
+    return "unknown"
+
+
 def scaled_pitch_boundary(
     calibration_path: Path, ball_tracks_path: Path, video: Path
 ) -> tuple[tuple[float, float], ...]:

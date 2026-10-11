@@ -216,15 +216,11 @@ def infer_unobserved_chain_contacts(
 
     def forward_track_team(track_id: int, timestamp: float) -> str | None:
         labels = [
-            classify_color_scores(
-                point["color_scores"],
-                team_profile="red-black",
-            )
+            tracker_team(point, "red-black")
             for point in player_points.get(track_id, [])
             if timestamp
             <= float(point["clip_seconds"])
             <= timestamp + 0.8
-            and isinstance(point.get("color_scores"), dict)
         ]
         labels = [label for label in labels if label in {"red", "black"}]
         if len(labels) < 3:

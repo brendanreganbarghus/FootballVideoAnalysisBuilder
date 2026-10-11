@@ -38,6 +38,8 @@ class PlayerPoint:
     y2: float
     team: str = "unknown"
     color_scores: dict[str, float] | None = None
+    # This box's own kit reading, before the track's team is smoothed.
+    kit_team: str | None = None
 
     @property
     def foot(self) -> tuple[float, float]:
@@ -905,6 +907,8 @@ def _is_cut_off(
 def _settle_track_teams(tracks: list[PlayerTrack]) -> None:
     tracks[:] = split_tracks_on_sustained_team_change(tracks)
     for track in tracks:
+        for point in track.points:
+            point.kit_team = point.team
         samples = [point.color_scores for point in track.points if point.color_scores]
         if not samples:
             track.color_scores = {}

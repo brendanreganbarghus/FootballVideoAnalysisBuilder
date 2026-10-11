@@ -618,20 +618,17 @@ def reconcile_brief_opponent_turnover_pairs(
         ):
             continue
         labels = [
-            classify_color_scores(
-                point["color_scores"],
-                team_profile=(
-                    "red-black"
-                    if first.team in {"red", "black"}
-                    else "blue-white"
-                ),
+            tracker_team(
+                point,
+                "red-black"
+                if first.team in {"red", "black"}
+                else "blue-white",
             )
             for point in points_by_track[first.to_player_track_id]
             if abs(
                 float(point["clip_seconds"]) - first_completion
             )
             <= local_team_window_seconds
-            and isinstance(point.get("color_scores"), dict)
         ]
         labels = [
             label
@@ -758,20 +755,17 @@ def split_sharp_direction_change_passes(
                 if ratio > maximum_contact_ratio:
                     continue
                 labels = [
-                    classify_color_scores(
-                        point["color_scores"],
-                        team_profile=(
-                            "red-black"
-                            if event.team in {"red", "black"}
-                            else "blue-white"
-                        ),
+                    tracker_team(
+                        point,
+                        "red-black"
+                        if event.team in {"red", "black"}
+                        else "blue-white",
                     )
                     for point in points_by_track[track_id]
                     if abs(
                         float(point["clip_seconds"]) - timestamp
                     )
                     <= local_team_window_seconds
-                    and isinstance(point.get("color_scores"), dict)
                 ]
                 labels = [
                     label

@@ -83,15 +83,7 @@ def _receiver_team_evidence(
                 ) / height
                 if ratio > 1.8:
                     continue
-                color_scores = player.get("color_scores")
-                local_team = (
-                    classify_color_scores(
-                        color_scores,
-                        team_profile=team_profile,
-                    )
-                    if isinstance(color_scores, dict)
-                    else "unknown"
-                )
+                local_team = tracker_team(player, team_profile)
                 if local_team in eligible_teams:
                     scores[local_team] += 1 / max(0.25, ratio) ** 2
     if not scores:
@@ -133,12 +125,7 @@ def _nearby_ball_teams(
         )
         if hypot(horizontal, vertical) / height > maximum_box_distance_heights:
             continue
-        color_scores = player.get("color_scores")
-        local_team = (
-            classify_color_scores(color_scores, team_profile=team_profile)
-            if isinstance(color_scores, dict)
-            else "unknown"
-        )
+        local_team = tracker_team(player, team_profile)
         team = (
             local_team
             if local_team in eligible_teams
@@ -164,12 +151,7 @@ def _nearby_ball_team_track(
     eligible_teams = set(team_profile.split("-"))
     candidates: list[tuple[float, int]] = []
     for player in players:
-        color_scores = player.get("color_scores")
-        local_team = (
-            classify_color_scores(color_scores, team_profile=team_profile)
-            if isinstance(color_scores, dict)
-            else "unknown"
-        )
+        local_team = tracker_team(player, team_profile)
         track_id = int(player["track_id"])
         player_team = (
             team
@@ -255,13 +237,7 @@ def _locally_confirmed_team_track_ids(
                 > evidence_window_seconds
             ):
                 continue
-            color_scores = player.get("color_scores")
-            if not isinstance(color_scores, dict):
-                continue
-            label = classify_color_scores(
-                color_scores,
-                team_profile=team_profile,
-            )
+            label = tracker_team(player, team_profile)
             if label in eligible_teams:
                 labels_by_track[int(player["track_id"])].append(label)
     confirmed: set[int] = set()
