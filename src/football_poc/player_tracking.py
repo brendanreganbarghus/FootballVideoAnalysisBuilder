@@ -394,19 +394,47 @@ def _drop_piece_boxes(points: list[PlayerPoint]) -> list[PlayerPoint]:
         by_frame[point.source_frame].append(point)
     kept: list[PlayerPoint] = []
     for frame_points in by_frame.values():
+        pieces = {
+            id(other): [
+                point
+                for point in frame_points
+                if _is_piece_of(point, other)
+            ]
+            for other in frame_points
+        }
+        # Two players standing one behind the other can also get one weak
+        # box around both. When two separate boxes inside it are each at
+        # least as sure as that box, it is the merge, not the players.
+        merged = {
+            id(other)
+            for other in frame_points
+            if any(
+                _box_overlap_of_smaller(first, second) < PIECE_BOX_CONTAINMENT
+                and other.confidence <= min(first.confidence, second.confidence)
+                for index, first in enumerate(pieces[id(other)])
+                for second in pieces[id(other)][index + 1 :]
+            )
+        }
         for point in frame_points:
+            if id(point) in merged:
+                continue
             if not any(
-                other is not point
-                and (
-                    point.height < PIECE_BOX_HEIGHT_SHARE * other.height
-                    or (point.x2 - point.x1)
-                    < PIECE_BOX_WIDTH_SHARE * (other.x2 - other.x1)
-                )
-                and _box_overlap_of_smaller(point, other) >= PIECE_BOX_CONTAINMENT
+                id(other) not in merged and _is_piece_of(point, other)
                 for other in frame_points
             ):
                 kept.append(point)
     return kept
+
+
+def _is_piece_of(point: PlayerPoint, other: PlayerPoint) -> bool:
+    return (
+        other is not point
+        and (
+            point.height < PIECE_BOX_HEIGHT_SHARE * other.height
+            or (point.x2 - point.x1) < PIECE_BOX_WIDTH_SHARE * (other.x2 - other.x1)
+        )
+        and _box_overlap_of_smaller(point, other) >= PIECE_BOX_CONTAINMENT
+    )
 
 
 def _clear_team_history(

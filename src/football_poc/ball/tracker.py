@@ -1035,6 +1035,24 @@ def _track_cached_balls_impl(
         ),
         encoding="utf-8",
     )
+    from football_poc.ball.aerial_labels import (
+        label_aerial_states,
+        person_boxes_from_records,
+    )
+
+    states = label_aerial_states(
+        _sampled_ball_state_estimates(
+            accepted,
+            records=records,
+            fps=manifest.fps,
+            frame_step=frame_step,
+            width=width,
+            height=height,
+            max_speed_pixels_per_second=max_speed_pixels_per_second,
+            ledger=ledger,
+        ),
+        person_boxes_from_records(records),
+    )
     state_path = output / "ball-state-estimates.json"
     state_path.write_text(
         json.dumps(
@@ -1046,16 +1064,7 @@ def _track_cached_balls_impl(
                     "trajectory_estimates_are_event_evidence": False,
                     "trajectory_estimates_are_for_continuity_and_search_only": True,
                 },
-                "states": _sampled_ball_state_estimates(
-                    accepted,
-                    records=records,
-                    fps=manifest.fps,
-                    frame_step=frame_step,
-                    width=width,
-                    height=height,
-                    max_speed_pixels_per_second=max_speed_pixels_per_second,
-                    ledger=ledger,
-                ),
+                "states": states,
             },
             indent=2,
         ),

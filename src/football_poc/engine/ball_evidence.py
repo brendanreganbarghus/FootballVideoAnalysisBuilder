@@ -409,6 +409,8 @@ def _load_ball_points(
         for value in points[source_frame]:
             value["event_evidence_eligible"] = bool(state["event_evidence_eligible"])
             value["state"] = state.get("state", value["state"])
+            if "aerial" in state:
+                value["aerial"] = bool(state["aerial"])
     track_ids = {
         int(point["track_id"])
         for frame_points in points.values()

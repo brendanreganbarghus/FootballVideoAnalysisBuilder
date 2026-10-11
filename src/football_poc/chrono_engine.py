@@ -44,6 +44,9 @@ class ChronoSettings:
     lofted_min_rise_heights: float = 0.3
     lofted_min_fall_ratio: float = 0.3
     lofted_noise_px: float = 3.0
+    # A kicked ball climbs fast in the picture; a ground pass rolling away
+    # from the camera climbs slowly.
+    lofted_min_rise_px_per_second: float = 50.0
     rolling_turn_degrees: float = 20.0
     rolling_min_speed_ratio: float = 0.7
     rolling_max_speed_ratio: float = 1.15
@@ -271,59 +274,38 @@ def _lofted_samples(
     players: dict[int, list[dict[str, Any]]],
     settings: ChronoSettings,
 ) -> set[int]:
-    """Indices of ball samples in flight: the ball rises, then falls, in the image.
+    """Indices of ball samples in flight, for ball tracks without an ``aerial`` label.
 
     A ball in the air is drawn at the feet of whoever stands behind it, so it
     cannot be controlled at the feet there; only a body touch (for example a
-    header) counts. The flight lasts from the rise until the ball has come
-    back down to the level it rose from, or stops falling. The ball must
-    fall back by a clear share of its rise; otherwise it was rolling away
-    from the camera.
+    header) counts. The shared flight check lives with the ball tracker
+    (``football_poc.ball.aerial_labels``); here the nearest team player's box
+    gives the height scale.
     """
-    lofted: set[int] = set()
-    noise = settings.lofted_noise_px
-    for peak in range(1, len(track) - 1):
-        y = track[peak][3]
-        if not (track[peak - 1][3] > y + noise or track[peak + 1][3] > y + noise):
-            continue
-        if track[peak - 1][3] < y or track[peak + 1][3] < y:
-            continue
-        start = peak
-        while start > 0 and track[start - 1][3] >= track[start][3] - noise:
-            start -= 1
-        end = peak
-        while (
-            end < len(track) - 1
-            and track[end + 1][3] >= track[end][3] - noise
-            and track[end][3] < track[start][3]
-        ):
-            end += 1
-        while start < peak and track[start + 1][3] > track[start][3] - noise:
-            start += 1
-        while end > peak and track[end - 1][3] > track[end][3] - noise:
-            end -= 1
+    from football_poc.ball.aerial_labels import flight_indices
+
+    def height_at(index: int) -> float | None:
+        frame, _, x, y = track[index]
         boxes = [
             box
-            for box in players.get(track[peak][0], [])
+            for box in players.get(frame, [])
             if box.get("team") in TEAMS
             and box.get("role") != "official"
             and float(box["y2"]) > float(box["y1"])
         ]
         if not boxes:
-            continue
-        nearest = min(boxes, key=lambda box: _box_distance((track[peak][2], y), box))
-        height = float(nearest["y2"]) - float(nearest["y1"])
-        rise = track[start][3] - y
-        fall = track[end][3] - y
-        if min(rise, fall) < settings.lofted_min_rise_heights * height:
-            continue
-        # A ball in the air comes back down. A ball rolling away from the
-        # camera only climbs in the picture, so a tiny dip after a long climb
-        # is not a flight.
-        if fall < settings.lofted_min_fall_ratio * rise:
-            continue
-        lofted.update(range(start + 1, end))
-    return lofted
+            return None
+        nearest = min(boxes, key=lambda box: _box_distance((x, y), box))
+        return float(nearest["y2"]) - float(nearest["y1"])
+
+    return flight_indices(
+        track,
+        height_at,
+        min_rise_heights=settings.lofted_min_rise_heights,
+        min_fall_ratio=settings.lofted_min_fall_ratio,
+        noise_px=settings.lofted_noise_px,
+        min_rise_px_per_second=settings.lofted_min_rise_px_per_second,
+    )
 
 
 def _unbroken(path: list[tuple[float, float, float]], stopped: float) -> bool:
@@ -437,7 +419,13 @@ def run_chronological(
         for frame in sorted(balls)
         if (b := _best_ball(balls[frame])) is not None
     ]
-    lofted = _lofted_samples(track, players, settings)
+    # The ball tracker labels each frame in flight; older ball tracks have no
+    # label, so the same flight check runs here on the player heights.
+    labelled = [_best_ball(balls[frame]) or {} for frame, *_rest in track]
+    if track and all("aerial" in ball for ball in labelled):
+        lofted = {index for index, ball in enumerate(labelled) if ball["aerial"]}
+    else:
+        lofted = _lofted_samples(track, players, settings)
     # Gap-filled positions are a straight guess, not evidence of a free roll.
     estimated = {
         index
