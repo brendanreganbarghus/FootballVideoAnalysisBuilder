@@ -384,10 +384,10 @@ def _associate_players(
 
 
 def _drop_piece_boxes(points: list[PlayerPoint]) -> list[PlayerPoint]:
-    """Drop boxes that are only a short piece (legs, head) of a taller box.
+    """Drop boxes that are only a piece (legs, head, a thin sliver) of a box.
 
-    A box lying almost fully inside a much taller box in the same frame is
-    the same person cut off by YOLO, not another player.
+    A box lying almost fully inside a much taller or much wider box in the
+    same frame is the same person cut off by YOLO, not another player.
     """
     by_frame: dict[int, list[PlayerPoint]] = defaultdict(list)
     for point in points:
@@ -397,7 +397,11 @@ def _drop_piece_boxes(points: list[PlayerPoint]) -> list[PlayerPoint]:
         for point in frame_points:
             if not any(
                 other is not point
-                and point.height < PIECE_BOX_HEIGHT_SHARE * other.height
+                and (
+                    point.height < PIECE_BOX_HEIGHT_SHARE * other.height
+                    or (point.x2 - point.x1)
+                    < PIECE_BOX_WIDTH_SHARE * (other.x2 - other.x1)
+                )
                 and _box_overlap_of_smaller(point, other) >= PIECE_BOX_CONTAINMENT
                 for other in frame_points
             ):
@@ -898,6 +902,8 @@ def _read_point_colors(
 
 HEIGHT_CHANGE_COST = 0.5
 PIECE_BOX_HEIGHT_SHARE = 0.6
+# Two players side by side in one merged box are each about half its width.
+PIECE_BOX_WIDTH_SHARE = 0.4
 PIECE_BOX_CONTAINMENT = 0.8
 # A kit is a shirt and shorts; each is read on its own band.
 KIT_PARTS = {"shirt": (0.12, 0.45), "shorts": (0.45, 0.70)}
