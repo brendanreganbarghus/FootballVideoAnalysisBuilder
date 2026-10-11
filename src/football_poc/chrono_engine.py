@@ -47,6 +47,9 @@ class ChronoSettings:
     rolling_turn_degrees: float = 20.0
     rolling_min_speed_ratio: float = 0.7
     rolling_max_speed_ratio: float = 1.15
+    stretched_box_ratio: float = 1.3
+    stretched_box_window_seconds: float = 0.5
+    stretched_box_min_points: int = 5
 
 
 @dataclass
@@ -93,6 +96,47 @@ def _best_ball(points: list[dict[str, Any]]) -> dict[str, Any] | None:
     if not usable:
         return None
     return max(usable, key=lambda p: float(p.get("confidence", 0)))
+
+
+def _without_stretched_boxes(
+    players: dict[int, list[dict[str, Any]]], settings: ChronoSettings
+) -> dict[int, list[dict[str, Any]]]:
+    """Drop boxes much taller than their own track's usual height.
+
+    A box that suddenly grows (merged with a neighbour or stretched over the
+    ball) no longer shows where that player's feet are, so it cannot be
+    used to decide who is at the ball.
+    """
+    by_track: dict[Any, list[tuple[float, float, int]]] = {}
+    for frame, boxes in players.items():
+        for box in boxes:
+            if box.get("clip_seconds") is None:
+                continue
+            by_track.setdefault(box.get("track_id"), []).append(
+                (float(box["clip_seconds"]), float(box["y2"]) - float(box["y1"]), id(box))
+            )
+    stretched: set[int] = set()
+    for rows in by_track.values():
+        for seconds, height, key in rows:
+            window = sorted(
+                h
+                for s, h, _ in rows
+                if abs(s - seconds) <= settings.stretched_box_window_seconds
+            )
+            if len(window) < settings.stretched_box_min_points:
+                continue
+            middle = len(window) // 2
+            median = (
+                window[middle]
+                if len(window) % 2
+                else (window[middle - 1] + window[middle]) / 2
+            )
+            if height > settings.stretched_box_ratio * median:
+                stretched.add(key)
+    return {
+        frame: [box for box in boxes if id(box) not in stretched]
+        for frame, boxes in players.items()
+    }
 
 
 def _feet(box: dict[str, Any]) -> tuple[float, float]:
@@ -364,6 +408,7 @@ def run_chronological(
     as times only.
     """
     result = ChronoResult()
+    players = _without_stretched_boxes(players, settings)
     tracker_out = sorted(float(s) for s in out_of_play_seconds)
     next_out = 0
     state = (

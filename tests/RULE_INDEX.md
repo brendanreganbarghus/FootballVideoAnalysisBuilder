@@ -169,3 +169,5 @@ baseline suites (`tests/test_possession.py`, `tests/test_match_state.py`,
 | 20261011T160000001Z | tracking | two players in one merged box are kept | `tests/tracking/test_thin_piece_box_20261011T160000000Z.py::test_two_players_in_one_merged_box_are_kept_20261011T160000001Z` |
 | 20261011T170000000Z | rules | estimates support one seen reception | `tests/rules/test_chrono_estimate_supports_seen_control_20261011T170000000Z.py::test_estimates_support_one_seen_reception_20261011T170000000Z` |
 | 20261011T170000001Z | rules | estimate near nobody does not support control | `tests/rules/test_chrono_estimate_supports_seen_control_20261011T170000000Z.py::test_estimate_near_nobody_does_not_support_control_20261011T170000001Z` |
+| 20261011T180000000Z | rules | stretched box over ball cannot win it | `tests/rules/test_chrono_stretched_box_cannot_control_20261011T180000000Z.py::test_stretched_box_over_ball_cannot_win_it_20261011T180000000Z` |
+| 20261011T180000001Z | rules | normal box at ball still wins it | `tests/rules/test_chrono_stretched_box_cannot_control_20261011T180000000Z.py::test_normal_box_at_ball_still_wins_it_20261011T180000001Z` |
