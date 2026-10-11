@@ -182,3 +182,4 @@ baseline suites (`tests/test_possession.py`, `tests/test_match_state.py`,
 | 20261011T200000001Z | tracking | return to original team resets run | `tests/tracking/test_split_track_team_change_survives_majority_flip_20261011T200000000Z.py::test_return_to_original_team_resets_run_20261011T200000001Z` |
 | 20261011T200606659Z | tracking | overlapped box takes its shirt team | `tests/tracking/test_overlapped_box_takes_shirt_team_20261011T200606659Z.py::test_overlapped_box_takes_its_shirt_team_20261011T200606659Z` |
 | 20261011T200606660Z | tracking | box standing alone keeps whole kit reading | `tests/tracking/test_overlapped_box_takes_shirt_team_20261011T200606659Z.py::test_box_standing_alone_keeps_whole_kit_reading_20261011T200606660Z` |
+| 20261011T202349125Z | tracking | overlap step keeps shirt team | `tests/tracking/test_overlap_step_keeps_shirt_team_20261011T202349125Z.py::test_overlap_step_keeps_shirt_team_20261011T202349125Z` |

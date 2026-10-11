@@ -658,6 +658,7 @@ def resolve_overlap_teams(
             members_by_frame[point.source_frame].append((track, point))
 
     overlapped: set[int] = set()
+    crowded: set[int] = set()
     frames: list[dict[str, Any]] = []
     for source_frame in sorted(members_by_frame):
         members = members_by_frame[source_frame]
@@ -672,6 +673,8 @@ def resolve_overlap_teams(
         for first in range(len(members)):
             for second in range(first + 1, len(members)):
                 one, other = members[first][1], members[second][1]
+                if _box_overlap_of_smaller(one, other) >= CROWD_BOX_OVERLAP:
+                    crowded.update((id(one), id(other)))
                 if (
                     _box_overlap_of_smaller(one, other) >= minimum_overlap
                     or hypot(
@@ -699,10 +702,12 @@ def resolve_overlap_teams(
 
     resolved = 0
 
-    def read(scores: dict[str, float]) -> str:
+    def read(point: PlayerPoint) -> str:
         if team_colors:
-            return nearest_team_color(scores, team_colors)
-        return classify_color_scores(scores, team_profile=team_profile)
+            return nearest_team_color(
+                point.color_scores, team_colors, overlapped=id(point) in crowded
+            )
+        return classify_color_scores(point.color_scores, team_profile=team_profile)
 
     for track in tracks:
         if track.role == "goalkeeper":
@@ -713,14 +718,14 @@ def resolve_overlap_teams(
             # unshared pixels with the people in front masked out.
             if not point.color_scores:
                 continue
-            reading = read(point.color_scores)
+            reading = read(point)
             if reading != "unknown":
                 clear.append((point.clip_seconds, reading))
         for point in track.points:
             if id(point) not in overlapped and point.team != "unknown":
                 continue
             own_reading = (
-                read(point.color_scores) if point.color_scores else "unknown"
+                read(point) if point.color_scores else "unknown"
             )
             if own_reading != "unknown":
                 if own_reading != point.team:
