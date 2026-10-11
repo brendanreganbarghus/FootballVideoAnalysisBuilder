@@ -41,6 +41,8 @@ class ChronoSettings:
     touch_speed_ratio: float = 2.0
     touch_radius_heights: float = 0.35
     touch_neighbour_gap_seconds: float = 0.3
+    lofted_min_rise_heights: float = 0.3
+    lofted_noise_px: float = 3.0
 
 
 @dataclass
@@ -173,6 +175,59 @@ def _toucher(
     return best
 
 
+def _lofted_samples(
+    track: list[tuple[int, float, float, float]],
+    players: dict[int, list[dict[str, Any]]],
+    settings: ChronoSettings,
+) -> set[int]:
+    """Indices of ball samples in flight: the ball rises, then falls, in the image.
+
+    A ball in the air is drawn at the feet of whoever stands behind it, so it
+    cannot be controlled at the feet there; only a body touch (for example a
+    header) counts. The flight lasts from the rise until the ball has come
+    back down to the level it rose from, or stops falling.
+    """
+    lofted: set[int] = set()
+    noise = settings.lofted_noise_px
+    for peak in range(1, len(track) - 1):
+        y = track[peak][3]
+        if not (track[peak - 1][3] > y + noise or track[peak + 1][3] > y + noise):
+            continue
+        if track[peak - 1][3] < y or track[peak + 1][3] < y:
+            continue
+        start = peak
+        while start > 0 and track[start - 1][3] >= track[start][3] - noise:
+            start -= 1
+        end = peak
+        while (
+            end < len(track) - 1
+            and track[end + 1][3] >= track[end][3] - noise
+            and track[end][3] < track[start][3]
+        ):
+            end += 1
+        while start < peak and track[start + 1][3] > track[start][3] - noise:
+            start += 1
+        while end > peak and track[end - 1][3] > track[end][3] - noise:
+            end -= 1
+        boxes = [
+            box
+            for box in players.get(track[peak][0], [])
+            if box.get("team") in TEAMS
+            and box.get("role") != "official"
+            and float(box["y2"]) > float(box["y1"])
+        ]
+        if not boxes:
+            continue
+        nearest = min(boxes, key=lambda box: _box_distance((track[peak][2], y), box))
+        height = float(nearest["y2"]) - float(nearest["y1"])
+        rise = track[start][3] - y
+        fall = track[end][3] - y
+        if min(rise, fall) < settings.lofted_min_rise_heights * height:
+            continue
+        lofted.update(range(start + 1, end))
+    return lofted
+
+
 def _unbroken(path: list[tuple[float, float, float]], stopped: float) -> bool:
     """True when the ball kept moving and never turned back along the path."""
     steps = []
@@ -256,6 +311,7 @@ def run_chronological(
         for frame in sorted(balls)
         if (b := _best_ball(balls[frame])) is not None
     ]
+    lofted = _lofted_samples(track, players, settings)
     for index, (frame, t, x, y) in enumerate(track):
         last_seconds = t
         inside = signed_pitch_distance((x, y), boundary) >= -settings.outside_margin_px
@@ -339,6 +395,8 @@ def run_chronological(
                 and _ball_deflected(before, (t, x, y), after, settings)
             ):
                 touch = _toucher((x, y), players.get(frame, []), settings)
+        if touch is None and index in lofted:
+            continue
         box = touch or _closest_controller(
             (x, y),
             players.get(frame, []),

@@ -155,3 +155,5 @@ baseline suites (`tests/test_possession.py`, `tests/test_match_state.py`,
 | 20261011T133803796Z | rules | goal area only from calibration | `tests/rules/test_chrono_restart_owner_and_calibrated_goal_area_20261011T133803795Z.py::test_goal_area_only_from_calibration_20261011T133803796Z` |
 | 20261011T141158850Z | rules | header deflection is a touch | `tests/rules/test_chrono_body_touch_on_deflection_20261011T141158850Z.py::test_header_deflection_is_a_touch_20261011T141158850Z` |
 | 20261011T141158851Z | rules | straight ball past head is not a touch | `tests/rules/test_chrono_body_touch_on_deflection_20261011T141158850Z.py::test_straight_ball_past_head_is_not_a_touch_20261011T141158851Z` |
+| 20261011T142632601Z | rules | lofted ball is not controlled at feet behind it | `tests/rules/test_chrono_lofted_ball_no_feet_control_20261011T142632601Z.py::test_lofted_ball_is_not_controlled_at_feet_behind_it_20261011T142632601Z` |
+| 20261011T142632602Z | rules | low arc is not a flight | `tests/rules/test_chrono_lofted_ball_no_feet_control_20261011T142632601Z.py::test_low_arc_is_not_a_flight_20261011T142632602Z` |
