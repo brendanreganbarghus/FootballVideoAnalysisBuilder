@@ -922,9 +922,18 @@ def _read_point_colors(
     finally:
         capture.release()
     team_colors = learn_team_colors(points, team_profile=team_profile)
-    for point in points:
-        if point.color_scores:
-            point.team = nearest_team_color(point.color_scores, team_colors)
+    for frame_samples in samples_by_frame.values():
+        for point in frame_samples:
+            if point.color_scores:
+                point.team = nearest_team_color(
+                    point.color_scores,
+                    team_colors,
+                    overlapped=any(
+                        other is not point
+                        and _box_overlap_of_smaller(point, other) >= CROWD_BOX_OVERLAP
+                        for other in frame_samples
+                    ),
+                )
     return team_colors
 
 
@@ -937,6 +946,8 @@ PIECE_BOX_CONTAINMENT = 0.8
 KIT_PARTS = {"shirt": (0.12, 0.45), "shorts": (0.45, 0.70)}
 COLOR_FEATURES = ("blue", "white", "dark", "warm", "yellow")
 MINIMUM_TEAM_COLOR_SAMPLES = 20
+# Share of the smaller box covered by another player's box: they overlap.
+CROWD_BOX_OVERLAP = 0.3
 STILL_OBJECT_MOVEMENT_HEIGHTS = 0.5
 
 
@@ -1015,20 +1026,36 @@ def learn_team_colors(
 def nearest_team_color(
     scores: dict[str, float],
     team_colors: dict[str, tuple[list[float], list[float]]],
+    *,
+    overlapped: bool = False,
 ) -> str:
-    """The learned team whose colour mix is closest to this box's reading."""
+    """The learned team whose colour mix is closest to this box's reading.
+
+    In a box that overlaps another player's box, a shirt of one team over
+    shorts of the other is two players: the shorts belong to the one in
+    front, so the shirt is this box's player.
+    """
     if not team_colors:
         return "unknown"
     reading = np.array(_color_vector(scores))
-    return min(
-        team_colors,
-        key=lambda team: float(
-            np.linalg.norm(
-                (reading - np.array(team_colors[team][0]))
-                / np.array(team_colors[team][1])
-            )
-        ),
-    )
+
+    def nearest(part: slice) -> str:
+        return min(
+            team_colors,
+            key=lambda team: float(
+                np.linalg.norm(
+                    (reading[part] - np.array(team_colors[team][0])[part])
+                    / np.array(team_colors[team][1])[part]
+                )
+            ),
+        )
+
+    if overlapped and "shirt_dark" in scores and "shorts_dark" in scores:
+        size = len(COLOR_FEATURES)
+        shirt = nearest(slice(0, size))
+        if shirt != nearest(slice(size, 2 * size)):
+            return shirt
+    return nearest(slice(None))
 
 
 def _height_cell(point: PlayerPoint) -> tuple[int, int]:
