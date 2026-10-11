@@ -34,6 +34,7 @@ class ChronoSettings:
     control_confirm_gap_seconds: float = 0.5
     stopped_speed_px_per_second: float = 60.0
     restart_speed_px_per_second: float = 200.0
+    dead_ball_start_seconds: float = 1.0
     identity_swap_radius_heights: float = 0.75
     identity_swap_gap_seconds: float = 0.5
 
@@ -124,6 +125,38 @@ def _unbroken(path: list[tuple[float, float, float]], stopped: float) -> bool:
     return True
 
 
+def _dead_ball_at_start(
+    balls: dict[int, list[dict[str, Any]]], settings: ChronoSettings
+) -> bool:
+    """Laws 8 and 16: a ball lying still when the segment starts is dead.
+
+    In live play the ball keeps moving; a ball that has not moved at all
+    during the opening second is set down for a restart (for example a goal
+    kick). Play only begins once it is kicked and clearly moves.
+    """
+    opening = [
+        (float(ball["clip_seconds"]), float(ball["x"]), float(ball["y"]))
+        for frame in sorted(balls)
+        if (ball := _best_ball(balls[frame])) is not None
+    ]
+    if not opening:
+        return False
+    first_seconds = opening[0][0]
+    window = [
+        point
+        for point in opening
+        if point[0] - first_seconds <= settings.dead_ball_start_seconds
+    ]
+    if len(window) < 3 or window[-1][0] - first_seconds < settings.dead_ball_start_seconds:
+        return False
+    return all(
+        hypot(b[1] - a[1], b[2] - a[2]) / (b[0] - a[0])
+        < settings.stopped_speed_px_per_second
+        for a, b in zip(window, window[1:])
+        if b[0] > a[0]
+    )
+
+
 def run_chronological(
     players: dict[int, list[dict[str, Any]]],
     balls: dict[int, list[dict[str, Any]]],
@@ -131,8 +164,20 @@ def run_chronological(
     settings: ChronoSettings = ChronoSettings(),
 ) -> ChronoResult:
     result = ChronoResult()
-    state = "in_play"
-    result.match_state.append(MatchStateChange(0.0, state, "segment_start"))
+    state = (
+        "out_of_play"
+        if _dead_ball_at_start(balls, settings)
+        else "in_play"
+    )
+    result.match_state.append(
+        MatchStateChange(
+            0.0,
+            state,
+            "segment_start_dead_ball_restart_pending"
+            if state == "out_of_play"
+            else "segment_start",
+        )
+    )
     owner: _Control | None = None
     candidate: _Control | None = None
     exit_path: list[tuple[float, float, float]] | None = None
@@ -180,7 +225,9 @@ def run_chronological(
             speed = hypot(x - previous[1], y - previous[2]) / (t - previous[0])
             if speed >= settings.restart_speed_px_per_second:
                 state = "in_play"
-                result.match_state.append(MatchStateChange(t, state, "restart_ball_moved"))
+                result.match_state.append(
+                    MatchStateChange(previous[0], state, "restart_taken_type_unknown")
+                )
         previous = (t, x, y)
         if state != "in_play" or exit_path is not None:
             continue
