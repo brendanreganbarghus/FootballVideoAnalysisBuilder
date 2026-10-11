@@ -1,0 +1,273 @@
+"""Chronological events engine (experimental, runs next to the old engine).
+
+The clip is played through once, frame by frame, in time order. At every
+sampled frame the engine first updates match state (Law 9: ball in or out of
+play), then who controls the ball, and only then writes an event when
+control changes. A decision is never rewritten by a later pass; the only
+look-ahead is the short confirmation that a player really controls the
+ball.
+
+Runtime inputs only: the tracker's player boxes and teams, the ball points
+and the calibrated pitch. Manual review events are never read here.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+from dataclasses import asdict, dataclass, field
+from math import hypot
+from pathlib import Path
+from typing import Any, Iterable
+
+from football_poc.pitch_geometry import signed_pitch_distance
+
+TEAMS = frozenset({"red", "black"})
+
+
+@dataclass(frozen=True)
+class ChronoSettings:
+    outside_margin_px: float = 12.0
+    control_radius_heights: float = 0.8
+    duel_margin_heights: float = 0.4
+    control_confirm_samples: int = 2
+    control_confirm_gap_seconds: float = 0.5
+    stopped_speed_px_per_second: float = 60.0
+    restart_speed_px_per_second: float = 200.0
+    identity_swap_radius_heights: float = 0.75
+    identity_swap_gap_seconds: float = 0.5
+
+
+@dataclass
+class MatchStateChange:
+    seconds: float
+    state: str
+    reason: str
+
+
+@dataclass
+class _Control:
+    track_id: int
+    team: str
+    first_seconds: float
+    last_seconds: float
+    feet: tuple[float, float]
+    height: float
+    samples: int = 1
+
+
+@dataclass
+class ChronoResult:
+    events: list[dict[str, Any]] = field(default_factory=list)
+    match_state: list[MatchStateChange] = field(default_factory=list)
+
+
+def _best_ball(points: list[dict[str, Any]]) -> dict[str, Any] | None:
+    usable = [p for p in points if p.get("event_evidence_eligible", True)]
+    if not usable:
+        return None
+    return max(usable, key=lambda p: float(p.get("confidence", 0)))
+
+
+def _feet(box: dict[str, Any]) -> tuple[float, float]:
+    return ((float(box["x1"]) + float(box["x2"])) / 2, float(box["y2"]))
+
+
+def _closest_controller(
+    ball: tuple[float, float],
+    boxes: Iterable[dict[str, Any]],
+    radius_heights: float,
+    duel_margin_heights: float = 0.4,
+) -> dict[str, Any] | None:
+    """The one player who clearly has the ball, or None.
+
+    During a duel an opponent is about as close to the ball as the nearest
+    player; nobody has won the ball yet, so nobody controls it.
+    """
+    ranked: list[tuple[float, dict[str, Any]]] = []
+    for box in boxes:
+        if box.get("role") == "official" or box.get("team") not in TEAMS:
+            continue
+        height = float(box["y2"]) - float(box["y1"])
+        if height <= 0:
+            continue
+        fx, fy = _feet(box)
+        ranked.append((hypot(ball[0] - fx, ball[1] - fy) / height, box))
+    if not ranked:
+        return None
+    ranked.sort(key=lambda item: item[0])
+    ratio, best = ranked[0]
+    if ratio > radius_heights:
+        return None
+    for other_ratio, other in ranked[1:]:
+        if other["team"] != best["team"]:
+            if other_ratio - ratio < duel_margin_heights:
+                return None
+            break
+    return best
+
+
+def _unbroken(path: list[tuple[float, float, float]], stopped: float) -> bool:
+    """True when the ball kept moving and never turned back along the path."""
+    steps = []
+    for (t0, x0, y0), (t1, x1, y1) in zip(path, path[1:]):
+        if t1 <= t0:
+            continue
+        steps.append((x1 - x0, y1 - y0, hypot(x1 - x0, y1 - y0) / (t1 - t0)))
+    if len(steps) < 2:
+        return False
+    if any(speed < stopped for _, _, speed in steps):
+        return False
+    for a, b in zip(steps, steps[1:]):
+        if a[0] * b[0] + a[1] * b[1] < 0:
+            return False
+    return True
+
+
+def run_chronological(
+    players: dict[int, list[dict[str, Any]]],
+    balls: dict[int, list[dict[str, Any]]],
+    boundary: tuple[tuple[float, float], ...],
+    settings: ChronoSettings = ChronoSettings(),
+) -> ChronoResult:
+    result = ChronoResult()
+    state = "in_play"
+    result.match_state.append(MatchStateChange(0.0, state, "segment_start"))
+    owner: _Control | None = None
+    candidate: _Control | None = None
+    exit_path: list[tuple[float, float, float]] | None = None
+    previous: tuple[float, float, float] | None = None
+    last_seconds = 0.0
+
+    for frame in sorted(balls):
+        ball = _best_ball(balls[frame])
+        if ball is None:
+            continue
+        t = float(ball["clip_seconds"])
+        x, y = float(ball["x"]), float(ball["y"])
+        last_seconds = t
+        inside = signed_pitch_distance((x, y), boundary) >= -settings.outside_margin_px
+
+        # 1. Match state.
+        if state == "in_play":
+            if not inside:
+                if exit_path is None:
+                    exit_path = [previous] if previous else []
+                exit_path.append((t, x, y))
+                if len(exit_path) >= 3 and not _unbroken(
+                    exit_path, settings.stopped_speed_px_per_second
+                ):
+                    exit_seconds = exit_path[1][0] if previous else exit_path[0][0]
+                    state = "out_of_play"
+                    result.match_state.append(
+                        MatchStateChange(exit_seconds, state, "ball_stopped_or_turned_outside")
+                    )
+                    owner = candidate = None
+                    exit_path = None
+            elif exit_path is not None:
+                exit_path.append((t, x, y))
+                if not _unbroken(exit_path, settings.stopped_speed_px_per_second):
+                    exit_seconds = exit_path[1][0] if len(exit_path) > 1 else t
+                    result.match_state.append(
+                        MatchStateChange(exit_seconds, "out_of_play", "ball_returned_after_stop")
+                    )
+                    result.match_state.append(
+                        MatchStateChange(t, "in_play", "restart_ball_came_back_in")
+                    )
+                    owner = candidate = None
+                exit_path = None
+        elif inside and previous is not None and t > previous[0]:
+            speed = hypot(x - previous[1], y - previous[2]) / (t - previous[0])
+            if speed >= settings.restart_speed_px_per_second:
+                state = "in_play"
+                result.match_state.append(MatchStateChange(t, state, "restart_ball_moved"))
+        previous = (t, x, y)
+        if state != "in_play" or exit_path is not None:
+            continue
+
+        # 2. Who controls the ball.
+        box = _closest_controller(
+            (x, y),
+            players.get(frame, []),
+            settings.control_radius_heights,
+            settings.duel_margin_heights,
+        )
+        if box is None:
+            continue
+        track_id, team = int(box["track_id"]), str(box["team"])
+        height = float(box["y2"]) - float(box["y1"])
+        if (
+            candidate is not None
+            and candidate.track_id == track_id
+            and t - candidate.last_seconds <= settings.control_confirm_gap_seconds
+        ):
+            candidate.samples += 1
+            candidate.last_seconds = t
+            candidate.feet = _feet(box)
+        else:
+            candidate = _Control(track_id, team, t, t, _feet(box), height)
+        if candidate.samples < settings.control_confirm_samples:
+            continue
+        if owner is not None and owner.track_id == candidate.track_id:
+            owner.last_seconds, owner.feet = t, candidate.feet
+            continue
+
+        # 3. Control changed: write the event.
+        new = candidate
+        if owner is not None:
+            swap = (
+                new.team == owner.team
+                and new.first_seconds - owner.last_seconds <= settings.identity_swap_gap_seconds
+                and hypot(new.feet[0] - owner.feet[0], new.feet[1] - owner.feet[1])
+                <= settings.identity_swap_radius_heights * max(new.height, 1.0)
+            )
+            if not swap:
+                same_team = new.team == owner.team
+                result.events.append(
+                    {
+                        "event_type": "pass_candidate" if same_team else "turnover_candidate",
+                        "clip_seconds": round(owner.last_seconds, 3),
+                        "completion_seconds": round(new.first_seconds, 3),
+                        "team": owner.team,
+                        "from_player_track_id": owner.track_id,
+                        "to_player_track_id": new.track_id,
+                        "details": "chronological control change",
+                    }
+                )
+        owner = _Control(new.track_id, new.team, new.first_seconds, t, new.feet, new.height, new.samples)
+
+    result.match_state.append(MatchStateChange(last_seconds, state, "segment_end"))
+    return result
+
+
+def main() -> None:
+    from football_poc.engine.ball_evidence import _load_ball_points
+    from football_poc.engine.common import exclude_players_outside_pitch, scaled_pitch_boundary
+    from football_poc.engine.pipeline import _load_player_points
+
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("analytics_data", type=Path)
+    parser.add_argument("--video", type=Path, required=True)
+    parser.add_argument("--pitch-calibration", type=Path, required=True)
+    args = parser.parse_args()
+    data: Path = args.analytics_data
+    ball_path = data / "engine-ball-tracks.json"
+    manifest = Path(json.loads(ball_path.read_text(encoding="utf-8"))["manifest"])
+    boundary = scaled_pitch_boundary(args.pitch_calibration, ball_path, args.video)
+    players = exclude_players_outside_pitch(
+        _load_player_points(data / "player-tracks.json", manifest), boundary
+    )
+    balls = _load_ball_points(ball_path, manifest)
+    result = run_chronological(players, balls, boundary)
+    (data / "predicted-events-chrono.json").write_text(
+        json.dumps(result.events, indent=2), encoding="utf-8"
+    )
+    (data / "match-state-chrono.json").write_text(
+        json.dumps([asdict(change) for change in result.match_state], indent=2),
+        encoding="utf-8",
+    )
+    print(f"{len(result.events)} events, {len(result.match_state)} match-state changes")
+
+
+if __name__ == "__main__":
+    main()
