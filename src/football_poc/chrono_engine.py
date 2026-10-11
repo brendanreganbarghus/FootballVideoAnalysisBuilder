@@ -30,6 +30,10 @@ class ChronoSettings:
     outside_margin_px: float = 12.0
     control_radius_heights: float = 0.8
     duel_margin_heights: float = 0.4
+    # The player who has the ball keeps it while still within reach, unless
+    # a teammate is clearly closer: one camera draws a teammate standing
+    # metres behind him right on top of him.
+    owner_keep_margin_heights: float = 0.4
     control_confirm_samples: int = 2
     control_confirm_gap_seconds: float = 0.5
     stopped_speed_px_per_second: float = 60.0
@@ -153,6 +157,33 @@ def _without_stretched_boxes(
 
 def _feet(box: dict[str, Any]) -> tuple[float, float]:
     return ((float(box["x1"]) + float(box["x2"])) / 2, float(box["y2"]))
+
+
+def _owner_keeps(
+    box: dict[str, Any],
+    owner: "_Control",
+    ball: tuple[float, float],
+    boxes: Iterable[dict[str, Any]],
+    settings: ChronoSettings,
+) -> dict[str, Any]:
+    """Keep the ball with its owner unless the teammate is clearly closer."""
+    if str(box["team"]) != owner.team or int(box["track_id"]) == owner.track_id:
+        return box
+
+    def ratio(item: dict[str, Any]) -> float:
+        fx, fy = _feet(item)
+        return hypot(ball[0] - fx, ball[1] - fy) / max(float(item["y2"]) - float(item["y1"]), 1.0)
+
+    for item in boxes:
+        if int(item.get("track_id", -1)) == owner.track_id and str(item.get("team")) == owner.team:
+            kept = ratio(item)
+            if (
+                kept <= settings.control_radius_heights
+                and kept - ratio(box) < settings.owner_keep_margin_heights
+            ):
+                return item
+            break
+    return box
 
 
 def _closest_controller(
@@ -592,6 +623,8 @@ def run_chronological(
         )
         if box is None:
             continue
+        if touch is None and owner is not None:
+            box = _owner_keeps(box, owner, (x, y), players.get(frame, []), settings)
         track_id, team = int(box["track_id"]), str(box["team"])
         height = float(box["y2"]) - float(box["y1"])
         if (
