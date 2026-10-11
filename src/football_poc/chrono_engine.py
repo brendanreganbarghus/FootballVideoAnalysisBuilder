@@ -162,6 +162,7 @@ def run_chronological(
     balls: dict[int, list[dict[str, Any]]],
     boundary: tuple[tuple[float, float], ...],
     settings: ChronoSettings = ChronoSettings(),
+    goal_areas: tuple[tuple[tuple[float, float], ...], ...] = (),
 ) -> ChronoResult:
     result = ChronoResult()
     state = (
@@ -225,8 +226,16 @@ def run_chronological(
             speed = hypot(x - previous[1], y - previous[2]) / (t - previous[0])
             if speed >= settings.restart_speed_px_per_second:
                 state = "in_play"
+                in_goal_area = any(
+                    signed_pitch_distance((previous[1], previous[2]), area) >= 0
+                    for area in goal_areas
+                )
                 result.match_state.append(
-                    MatchStateChange(previous[0], state, "restart_taken_type_unknown")
+                    MatchStateChange(
+                        previous[0],
+                        state,
+                        "goal_kick_taken" if in_goal_area else "restart_taken_type_unknown",
+                    )
                 )
         previous = (t, x, y)
         if state != "in_play" or exit_path is not None:
@@ -287,6 +296,27 @@ def run_chronological(
     return result
 
 
+def _scaled_goal_areas(
+    calibration_path: Path, ball_tracks_path: Path, video: Path
+) -> tuple[tuple[tuple[float, float], ...], ...]:
+    """Calibrated goal areas (Law 16 goal kicks), in the ball image space."""
+    from football_poc.image_space import ball_coordinate_size, scale_factors, video_size
+
+    calibration = json.loads(calibration_path.read_text(encoding="utf-8"))
+    features = calibration.get("features", {})
+    sx, sy = scale_factors(
+        calibration,
+        ball_coordinate_size(
+            json.loads(ball_tracks_path.read_text(encoding="utf-8")), video_size(video)
+        ),
+    )
+    return tuple(
+        tuple((float(x) * sx, float(y) * sy) for x, y in features[name])
+        for name in ("left_goal_area", "right_goal_area")
+        if len(features.get(name, [])) >= 3
+    )
+
+
 def main() -> None:
     from football_poc.engine.ball_evidence import _load_ball_points
     from football_poc.engine.common import exclude_players_outside_pitch, scaled_pitch_boundary
@@ -305,7 +335,8 @@ def main() -> None:
         _load_player_points(data / "player-tracks.json", manifest), boundary
     )
     balls = _load_ball_points(ball_path, manifest)
-    result = run_chronological(players, balls, boundary)
+    goal_areas = _scaled_goal_areas(args.pitch_calibration, ball_path, args.video)
+    result = run_chronological(players, balls, boundary, goal_areas=goal_areas)
     (data / "predicted-events-chrono.json").write_text(
         json.dumps(result.events, indent=2), encoding="utf-8"
     )

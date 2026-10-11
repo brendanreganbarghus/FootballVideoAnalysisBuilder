@@ -150,3 +150,4 @@ baseline suites (`tests/test_possession.py`, `tests/test_match_state.py`,
 | 20261011T123000002Z | tracking | track follows full box not closer cut off piece | `tests/tracking/test_piece_boxes_and_height_continuity_20261011T123000000Z.py::test_track_follows_full_box_not_closer_cut_off_piece_20261011T123000002Z` |
 | 20261011T125109705Z | rules | duel alternation makes no turnover | `tests/rules/test_chrono_duel_and_dead_ball_start_20261011T125109705Z.py::test_duel_alternation_makes_no_turnover_20261011T125109705Z` |
 | 20261011T125109706Z | rules | dead ball at start waits for restart | `tests/rules/test_chrono_duel_and_dead_ball_start_20261011T125109705Z.py::test_dead_ball_at_start_waits_for_restart_20261011T125109706Z` |
+| 20261011T125751150Z | rules | dead ball kicked from goal area is goal kick | `tests/rules/test_chrono_duel_and_dead_ball_start_20261011T125109705Z.py::test_dead_ball_kicked_from_goal_area_is_goal_kick_20261011T125751150Z` |

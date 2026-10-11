@@ -36,3 +36,16 @@ def test_dead_ball_at_start_waits_for_restart_20261011T125109706Z():
     assert result.match_state[1].state == "in_play"
     assert abs(result.match_state[1].seconds - 3.8) < 0.01
     assert result.events == []
+
+
+def test_dead_ball_kicked_from_goal_area_is_goal_kick_20261011T125751150Z():
+    players, balls = {}, {}
+    for frame in range(0, 100, 5):
+        balls[frame] = _ball(frame, 310, 495)
+    for i, frame in enumerate(range(100, 160, 5)):
+        balls[frame] = _ball(frame, 310 + (i + 1) * 60, 495)
+    area = ((250.0, 400.0), (400.0, 400.0), (400.0, 600.0), (250.0, 600.0))
+    with_area = run_chronological(players, balls, BOUNDARY, goal_areas=(area,))
+    assert with_area.match_state[1].reason == "goal_kick_taken"
+    without_area = run_chronological(players, balls, BOUNDARY)
+    assert without_area.match_state[1].reason == "restart_taken_type_unknown"
