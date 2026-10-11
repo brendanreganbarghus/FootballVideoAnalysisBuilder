@@ -73,8 +73,13 @@ class ChronoResult:
     match_state: list[MatchStateChange] = field(default_factory=list)
 
 
+SEEN_BALL_STATES = frozenset({"observed", "visually_reacquired"})
+
+
 def _best_ball(points: list[dict[str, Any]]) -> dict[str, Any] | None:
-    usable = [p for p in points if p.get("event_evidence_eligible", True)]
+    # The ball tracker's status decides: only frames where it saw the ball
+    # count. Trajectory estimates, hidden and out-of-play frames do not.
+    usable = [p for p in points if p.get("state", "observed") in SEEN_BALL_STATES]
     if not usable:
         return None
     return max(usable, key=lambda p: float(p.get("confidence", 0)))
@@ -316,14 +321,41 @@ def _dead_ball_at_start(
     )
 
 
+def _ball_out_turnover(result: ChronoResult, owner: "_Control | None", out_seconds: float) -> None:
+    """Laws 15-17: every restart goes to the opponents of the team that last
+    touched the ball, so a team whose controlled ball goes out loses it."""
+    if owner is None:
+        return
+    result.events.append(
+        {
+            "event_type": "turnover_candidate",
+            "clip_seconds": round(owner.last_seconds, 3),
+            "completion_seconds": round(out_seconds, 3),
+            "team": owner.team,
+            "from_player_track_id": owner.track_id,
+            "to_player_track_id": None,
+            "details": "ball out of play; restart to the opponents",
+        }
+    )
+
+
 def run_chronological(
     players: dict[int, list[dict[str, Any]]],
     balls: dict[int, list[dict[str, Any]]],
     boundary: tuple[tuple[float, float], ...],
     settings: ChronoSettings = ChronoSettings(),
     goal_areas: tuple[tuple[tuple[float, float], ...], ...] = (),
+    out_of_play_seconds: Iterable[float] = (),
 ) -> ChronoResult:
+    """Walk the ball samples in time order.
+
+    ``out_of_play_seconds`` are the times the ball tracker saw the ball out of
+    play (Law 9). Those frames have no live ball position, so they arrive here
+    as times only.
+    """
     result = ChronoResult()
+    tracker_out = sorted(float(s) for s in out_of_play_seconds)
+    next_out = 0
     state = (
         "out_of_play"
         if _dead_ball_at_start(balls, settings)
@@ -361,7 +393,20 @@ def run_chronological(
         last_seconds = t
         inside = signed_pitch_distance((x, y), boundary) >= -settings.outside_margin_px
 
-        # 1. Match state.
+        # 1. Match state. The ball tracker's own out-of-play status comes first.
+        went_out = None
+        while next_out < len(tracker_out) and tracker_out[next_out] < t:
+            if went_out is None:
+                went_out = tracker_out[next_out]
+            next_out += 1
+        if went_out is not None and state == "in_play":
+            state = "out_of_play"
+            result.match_state.append(
+                MatchStateChange(went_out, state, "ball_tracker_out_of_play")
+            )
+            _ball_out_turnover(result, owner, went_out)
+            owner = candidate = None
+            exit_path = None
         if state == "in_play":
             if not inside:
                 if exit_path is None:
@@ -375,6 +420,7 @@ def run_chronological(
                     result.match_state.append(
                         MatchStateChange(exit_seconds, state, "ball_stopped_or_turned_outside")
                     )
+                    _ball_out_turnover(result, owner, exit_seconds)
                     owner = candidate = None
                     exit_path = None
             elif exit_path is not None:
@@ -557,9 +603,21 @@ def main() -> None:
     players = exclude_players_outside_pitch(
         _load_player_points(data / "player-tracks.json", manifest), boundary
     )
-    balls = _load_ball_points(ball_path, manifest)
+    # The ball tracker's per-frame status is required evidence: events are read
+    # from the ball track, its statuses, the player tracks and their kits together.
+    states_path = data.parent / "analytics-cache" / "ball-state-estimates.json"
+    if not states_path.is_file():
+        raise SystemExit(f"Ball-track status file is required: {states_path}")
+    balls = _load_ball_points(ball_path, manifest, state_estimates_path=states_path)
     goal_areas = _scaled_goal_areas(args.pitch_calibration, ball_path, args.video)
-    result = run_chronological(players, balls, boundary, goal_areas=goal_areas)
+    out_of_play_seconds = [
+        float(item["clip_seconds"])
+        for item in json.loads(states_path.read_text(encoding="utf-8")).get("states", [])
+        if item.get("state") == "out_of_play"
+    ]
+    result = run_chronological(
+        players, balls, boundary, goal_areas=goal_areas, out_of_play_seconds=out_of_play_seconds
+    )
     (data / "predicted-events-chrono.json").write_text(
         json.dumps(result.events, indent=2), encoding="utf-8"
     )
