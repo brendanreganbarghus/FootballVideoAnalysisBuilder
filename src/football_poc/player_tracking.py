@@ -27,6 +27,12 @@ from football_poc.team_colors import (
 OUTFIELD_TEAMS = frozenset({"red", "black", "blue", "white"})
 
 
+# A player hidden behind another for at most this long is joined up again.
+HIDDEN_BRIDGE_MAX_GAP_SECONDS = 0.8
+HIDDEN_BRIDGE_REACH_HEIGHTS = 0.8
+HIDDEN_BRIDGE_MINIMUM_COVER = 0.3
+
+
 @dataclass
 class PlayerPoint:
     source_frame: int
@@ -40,6 +46,8 @@ class PlayerPoint:
     color_scores: dict[str, float] | None = None
     # This box's own kit reading, before the track's team is smoothed.
     kit_team: str | None = None
+    # Estimated box while the player is hidden behind another player.
+    hidden: bool = False
 
     @property
     def foot(self) -> tuple[float, float]:
@@ -193,6 +201,12 @@ def track_cached_players(
         if team_profile in ("red-black", "blue-white")
         else None
     )
+    if colors_read:
+        accepted = bridge_hidden_gaps(
+            accepted,
+            player_teams=player_teams,
+            max_speed_pixels_per_second=max_speed_pixels_per_second,
+        )
 
     output.mkdir(parents=True, exist_ok=True)
     if overlaps is not None:
@@ -418,6 +432,117 @@ def _box_overlap_of_smaller(first: PlayerPoint, second: PlayerPoint) -> float:
         (second.x2 - second.x1) * (second.y2 - second.y1),
     )
     return width * height / smaller if smaller > 0 else 0.0
+
+
+def bridge_hidden_gaps(
+    tracks: list[PlayerTrack],
+    *,
+    player_teams: frozenset[str],
+    max_speed_pixels_per_second: float,
+    max_gap_seconds: float = HIDDEN_BRIDGE_MAX_GAP_SECONDS,
+    reach_heights: float = HIDDEN_BRIDGE_REACH_HEIGHTS,
+    minimum_cover: float = HIDDEN_BRIDGE_MINIMUM_COVER,
+) -> list[PlayerTrack]:
+    """Join a player track that ends and restarts behind another player.
+
+    When a player walks behind another, the detector gives one box for both
+    and the hidden player's track ends; it restarts as a new track when he
+    reappears. Two same-team tracks are joined only when the estimated box
+    in every missing frame is covered by another player's box, so the gap is
+    explained by occlusion. The missing frames get estimated hidden points.
+    """
+    frames: dict[int, list[tuple[PlayerTrack, PlayerPoint]]] = defaultdict(list)
+    for track in tracks:
+        for point in track.points:
+            frames[point.source_frame].append((track, point))
+    candidates: list[tuple[float, PlayerTrack, PlayerTrack, list[PlayerPoint]]] = []
+    for first in tracks:
+        if first.role != "player" or first.team not in player_teams:
+            continue
+        end = first.last
+        for second in tracks:
+            if second is first or second.role != "player":
+                continue
+            if second.team != first.team:
+                continue
+            start = second.points[0]
+            gap = start.clip_seconds - end.clip_seconds
+            if not 0 < gap <= max_gap_seconds:
+                continue
+            distance = hypot(end.foot[0] - start.foot[0], end.foot[1] - start.foot[1])
+            if distance > max_speed_pixels_per_second * gap + reach_heights * end.height:
+                continue
+            hidden = _hidden_points(
+                end, start, frames, (first, second), minimum_cover
+            )
+            if hidden is None:
+                continue
+            candidates.append((distance / gap, first, second, hidden))
+    candidates.sort(key=lambda item: item[0])
+    ended: set[int] = set()
+    started: set[int] = set()
+    joins: dict[int, tuple[PlayerTrack, list[PlayerPoint]]] = {}
+    for _, first, second, hidden in candidates:
+        if first.track_id in ended or second.track_id in started:
+            continue
+        ended.add(first.track_id)
+        started.add(second.track_id)
+        joins[first.track_id] = (second, hidden)
+    if not joins:
+        return tracks
+    absorbed = {second.track_id for second, _ in joins.values()}
+    by_id = {track.track_id: track for track in tracks}
+    for track in tracks:
+        if track.track_id in absorbed:
+            continue
+        current = track
+        while current.track_id in joins:
+            second, hidden = joins[current.track_id]
+            for point in hidden:
+                point.team = track.team
+            track.points.extend(hidden)
+            track.points.extend(by_id[second.track_id].points)
+            current = second
+    return [track for track in tracks if track.track_id not in absorbed]
+
+
+def _hidden_points(
+    end: PlayerPoint,
+    start: PlayerPoint,
+    frames: dict[int, list[tuple[PlayerTrack, PlayerPoint]]],
+    pair: tuple[PlayerTrack, PlayerTrack],
+    minimum_cover: float,
+) -> list[PlayerPoint] | None:
+    gap_frames = sorted(
+        frame for frame in frames if end.source_frame < frame < start.source_frame
+    )
+    if not gap_frames:
+        return None
+    hidden: list[PlayerPoint] = []
+    span = start.source_frame - end.source_frame
+    for frame in gap_frames:
+        share = (frame - end.source_frame) / span
+        members = frames[frame]
+        estimate = PlayerPoint(
+            source_frame=frame,
+            clip_seconds=end.clip_seconds
+            + share * (start.clip_seconds - end.clip_seconds),
+            confidence=0.0,
+            x1=end.x1 + share * (start.x1 - end.x1),
+            y1=end.y1 + share * (start.y1 - end.y1),
+            x2=end.x2 + share * (start.x2 - end.x2),
+            y2=end.y2 + share * (start.y2 - end.y2),
+            hidden=True,
+        )
+        covered = any(
+            _box_overlap_of_smaller(estimate, point) >= minimum_cover
+            for track, point in members
+            if track not in pair
+        )
+        if not covered:
+            return None
+        hidden.append(estimate)
+    return hidden
 
 
 def _resolve_part_boxes(

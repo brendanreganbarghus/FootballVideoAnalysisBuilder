@@ -157,3 +157,5 @@ baseline suites (`tests/test_possession.py`, `tests/test_match_state.py`,
 | 20261011T141158851Z | rules | straight ball past head is not a touch | `tests/rules/test_chrono_body_touch_on_deflection_20261011T141158850Z.py::test_straight_ball_past_head_is_not_a_touch_20261011T141158851Z` |
 | 20261011T142632601Z | rules | lofted ball is not controlled at feet behind it | `tests/rules/test_chrono_lofted_ball_no_feet_control_20261011T142632601Z.py::test_lofted_ball_is_not_controlled_at_feet_behind_it_20261011T142632601Z` |
 | 20261011T142632602Z | rules | low arc is not a flight | `tests/rules/test_chrono_lofted_ball_no_feet_control_20261011T142632601Z.py::test_low_arc_is_not_a_flight_20261011T142632602Z` |
+| 20261011T144116256Z | tracking | hidden gap is joined | `tests/tracking/test_bridge_hidden_player_gap_20261011T144116256Z.py::test_hidden_gap_is_joined_20261011T144116256Z` |
+| 20261011T144116257Z | tracking | uncovered gap is not joined | `tests/tracking/test_bridge_hidden_player_gap_20261011T144116256Z.py::test_uncovered_gap_is_not_joined_20261011T144116257Z` |
