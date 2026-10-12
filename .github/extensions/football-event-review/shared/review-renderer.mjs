@@ -4826,9 +4826,9 @@ export function renderHtml({ adapter } = {}) {
               role="status" aria-live="polite" hidden></p>
             <div class="ball-frame-modal-details">
               ${adapter.reviewerCorrectedDemoLayer
-                ? "Frozen BAC remains unchanged. Applying this batch creates "
-                  + "a shared, versioned reviewer-coordinate layer used by "
-                  + "the rules engine for this segment."
+                ? "BAC frames are view-only (BAC confirmed). Review "
+                  + "decisions on our ball coordinates remain "
+                  + "evaluation-only and never become inference inputs."
                 : "Review decisions remain evaluation-only and never become "
                   + "inference inputs."}
             </div>
@@ -9109,8 +9109,7 @@ export function renderHtml({ adapter } = {}) {
         + (carryForward ? "checking" : resolution?.[1] || "pending");
       if (reviewerCorrectionView) {
         decisionStatus.textContent =
-          "Frozen BAC remains unchanged. Your confirmed coordinate is saved "
-          + "in the separate reviewer-corrected Review demo layer.";
+          "BAC confirmed · view only. No decisions are recorded for BAC frames.";
       } else if (inspectionOnly) {
         decisionStatus.textContent =
           selectedBatch?.status === "done"
@@ -9468,8 +9467,7 @@ export function renderHtml({ adapter } = {}) {
       reviewButton.disabled =
         !reviewerCorrectionView && !flaggedBallFrames.size;
       reviewButton.textContent = reviewerCorrectionView
-        ? "Open reviewer coordinate layer ("
-          + flaggedBallFrames.size + " corrected)"
+        ? "View BAC ball frames (BAC confirmed)"
         : batch
         ? batch.status === "done"
           ? "View completed round " + batch.number
@@ -9483,15 +9481,14 @@ export function renderHtml({ adapter } = {}) {
         : "Open batch review (" + flaggedBallFrames.size + " flagged)";
       document.getElementById("ball-coordinate-review-mode").textContent =
         reviewerCorrectionView
-          ? "Reviewer-corrected Review demo layer"
+          ? "BAC confirmed · view only"
         : finalized
           ? "Query mode · review finalized"
           : "Coordinate recovery mode";
       document.getElementById("ball-coordinate-review-status").textContent =
         reviewerCorrectionView
-          ? "Frozen BAC stays unchanged. Click any frame to agree, mark "
-            + "undefined, choose a YOLO candidate, or save your own coordinate "
-            + "in the separate reviewer-corrected demo layer."
+          ? "Frozen BAC coordinates are confirmed as given. Frames can be "
+            + "viewed; there are no decisions to make."
         : finalized
           ? "Read-only: inspect coordinates; recovery submissions are closed."
           : selectedCoordinateBatchId === "all"
@@ -10187,8 +10184,10 @@ export function renderHtml({ adapter } = {}) {
           observation.decision
         )
       ).length;
-      // Reviewer coordinates must never feed a detected-ball segment's engine.
+      // BAC frames are view-only and reviewer coordinates must never feed a
+      // detected-ball segment's engine, so the apply button never shows.
       applyReviewerLayer.hidden = !reviewWorkflow.reviewerCorrectedDemoLayer
+        || bacReadOnly()
         || (state?.segment?.ballSource || "bac") === "detected";
       applyReviewerLayer.disabled =
         !approvedCoordinateChanges || segmentRunActive();
@@ -15833,6 +15832,15 @@ export function renderHtml({ adapter } = {}) {
         resetReviewPlayback();
         if (state.drafts.length) {
           selectEvent(0, {seek: false, pause: false});
+        }
+        if (
+          primarySegmentAction() === "prepare-bac"
+          && state.segment.evidencePreparationSupported
+        ) {
+          segmentPreparationPending = false;
+          setSegmentLoading(false);
+          await prepareBacEvidence();
+          return;
         }
       } catch (error) {
         segmentRunStatus.textContent =
