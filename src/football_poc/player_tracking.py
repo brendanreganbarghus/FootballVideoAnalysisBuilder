@@ -12,6 +12,7 @@ import cv2
 import numpy as np
 
 from football_poc.benchmark import BenchmarkManifest
+from football_poc.cache_identity import cache_matches_manifest
 from football_poc.image_space import scale_factors, scale_goalkeeper_affiliations
 from football_poc.match_initialization import (
     MatchInitialization,
@@ -104,7 +105,7 @@ def track_cached_players(
 ) -> Path:
     manifest = BenchmarkManifest.load(manifest_path)
     metadata, records = _load_player_cache(
-        player_cache_path, manifest.sha256
+        player_cache_path, manifest.sha256, manifest.path
     )
     _validate_options(
         confidence=confidence,
@@ -1546,7 +1547,7 @@ def _jersey_crop(
 
 
 def _load_player_cache(
-    cache_path: Path, manifest_sha256: str
+    cache_path: Path, manifest_sha256: str, manifest_path: Path | None = None
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     if not cache_path.is_file():
         raise FileNotFoundError(f"Player detection cache does not exist: {cache_path}")
@@ -1554,7 +1555,10 @@ def _load_player_cache(
     if not lines:
         raise ValueError("Player detection cache is empty")
     metadata = json.loads(lines[0])
-    if metadata.get("manifest_sha256") != manifest_sha256:
+    if metadata.get("manifest_sha256") != manifest_sha256 and not (
+        manifest_path is not None
+        and cache_matches_manifest(metadata, manifest_path)
+    ):
         raise ValueError("Player cache was created for a different manifest")
     records = [
         json.loads(line)
