@@ -60,6 +60,9 @@ class ChronoSettings:
     # the same spot: feet within this many of the toucher's heights. The
     # camera draws players metres apart on top of each other.
     aerial_contest_feet_heights: float = 0.75
+    # Physics: even a hard, high kick lands within about four seconds. A
+    # longer run of in-flight labels is a ball resting high in the picture.
+    max_flight_seconds: float = 4.0
     lofted_min_rise_heights: float = 0.3
     lofted_min_fall_ratio: float = 0.3
     lofted_noise_px: float = 3.0
@@ -484,6 +487,24 @@ def _lofted_samples(
     )
 
 
+def _credible_flights(
+    track: list[tuple[int, float, float, float]],
+    lofted: set[int],
+    max_flight_seconds: float,
+) -> set[int]:
+    """Drop runs of in-flight samples that last longer than any real flight."""
+    kept: set[int] = set()
+    run: list[int] = []
+    for index in [*sorted(lofted), None]:
+        if run and (index is None or index != run[-1] + 1):
+            if track[run[-1]][1] - track[run[0]][1] <= max_flight_seconds:
+                kept.update(run)
+            run = []
+        if index is not None:
+            run.append(index)
+    return kept
+
+
 def _unbroken(path: list[tuple[float, float, float]], stopped: float) -> bool:
     """True when the ball kept moving and never turned back along the path."""
     steps = []
@@ -605,7 +626,11 @@ def run_chronological(
     # label, so the same flight check runs here on the player heights.
     labelled = [_best_ball(balls[frame]) or {} for frame, *_rest in track]
     if track and all("aerial" in ball for ball in labelled):
-        lofted = {index for index, ball in enumerate(labelled) if ball["aerial"]}
+        lofted = _credible_flights(
+            track,
+            {index for index, ball in enumerate(labelled) if ball["aerial"]},
+            settings.max_flight_seconds,
+        )
     else:
         lofted = _lofted_samples(track, players, settings)
     # Gap-filled positions are a straight guess, not evidence of a free roll.

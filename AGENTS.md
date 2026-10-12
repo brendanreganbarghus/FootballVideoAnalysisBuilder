@@ -27,6 +27,11 @@ publication behavior.
 - Switching a segment's ball source removes its derived artifacts and review
   work except the M# golden set; never reuse outputs, decisions, thresholds,
   or fixes from one ball source as evidence for the other.
+- New segments are prepared as Live (`detected`) only. Archived BAC copies
+  live under `<recording>\_bac-reference\` and are only the green reference
+  in the Live ball-coordinate review; their passed M# set is restored on
+  Live prepare. A saved YOLO run is reused only when it provably matches the
+  video and detector profile (cache reuse, not a benchmark).
 - Approved exception: frozen BAC coordinates may be read as an
   evaluation-only reference for `detected` ball-coordinate review, after the
   tracker output is frozen, as a secondary check after fixes. The reviewer's

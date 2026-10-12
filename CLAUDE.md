@@ -72,6 +72,12 @@ tracks). For `bac`, `bac_chrono_inputs.py` gives chrono a video-size copy of
 the BAC ball with every coordinate `observed`, so the engine decides
 out-of-play itself; the stored BAC file stays in panorama size.
 
+New segments are prepared as Live (`detected`) only. Archived BAC copies live
+under `<recording>\_bac-reference\` and are only the green reference in the
+Live ball-coordinate review; their passed M# set is restored on Live prepare.
+A saved YOLO run is reused only when it provably matches the video and
+detector profile (cache reuse, not a benchmark).
+
 Do not copy all repository documentation into this file. The documentation map
 is the maintained index; the linked documents and code remain authoritative.
 

@@ -38,6 +38,12 @@ out-of-play itself; the stored BAC file stays in panorama size.
 Switching a segment's ball source removes its derived artifacts and review
 work except the M# golden set.
 
+New segments are prepared as Live (`detected`) only. Archived BAC copies live
+under `<recording>\_bac-reference\` and are only the green reference in the
+Live ball-coordinate review; their passed M# set is restored on Live prepare.
+A saved YOLO run is reused only when it provably matches the video and
+detector profile (cache reuse, not a benchmark).
+
 For football-event analysis and rules-engine work, act as a senior football-law
 and analytics adjudicator. Identify relevant events, challenge unsupported
 proposals, and explain missing evidence. Do not assume that a proposal is

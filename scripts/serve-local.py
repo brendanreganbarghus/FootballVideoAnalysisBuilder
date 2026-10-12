@@ -62,8 +62,14 @@ from football_poc.artifact_store import (
     REVIEW_WORKFLOW_ID,
     create_ball_source_copy,
     discover_prepared_segments,
+    find_bac_reference_segment,
     find_prepared_segment,
     segment_window_key,
+)
+from football_poc.detection_reuse import (
+    LIVE_DETECTOR_PROFILE,
+    reusable_detection_reason,
+    reuse_saved_detections,
 )
 from football_poc.coordination import (
     CoordinationConfig,
@@ -965,6 +971,11 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
             requested_source = payload.get("ball_source")
             if requested_source is not None and requested_source not in BALL_SOURCES:
                 raise ValueError("Invalid ball source")
+            if requested_source == "bac":
+                raise ValueError(
+                    "BAC copies can no longer be prepared. Prepare the window "
+                    "as Live; BAC stays available only as the reference."
+                )
             window_key = (
                 f"segment-{plan.first_segment:04d}-{plan.segment_count:03d}"
             )
@@ -976,14 +987,16 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
                     duration_seconds,
                 )
                 if existing is not None:
+                    existing_key, detections_reused = existing
                     self._send_json(
                         200,
                         {
                             **plan.to_dict(),
                             "source_start_seconds": float(payload["start_seconds"]),
                             "duration_seconds": duration_seconds,
-                            "cache_key": existing,
+                            "cache_key": existing_key,
                             "ball_source": requested_source,
+                            "detections_reused": detections_reused,
                         },
                     )
                     return
@@ -1126,12 +1139,15 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
         ball_source: str,
         start_seconds: float,
         duration_seconds: float,
-    ) -> str | None:
+    ) -> tuple[str, bool] | None:
         """Return the copy of this video window that uses ``ball_source``.
 
         The same window may exist once per ball source. When it exists only for
         the other source, a sibling copy holding just the raw video is created.
-        Returns None when the window has not been prepared at all.
+        When the window exists only as an archived BAC reference, the Live copy
+        is created from it next to the other segments and reuses its saved
+        YOLO run if that run is proven identical. Returns (key, reused) or
+        None when the window has not been prepared at all.
         """
         generated = Path.cwd() / "benchmarks" / "alfheim" / "generated"
         found: list[tuple[str, Path, object]] = []
@@ -1143,35 +1159,59 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
             shared = find_prepared_segment(key, SHARED_ARTIFACT_ROOT)
             if shared is not None:
                 found.append((key, shared.root, shared))
-        matching = [
-            (key, root, shared)
-            for key, root, shared in found
-            if abs(
+
+        def same_start(manifest: Path) -> bool:
+            return abs(
                 float(
-                    (read_json_if_present(
-                        (shared.manifest if shared is not None else root / "manifest.json")
-                    ) or {}).get("source_start_seconds", -1)
+                    (read_json_if_present(manifest) or {}).get(
+                        "source_start_seconds", -1
+                    )
                 )
                 - start_seconds
             ) < 0.001
+
+        matching = [
+            (key, root, shared)
+            for key, root, shared in found
+            if same_start(
+                shared.manifest if shared is not None else root / "manifest.json"
+            )
         ]
         if not matching:
-            return None
+            reference = find_bac_reference_segment(window_key, SHARED_ARTIFACT_ROOT)
+            if (
+                reference is None
+                or ball_source != "detected"
+                or not same_start(reference.manifest)
+            ):
+                return None
+            copy = create_ball_source_copy(
+                reference,
+                ball_source,
+                destination_parent=reference.root.parent.parent,
+            )
+            self._record_ball_source(copy.segment_id, ball_source)
+            return copy.segment_id, self._reuse_saved_detections(
+                reference.root, copy.root
+            )
         recorded = {
             key: self._recorded_ball_source(key, root)
             for key, root, _ in matching
         }
-        for key, _, _ in matching:
+        for key, root, shared in matching:
             if recorded[key] == ball_source:
-                return key
-        for key, _, _ in matching:
+                return key, self._has_saved_detections(root, shared, ball_source)
+        for key, root, shared in matching:
             if recorded[key] is None:
                 self._record_ball_source(key, ball_source)
-                return key
+                return key, self._has_saved_detections(root, shared, ball_source)
         base_key, base_root, base_shared = matching[0]
+        reused = False
         if base_shared is not None:
             copy = create_ball_source_copy(base_shared, ball_source)
             new_key = copy.segment_id
+            if ball_source == "detected":
+                reused = self._reuse_saved_detections(base_shared.root, copy.root)
         else:
             new_key = f"{window_key}-{ball_source}"
             target = generated / new_key
@@ -1195,7 +1235,57 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
                 encoding="utf-8",
             )
         self._record_ball_source(new_key, ball_source)
-        return new_key
+        return new_key, reused
+
+    @staticmethod
+    def _has_saved_detections(root: Path, shared: object, ball_source: str) -> bool:
+        """True when this copy already holds a complete live YOLO run."""
+        if ball_source != "detected":
+            return False
+        video = (
+            shared.video if shared is not None
+            else root / "alfheim-window-playable.mp4"
+        )
+        try:
+            return reusable_detection_reason(
+                root, video, LIVE_DETECTOR_PROFILE
+            ) is None
+        except (OSError, ValueError, KeyError):
+            return False
+    def _reuse_saved_detections(self, source_root: Path, target_root: Path) -> bool:
+        """Reuse a proven-identical saved YOLO run instead of rerunning YOLO.
+
+        Leaves the new copy cached at ``detections_cached`` so the reviewer
+        builds ball coordinates next. Any failed proof keeps the cold path.
+        """
+        if (target_root / "analytics-cache" / "detections.jsonl").is_file():
+            return False
+        try:
+            receipt = reuse_saved_detections(
+                source_root, target_root, LIVE_DETECTOR_PROFILE
+            )
+        except (OSError, ValueError, KeyError) as error:
+            print(f"Saved YOLO run not reused for {target_root.name}: {error}")
+            return False
+        status = {
+            "stage": "detections_cached",
+            "message": (
+                "Saved raw-video YOLO detections were reused for this "
+                "byte-identical video. Ball coordinates have not been built yet."
+            ),
+            "mode": "detection_reuse",
+            "workflow": REVIEW_WORKFLOW_ID,
+            "ball_source": "detected",
+            "bac_assisted": False,
+            "raw_video_ball_inference": True,
+            "performance_benchmark_valid": False,
+            "cache_reuse": True,
+            "reused_from": receipt,
+        }
+        (target_root / "analysis-status.json").write_text(
+            json.dumps(status, indent=2) + "\n", encoding="utf-8"
+        )
+        return True
 
     def _recorded_ball_source(
         self, cache_key: str, segment_root: Path
@@ -1916,11 +2006,23 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
                         f"{shared.video.relative_to(shared.root).as_posix()}"
                     ),
                     "prepared_root": str(shared.root),
+                    "bac_reference_root": self._bac_reference_root(
+                        shared.segment_id
+                    ),
                     "review_workflows": [REVIEW_WORKFLOW_ID],
                     "labels_url": None,
                 }
             )
         return items
+
+    @staticmethod
+    def _bac_reference_root(segment_id: str) -> str | None:
+        """Archived BAC copy of the same window: a review reference only."""
+        try:
+            reference = find_bac_reference_segment(segment_window_key(segment_id))
+        except (OSError, ValueError):
+            return None
+        return str(reference.root) if reference is not None else None
 
     def _prepared_segments(self) -> list[dict[str, object]]:
         workspace = Path.cwd()

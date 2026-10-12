@@ -28,6 +28,7 @@ def segment_window_key(segment_id: str) -> str:
         raise ValueError("Invalid prepared segment ID")
     return f"segment-{match['first']}-{match['count']}"
 PREPARED_SEGMENT_CATALOG = "15-prepared-segments"
+BAC_REFERENCE_DIR = "_bac-reference"
 REVIEW_WORKFLOW_ID = "football_review"
 BALL_SOURCES = frozenset({"bac", "detected"})
 # Reproducible or local-only files that are never published to the share.
@@ -167,6 +168,32 @@ def find_prepared_segment(
     )
 
 
+def find_bac_reference_segment(
+    window_key: str,
+    artifact_root: Path | None = None,
+) -> SharedPreparedSegment | None:
+    """Return the archived BAC copy of a video window, if one exists.
+
+    Archived copies live one level deeper (``<recording>/_bac-reference/``),
+    so discovery never lists them. They are a ball-coordinate reference and a
+    source of the raw video and saved YOLO run for a new Live copy.
+    """
+    root = artifact_root or discover_artifact_root()
+    if root is None:
+        return None
+    catalog = root / PREPARED_SEGMENT_CATALOG
+    for manifest in sorted(
+        catalog.glob(f"*/*/{BAC_REFERENCE_DIR}/*/segment.json")
+    ):
+        try:
+            segment = _load_shared_segment(manifest)
+        except (OSError, ValueError):
+            continue
+        if segment_window_key(segment.segment_id) == window_key:
+            return segment
+    return None
+
+
 def _is_published_file(relative: Path) -> bool:
     return not any(
         pattern.fullmatch(relative.name) for pattern in UNPUBLISHED_FILE_PATTERNS
@@ -294,21 +321,24 @@ def publish_prepared_segment(
 def create_ball_source_copy(
     base: SharedPreparedSegment,
     ball_source: str,
+    destination_parent: Path | None = None,
 ) -> SharedPreparedSegment:
     """Copy only the raw video window into a sibling bundle for another ball source.
 
     No derived artifact, cache, review label or coordinate is copied; the new
     bundle starts unprocessed so its ball source runs from its own inputs.
+    ``destination_parent`` defaults to the base bundle's folder.
     """
     if ball_source not in BALL_SOURCES:
         raise ValueError("Invalid ball source")
     window_key = segment_window_key(base.segment_id)
     segment_id = f"{window_key}-{ball_source}"
-    destination = base.root.parent / segment_id
+    parent = destination_parent or base.root.parent
+    destination = parent / segment_id
     if destination.exists():
         return _load_shared_segment(destination / "segment.json")
     staging = Path(
-        tempfile.mkdtemp(prefix=f".{segment_id}-", dir=base.root.parent)
+        tempfile.mkdtemp(prefix=f".{segment_id}-", dir=parent)
     )
     try:
         shutil.copy2(base.video, staging / "segment.mp4")

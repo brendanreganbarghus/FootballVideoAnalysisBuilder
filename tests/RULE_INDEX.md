@@ -204,3 +204,9 @@ baseline suites (`tests/test_possession.py`, `tests/test_match_state.py`,
 | 20261012T025133718Z | rules | bac allowance keeps the duel rule | `tests/rules/test_bac_touch_reach_allowance_20261012T025133717Z.py::test_bac_allowance_keeps_the_duel_rule_20261012T025133718Z` |
 | 20261012T025133719Z | rules | bac allowance has a limit | `tests/rules/test_bac_touch_reach_allowance_20261012T025133717Z.py::test_bac_allowance_has_a_limit_20261012T025133719Z` |
 | 20261012T025133720Z | rules | live flow never runs the bac allowance | `tests/rules/test_bac_touch_reach_allowance_20261012T025133717Z.py::test_live_flow_never_runs_the_bac_allowance_20261012T025133720Z` |
+| 20261012T034118004Z | tracking | any doubt refuses reuse | `tests/tracking/test_saved_yolo_run_reuse_20261012T034118004Z.py::test_any_doubt_refuses_reuse_20261012T034118004Z` |
+| 20261012T034118004Z | tracking | identical video reuses and restamps the saved run | `tests/tracking/test_saved_yolo_run_reuse_20261012T034118004Z.py::test_identical_video_reuses_and_restamps_the_saved_run_20261012T034118004Z` |
+| 20261012T034118004Z | tracking | other frame window refuses reuse | `tests/tracking/test_saved_yolo_run_reuse_20261012T034118004Z.py::test_other_frame_window_refuses_reuse_20261012T034118004Z` |
+| 20261012T034118004Z | tracking | profile matches the live detector profile of the pipeline | `tests/tracking/test_saved_yolo_run_reuse_20261012T034118004Z.py::test_profile_matches_the_live_detector_profile_of_the_pipeline_20261012T034118004Z` |
+| 20261012T061113314Z | rules | long aerial run is dropped | `tests/rules/test_chrono_max_flight_seconds_20261012T061113314Z.py::test_long_aerial_run_is_dropped_20261012T061113314Z` |
+| 20261012T061113314Z | rules | real flight is kept | `tests/rules/test_chrono_max_flight_seconds_20261012T061113314Z.py::test_real_flight_is_kept_20261012T061113314Z` |

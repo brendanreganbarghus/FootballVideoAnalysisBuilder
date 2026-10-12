@@ -201,6 +201,19 @@ player's distance to the ball is shortened by the track's measured position
 wobble (times `touch_noise_multiple`); touch reach and the duel margin still
 apply. The Live flow never runs this module, so Live output is unchanged.
 
+The chronological engine trusts the tracker's per-frame `aerial` label only for
+physically possible flights: a run of in-flight labels longer than
+`max_flight_seconds` (4 s; even a hard, high kick lands sooner) is read as a
+ball on the ground, so the engine does not go blind for the whole run.
+
+New segments are prepared as Live only. Earlier BAC copies are archived under
+`<recording>\_bac-reference\<segment>\` (hidden from the segment list) and
+serve only as the evaluation-only green reference in the Live ball-coordinate
+review; their passed M# golden set (`golden-m.json`) is restored when the same
+window is prepared as Live. Prepare reuses a saved YOLO run only when
+`detection_reuse.py` proves it was made on an identical video, frame window and
+detector profile; that is cache reuse, never a raw-video benchmark.
+
 ## 3. Law-derived transition contracts
 
 ### Ball crossing a boundary

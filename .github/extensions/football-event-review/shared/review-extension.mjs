@@ -51,6 +51,7 @@ const workflow = reviewWorkflow;
 const alfheimRoot = join(projectRoot, "benchmarks", "alfheim");
 const generatedRoot = join(alfheimRoot, "generated");
 const preparedSegmentRoots = new Map();
+const bacReferenceRoots = new Map();
 const soccertrackReviewRoot = join(
   projectRoot,
   "benchmarks",
@@ -1300,6 +1301,11 @@ async function loadPreparedSegments() {
   payload.segments.forEach((segment) => {
     if (segment.prepared_root) {
       preparedSegmentRoots.set(segment.cache_key, segment.prepared_root);
+    }
+    if (segment.bac_reference_root) {
+      bacReferenceRoots.set(segment.cache_key, segment.bac_reference_root);
+    } else {
+      bacReferenceRoots.delete(segment.cache_key);
     }
   });
   const segments = await Promise.all(payload.segments
@@ -3343,6 +3349,17 @@ async function bacSiblingSegment(segment) {
   )?.key || null;
 }
 
+// Frozen BAC coordinates of the same window, from a discovered BAC copy or
+// the archived BAC reference copy. Review comparison only.
+async function bacReferenceTracksPath(segment) {
+  const bacSegment = await bacSiblingSegment(segment);
+  if (bacSegment) {
+    return join(segmentRoot(bacSegment), "analytics-cache", "ball-tracks.json");
+  }
+  const archived = bacReferenceRoots.get(segment);
+  return archived ? join(archived, "analytics-cache", "ball-tracks.json") : null;
+}
+
 // After an Our-rules engine run, the same window's BAC copy is re-run with the
 // current engine so the reviewer can compare M# found with each ball source.
 async function startBacSiblingRecheck(segment, state) {
@@ -3393,13 +3410,8 @@ async function ballCheckScore(selected, track, observations) {
     || track?.pendingEngineOutput
     || !track?.states?.length
   ) return null;
-  const bacSegment = await bacSiblingSegment(selected.key);
-  const bacPayload = bacSegment
-    ? await readJson(
-      join(segmentRoot(bacSegment), "analytics-cache", "ball-tracks.json"),
-      null,
-    )
-    : null;
+  const bacTracksPath = await bacReferenceTracksPath(selected.key);
+  const bacPayload = bacTracksPath ? await readJson(bacTracksPath, null) : null;
   const bac = new Map();
   for (const bacTrack of bacPayload?.tracks || []) {
     for (const point of bacTrack.points || []) {
@@ -3480,13 +3492,8 @@ async function withBacComparison(selected, track) {
     || track?.pendingEngineOutput
     || !track?.points?.length
   ) return track;
-  const bacSegment = await bacSiblingSegment(selected.key);
-  const bacPayload = bacSegment
-    ? await readJson(
-      join(segmentRoot(bacSegment), "analytics-cache", "ball-tracks.json"),
-      null,
-    )
-    : null;
+  const bacTracksPath = await bacReferenceTracksPath(selected.key);
+  const bacPayload = bacTracksPath ? await readJson(bacTracksPath, null) : null;
   if (!bacPayload?.tracks) return track;
   const interpolated = new Set(track.interpolatedFrames || []);
   const points = {};
@@ -3540,7 +3547,7 @@ async function withBacComparison(selected, track) {
     ownStates: track.states,
     states,
     engineComparison: {
-      source: `${bacSegment}/analytics-cache/ball-tracks.json`,
+      source: bacTracksPath,
       points,
       frameCount: Object.keys(points).length,
     },
@@ -3558,7 +3565,11 @@ async function copySiblingManualReference(segment) {
     && candidate.validated
     && segmentWindowKey(candidate.key) === windowKey
   );
-  if (!siblings.length) return false;
+  const archived = bacReferenceRoots.get(segment);
+  const archivedGolden = archived
+    ? await readJson(join(archived, "golden-m.json"), null)
+    : null;
+  if (!siblings.length && !archivedGolden?.manualReference) return false;
   const target = (await reviewContext(segment)).state;
   if (activeManualEvents(target.manualReference).length) return false;
   for (const sibling of siblings) {
@@ -3566,6 +3577,18 @@ async function copySiblingManualReference(segment) {
     if (!activeManualEvents(source.manualReference).length) continue;
     target.manualReference =
       preservedManualReferenceForSourceSwitch(source.manualReference);
+    await saveState(segment, target, {allowAutoAcquire: true});
+    await persistNormalizedManualReference(segment, target);
+    return true;
+  }
+  // The window's BAC copy was archived after it passed; its approved M# was
+  // saved beside it. Only M# is restored, never E#.
+  if (
+    archivedGolden?.validated
+    && activeManualEvents(archivedGolden.manualReference).length
+  ) {
+    target.manualReference =
+      preservedManualReferenceForSourceSwitch(archivedGolden.manualReference);
     await saveState(segment, target, {allowAutoAcquire: true});
     await persistNormalizedManualReference(segment, target);
     return true;
@@ -7291,7 +7314,13 @@ async function handleRequest(request, response, serverInstanceId) {
     const preparedBallSource = String(
       prepared.ball_source || body.ball_source || "",
     );
-    if (preparedBallSource === "detected") {
+    if (preparedBallSource === "detected" && prepared.detections_reused) {
+      setActivity(
+        "ready",
+        "Segment prepared; saved YOLO run reused",
+        "This window already had a YOLO run on the identical video, so YOLO was not run again. Click Run ball coordinates next.",
+      );
+    } else if (preparedBallSource === "detected") {
       // Run the raw-video YOLO pass once, straight after preparation. Ball
       // coordinates are built later from this cache only.
       try {

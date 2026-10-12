@@ -4077,8 +4077,7 @@ export function renderHtml({ adapter } = {}) {
             </button>
             <label for="ball-source-select">Ball-coordinate source
               <select id="ball-source-select" name="ball-source-select">
-                <option value="bac">BAC coordinates (frozen Alfheim BAC, diagnostic)</option>
-                <option value="detected">Live (our detector, raw video)</option>
+                <option value="detected">Live (our detector, raw video; BAC shown only as reference)</option>
               </select>
             </label>
             <button id="process-segment" type="button">Run segment</button>
@@ -6770,7 +6769,7 @@ export function renderHtml({ adapter } = {}) {
     }
 
     function selectedBallSource() {
-      return ballSourceSelect?.value || state.segment.ballSource || "bac";
+      return ballSourceSelect?.value || state.segment.ballSource || "detected";
     }
 
     function primarySegmentAction() {

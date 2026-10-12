@@ -162,7 +162,8 @@ def test_ball_source_selector_and_analyze_payload() -> None:
     assert "void finalizeBallCoordinateReview();" in renderer
     assert "90% is the minimum gate" not in renderer
     assert "prepareEvidenceButton.hidden = true;" in renderer
-    assert 'return ballSourceSelect?.value || state.segment.ballSource || "bac";' in renderer
+    assert 'return ballSourceSelect?.value || state.segment.ballSource || "detected";' in renderer
+    assert '<option value="bac"' not in renderer
     assert 'ball_source: requestedBallSource' in extension
     assert 'requestedBallSource === "bac"' in extension
     assert 'requestedBallSource === "detected"' in extension
