@@ -206,6 +206,11 @@ physically possible flights: a run of in-flight labels longer than
 `max_flight_seconds` (4 s; even a hard, high kick lands sooner) is read as a
 ball on the ground, so the engine does not go blind for the whole run.
 
+A ball rolling smoothly past a player is not received until it stops, slows,
+turns or is kicked on. When the clip ends first, the player is credited with
+the ball only if it closed in on his feet over at least
+`control_confirm_samples` samples and ended within `touch_radius_heights`.
+
 New segments are prepared as Live only. Earlier BAC copies are archived under
 `<recording>\_bac-reference\<segment>\` (hidden from the segment list) and
 serve only as the evaluation-only green reference in the Live ball-coordinate

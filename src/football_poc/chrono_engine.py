@@ -612,6 +612,7 @@ def run_chronological(
     )
     owner: _Control | None = None
     candidate: _Control | None = None
+    arriving: tuple[_Control, float] | None = None
     exit_path: list[tuple[float, float, float]] | None = None
     previous: tuple[float, float, float] | None = None
     previous_frame: int | None = None
@@ -728,6 +729,7 @@ def run_chronological(
         previous = (t, x, y)
         previous_frame = frame
         if state != "in_play" or exit_path is not None:
+            arriving = None
             continue
 
         # 2. Who controls the ball. A clear deflection at one player's body
@@ -784,11 +786,25 @@ def run_chronological(
             settings.duel_margin_heights,
         )
         if box is None:
+            arriving = None
             continue
         if touch is None and carried is None and owner is not None:
             box = _owner_keeps(box, owner, (x, y), players.get(frame, []), settings)
         track_id, team = int(box["track_id"]), str(box["team"])
         height = float(box["y2"]) - float(box["y1"])
+        feet = _feet(box)
+        reach = hypot(x - feet[0], y - feet[1]) / max(height, 1.0)
+        if (
+            arriving is not None
+            and arriving[0].track_id == track_id
+            and reach <= arriving[1]
+            and t - arriving[0].last_seconds <= settings.control_confirm_gap_seconds
+        ):
+            arriving[0].samples += 1
+            arriving[0].last_seconds, arriving[0].feet = t, feet
+            arriving = (arriving[0], reach)
+        else:
+            arriving = (_Control(track_id, team, t, t, feet, height), reach)
         if (
             candidate is not None
             and candidate.track_id == track_id
@@ -841,30 +857,56 @@ def run_chronological(
 
         # 3. Control changed: write the event.
         new = candidate
-        if owner is not None:
-            swap = (
-                new.team == owner.team
-                and new.first_seconds - owner.last_seconds <= settings.identity_swap_gap_seconds
-                and hypot(new.feet[0] - owner.feet[0], new.feet[1] - owner.feet[1])
-                <= settings.identity_swap_radius_heights * max(new.height, 1.0)
-            )
-            if not swap:
-                same_team = new.team == owner.team
-                result.events.append(
-                    {
-                        "event_type": "pass_candidate" if same_team else "turnover_candidate",
-                        "clip_seconds": round(owner.last_seconds, 3),
-                        "completion_seconds": round(new.first_seconds, 3),
-                        "team": owner.team,
-                        "from_player_track_id": owner.track_id,
-                        "to_player_track_id": new.track_id,
-                        "details": "chronological control change",
-                    }
-                )
+        _control_change(result, owner, new, settings)
         owner = _Control(new.track_id, new.team, new.first_seconds, t, new.feet, new.height, new.samples)
+        arriving = None
+
+    # The clip ends while the ball is still rolling into a player's feet:
+    # it kept closing in on him and is now within touching reach, so he has
+    # received it even though there is no later sample to show it stop.
+    if (
+        state == "in_play"
+        and exit_path is None
+        and arriving is not None
+        and arriving[0].samples >= settings.control_confirm_samples
+        and arriving[1] <= settings.touch_radius_heights
+        and (owner is None or owner.track_id != arriving[0].track_id)
+    ):
+        _control_change(result, owner, arriving[0], settings)
 
     result.match_state.append(MatchStateChange(last_seconds, state, "segment_end"))
     return result
+
+
+def _control_change(
+    result: ChronoResult,
+    owner: "_Control | None",
+    new: "_Control",
+    settings: ChronoSettings,
+) -> None:
+    """Write the pass or turnover from the owner to the new controller."""
+    if owner is None:
+        return
+    swap = (
+        new.team == owner.team
+        and new.first_seconds - owner.last_seconds <= settings.identity_swap_gap_seconds
+        and hypot(new.feet[0] - owner.feet[0], new.feet[1] - owner.feet[1])
+        <= settings.identity_swap_radius_heights * max(new.height, 1.0)
+    )
+    if swap:
+        return
+    same_team = new.team == owner.team
+    result.events.append(
+        {
+            "event_type": "pass_candidate" if same_team else "turnover_candidate",
+            "clip_seconds": round(owner.last_seconds, 3),
+            "completion_seconds": round(new.first_seconds, 3),
+            "team": owner.team,
+            "from_player_track_id": owner.track_id,
+            "to_player_track_id": new.track_id,
+            "details": "chronological control change",
+        }
+    )
 
 
 def _scaled_goal_areas(

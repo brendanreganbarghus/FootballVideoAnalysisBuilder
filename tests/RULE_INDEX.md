@@ -210,3 +210,5 @@ baseline suites (`tests/test_possession.py`, `tests/test_match_state.py`,
 | 20261012T034118004Z | tracking | profile matches the live detector profile of the pipeline | `tests/tracking/test_saved_yolo_run_reuse_20261012T034118004Z.py::test_profile_matches_the_live_detector_profile_of_the_pipeline_20261012T034118004Z` |
 | 20261012T061113314Z | rules | long aerial run is dropped | `tests/rules/test_chrono_max_flight_seconds_20261012T061113314Z.py::test_long_aerial_run_is_dropped_20261012T061113314Z` |
 | 20261012T061113314Z | rules | real flight is kept | `tests/rules/test_chrono_max_flight_seconds_20261012T061113314Z.py::test_real_flight_is_kept_20261012T061113314Z` |
+| 20261012T080512417Z | rules | ball rolling into feet at clip end is received | `tests/rules/test_chrono_clip_ends_ball_reaches_feet_20261012T080512417Z.py::test_ball_rolling_into_feet_at_clip_end_is_received_20261012T080512417Z` |
+| 20261012T080512418Z | rules | ball still on its way at clip end is not received | `tests/rules/test_chrono_clip_ends_ball_reaches_feet_20261012T080512417Z.py::test_ball_still_on_its_way_at_clip_end_is_not_received_20261012T080512418Z` |
