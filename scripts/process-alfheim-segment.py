@@ -532,7 +532,11 @@ def main() -> None:
         run(
             "chronological_events",
             "-m",
-            "football_poc.chrono_engine",
+            # BAC coordinates sit a few pixels off the video; the BAC flow
+            # runs the engine with its BAC-only allowance. Live never does.
+            "football_poc.bac_chrono_tolerance"
+            if ball_source == "bac"
+            else "football_poc.chrono_engine",
             str(results),
             "--video",
             str(video),

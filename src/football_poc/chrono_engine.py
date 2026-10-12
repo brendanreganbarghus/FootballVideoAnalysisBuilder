@@ -19,7 +19,7 @@ from dataclasses import asdict, dataclass, field
 from math import acos, degrees, hypot, sqrt
 from pathlib import Path
 from statistics import median
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 from football_poc.pitch_geometry import signed_pitch_distance
 
@@ -558,12 +558,18 @@ def run_chronological(
     settings: ChronoSettings = ChronoSettings(),
     goal_areas: tuple[tuple[tuple[float, float], ...], ...] = (),
     out_of_play_seconds: Iterable[float] = (),
+    toucher: Callable[..., dict[str, Any] | None] | None = None,
 ) -> ChronoResult:
     """Walk the ball samples in time order.
 
     ``out_of_play_seconds`` are the times the ball tracker saw the ball out of
     play (Law 9). Those frames have no live ball position, so they arrive here
     as times only.
+
+    ``toucher`` replaces the player-at-a-deflection check; it is called as
+    ``toucher(ball, boxes, settings, aerial=..., noise_px=...)``. Only the BAC
+    flow sets it (``football_poc.bac_chrono_tolerance``); the Live flow uses
+    the default ``_toucher``.
     """
     result = ChronoResult()
     players = _without_stretched_boxes(players, settings)
@@ -718,9 +724,18 @@ def run_chronological(
                     aerial=index in lofted,
                     noise_px=noise_px,
                 ):
-                    touch = _toucher(
-                        (x, y), players.get(frame, []), settings, aerial=index in lofted
-                    )
+                    if toucher is None:
+                        touch = _toucher(
+                            (x, y), players.get(frame, []), settings, aerial=index in lofted
+                        )
+                    else:
+                        touch = toucher(
+                            (x, y),
+                            players.get(frame, []),
+                            settings,
+                            aerial=index in lofted,
+                            noise_px=noise_px,
+                        )
                 rolling = not estimated.intersection(
                     (index - 1, index, index + 1)
                 ) and _rolling_through(before, (t, x, y), after, settings)
@@ -861,7 +876,10 @@ def goal_areas_from_calibration(
     )
 
 
-def main() -> None:
+def main(
+    argv: list[str] | None = None,
+    toucher: Callable[..., dict[str, Any] | None] | None = None,
+) -> None:
     from football_poc.engine.ball_evidence import _load_ball_points
     from football_poc.engine.common import exclude_players_outside_pitch, scaled_pitch_boundary
     from football_poc.engine.pipeline import _load_player_points
@@ -874,7 +892,7 @@ def main() -> None:
     parser.add_argument(
         "--ball-states", type=Path, help="default: analytics-cache/ball-state-estimates.json"
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     data: Path = args.analytics_data
     ball_path = args.ball_tracks or data / "engine-ball-tracks.json"
     manifest = Path(json.loads(ball_path.read_text(encoding="utf-8"))["manifest"])
@@ -895,7 +913,12 @@ def main() -> None:
         if item.get("state") == "out_of_play"
     ]
     result = run_chronological(
-        players, balls, boundary, goal_areas=goal_areas, out_of_play_seconds=out_of_play_seconds
+        players,
+        balls,
+        boundary,
+        goal_areas=goal_areas,
+        out_of_play_seconds=out_of_play_seconds,
+        toucher=toucher,
     )
     (data / "predicted-events-chrono.json").write_text(
         json.dumps(result.events, indent=2), encoding="utf-8"

@@ -193,6 +193,14 @@ published segment artifacts.
 | 8 | Live/detected ball-state variants | `engine.live_segments`, `engine.live_turnovers`, `engine.live_refinement`, `engine.live_recovery`, `engine.live_helpers` | Earlier stage inputs plus detected-source ball-state estimates | Detected-source variants that preserve direct-coordinate evidence gating |
 | 9 | Match-state glue/export | `engine.match_state_export`, `engine.pipeline` | Analytics candidates, boundary/restart evidence, `MATCH_LAW_PROFILE` timeline | `predicted-events.json`, `match-state-events.json`, and possession-stage export |
 
+Published E# for both ball sources comes from the chronological events engine
+(`chrono_engine.py`). The BAC flow runs it through `bac_chrono_tolerance.py`,
+which adds one BAC-only allowance: frozen BAC coordinates sit a few pixels off
+the video, so when the normal touch check credits nobody at a deflection, each
+player's distance to the ball is shortened by the track's measured position
+wobble (times `touch_noise_multiple`); touch reach and the duel margin still
+apply. The Live flow never runs this module, so Live output is unchanged.
+
 ## 3. Law-derived transition contracts
 
 ### Ball crossing a boundary
