@@ -4276,7 +4276,10 @@ function reviewPublicationPlan(state, current) {
         || usedEngineKeys.has(engine.key)
         || engine.team !== manual.team
         || engine.type !== manual.type
-        || Math.abs(engine.seconds - manual.seconds) > 1
+        || engineWindowDistanceMs(
+          engine,
+          Math.round(Number(manual.seconds) * 1000),
+        ) > 1000
       ) {
         blockers.push(
           `${manual.key} does not have exactly one current E# match.`,

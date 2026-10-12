@@ -82,6 +82,15 @@ def test_manual_events_match_inside_the_engine_release_to_completion_window() ->
     assert result.returncode == 0, result.stderr
 
 
+def test_publication_uses_the_same_window_tolerance_as_mapping() -> None:
+    source = read(SHARED_EXTENSION)
+    start = source.index("function reviewPublicationPlan(")
+    plan = source[start:source.index("\n}\n", start)]
+
+    assert "engineWindowDistanceMs(" in plan
+    assert "Math.abs(engine.seconds - manual.seconds) > 1" not in plan
+
+
 def test_detected_process_ai_runs_kit_tracking_and_chronological_engine() -> None:
     processor = read(ROOT / "scripts" / "process-alfheim-segment.py")
 
