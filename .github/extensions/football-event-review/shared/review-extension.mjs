@@ -3548,16 +3548,21 @@ async function withBacComparison(selected, track) {
 }
 
 // A video window can have one copy per ball source. The reviewer's M#
-// golden set belongs to the window, so a new copy starts with it.
+// golden set belongs to the window, so a copy without M# takes it from a
+// passed (validated) copy of the same window. Only M# is copied, never E#.
 async function copySiblingManualReference(segment) {
+  const segments = await loadPreparedSegments();
+  const windowKey = segmentWindowKey(segment);
+  const siblings = segments.filter((candidate) =>
+    candidate.key !== segment
+    && candidate.validated
+    && segmentWindowKey(candidate.key) === windowKey
+  );
+  if (!siblings.length) return false;
   const target = (await reviewContext(segment)).state;
   if (activeManualEvents(target.manualReference).length) return false;
-  const windowKey = segmentWindowKey(segment);
-  const siblings = (await loadPreparedSegments())
-    .map((candidate) => candidate.key)
-    .filter((key) => key !== segment && segmentWindowKey(key) === windowKey);
   for (const sibling of siblings) {
-    const source = (await reviewContext(sibling)).state;
+    const source = (await reviewContext(sibling.key)).state;
     if (!activeManualEvents(source.manualReference).length) continue;
     target.manualReference =
       preservedManualReferenceForSourceSwitch(source.manualReference);
@@ -3566,6 +3571,20 @@ async function copySiblingManualReference(segment) {
     return true;
   }
   return false;
+}
+
+// /api/state is polled, so the sibling check runs at most once a minute
+// per segment.
+const siblingManualCopyCheckedAt = new Map();
+async function copySiblingManualReferenceOnOpen(segment) {
+  const now = Date.now();
+  if (now - (siblingManualCopyCheckedAt.get(segment) || 0) < 60_000) return;
+  siblingManualCopyCheckedAt.set(segment, now);
+  try {
+    await copySiblingManualReference(segment);
+  } catch (error) {
+    console.error("M# copy from passed sibling copy failed:", error);
+  }
 }
 
 function preservedManualReferenceForSourceSwitch(reference) {
@@ -7104,6 +7123,7 @@ async function handleRequest(request, response, serverInstanceId) {
       url,
       serverInstanceId,
     );
+    await copySiblingManualReferenceOnOpen(requestedSegment(url));
     sendJson(
       response,
       200,

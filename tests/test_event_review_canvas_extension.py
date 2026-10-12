@@ -408,6 +408,18 @@ def test_each_ball_source_prepares_its_own_window_copy_with_m_golden_set() -> No
     assert 'replace(/-(?:bac|detected)$/, "")' in extension
 
 
+def test_m_golden_set_is_copied_only_from_a_passed_sibling_copy() -> None:
+    extension = read(SHARED_EXTENSION)
+
+    assert "&& candidate.validated" in extension
+    assert "await copySiblingManualReferenceOnOpen(requestedSegment(url));" in extension
+    copy = extension.split("async function copySiblingManualReference(segment)")[1]
+    copy = copy.split("const siblingManualCopyCheckedAt")[0]
+    assert "target.manualReference =" in copy
+    assert "predicted" not in copy.lower()
+    assert "decision" not in copy.lower()
+
+
 def test_bac_copy_is_read_only_auto_agreed() -> None:
     renderer = read(SHARED_RENDERER)
 
