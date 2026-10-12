@@ -16,8 +16,9 @@ from __future__ import annotations
 import argparse
 import json
 from dataclasses import asdict, dataclass, field
-from math import acos, degrees, hypot
+from math import acos, degrees, hypot, sqrt
 from pathlib import Path
+from statistics import median
 from typing import Any, Iterable
 
 from football_poc.pitch_geometry import signed_pitch_distance
@@ -45,6 +46,11 @@ class ChronoSettings:
     touch_speed_ratio: float = 2.0
     touch_radius_heights: float = 0.35
     touch_neighbour_gap_seconds: float = 0.3
+    # Every ball source places the ball with some wobble. A turn or speed-up
+    # is a touch only when the change in movement is clearly larger than the
+    # wobble the track itself shows (estimated from all its seen samples).
+    touch_noise_multiple: float = 3.0
+    noise_min_samples: int = 10
     # A ball in the air that hangs almost still and then leaves this many
     # times faster than "stopped", with a turn, was headed on.
     aerial_restart_speed_ratio: float = 3.0
@@ -275,6 +281,49 @@ def _box_distance(ball: tuple[float, float], box: dict[str, Any]) -> float:
     return hypot(dx, dy)
 
 
+def _movement_change_px(
+    before: tuple[float, float, float],
+    at: tuple[float, float, float],
+    after: tuple[float, float, float],
+) -> tuple[float, float] | None:
+    """How far the ball's next step departs from simply carrying on, in pixels per axis."""
+    d1, d2 = at[0] - before[0], after[0] - at[0]
+    if d1 <= 0 or d2 <= 0:
+        return None
+    scale = (d1 + d2) / 2
+    return (
+        ((after[1] - at[1]) / d2 - (at[1] - before[1]) / d1) * scale,
+        ((after[2] - at[2]) / d2 - (at[2] - before[2]) / d1) * scale,
+    )
+
+
+def _position_noise_px(
+    track: list[tuple[int, float, float, float]], settings: ChronoSettings
+) -> float:
+    """The ball track's own position wobble (one standard deviation, pixels).
+
+    For a ball carrying on, each step repeats the previous one, so the
+    change between neighbouring steps is mostly position error. The median
+    of those changes over the whole track ignores the few real touches.
+    """
+    changes: list[float] = []
+    for (_, *a), (_, *b), (_, *c) in zip(track, track[1:], track[2:]):
+        if (
+            b[0] - a[0] > settings.touch_neighbour_gap_seconds
+            or c[0] - b[0] > settings.touch_neighbour_gap_seconds
+        ):
+            continue
+        change = _movement_change_px(tuple(a), tuple(b), tuple(c))
+        if change is not None:
+            changes.extend(change)
+    if len(changes) < 2 * settings.noise_min_samples:
+        return 0.0
+    middle = median(changes)
+    # Median absolute deviation -> standard deviation; a step change mixes
+    # three position errors (1 + 4 + 1 = 6 times the variance).
+    return median(abs(c - middle) for c in changes) / 0.6745 / sqrt(6)
+
+
 def _ball_deflected(
     before: tuple[float, float, float],
     at: tuple[float, float, float],
@@ -282,17 +331,25 @@ def _ball_deflected(
     settings: ChronoSettings,
     *,
     aerial: bool = False,
+    noise_px: float = 0.0,
 ) -> bool:
     """Law 12 touch evidence: the ball clearly turns or changes speed here.
 
     A ball in the air can hang almost still in the picture and then leave
-    fast in a new direction: that is a header, not a still ball.
+    fast in a new direction: that is a header, not a still ball. A change
+    no larger than the track's own position wobble is not evidence.
     """
     v1 = (at[1] - before[1], at[2] - before[2])
     v2 = (after[1] - at[1], after[2] - at[2])
     d1, d2 = at[0] - before[0], after[0] - at[0]
     if d1 <= 0 or d2 <= 0 or hypot(*v1) == 0 or hypot(*v2) == 0:
         return False
+    if noise_px > 0:
+        change = _movement_change_px(before, at, after)
+        if change is not None and hypot(*change) < (
+            settings.touch_noise_multiple * noise_px * sqrt(6)
+        ):
+            return False
     s1, s2 = hypot(*v1) / d1, hypot(*v2) / d2
     cos = (v1[0] * v2[0] + v1[1] * v2[1]) / (hypot(*v1) * hypot(*v2))
     turn = degrees(acos(max(-1.0, min(1.0, cos))))
@@ -556,6 +613,7 @@ def run_chronological(
         for frame in sorted(balls)
         if (b := _estimate_ball(balls[frame])) is not None
     ]
+    noise_px = _position_noise_px(track, settings)
     for index, (frame, t, x, y) in enumerate(track):
         last_seconds = t
         inside = signed_pitch_distance((x, y), boundary) >= -settings.outside_margin_px
@@ -653,7 +711,12 @@ def run_chronological(
                 and after[0] - t <= settings.touch_neighbour_gap_seconds
             ):
                 if _ball_deflected(
-                    before, (t, x, y), after, settings, aerial=index in lofted
+                    before,
+                    (t, x, y),
+                    after,
+                    settings,
+                    aerial=index in lofted,
+                    noise_px=noise_px,
                 ):
                     touch = _toucher(
                         (x, y), players.get(frame, []), settings, aerial=index in lofted
