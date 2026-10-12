@@ -16,6 +16,7 @@ RULES_ENGINE_VERSION_FILES: tuple[str, ...] = (
     "src/football_poc/player_tracking.py",
     "src/football_poc/possession.py",
     "src/football_poc/possession_cli.py",
+    "src/football_poc/chrono_engine.py",
     "src/football_poc/shots_on_target.py",
     "src/football_poc/goal_calibration.py",
     "src/football_poc/shot_evidence_adapter.py",

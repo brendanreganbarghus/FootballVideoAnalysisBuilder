@@ -758,6 +758,21 @@ function appendManualRevision(reference, action, detail, before) {
   });
 }
 
+// Distance from an M# time to the E# release→completion interval; zero when
+// the M# lies inside it. Events without a release time use completion only.
+function engineWindowDistanceMs(engine, manualMs) {
+  const completion = Math.round(Number(engine.seconds) * 1000);
+  const releaseSeconds = Number(engine.releaseSeconds);
+  const release = Number.isFinite(releaseSeconds)
+    ? Math.round(releaseSeconds * 1000)
+    : completion;
+  const low = Math.min(release, completion);
+  const high = Math.max(release, completion);
+  if (manualMs < low) return low - manualMs;
+  if (manualMs > high) return manualMs - high;
+  return 0;
+}
+
 export function suggestManualMappings(manualEvents, engineEvents) {
   const maximumDeltaMs = 1000;
   const result = {};
@@ -774,9 +789,8 @@ export function suggestManualMappings(manualEvents, engineEvents) {
       .filter((candidate) =>
         candidate.engine.team === manual.team
         && candidate.engine.type === manual.type
-        && Math.abs(
-          Math.round(candidate.engine.seconds * 1000) - manual.timestampMs
-        ) <= maximumDeltaMs
+        && engineWindowDistanceMs(candidate.engine, manual.timestampMs)
+          <= maximumDeltaMs
       ),
   ]));
   const remainingManual = new Map(active.map((manual) => [manual.key, manual]));
@@ -872,7 +886,8 @@ export function suggestManualMappings(manualEvents, engineEvents) {
       const rest = best(i + 1, j + 1);
       options.push({
         count: rest.count + 1,
-        cost: rest.cost + Math.abs(candidate.engine.seconds - manual.seconds),
+        cost: rest.cost
+          + engineWindowDistanceMs(candidate.engine, manual.timestampMs),
         pairs: [[manual, candidate], ...rest.pairs],
       });
     }
@@ -1390,6 +1405,7 @@ async function loadEngineEvents(segment) {
   );
   return predictions.map((event) => ({
     seconds: Number(event.completion_seconds ?? event.clip_seconds),
+    releaseSeconds: Number(event.clip_seconds),
     team: event.team,
     type: canonicalType(event.event_type),
     confidence: Number.isFinite(Number(event.confidence))

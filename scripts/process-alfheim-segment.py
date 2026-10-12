@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -490,6 +491,41 @@ def main() -> None:
             "--no-video",
         )
 
+    def ensure_aerial_labels() -> None:
+        # Older ball caches predate the tracker's per-frame aerial label; the
+        # chronological engine reads it, so add it from the cached detections.
+        payload = json.loads(ball_state_estimates.read_text(encoding="utf-8"))
+        if all("aerial" in state for state in payload.get("states", [])):
+            return
+        run(
+            "aerial_labels",
+            "-m",
+            "football_poc.ball.aerial_labels",
+            str(ball_state_estimates),
+            "--detections",
+            str(cache / "detections.jsonl"),
+        )
+
+    def run_chronological_engine() -> None:
+        run(
+            "chronological_events",
+            "-m",
+            "football_poc.chrono_engine",
+            str(results),
+            "--video",
+            str(video),
+            "--pitch-calibration",
+            str(alfheim_config_path("pitch-calibration.json")),
+        )
+        possession_events = results / "predicted-events.json"
+        if possession_events.is_file():
+            shutil.copyfile(
+                possession_events, results / "predicted-events-possession.json"
+            )
+        shutil.copyfile(
+            results / "predicted-events-chrono.json", possession_events
+        )
+
     downstream = (
         player_tracks,
         results / "match-initialization.json",
@@ -497,6 +533,9 @@ def main() -> None:
         results / "possession.json",
         results / "match-state-events.json",
         results / "predicted-events.json",
+        results / "predicted-events-possession.json",
+        results / "predicted-events-chrono.json",
+        results / "match-state-chrono.json",
         results / "chunk-simulation.json",
         results / "chunk-simulation-state.json",
         results / "run-provenance.json",
@@ -535,6 +574,14 @@ def main() -> None:
                 raise ValueError(
                     "BAC event rebuild requires BAC-derived ball tracks"
                 )
+            if args.events_only and ball_source == "detected":
+                ensure_aerial_labels()
+                status(
+                    "player_tracking",
+                    "Rebuilding player tracks and kit teams from cached YOLO "
+                    "detections with the current tracking rules.",
+                )
+                track_players(active_ball_tracks)
             if args.coordinates_updated:
                 reviewer_payload = json.loads(
                     reviewer_ball_tracks.read_text(encoding="utf-8")
@@ -752,6 +799,13 @@ def main() -> None:
             "--shot-goalkeeper-affiliations",
             str(alfheim_config_path("goalkeeper-affiliations.json")),
         )
+        if ball_source == "detected":
+            status(
+                "chronological_events",
+                "Reading passes and turnovers in time order from the ball "
+                "track, its statuses and the kit-team player tracks.",
+            )
+            run_chronological_engine()
         chunk_state = results / "chunk-simulation-state.json"
         if args.events_only:
             chunk_state.unlink(missing_ok=True)

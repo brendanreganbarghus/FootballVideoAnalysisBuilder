@@ -55,6 +55,50 @@ def test_adapter_uses_single_api_and_flat_artifacts() -> None:
     assert '/api/alfheim/segments?workflow=' not in extension
 
 
+def test_manual_events_match_inside_the_engine_release_to_completion_window() -> None:
+    source = read(SHARED_EXTENSION)
+    start = source.index("function engineWindowDistanceMs(")
+    end = source.index("export function publicManualReferenceState(")
+    functions = source[start:end].replace("export function", "function")
+    script = functions + """
+      import assert from "node:assert/strict";
+      const manual = [
+        {key: "m1", active: true, timestampMs: 5000, seconds: 5, team: "red", type: "completed_pass"},
+        {key: "m2", active: true, timestampMs: 9000, seconds: 9, team: "red", type: "completed_pass"},
+      ];
+      const engine = [
+        {key: "E1", seconds: 7.5, releaseSeconds: 4.0, team: "red", type: "completed_pass"},
+        {key: "E2", seconds: 12.0, releaseSeconds: 11.0, team: "red", type: "completed_pass"},
+      ];
+      const mappings = suggestManualMappings(manual, engine);
+      assert.equal(mappings.m1.engineKey, "E1");
+      assert.equal(mappings.m2, undefined);
+    """
+    result = subprocess.run(
+        ["node", "--input-type=module", "-e", script],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_detected_process_ai_runs_kit_tracking_and_chronological_engine() -> None:
+    processor = read(ROOT / "scripts" / "process-alfheim-segment.py")
+
+    assert '"football_poc.chrono_engine"' in processor
+    assert '"football_poc.ball.aerial_labels"' in processor
+    assert (
+        "if args.events_only and ball_source == \"detected\":\n"
+        "                ensure_aerial_labels()"
+    ) in processor
+    assert (
+        "        if ball_source == \"detected\":\n"
+        "            status(\n"
+        "                \"chronological_events\","
+    ) in processor
+    assert '"predicted-events-chrono.json", possession_events' in processor
+
+
 def test_engine_fingerprints_and_regression_contract() -> None:
     adapter = read(ADAPTER)
 
@@ -63,6 +107,7 @@ def test_engine_fingerprints_and_regression_contract() -> None:
         '"src/football_poc/player_tracking.py"',
         '"src/football_poc/possession.py"',
         '"src/football_poc/possession_cli.py"',
+        '"src/football_poc/chrono_engine.py"',
         '"src/football_poc/shots_on_target.py"',
         '"src/football_poc/goal_calibration.py"',
         '"src/football_poc/shot_evidence_adapter.py"',

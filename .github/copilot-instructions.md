@@ -29,8 +29,11 @@ Each segment records its ball-coordinate source, `ball_source`:
   search, fills a frame, or confirms a frame; only the reviewer confirms.
   General rules are never tuned to maximise BAC agreement on one segment.
 
-The ball source only selects the ball-coordinate input; both sources run the
-same rules engine. Switching a segment's ball source removes its derived artifacts and review
+The ball source selects the ball-coordinate input. Both sources run the same
+match-state rules engine; `detected` segments publish E# from the chronological
+events engine (`chrono_engine.py`, fed by ball states, aerial labels and
+kit/team player tracks), while `bac` segments keep the possession engine's E#.
+Switching a segment's ball source removes its derived artifacts and review
 work except the M# golden set.
 
 For football-event analysis and rules-engine work, act as a senior football-law
