@@ -1,17 +1,17 @@
 export const REVIEW_MARK_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" aria-hidden="true">
   <defs>
     <linearGradient id="review-brand-gradient" x1="64" y1="40" x2="448" y2="472" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#ba4ca6"/>
-      <stop offset="1" stop-color="#59164f"/>
+      <stop stop-color="#315f86"/>
+      <stop offset="1" stop-color="#0b141f"/>
     </linearGradient>
   </defs>
   <rect x="36" y="36" width="440" height="440" rx="112" fill="url(#review-brand-gradient)"/>
-  <rect x="92" y="92" width="328" height="328" rx="48" fill="#120d14" fill-opacity=".72" stroke="#e4a5da" stroke-width="10"/>
-  <path d="M256 96v320M96 256h320" stroke="#e4a5da" stroke-width="8" opacity=".62"/>
-  <circle cx="256" cy="256" r="74" fill="none" stroke="#e4a5da" stroke-width="8" opacity=".62"/>
-  <path d="M104 326h72l30-68 50 112 44-144 36 100h72" fill="none" stroke="#68e0c1" stroke-width="22" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="92" y="92" width="328" height="328" rx="48" fill="#080d14" fill-opacity=".72" stroke="#78bfff" stroke-width="10"/>
+  <path d="M256 96v320M96 256h320" stroke="#78bfff" stroke-width="8" opacity=".62"/>
+  <circle cx="256" cy="256" r="74" fill="none" stroke="#78bfff" stroke-width="8" opacity=".62"/>
+  <path d="M104 326h72l30-68 50 112 44-144 36 100h72" fill="none" stroke="#68e0aa" stroke-width="22" stroke-linecap="round" stroke-linejoin="round"/>
   <circle cx="256" cy="256" r="38" fill="#f8f5f8" stroke="#160f18" stroke-width="8"/>
-  <path d="m256 235 18 13-7 21h-22l-7-21 18-13Zm-35 9 18 4m34 0 18-4m-61 43 15-18m22 0 15 18" fill="#6c1d5f" stroke="#6c1d5f" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="m256 235 18 13-7 21h-22l-7-21 18-13Zm-35 9 18 4m34 0 18-4m-61 43 15-18m22 0 15 18" fill="#0b141f" stroke="#0b141f" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>`;
 
 
@@ -54,8 +54,8 @@ export function renderHtml({ adapter } = {}) {
       --true-color-blue: ${palette.blue};
       ${adapter.manualReferenceEnabled
         ? `--true-color-blue-muted: ${palette.blueMuted};
-      --review-accent-purple: #a63f98;
-      --review-accent-lilac: #e4a5da;`
+      --review-accent-purple: #315f86;
+      --review-accent-lilac: #78bfff;`
         : ""}
       --color-focus-outline: ${palette.focus};
     }
@@ -2271,11 +2271,11 @@ export function renderHtml({ adapter } = {}) {
       align-content: start;
       gap: 10px;
       padding: 13px;
-      border: 1px solid rgb(228 165 218 / 52%);
+      border: 1px solid rgb(120 191 255 / 52%);
       border-radius: 10px;
       background:
-        radial-gradient(circle at 85% 8%, rgb(228 165 218 / 18%), transparent 34%),
-        linear-gradient(145deg, #170919, #42103a 58%, #6c1d5f);
+        radial-gradient(circle at 85% 8%, rgb(120 191 255 / 18%), transparent 34%),
+        linear-gradient(145deg, #08111b, #0f2236 58%, #315f86);
       color: #fff;
       box-shadow:
         inset 0 1px 0 rgb(255 255 255 / 12%),
@@ -2370,12 +2370,12 @@ export function renderHtml({ adapter } = {}) {
       top: 32px;
       width: min(760px, calc(100% - 40px));
       overflow: hidden;
-      border: 1px solid rgb(228 165 218 / 68%);
+      border: 1px solid rgb(120 191 255 / 68%);
       border-radius: 16px;
       background:
-        radial-gradient(circle at 86% 0, rgb(228 165 218 / 22%), transparent 34%),
-        linear-gradient(125deg, rgb(20 7 24 / 96%), rgb(76 16 66 / 95%) 58%,
-          rgb(108 29 95 / 96%));
+        radial-gradient(circle at 86% 0, rgb(120 191 255 / 22%), transparent 34%),
+        linear-gradient(125deg, rgb(8 17 27 / 96%), rgb(15 34 54 / 95%) 58%,
+          rgb(49 95 134 / 96%));
       box-shadow:
         inset 0 1px 0 rgb(255 255 255 / 16%),
         0 16px 48px rgb(0 0 0 / 64%),
@@ -2398,7 +2398,7 @@ export function renderHtml({ adapter } = {}) {
       gap: 14px;
       align-items: center;
       padding: 9px 12px;
-      border-bottom: 1px solid rgb(228 165 218 / 28%);
+      border-bottom: 1px solid rgb(120 191 255 / 28%);
       background: rgb(11 4 14 / 48%);
     }
     .stadium-scoreboard-head strong {
@@ -2446,7 +2446,7 @@ export function renderHtml({ adapter } = {}) {
       padding: 4px 7px;
       border-radius: 6px;
       background: #fff;
-      box-shadow: inset 0 0 0 1px rgb(108 29 95 / 16%);
+      box-shadow: inset 0 0 0 1px rgb(49 95 134 / 16%);
     }
     .stadium-scoreboard-brand img {
       display: block;
@@ -2496,7 +2496,7 @@ export function renderHtml({ adapter } = {}) {
       font-variant-numeric: tabular-nums;
     }
     .segment-replay-stats thead {
-      color: #e4a5da;
+      color: #78bfff;
       font-size: 10px;
       letter-spacing: .08em;
       text-transform: uppercase;
@@ -2504,7 +2504,7 @@ export function renderHtml({ adapter } = {}) {
     .segment-replay-stats th,
     .segment-replay-stats td {
       padding: 7px 6px;
-      border-top: 1px solid rgb(228 165 218 / 18%);
+      border-top: 1px solid rgb(120 191 255 / 18%);
       text-align: center;
     }
     .segment-replay-stats tbody tr {
@@ -2512,7 +2512,7 @@ export function renderHtml({ adapter } = {}) {
         90deg,
         rgb(166 63 152 / 18%),
         rgb(255 255 255 / 3%) 42% 58%,
-        rgb(108 29 95 / 24%)
+        rgb(49 95 134 / 24%)
       );
     }
     .segment-replay-stats tbody th {
