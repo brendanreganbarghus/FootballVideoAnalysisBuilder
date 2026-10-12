@@ -6809,8 +6809,8 @@ export function renderHtml({ adapter } = {}) {
         : {
             "prepare-bac": "Prepare BAC + player context",
             "run-bac": segment.state === "ready"
-              ? "Rerun rules engine (BAC)"
-              : "Run rules engine (BAC)",
+              ? "Process AI again"
+              : "Process AI",
             "resume-detected": segment.ballTrackAvailable
               ? "Run ball coordinates again"
               : "Run ball coordinates",
