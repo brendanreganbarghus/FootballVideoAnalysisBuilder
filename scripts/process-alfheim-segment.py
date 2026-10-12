@@ -507,6 +507,28 @@ def main() -> None:
         )
 
     def run_chronological_engine() -> None:
+        ball_inputs: list[str] = []
+        if ball_source == "bac":
+            run(
+                "bac_chronological_inputs",
+                "-m",
+                "football_poc.bac_chrono_inputs",
+                str(active_ball_tracks),
+                "--detections",
+                str(cache / "detections.jsonl"),
+                "--pitch-calibration",
+                str(alfheim_config_path("pitch-calibration.json")),
+                "--video",
+                str(video),
+                "--output-dir",
+                str(results),
+            )
+            ball_inputs = [
+                "--ball-tracks",
+                str(results / "bac-engine-ball-tracks.json"),
+                "--ball-states",
+                str(results / "bac-ball-states.json"),
+            ]
         run(
             "chronological_events",
             "-m",
@@ -516,6 +538,7 @@ def main() -> None:
             str(video),
             "--pitch-calibration",
             str(alfheim_config_path("pitch-calibration.json")),
+            *ball_inputs,
         )
         possession_events = results / "predicted-events.json"
         if possession_events.is_file():
@@ -536,6 +559,8 @@ def main() -> None:
         results / "predicted-events-possession.json",
         results / "predicted-events-chrono.json",
         results / "match-state-chrono.json",
+        results / "bac-engine-ball-tracks.json",
+        results / "bac-ball-states.json",
         results / "chunk-simulation.json",
         results / "chunk-simulation-state.json",
         results / "run-provenance.json",
@@ -574,8 +599,9 @@ def main() -> None:
                 raise ValueError(
                     "BAC event rebuild requires BAC-derived ball tracks"
                 )
-            if args.events_only and ball_source == "detected":
-                ensure_aerial_labels()
+            if args.events_only:
+                if ball_source == "detected":
+                    ensure_aerial_labels()
                 status(
                     "player_tracking",
                     "Rebuilding player tracks and kit teams from cached YOLO "
@@ -799,13 +825,12 @@ def main() -> None:
             "--shot-goalkeeper-affiliations",
             str(alfheim_config_path("goalkeeper-affiliations.json")),
         )
-        if ball_source == "detected":
-            status(
-                "chronological_events",
-                "Reading passes and turnovers in time order from the ball "
-                "track, its statuses and the kit-team player tracks.",
-            )
-            run_chronological_engine()
+        status(
+            "chronological_events",
+            "Reading passes and turnovers in time order from the ball "
+            "track, its statuses and the kit-team player tracks.",
+        )
+        run_chronological_engine()
         chunk_state = results / "chunk-simulation-state.json"
         if args.events_only:
             chunk_state.unlink(missing_ok=True)

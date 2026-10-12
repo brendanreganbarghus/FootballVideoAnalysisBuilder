@@ -30,9 +30,11 @@ Each segment records its ball-coordinate source, `ball_source`:
   General rules are never tuned to maximise BAC agreement on one segment.
 
 The ball source selects the ball-coordinate input. Both sources run the same
-match-state rules engine; `detected` segments publish E# from the chronological
-events engine (`chrono_engine.py`, fed by ball states, aerial labels and
-kit/team player tracks), while `bac` segments keep the possession engine's E#.
+match-state rules engine, and both publish E# from the chronological events
+engine (`chrono_engine.py`, fed by ball states, aerial labels and kit/team
+player tracks). For `bac`, `bac_chrono_inputs.py` gives chrono a video-size
+copy of the BAC ball with every coordinate `observed`, so the engine decides
+out-of-play itself; the stored BAC file stays in panorama size.
 Switching a segment's ball source removes its derived artifacts and review
 work except the M# golden set.
 

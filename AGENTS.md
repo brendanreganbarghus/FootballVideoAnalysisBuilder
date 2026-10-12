@@ -17,11 +17,13 @@ publication behavior.
   - `detected`: the project's own raw-video ball detector and tracker
     (`ball_tracking.py`).
   The ball source selects the ball-coordinate input. Both sources run the
-  same match-state rules engine; for `detected` segments, Process AI also
-  rebuilds kit/team player tracks from cached detections and publishes E#
-  from the chronological events engine (`chrono_engine.py`), which reads
-  the ball states and their aerial labels. `bac` segments keep the
-  possession engine's E#.
+  same match-state rules engine; for both, Process AI also rebuilds kit/team
+  player tracks from cached detections and publishes E# from the
+  chronological events engine (`chrono_engine.py`), which reads the ball
+  states and their aerial labels. For `bac`, `bac_chrono_inputs.py` gives
+  chrono a video-size copy of the BAC ball with every coordinate
+  `observed`, so the engine decides out-of-play itself; the stored BAC file
+  stays in panorama size.
 - Switching a segment's ball source removes its derived artifacts and review
   work except the M# golden set; never reuse outputs, decisions, thresholds,
   or fixes from one ball source as evidence for the other.

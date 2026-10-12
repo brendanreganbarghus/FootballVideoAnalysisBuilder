@@ -91,19 +91,21 @@ def test_publication_uses_the_same_window_tolerance_as_mapping() -> None:
     assert "Math.abs(engine.seconds - manual.seconds) > 1" not in plan
 
 
-def test_detected_process_ai_runs_kit_tracking_and_chronological_engine() -> None:
+def test_process_ai_runs_kit_tracking_and_chronological_engine_for_both_ball_sources() -> None:
     processor = read(ROOT / "scripts" / "process-alfheim-segment.py")
 
     assert '"football_poc.chrono_engine"' in processor
     assert '"football_poc.ball.aerial_labels"' in processor
+    assert '"football_poc.bac_chrono_inputs"' in processor
     assert (
-        "if args.events_only and ball_source == \"detected\":\n"
-        "                ensure_aerial_labels()"
+        "            if args.events_only:\n"
+        "                if ball_source == \"detected\":\n"
+        "                    ensure_aerial_labels()"
     ) in processor
     assert (
-        "        if ball_source == \"detected\":\n"
-        "            status(\n"
-        "                \"chronological_events\","
+        "        )\n"
+        "        status(\n"
+        "            \"chronological_events\","
     ) in processor
     assert '"predicted-events-chrono.json", possession_events' in processor
 

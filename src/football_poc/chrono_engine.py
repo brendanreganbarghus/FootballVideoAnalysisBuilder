@@ -870,9 +870,13 @@ def main() -> None:
     parser.add_argument("analytics_data", type=Path)
     parser.add_argument("--video", type=Path, required=True)
     parser.add_argument("--pitch-calibration", type=Path, required=True)
+    parser.add_argument("--ball-tracks", type=Path, help="default: <data>/engine-ball-tracks.json")
+    parser.add_argument(
+        "--ball-states", type=Path, help="default: analytics-cache/ball-state-estimates.json"
+    )
     args = parser.parse_args()
     data: Path = args.analytics_data
-    ball_path = data / "engine-ball-tracks.json"
+    ball_path = args.ball_tracks or data / "engine-ball-tracks.json"
     manifest = Path(json.loads(ball_path.read_text(encoding="utf-8"))["manifest"])
     boundary = scaled_pitch_boundary(args.pitch_calibration, ball_path, args.video)
     players = exclude_players_outside_pitch(
@@ -880,7 +884,7 @@ def main() -> None:
     )
     # The ball tracker's per-frame status is required evidence: events are read
     # from the ball track, its statuses, the player tracks and their kits together.
-    states_path = data.parent / "analytics-cache" / "ball-state-estimates.json"
+    states_path = args.ball_states or data.parent / "analytics-cache" / "ball-state-estimates.json"
     if not states_path.is_file():
         raise SystemExit(f"Ball-track status file is required: {states_path}")
     balls = _load_ball_points(ball_path, manifest, state_estimates_path=states_path)

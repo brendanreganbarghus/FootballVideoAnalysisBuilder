@@ -66,9 +66,11 @@ ball-coordinate source, `ball_source`:
 Review state and engine output JSON live only in the PostgreSQL coordination
 database; there is no JSON review-state fallback. The ball source
 selects the ball-coordinate input. Both sources run the same match-state rules
-engine; `detected` segments publish E# from the chronological events engine
+engine, and both publish E# from the chronological events engine
 (`chrono_engine.py`, fed by ball states, aerial labels and kit/team player
-tracks), while `bac` segments keep the possession engine's E#.
+tracks). For `bac`, `bac_chrono_inputs.py` gives chrono a video-size copy of
+the BAC ball with every coordinate `observed`, so the engine decides
+out-of-play itself; the stored BAC file stays in panorama size.
 
 Do not copy all repository documentation into this file. The documentation map
 is the maintained index; the linked documents and code remain authoritative.
