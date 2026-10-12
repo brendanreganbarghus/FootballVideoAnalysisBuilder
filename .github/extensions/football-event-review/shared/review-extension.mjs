@@ -8799,7 +8799,7 @@ async function handleRequest(request, response, serverInstanceId) {
     const context = await reviewContext(segment);
     if (context.selected.ballSource !== "detected") {
       sendJson(response, 409, {
-        error: "Only the Our rules copy has a ball check to restart.",
+        error: "Only the Live copy has a ball check to restart.",
       });
       return;
     }

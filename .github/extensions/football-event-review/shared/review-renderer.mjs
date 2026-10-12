@@ -4078,7 +4078,7 @@ export function renderHtml({ adapter } = {}) {
             <label for="ball-source-select">Ball-coordinate source
               <select id="ball-source-select" name="ball-source-select">
                 <option value="bac">BAC coordinates (frozen Alfheim BAC, diagnostic)</option>
-                <option value="detected">Detected ball (our detector, raw video)</option>
+                <option value="detected">Live (our detector, raw video)</option>
               </select>
             </label>
             <button id="process-segment" type="button">Run segment</button>
@@ -7052,7 +7052,7 @@ export function renderHtml({ adapter } = {}) {
     }
 
     function ballSourceLabel(source) {
-      return {bac: "BAC", detected: "Our rules"}[source] || "";
+      return {bac: "BAC", detected: "Live"}[source] || "";
     }
 
     // Display-only address parameters; "segment" alone selects the segment.
@@ -7078,7 +7078,7 @@ export function renderHtml({ adapter } = {}) {
 
     function ballSourceDescription(source) {
       return source === "detected"
-        ? "Detected ball (our detector, raw video)"
+        ? "Live (our detector, raw video)"
         : "BAC coordinates (frozen Alfheim BAC, diagnostic)";
     }
 
@@ -7494,7 +7494,7 @@ export function renderHtml({ adapter } = {}) {
           summary.hidden = true;
           return;
         }
-        summary.textContent = "M# found · Our rules "
+        summary.textContent = "M# found · Live "
           + result.ourRules.matched + "/" + result.ourRules.golden
           + " · BAC " + result.bac.matched + "/" + result.bac.golden;
         summary.hidden = false;
@@ -7831,7 +7831,7 @@ export function renderHtml({ adapter } = {}) {
     }
 
     // Uses the server's ballCheck so the row label, the dropdown and the
-    // "Our rules correct" summary always show the same numbers.
+    // "Live correct" summary always show the same numbers.
     function engineDecisionCheck(frame) {
       const decision = latestBallDecision(frame);
       if (!decision?.decision) return null;
@@ -8276,7 +8276,7 @@ export function renderHtml({ adapter } = {}) {
     }
 
     // BAC copies show the frozen BAC coordinates read-only; ball review
-    // happens only on the "Our rules" copy of the same video window.
+    // happens only on the "Live" copy of the same video window.
     function bacReadOnly() {
       return (state?.segment?.ballSource || "bac") === "bac";
     }
@@ -9618,7 +9618,7 @@ export function renderHtml({ adapter } = {}) {
           + " · differs " + ballCheck.left.length
           + " · needs more checking " + unclearCount + " · "
         : ballCheck
-        ? "Our rules correct " + ballCheck.correct + "/" + ballCheck.scored
+        ? "Live correct " + ballCheck.correct + "/" + ballCheck.scored
           + " (" + Math.round(100 * ballCheck.correct / ballCheck.scored)
           + "%)"
           + (ballCheck.accepted

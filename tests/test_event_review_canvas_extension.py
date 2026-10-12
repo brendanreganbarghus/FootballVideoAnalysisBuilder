@@ -153,7 +153,7 @@ def test_ball_source_selector_and_analyze_payload() -> None:
 
     assert 'id="ball-source-select"' in renderer
     assert 'BAC coordinates (frozen Alfheim BAC, diagnostic)' in renderer
-    assert 'Detected ball (our detector, raw video)' in renderer
+    assert 'Live (our detector, raw video)' in renderer
     assert '<button id="process-segment" type="button">Run segment</button>' in renderer
     assert '"prepare-bac": "Prepare BAC + player context"' in renderer
     assert '"resume-detected": segment.ballTrackAvailable\n              ? "Run ball coordinates again"' in renderer
@@ -456,7 +456,7 @@ def test_our_rules_engine_run_rechecks_the_bac_copy() -> None:
     assert "await startBacSiblingRecheck(segment, context.state)" in extension
     assert '"/api/bac-recheck"' in extension
     assert 'id="bac-recheck-summary"' in renderer
-    assert '"M# found · Our rules "' in renderer
+    assert '"M# found · Live "' in renderer
 
 def test_our_rules_copy_shows_saved_decisions_and_ball_check_score() -> None:
     extension = read(SHARED_EXTENSION)
@@ -469,7 +469,7 @@ def test_our_rules_copy_shows_saved_decisions_and_ball_check_score() -> None:
     assert "...(selectedBatch ? {} : state.trajectoryAudit?.observations || {})," in renderer
     assert "|| state.trajectoryAudit?.observations?.[String(point.frame)];" in renderer
     assert '<option value="ball-check-left" hidden>Not matching yet</option>' in renderer
-    assert '"Our rules correct "' in renderer
+    assert '"Live correct "' in renderer
 
 
 def test_reviewer_can_accept_the_tracker_point_as_a_known_limit() -> None:
