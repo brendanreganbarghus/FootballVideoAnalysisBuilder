@@ -98,3 +98,12 @@ def test_comparison_maximizes_chronological_matches_before_time_proximity() -> N
     assert [
         match["prediction"]["comparison_seconds"] for match in report["matches"]
     ] == [20.8, 22.6]
+
+def test_comparison_matches_manual_time_inside_release_to_completion_window() -> None:
+    manual = [{"clip_seconds": 45.809, "team": "red", "event_type": "completed_pass"}]
+    inside = [{"clip_seconds": 42.6, "completion_seconds": 47.0,
+               "team": "red", "event_type": "pass_candidate"}]
+    assert compare_manual_events(manual, inside)["matched_event_count"] == 1
+    outside = [{"clip_seconds": 47.0, "completion_seconds": 51.4,
+                "team": "red", "event_type": "pass_candidate"}]
+    assert compare_manual_events(manual, outside)["matched_event_count"] == 0

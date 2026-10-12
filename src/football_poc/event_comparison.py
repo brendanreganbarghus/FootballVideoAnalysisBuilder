@@ -158,6 +158,16 @@ def _event_match(
     }
 
 
+def window_distance_seconds(prediction: dict[str, Any], manual_seconds: float) -> float:
+    """Distance from a manual time to the prediction's release-to-completion
+    window; zero when the manual time lies inside it (same rule as the Canvas)."""
+    completion = float(prediction["comparison_seconds"])
+    release = prediction.get("clip_seconds")
+    release = completion if release is None else float(release)
+    low, high = min(release, completion), max(release, completion)
+    return max(low - manual_seconds, manual_seconds - high, 0.0)
+
+
 def _optimal_event_matches(
     manual: list[dict[str, Any]],
     predicted: list[dict[str, Any]],
@@ -177,8 +187,8 @@ def _optimal_event_matches(
         ]
         truth = manual[manual_index]
         prediction = predicted[prediction_index]
-        difference = abs(
-            prediction["comparison_seconds"] - float(truth["clip_seconds"])
+        difference = window_distance_seconds(
+            prediction, float(truth["clip_seconds"])
         )
         if (
             prediction["comparison_type"] == truth["event_type"]

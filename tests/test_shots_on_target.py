@@ -443,7 +443,7 @@ def test_comparison_includes_sot_only_when_enabled() -> None:
     enabled = compare_manual_events(manual, predicted, include_shots_on_target=True)
     assert enabled["matched_event_count"] == 1
     assert enabled["matched_counts"]["red"]["shot_on_target"] == 1
-    far = [{**predicted[0], "completion_seconds": 5.5}]
+    far = [{**predicted[0], "clip_seconds": 5.4, "completion_seconds": 5.5}]
     assert compare_manual_events(
         manual, far, include_shots_on_target=True
     )["matched_event_count"] == 0
