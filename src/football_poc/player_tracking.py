@@ -373,6 +373,14 @@ def _associate_players(
             for second in updated[first_index + 1 :]:
                 if first.track_id in duplicated or second.track_id in duplicated:
                     continue
+                if (
+                    first.last.team in player_teams
+                    and second.last.team in player_teams
+                    and first.last.team != second.last.team
+                ):
+                    # Two kits of different teams are two players in a
+                    # challenge, not one person seen twice.
+                    continue
                 if _box_overlap_of_smaller(first.last, second.last) >= 0.6:
                     weaker = (
                         first
