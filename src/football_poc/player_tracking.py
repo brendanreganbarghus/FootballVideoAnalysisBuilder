@@ -162,6 +162,9 @@ def track_cached_players(
         max_gap_seconds=max_gap_seconds,
         max_speed_pixels_per_second=max_speed_pixels_per_second,
         player_teams=player_teams if colors_read else frozenset(),
+        color_spread=(
+            next(iter(team_colors.values()))[1] if team_colors else None
+        ),
     )
     accepted = [
         track for track in tracks if len(track.points) >= minimum_track_points
@@ -297,11 +300,14 @@ def _associate_players(
     max_gap_seconds: float,
     max_speed_pixels_per_second: float,
     player_teams: frozenset[str] = frozenset(),
+    color_spread: Sequence[float] | None = None,
 ) -> tuple[PlayerTrack, ...]:
     by_frame: dict[int, list[PlayerPoint]] = {}
     for point in points:
         by_frame.setdefault(point.source_frame, []).append(point)
 
+    # Each track's recent look: a running average of its boxes' kit colours.
+    appearance: dict[int, np.ndarray] = {}
     tracks: list[PlayerTrack] = []
     # Tracks that last shared a player with a stronger track. Without its own
     # box such a track must not jump onto a different nearby player after a gap.
@@ -340,12 +346,18 @@ def _associate_players(
                 if distance <= max_distance:
                     # A person keeps roughly the same height between samples,
                     # so a cut-off piece must not take over from a full box.
+                    # He also keeps looking like himself: a box whose colours
+                    # differ from his recent look is less likely his, even
+                    # when its kit reading is too unclear to name a team.
                     cost = (
                         distance / max_distance
                         - 0.25 * _box_iou(track.last, point)
                         + HEIGHT_CHANGE_COST
                         * abs(point.height - track.last.height)
                         / max(point.height, track.last.height, 1.0)
+                        + _appearance_cost(
+                            appearance.get(track.track_id), point, color_spread
+                        )
                     )
                     # A track that last shared its player with a stronger
                     # track picks only after every independent track, so a
@@ -370,22 +382,35 @@ def _associate_players(
             assigned_points.add(point_index)
             updated.append(track)
             duplicated.discard(track.track_id)
+            _update_appearance(appearance, track.track_id, track.last, color_spread)
 
         for point_index, point in enumerate(frame_points):
             if point_index not in assigned_points:
                 track = PlayerTrack(next_track_id, [point])
                 tracks.append(track)
                 updated.append(track)
+                _update_appearance(appearance, track.track_id, point, color_spread)
                 next_track_id += 1
 
+        # A box whose kit cannot be read still shows the kit its track has
+        # clearly worn in its recent boxes.
+        kits = {
+            track.track_id: (
+                track.last.team
+                if track.last.team in player_teams
+                else _clear_team_history(track, player_teams)
+            )
+            for track in updated
+        }
         for first_index, first in enumerate(updated):
             for second in updated[first_index + 1 :]:
                 if first.track_id in duplicated or second.track_id in duplicated:
                     continue
+                first_kit, second_kit = kits[first.track_id], kits[second.track_id]
                 if (
-                    first.last.team in player_teams
-                    and second.last.team in player_teams
-                    and first.last.team != second.last.team
+                    first_kit in player_teams
+                    and second_kit in player_teams
+                    and first_kit != second_kit
                 ):
                     # Two kits of different teams are two players in a
                     # challenge, not one person seen twice.
@@ -472,6 +497,35 @@ def _clear_team_history(
     if team in player_teams and count >= TEAM_HISTORY_AGREEMENT:
         return team
     return None
+
+
+def _appearance_cost(
+    look: np.ndarray | None,
+    point: PlayerPoint,
+    color_spread: Sequence[float] | None,
+) -> float:
+    if look is None or color_spread is None or not point.color_scores:
+        return 0.0
+    reading = np.array(_color_vector(point.color_scores)) / np.array(color_spread)
+    distance = float(np.linalg.norm(reading - look))
+    return APPEARANCE_COST * min(distance / APPEARANCE_FULL_DISTANCE, 1.0)
+
+
+def _update_appearance(
+    appearance: dict[int, np.ndarray],
+    track_id: int,
+    point: PlayerPoint,
+    color_spread: Sequence[float] | None,
+) -> None:
+    if color_spread is None or not point.color_scores:
+        return
+    reading = np.array(_color_vector(point.color_scores)) / np.array(color_spread)
+    look = appearance.get(track_id)
+    appearance[track_id] = (
+        reading
+        if look is None
+        else (1 - APPEARANCE_UPDATE_SHARE) * look + APPEARANCE_UPDATE_SHARE * reading
+    )
 
 
 def _box_overlap_of_smaller(first: PlayerPoint, second: PlayerPoint) -> float:
@@ -1064,6 +1118,12 @@ def _read_point_colors(
 
 
 HEIGHT_CHANGE_COST = 0.5
+# A player's next box usually lies about 1 colour spread from his recent look;
+# a neighbour's box about 4. The cost grows with that distance up to its cap.
+APPEARANCE_COST = 0.5
+APPEARANCE_FULL_DISTANCE = 4.0
+# Share of each new box in a track's running look.
+APPEARANCE_UPDATE_SHARE = 0.3
 PIECE_BOX_HEIGHT_SHARE = 0.6
 # Two players side by side in one merged box are each about half its width.
 PIECE_BOX_WIDTH_SHARE = 0.4

@@ -81,6 +81,10 @@ class ChronoSettings:
     hidden_reach_heights: float = 1.2
     hidden_min_ball_move_heights: float = 1.0
     hidden_max_offset_change_heights: float = 0.4
+    # A ball that keeps one line before and after cannot step sideways in
+    # between: a lone re-found sighting off that line is something else
+    # (a boot, a sock), not the ball.
+    off_line_max_gap_seconds: float = 0.8
 
 
 @dataclass
@@ -325,6 +329,54 @@ def _position_noise_px(
     # Median absolute deviation -> standard deviation; a step change mixes
     # three position errors (1 + 4 + 1 = 6 times the variance).
     return median(abs(c - middle) for c in changes) / 0.6745 / sqrt(6)
+
+
+def _off_line_sightings(
+    track: list[tuple[int, float, float, float]],
+    reacquired: set[int],
+    settings: ChronoSettings,
+    noise_px: float,
+) -> set[int]:
+    """Indices of lone re-found sightings that sit off the ball's unbroken line.
+
+    The ball keeps one direction before, across and after the sighting, so
+    nothing touched it there; a sighting clearly off that line (more than a
+    touch-sized change of the track's own wobble) cannot be the ball.
+    """
+    if noise_px <= 0:
+        return set()
+    limit = settings.touch_noise_multiple * noise_px * sqrt(6)
+    gap = settings.off_line_max_gap_seconds
+
+    def heading(a: tuple[float, ...], b: tuple[float, ...]) -> tuple[float, float] | None:
+        dx, dy = b[2] - a[2], b[3] - a[3]
+        if b[1] <= a[1] or b[1] - a[1] > gap or hypot(dx, dy) == 0:
+            return None
+        return dx, dy
+
+    def turn(u: tuple[float, float], v: tuple[float, float]) -> float:
+        cos = (u[0] * v[0] + u[1] * v[1]) / (hypot(*u) * hypot(*v))
+        return degrees(acos(max(-1.0, min(1.0, cos))))
+
+    dropped: set[int] = set()
+    for index in sorted(reacquired):
+        if index < 2 or index > len(track) - 3:
+            continue
+        if {index - 1, index + 1} & reacquired:
+            continue
+        chord = heading(track[index - 1], track[index + 1])
+        before = heading(track[index - 2], track[index - 1])
+        after = heading(track[index + 1], track[index + 2])
+        if chord is None or before is None or after is None:
+            continue
+        if max(turn(before, chord), turn(chord, after)) >= settings.rolling_turn_degrees:
+            continue
+        _, _, x, y = track[index]
+        _, _, ax, ay = track[index - 1]
+        offset = abs((x - ax) * chord[1] - (y - ay) * chord[0]) / hypot(*chord)
+        if offset > limit:
+            dropped.add(index)
+    return dropped
 
 
 def _ball_deflected(
@@ -623,6 +675,14 @@ def run_chronological(
         for frame in sorted(balls)
         if (b := _best_ball(balls[frame])) is not None
     ]
+    noise_px = _position_noise_px(track, settings)
+    reacquired = {
+        index
+        for index, (frame, *_rest) in enumerate(track)
+        if (_best_ball(balls[frame]) or {}).get("state") == "visually_reacquired"
+    }
+    off_line = _off_line_sightings(track, reacquired, settings, noise_px)
+    track = [sample for index, sample in enumerate(track) if index not in off_line]
     # The ball tracker labels each frame in flight; older ball tracks have no
     # label, so the same flight check runs here on the player heights.
     labelled = [_best_ball(balls[frame]) or {} for frame, *_rest in track]
@@ -645,7 +705,6 @@ def run_chronological(
         for frame in sorted(balls)
         if (b := _estimate_ball(balls[frame])) is not None
     ]
-    noise_px = _position_noise_px(track, settings)
     for index, (frame, t, x, y) in enumerate(track):
         last_seconds = t
         inside = signed_pitch_distance((x, y), boundary) >= -settings.outside_margin_px
