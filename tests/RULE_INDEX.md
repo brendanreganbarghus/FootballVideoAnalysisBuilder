@@ -222,3 +222,5 @@ baseline suites (`tests/test_possession.py`, `tests/test_match_state.py`,
 | 20261014T151622232Z | rules | off line reacquired sighting is dropped | `tests/rules/test_chrono_off_line_sighting_20261014T151622232Z.py::test_off_line_reacquired_sighting_is_dropped_20261014T151622232Z` |
 | 20261014T151622233Z | rules | observed or on line sightings are kept | `tests/rules/test_chrono_off_line_sighting_20261014T151622232Z.py::test_observed_or_on_line_sightings_are_kept_20261014T151622233Z` |
 | 20261014T151622234Z | rules | sighting where the ball turns is kept | `tests/rules/test_chrono_off_line_sighting_20261014T151622232Z.py::test_sighting_where_the_ball_turns_is_kept_20261014T151622234Z` |
+| 20261014T152306613Z | tracking | restart 08 seconds later is relinked | `tests/tracking/test_relink_restart_window_20261014T152306613Z.py::test_restart_08_seconds_later_is_relinked_20261014T152306613Z` |
+| 20261014T152306614Z | tracking | restart later than 08 seconds is not relinked | `tests/tracking/test_relink_restart_window_20261014T152306613Z.py::test_restart_later_than_08_seconds_is_not_relinked_20261014T152306614Z` |
