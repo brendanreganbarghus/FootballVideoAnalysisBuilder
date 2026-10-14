@@ -33,6 +33,14 @@ HIDDEN_BRIDGE_MAX_GAP_SECONDS = 0.8
 HIDDEN_BRIDGE_REACH_HEIGHTS = 0.8
 HIDDEN_BRIDGE_MINIMUM_COVER = 0.3
 
+# A track that loses its box and comes back far off its own path, while a new
+# same-team track starts right on that path, swapped onto another player.
+RELINK_JUMP_HEIGHTS = 2.0
+RELINK_START_REACH_HEIGHTS = 1.0
+RELINK_START_WINDOW_SECONDS = 0.6
+RELINK_CLOSER_FACTOR = 3.0
+RELINK_TAIL_GAP_SECONDS = 0.4
+
 
 @dataclass
 class PlayerPoint:
@@ -208,6 +216,7 @@ def track_cached_players(
             player_teams=player_teams,
             max_speed_pixels_per_second=max_speed_pixels_per_second,
         )
+        accepted = relink_swapped_tracks(accepted, player_teams=player_teams)
 
     output.mkdir(parents=True, exist_ok=True)
     if overlaps is not None:
@@ -545,6 +554,109 @@ def bridge_hidden_gaps(
             track.points.extend(by_id[second.track_id].points)
             current = second
     return [track for track in tracks if track.track_id not in absorbed]
+
+
+def relink_swapped_tracks(
+    tracks: list[PlayerTrack],
+    *,
+    player_teams: frozenset[str],
+) -> list[PlayerTrack]:
+    """Give a player back his own track after it swapped onto a teammate.
+
+    When a player's box is briefly lost (merged with a neighbour), his track
+    can pick up a nearby teammate's box and follow that teammate, while the
+    player himself restarts as a new track. The swap shows as a track that
+    comes back after a missed sample far off its own path, while a new
+    same-team track starts right on that path within a short time. The new
+    track continues the player; the jumped tail goes to the teammate's track
+    that ended where the tail begins, or becomes a track of its own.
+    """
+    tracks = list(tracks)
+    window = RELINK_START_WINDOW_SECONDS + 1e-6
+    while True:
+        found = _find_swap(tracks, player_teams, window)
+        if found is None:
+            return tracks
+        track, index, successor = found
+        tail = track.points[index + 1 :]
+        track.points = track.points[: index + 1] + successor.points
+        tracks.remove(successor)
+        start = tail[0]
+        teammate = None
+        nearest = None
+        for other in tracks:
+            if other is track or other.team != track.team or other.role != "player":
+                continue
+            end = other.last
+            gap = start.clip_seconds - end.clip_seconds
+            if not -1e-6 <= gap <= RELINK_TAIL_GAP_SECONDS + 1e-6:
+                continue
+            distance = hypot(start.foot[0] - end.foot[0], start.foot[1] - end.foot[1])
+            if distance < end.height and (nearest is None or distance < nearest):
+                teammate, nearest = other, distance
+        if teammate is not None:
+            teammate.points = [
+                point
+                for point in teammate.points
+                if point.clip_seconds < start.clip_seconds - 1e-6
+            ] + tail
+        else:
+            tracks.append(
+                PlayerTrack(
+                    max(other.track_id for other in tracks) + 1,
+                    tail,
+                    team=track.team,
+                    color_scores=track.color_scores,
+                    role=track.role,
+                )
+            )
+
+
+def _find_swap(
+    tracks: list[PlayerTrack],
+    player_teams: frozenset[str],
+    window: float,
+) -> tuple[PlayerTrack, int, PlayerTrack] | None:
+    for track in tracks:
+        if track.role != "player" or track.team not in player_teams:
+            continue
+        points = track.points
+        for index in range(2, len(points) - 1):
+            before, last, after = points[index - 1], points[index], points[index + 1]
+            step = last.clip_seconds - before.clip_seconds
+            missed = after.clip_seconds - last.clip_seconds
+            if step <= 0 or missed <= 1.5 * step:
+                continue
+            velocity_x = (last.foot[0] - before.foot[0]) / step
+            velocity_y = (last.foot[1] - before.foot[1]) / step
+
+            def off_path(point: PlayerPoint) -> float:
+                ahead = point.clip_seconds - last.clip_seconds
+                return hypot(
+                    point.foot[0] - (last.foot[0] + velocity_x * ahead),
+                    point.foot[1] - (last.foot[1] + velocity_y * ahead),
+                )
+
+            jump = off_path(after)
+            if jump < RELINK_JUMP_HEIGHTS * last.height:
+                continue
+            best: tuple[float, PlayerTrack] | None = None
+            for other in tracks:
+                if other is track or other.team != track.team or other.role != "player":
+                    continue
+                start = other.points[0]
+                if not 0 < start.clip_seconds - last.clip_seconds <= window:
+                    continue
+                distance = off_path(start)
+                if (
+                    distance < RELINK_START_REACH_HEIGHTS * last.height
+                    and distance < jump / RELINK_CLOSER_FACTOR
+                    and (best is None or distance < best[0])
+                ):
+                    best = (distance, other)
+            if best is not None:
+                return track, index, best[1]
+    return None
 
 
 def _hidden_points(

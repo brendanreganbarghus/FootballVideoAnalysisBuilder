@@ -86,7 +86,7 @@ def test_identical_video_reuses_and_restamps_the_saved_run_20261012T034118004Z(t
         ({"detection_scope": "ball_only"}, b"video", "players and ball"),
     ],
 )
-def test_any_doubt_refuses_reuse_20261012T034118004Z(tmp_path, kwargs, target_video, reason):
+def test_any_doubt_refuses_reuse_20261012T034118005Z(tmp_path, kwargs, target_video, reason):
     source = _saved_run(tmp_path / "source", **kwargs)
     target = _target(tmp_path / "target", target_video)
 
@@ -99,7 +99,7 @@ def test_any_doubt_refuses_reuse_20261012T034118004Z(tmp_path, kwargs, target_vi
     assert not (target / "analytics-cache").exists()
 
 
-def test_other_frame_window_refuses_reuse_20261012T034118004Z(tmp_path):
+def test_other_frame_window_refuses_reuse_20261012T034118006Z(tmp_path):
     source = _saved_run(tmp_path / "source")
     manifest_path = source / "runtime-manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -113,7 +113,7 @@ def test_other_frame_window_refuses_reuse_20261012T034118004Z(tmp_path):
     assert found == "saved run belongs to a different frame window"
 
 
-def test_profile_matches_the_live_detector_profile_of_the_pipeline_20261012T034118004Z():
+def test_profile_matches_the_live_detector_profile_of_the_pipeline_20261012T034118007Z():
     script = (ROOT / "scripts" / "process-alfheim-segment.py").read_text(
         encoding="utf-8")
     for node in ast.parse(script).body:

@@ -13,7 +13,7 @@ def test_long_aerial_run_is_dropped_20261012T061113314Z():
     assert _credible_flights(track, lofted, ChronoSettings().max_flight_seconds) == set()
 
 
-def test_real_flight_is_kept_20261012T061113314Z():
+def test_real_flight_is_kept_20261012T061113315Z():
     track = _track([i * 0.2 for i in range(40)])
     flight = set(range(5, 18))  # 2.4 s
     late = set(range(25, 40))  # 2.8 s, separate run
