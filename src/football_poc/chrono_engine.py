@@ -476,6 +476,43 @@ def _hidden_turn(
     return seconds, ax + a * ux, ay + a * uy
 
 
+def _blip_on_unbroken_line(
+    track: list[tuple[int, float, float, float]],
+    index: int,
+    settings: ChronoSettings,
+) -> bool:
+    """One sample sits off a line the ball keeps before, across and after it.
+
+    The ball's heading and pace from two samples before to two after stay
+    within rolling limits, so the change seen only at this sample is
+    position wobble, not a touch: a touch changes where the ball goes next.
+    """
+    if index < 2 or index > len(track) - 3:
+        return False
+    near = settings.touch_neighbour_gap_seconds
+    points = [track[i][1:] for i in range(index - 2, index + 3)]
+    if any(not 0 < b[0] - a[0] <= near for a, b in zip(points, points[1:])):
+        return False
+
+    def velocity(a: tuple[float, float, float], b: tuple[float, float, float]) -> tuple[float, float]:
+        return (b[1] - a[1]) / (b[0] - a[0]), (b[2] - a[2]) / (b[0] - a[0])
+
+    before = velocity(points[0], points[1])
+    chord = velocity(points[1], points[3])
+    after = velocity(points[3], points[4])
+    stopped = settings.stopped_speed_px_per_second
+    for u, w in ((before, chord), (chord, after)):
+        su, sw = hypot(*u), hypot(*w)
+        if su < stopped or sw < stopped:
+            return False
+        cos = (u[0] * w[0] + u[1] * w[1]) / (su * sw)
+        if degrees(acos(max(-1.0, min(1.0, cos)))) >= settings.rolling_turn_degrees:
+            return False
+        if not settings.rolling_min_speed_ratio <= sw / su <= settings.rolling_max_speed_ratio:
+            return False
+    return True
+
+
 def _rolling_through(
     before: tuple[float, float, float],
     at: tuple[float, float, float],
@@ -865,6 +902,8 @@ def run_chronological(
                     settings,
                     aerial=index in lofted,
                     noise_px=noise_px,
+                ) and not (
+                    index not in lofted and _blip_on_unbroken_line(track, index, settings)
                 ):
                     if toucher is None:
                         touch = _toucher(
