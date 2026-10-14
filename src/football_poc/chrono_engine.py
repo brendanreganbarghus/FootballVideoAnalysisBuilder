@@ -420,6 +420,62 @@ def _ball_deflected(
     return turn >= settings.touch_turn_degrees or ratio >= settings.touch_speed_ratio
 
 
+def _hidden_turn(
+    track: list[tuple[int, float, float, float]],
+    index: int,
+    settings: ChronoSettings,
+    noise_px: float,
+) -> tuple[float, float, float] | None:
+    """Where and when the ball turned while it was out of sight.
+
+    The ball arrives on one straight line and leaves on another, with the
+    turn itself in the unseen samples between ``index - 1`` and ``index``.
+    The two lines meet where it was touched; the touch is accepted only when
+    the ball's own speeds bring it there and away again in the unseen time.
+    Returns ``(seconds, x, y)`` of the turn, or ``None``.
+    """
+    if index < 2 or index > len(track) - 2:
+        return None
+    _, t0, x0, y0 = track[index - 2]
+    _, ta, ax, ay = track[index - 1]
+    _, tb, bx, by = track[index]
+    _, t3, x3, y3 = track[index + 1]
+    near = settings.touch_neighbour_gap_seconds
+    gap = tb - ta
+    if not (near < gap <= settings.hidden_gap_max_seconds):
+        return None
+    if not (0 < ta - t0 <= near and 0 < t3 - tb <= near):
+        return None
+    u = ((ax - x0) / (ta - t0), (ay - y0) / (ta - t0))
+    w = ((x3 - bx) / (t3 - tb), (y3 - by) / (t3 - tb))
+    s_in, s_out = hypot(*u), hypot(*w)
+    stopped = settings.stopped_speed_px_per_second
+    if s_in < stopped or s_out < stopped:
+        return None
+    cos = (u[0] * w[0] + u[1] * w[1]) / (s_in * s_out)
+    if degrees(acos(max(-1.0, min(1.0, cos)))) < settings.touch_turn_degrees:
+        return None
+    # Where the ball would be if nothing touched it: clearly not where it is.
+    miss = hypot(bx - (ax + u[0] * gap), by - (ay + u[1] * gap))
+    if miss < settings.touch_noise_multiple * noise_px * sqrt(6):
+        return None
+    # A + a*u_hat = B - b*w_hat, with a, b >= 0 the distances to the turn.
+    ux, uy, wx, wy = u[0] / s_in, u[1] / s_in, w[0] / s_out, w[1] / s_out
+    det = ux * wy - uy * wx
+    if abs(det) < 1e-9:
+        return None
+    dx, dy = bx - ax, by - ay
+    a = (dx * wy - dy * wx) / det
+    b = (ux * dy - uy * dx) / det
+    if a < 0 or b < 0:
+        return None
+    arrive = a / s_in
+    if abs(arrive + b / s_out - gap) > near:
+        return None
+    seconds = ta + min(arrive, gap)
+    return seconds, ax + a * ux, ay + a * uy
+
+
 def _rolling_through(
     before: tuple[float, float, float],
     at: tuple[float, float, float],
@@ -825,6 +881,24 @@ def run_chronological(
                 rolling = not estimated.intersection(
                     (index - 1, index, index + 1)
                 ) and _rolling_through(before, (t, x, y), after, settings)
+        if (
+            touch is None
+            and index not in lofted
+            and index - 1 not in lofted
+            and (turned := _hidden_turn(track, index, settings, noise_px)) is not None
+        ):
+            frame_a, seconds_a = track[index - 1][0], track[index - 1][1]
+            target = frame_a + (turned[0] - seconds_a) * (frame - frame_a) / (t - seconds_a)
+            hidden_frames = [k for k in players if frame_a < k < frame]
+            if hidden_frames:
+                hidden_frame = min(hidden_frames, key=lambda k: abs(k - target))
+                hidden_boxes = players.get(hidden_frame, [])
+                if toucher is None:
+                    touch = _toucher(turned[1:], hidden_boxes, settings)
+                else:
+                    touch = toucher(
+                        turned[1:], hidden_boxes, settings, aerial=False, noise_px=noise_px
+                    )
         if touch is None and index in lofted:
             continue
         carried = None
