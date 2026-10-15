@@ -160,12 +160,19 @@ def _confirm_track_points_from_module(
             continue
         if (
             ball_colour_matches is not None
-            and not point.smooth_gap_path
             and _is_weak_feet_proposal(point, record)
             and not ball_colour_matches(point)
         ):
-            ledger.reject(frame, module, "colour_differs_from_ball")
-            continue
+            # A smooth path between the gap ends excuses a blurred colour, but
+            # not a boot whose colour is far from any ball: the boot of the
+            # player who passed and later received the ball moves smoothly too.
+            far_from_ball = getattr(ball_colour_matches, "far_from_ball", None)
+            if not point.smooth_gap_path:
+                ledger.reject(frame, module, "colour_differs_from_ball")
+                continue
+            if far_from_ball is not None and far_from_ball(point):
+                ledger.reject(frame, module, "colour_far_from_ball")
+                continue
         if not _proposal_allowed_by_confirmed_neighbours(
             ledger,
             point,
