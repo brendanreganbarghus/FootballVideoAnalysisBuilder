@@ -42,6 +42,10 @@ AERIAL_PROFILE = FrozenProfile({
     # A kicked ball travels between launch and landing. When the confirmed
     # ends of a gap barely moved, any fitted arc is moving players or noise.
     "minimum_end_to_end_pixels_per_frame": 1.0,
+    # A ball in the air is drawn above the ground line between launch and
+    # landing. A path that bends further than this away from that line but
+    # not upwards is a player's foot or shadow, not a lofted ball.
+    "flat_path_tolerance_pixels": 20.0,
     "person_minimum_confidence": 0.25,
     # Empty-pitch spots: a rolling background (median of nearby frames) is
     # subtracted so a ball that is standing still also leaves a spot. Only
@@ -542,6 +546,24 @@ def _aerial_curve_path(s, e, blobs):
     return best
 
 
+def _aerial_rises_above_ground_line(s, e, inliers):
+    """Whether the path point furthest from the line between the ends is above it."""
+    if not inliers:
+        return True
+    furthest = max(
+        (
+            hypot(x - (s[1] + (e[1] - s[1]) * u), y - (s[2] + (e[2] - s[2]) * u)),
+            y - (s[2] + (e[2] - s[2]) * u),
+        )
+        for t, (x, y) in inliers.items()
+        for u in [(t - s[0]) / (e[0] - s[0])]
+    )
+    distance, below = furthest
+    if distance <= float(AERIAL_PROFILE["flat_path_tolerance_pixels"]):
+        return True
+    return below < 0
+
+
 def _read_gray_range(video: Path, start: int, end: int) -> dict[int, np.ndarray]:
     capture = cv2.VideoCapture(str(video))
     frames: dict[int, np.ndarray] = {}
@@ -645,6 +667,10 @@ def _confirm_aerial_flights(
                 ledger.reject(frame, AERIAL_MODULE, "aerial_no_unique_flight_path")
             continue
         count, model, inliers = best
+        if not _aerial_rises_above_ground_line(s, e, inliers):
+            for frame in gap:
+                ledger.reject(frame, AERIAL_MODULE, "aerial_path_not_above_ground_line")
+            continue
         (launch, *_), (landing, *_), _ = model
         reach = int(profile["fill_reach_frames"])
         for frame in gap:
