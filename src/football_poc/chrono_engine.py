@@ -90,6 +90,12 @@ class ChronoSettings:
     first_time_reception_speed_px_per_second: float = 200.0
     # An unseen kick: the ball leaves a hidden gap much faster on its line.
     hidden_kick: bool = True
+    # A touch hidden while the ball is in the air (a header among players):
+    # gravity only bends the ball's up-and-down movement in the picture, so a
+    # clear change in its sideways speed means someone touched it. A ball in
+    # flight keeps a smooth line, so its lines may span one missing sample.
+    aerial_hidden_touch_sideways_ratio: float = 1.5
+    aerial_hidden_line_gap_seconds: float = 0.4
 
 
 @dataclass
@@ -430,6 +436,8 @@ def _hidden_turn(
     index: int,
     settings: ChronoSettings,
     noise_px: float,
+    *,
+    aerial: bool = False,
 ) -> tuple[float, float, float] | None:
     """Where and when the ball turned while it was out of sight.
 
@@ -437,6 +445,8 @@ def _hidden_turn(
     turn itself in the unseen samples between ``index - 1`` and ``index``.
     The two lines meet where it was touched; the touch is accepted only when
     the ball's own speeds bring it there and away again in the unseen time.
+    In the air (``aerial``) gravity alone bends the path, so the turn also
+    needs a clear change in the ball's sideways speed.
     Returns ``(seconds, x, y)`` of the turn, or ``None``.
     """
     if index < 2 or index > len(track) - 2:
@@ -446,10 +456,12 @@ def _hidden_turn(
     _, tb, bx, by = track[index]
     _, t3, x3, y3 = track[index + 1]
     near = settings.touch_neighbour_gap_seconds
+    line = settings.aerial_hidden_line_gap_seconds if aerial else near
     gap = tb - ta
     if not (near < gap <= settings.hidden_gap_max_seconds):
         return None
-    if not (0 < ta - t0 <= near and 0 < t3 - tb <= near):
+    # Sample times are multiples of the frame step; allow float rounding.
+    if not (0 < ta - t0 <= line + 1e-6 and 0 < t3 - tb <= line + 1e-6):
         return None
     u = ((ax - x0) / (ta - t0), (ay - y0) / (ta - t0))
     w = ((x3 - bx) / (t3 - tb), (y3 - by) / (t3 - tb))
@@ -457,8 +469,17 @@ def _hidden_turn(
     stopped = settings.stopped_speed_px_per_second
     if s_in < stopped or s_out < stopped:
         return None
+    if aerial:
+        sideways_change = abs(w[0] - u[0])
+        slow, fast = sorted((abs(u[0]), abs(w[0])))
+        if sideways_change * gap < settings.touch_noise_multiple * noise_px * sqrt(6):
+            return None
+        if u[0] * w[0] > 0 and fast < settings.aerial_hidden_touch_sideways_ratio * slow:
+            return None
     cos = (u[0] * w[0] + u[1] * w[1]) / (s_in * s_out)
     if degrees(acos(max(-1.0, min(1.0, cos)))) < settings.touch_turn_degrees:
+        if aerial:
+            return None
         return _hidden_kick(ta, (ax, ay), (bx, by), gap, u, w, settings, noise_px)
     # Where the ball would be if nothing touched it: clearly not where it is.
     miss = hypot(bx - (ax + u[0] * gap), by - (ay + u[1] * gap))
@@ -1005,11 +1026,11 @@ def run_chronological(
                 rolling = not estimated.intersection(
                     (index - 1, index, index + 1)
                 ) and _rolling_through(before, (t, x, y), after, settings)
+        in_air = index in lofted or index - 1 in lofted
         if (
             touch is None
-            and index not in lofted
-            and index - 1 not in lofted
-            and (turned := _hidden_turn(track, index, settings, noise_px)) is not None
+            and (turned := _hidden_turn(track, index, settings, noise_px, aerial=in_air))
+            is not None
         ):
             frame_a, seconds_a = track[index - 1][0], track[index - 1][1]
             target = frame_a + (turned[0] - seconds_a) * (frame - frame_a) / (t - seconds_a)
@@ -1018,10 +1039,10 @@ def run_chronological(
                 hidden_frame = min(hidden_frames, key=lambda k: abs(k - target))
                 hidden_boxes = players.get(hidden_frame, [])
                 if toucher is None:
-                    touch = _toucher(turned[1:], hidden_boxes, settings)
+                    touch = _toucher(turned[1:], hidden_boxes, settings, aerial=in_air)
                 else:
                     touch = toucher(
-                        turned[1:], hidden_boxes, settings, aerial=False, noise_px=noise_px
+                        turned[1:], hidden_boxes, settings, aerial=in_air, noise_px=noise_px
                     )
         if touch is None and index in lofted:
             continue

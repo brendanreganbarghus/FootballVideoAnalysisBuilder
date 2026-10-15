@@ -244,3 +244,7 @@ baseline suites (`tests/test_possession.py`, `tests/test_match_state.py`,
 | 20261015T053600415Z | rules | hidden kick can be switched off | `tests/rules/test_chrono_hidden_kick_20261015T053600412Z.py::test_hidden_kick_can_be_switched_off_20261015T053600415Z` |
 | 20261015T053600416Z | rules | unseen kick gives the kicker the ball | `tests/rules/test_chrono_hidden_kick_20261015T053600412Z.py::test_unseen_kick_gives_the_kicker_the_ball_20261015T053600416Z` |
 | 20261015T053600417Z | rules | ball rolling past unseen is not a kick | `tests/rules/test_chrono_hidden_kick_20261015T053600412Z.py::test_ball_rolling_past_unseen_is_not_a_kick_20261015T053600417Z` |
+| 20261015T053635968Z | rules | header found when sideways speed changes unseen | `tests/rules/test_chrono_aerial_hidden_touch_20261015T053635967Z.py::test_header_found_when_sideways_speed_changes_unseen_20261015T053635968Z` |
+| 20261015T053635969Z | rules | flight turning down at same sideways speed is not a touch | `tests/rules/test_chrono_aerial_hidden_touch_20261015T053635967Z.py::test_flight_turning_down_at_same_sideways_speed_is_not_a_touch_20261015T053635969Z` |
+| 20261015T053635970Z | rules | aerial hidden touch can be switched off | `tests/rules/test_chrono_aerial_hidden_touch_20261015T053635967Z.py::test_aerial_hidden_touch_can_be_switched_off_20261015T053635970Z` |
+| 20261015T053635971Z | rules | hidden header receives the pass | `tests/rules/test_chrono_aerial_hidden_touch_20261015T053635967Z.py::test_hidden_header_receives_the_pass_20261015T053635971Z` |
