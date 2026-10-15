@@ -1,4 +1,4 @@
-"""Rule: a two-sided flight must bend upwards away from its ground line."""
+"""Rule: a two-sided flight stays between its ends and on or above their line."""
 
 from __future__ import annotations
 
@@ -14,15 +14,18 @@ def _line(t: int) -> tuple[float, float]:
 
 
 def test_aerial_path_above_ground_line_20261015T182714217Z() -> None:
-    """A lofted ball is drawn above the line between launch and landing.
+    """Height lifts the ball straight up in the image.
 
-    A path that bends well away from that line sideways or downwards is a
-    foot or shadow next to the ball, so it is refused. A path that stays
-    close to the line, or rises above it, is kept.
+    A lofted ball, a ball kicked late along the ground and a flat pass are
+    kept. A path that leaves the sideways span of the two ends, or sinks
+    below their line, is a foot or shadow next to the ball and is refused.
     """
     lofted = {t: (_line(t)[0], _line(t)[1] - 80.0) for t in range(5, 16)}
-    sideways = {t: (_line(t)[0] + 40.0, _line(t)[1] + 12.0) for t in range(5, 16)}
+    late_kick = {t: _line(max(0, 2 * t - 20)) for t in range(5, 16)}
     flat = {t: (_line(t)[0] + 6.0, _line(t)[1] + 6.0) for t in range(5, 16)}
-    assert ball_tracking._aerial_rises_above_ground_line(START, END, lofted)
-    assert ball_tracking._aerial_rises_above_ground_line(START, END, flat)
-    assert not ball_tracking._aerial_rises_above_ground_line(START, END, sideways)
+    overshoot = {t: (_line(t)[0] + 90.0, _line(t)[1] - 10.0) for t in range(5, 16)}
+    below = {t: (_line(t)[0], _line(t)[1] + 40.0) for t in range(5, 16)}
+    for path in (lofted, late_kick, flat):
+        assert ball_tracking._aerial_rises_above_ground_line(START, END, path)
+    for path in (overshoot, below):
+        assert not ball_tracking._aerial_rises_above_ground_line(START, END, path)

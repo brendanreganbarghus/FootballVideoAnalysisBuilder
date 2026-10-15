@@ -42,9 +42,9 @@ AERIAL_PROFILE = FrozenProfile({
     # A kicked ball travels between launch and landing. When the confirmed
     # ends of a gap barely moved, any fitted arc is moving players or noise.
     "minimum_end_to_end_pixels_per_frame": 1.0,
-    # A ball in the air is drawn above the ground line between launch and
-    # landing. A path that bends further than this away from that line but
-    # not upwards is a player's foot or shadow, not a lofted ball.
+    # A ball in the air is drawn straight above its ground line between the
+    # two ends. A path further than this outside their sideways span or below
+    # their line is a player's foot or shadow, not the ball.
     "flat_path_tolerance_pixels": 20.0,
     "person_minimum_confidence": 0.25,
     # Empty-pitch spots: a rolling background (median of nearby frames) is
@@ -547,21 +547,24 @@ def _aerial_curve_path(s, e, blobs):
 
 
 def _aerial_rises_above_ground_line(s, e, inliers):
-    """Whether the path point furthest from the line between the ends is above it."""
-    if not inliers:
-        return True
-    furthest = max(
-        (
-            hypot(x - (s[1] + (e[1] - s[1]) * u), y - (s[2] + (e[2] - s[2]) * u)),
-            y - (s[2] + (e[2] - s[2]) * u),
-        )
-        for t, (x, y) in inliers.items()
-        for u in [(t - s[0]) / (e[0] - s[0])]
-    )
-    distance, below = furthest
-    if distance <= float(AERIAL_PROFILE["flat_path_tolerance_pixels"]):
-        return True
-    return below < 0
+    """Whether every path point lies between the ends and on or above their line.
+
+    Height lifts a ball straight up in the image, so a ball travelling from
+    one end to the other stays within their sideways span and never sinks
+    below the line joining them, whenever it is kicked.
+    """
+    tolerance = float(AERIAL_PROFILE["flat_path_tolerance_pixels"])
+    (_, sx, sy), (_, ex, ey) = s, e
+    for x, y in inliers.values():
+        if x < min(sx, ex) - tolerance or x > max(sx, ex) + tolerance:
+            return False
+        if abs(ex - sx) > tolerance:
+            line_y = sy + (ey - sy) * (x - sx) / (ex - sx)
+        else:
+            line_y = max(sy, ey)
+        if y > line_y + tolerance:
+            return False
+    return True
 
 
 def _read_gray_range(video: Path, start: int, end: int) -> dict[int, np.ndarray]:
