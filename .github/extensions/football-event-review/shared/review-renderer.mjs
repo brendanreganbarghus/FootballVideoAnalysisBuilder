@@ -1347,11 +1347,17 @@ export function renderHtml({ adapter } = {}) {
     .ball-frame-modal-head,
     .ball-frame-modal-actions {
       display: flex;
-      justify-content: space-between;
-      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: flex-start;
+      gap: 8px 10px;
       align-items: center;
       padding: 10px 12px;
     }
+    .ball-frame-modal-actions > button {
+      flex: 0 0 auto;
+      white-space: nowrap;
+    }
+    #agree-ball-coordinate.comparing { font-size: inherit; }
     .ball-frame-modal-title {
       display: flex;
       align-items: center;
@@ -9304,6 +9310,7 @@ export function renderHtml({ adapter } = {}) {
         document.getElementById("engine-correct-ball-coordinate");
       const comparing = engineComparisonActive();
       agreeButton.textContent = comparing ? "BAC (green) correct" : "✓";
+      agreeButton.classList.toggle("comparing", comparing);
       agreeButton.title = comparing
         ? "The BAC (green) coordinate is correct"
         : "Agree with current coordinate";
