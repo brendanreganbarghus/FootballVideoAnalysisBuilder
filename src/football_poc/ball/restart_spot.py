@@ -18,6 +18,9 @@ RESTART_SPOT_PROFILE = {
     "maximum_anchor_distance_diagonals": 20.0,
     "stationary_step_diagonals": 0.75,
     "minimum_blob_pixels": 2,
+    # A placed ball shows at least this share of a whole ball's area; a few
+    # pixels of colour noise on a board edge do not.
+    "minimum_ball_area_fraction": 0.1,
     "minimum_still_seconds": 1.0,
     "confidence": 0.25,
 }
@@ -149,11 +152,15 @@ def _restart_spot_blobs(
     )
     # Area of a ball whose box has the learned diagonal.
     maximum_area = np.pi / 8.0 * ball_diagonal**2
+    minimum_area = max(
+        float(RESTART_SPOT_PROFILE["minimum_blob_pixels"]),
+        float(RESTART_SPOT_PROFILE["minimum_ball_area_fraction"]) * maximum_area,
+    )
     radius = ball_diagonal * float(RESTART_SPOT_PROFILE["search_radius_diagonals"])
     blobs: list[tuple[float, float]] = []
     for label in range(1, count):
         area = int(stats[label, cv2.CC_STAT_AREA])
-        if not int(RESTART_SPOT_PROFILE["minimum_blob_pixels"]) <= area <= maximum_area:
+        if not minimum_area <= area <= maximum_area:
             continue
         x = origin[0] + float(centroids[label][0])
         y = origin[1] + float(centroids[label][1])
