@@ -930,6 +930,73 @@ def _continues_confirmed_momentum(
     return False
 
 
+MOMENTUM_REVERSAL_LOOKAHEAD_SAMPLES = 3
+
+
+def _reverses_confirmed_momentum_unsupported(
+    point: BallPoint,
+    confirmed: Mapping[int, Any],
+    *,
+    candidates_by_frame: dict[int, list[_BallCandidate]],
+    fps: float,
+    frame_step: int,
+    max_speed_pixels_per_second: float,
+) -> bool:
+    """Whether a box sends a steadily rolling ball back without later sightings.
+
+    A touch can send the ball back, but the ball then travels on from the new
+    spot and is seen there again. A box behind the run with no later sighting
+    nearer to it than to the ball's last confirmed spot is another object.
+    """
+    if frame_step < 1 or fps <= 0:
+        return False
+    chain = [
+        confirmed.get(point.source_frame - offset * frame_step)
+        for offset in range(1, MOMENTUM_CHAIN_SAMPLES + 1)
+    ]
+    if any(entry is None or entry.x is None or entry.y is None for entry in chain):
+        return False
+    steps = [
+        (float(a.x) - float(b.x), float(a.y) - float(b.y))
+        for a, b in zip(chain, chain[1:])
+    ]
+    length = hypot(*steps[0])
+    if length < MOMENTUM_MINIMUM_STEP_PIXELS:
+        return False
+    tolerance = max(
+        MOMENTUM_MINIMUM_TOLERANCE_PIXELS, length * MOMENTUM_TOLERANCE_FRACTION
+    )
+    if any(
+        hypot(step[0] - steps[0][0], step[1] - steps[0][1]) > tolerance
+        for step in steps[1:]
+    ):
+        return False
+    last_x, last_y = float(chain[0].x), float(chain[0].y)
+    moved_x, moved_y = float(point.x) - last_x, float(point.y) - last_y
+    if hypot(moved_x, moved_y) <= tolerance:
+        return False
+    if moved_x * steps[0][0] + moved_y * steps[0][1] >= 0:
+        return False
+    for offset in range(1, MOMENTUM_REVERSAL_LOOKAHEAD_SAMPLES + 1):
+        frame = point.source_frame + offset * frame_step
+        reach = max_speed_pixels_per_second * offset * frame_step / fps
+        for candidate in candidates_by_frame.get(frame, []):
+            later = candidate.point
+            to_box = hypot(later.x - point.x, later.y - point.y)
+            if (
+                to_box <= reach
+                and to_box < hypot(later.x - last_x, later.y - last_y)
+                and _same_position_static_reason(
+                    later,
+                    candidates_by_frame=candidates_by_frame,
+                    fps=fps,
+                )
+                is None
+            ):
+                return False
+    return True
+
+
 def _confirmed_by_frame(ledger: FrameLedger, *, exclude: int | None = None) -> dict[int, Any]:
     return {
         entry.source_frame: entry
@@ -1023,6 +1090,20 @@ def _candidate_rejection_reason(
     )
     if static_reason is not None:
         return static_reason, False
+    if (
+        ledger is not None
+        and point.source_attribution == "yolo26_observed"
+        and point.confidence < BALL_COLOUR_WEAK_CONFIDENCE
+        and _reverses_confirmed_momentum_unsupported(
+            point,
+            _confirmed_by_frame(ledger, exclude=point.source_frame),
+            candidates_by_frame=candidates_by_frame,
+            fps=fps,
+            frame_step=frame_step,
+            max_speed_pixels_per_second=max_speed_pixels_per_second,
+        )
+    ):
+        return "reverses_confirmed_momentum_without_later_sighting", False
     earlier_reason = _earlier_object_reason(
         point,
         ledger=ledger,
