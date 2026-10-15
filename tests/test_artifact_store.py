@@ -125,6 +125,26 @@ def test_published_prepared_segment_is_discoverable_and_checksummed(
     assert republished.video.read_bytes() == b"video"
 
 
+def test_publication_skips_reprocess_backups(tmp_path: Path) -> None:
+    source = tmp_path / "generated" / "segment-0120-020"
+    _write_publishable_segment(source)
+    data = source / "analytics-data"
+    data.mkdir()
+    (data / "predicted-events.json").write_text("[]", encoding="utf-8")
+    (data / "predicted-events.bak.json").write_text("[]", encoding="utf-8")
+    (
+        data / "predicted-events.before-reprocess-2026-10-15T06-02-26-623Z.json"
+    ).write_text("[]", encoding="utf-8")
+
+    published = publish_prepared_segment(
+        source,
+        artifact_root=tmp_path / "artifacts",
+        source_metadata={"camera_id": "camera-1", "recording_id": "recording-1"},
+    )
+
+    names = {path.name for path in (published.root / "analytics-data").iterdir()}
+    assert names == {"predicted-events.json"}
+
 def test_publishing_flat_segment_replaces_previous_bundle(
     tmp_path: Path,
 ) -> None:

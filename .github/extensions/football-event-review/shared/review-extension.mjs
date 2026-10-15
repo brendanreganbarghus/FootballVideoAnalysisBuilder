@@ -7217,7 +7217,8 @@ async function handleRequest(request, response, serverInstanceId) {
           `A regression rerun is active for ${segment}.`,
         );
       }
-      const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+      // One short-named backup per file: long names on the OneDrive share
+      // exceed the Windows path limit when publication stages a copy.
       await Promise.all(
         ["predicted-events.json", "match-state-events.json"].map(
           async (name) => {
@@ -7225,7 +7226,7 @@ async function handleRequest(request, response, serverInstanceId) {
             const bytes = await readFile(path).catch(() => null);
             if (bytes !== null) {
               await writeFile(
-                path.replace(/\.json$/, `.before-reprocess-${stamp}.json`),
+                path.replace(/\.json$/, ".bak.json"),
                 bytes,
               );
             }

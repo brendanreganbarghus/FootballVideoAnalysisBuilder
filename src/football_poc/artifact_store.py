@@ -36,6 +36,7 @@ UNPUBLISHED_FILE_PATTERNS = (
     re.compile(r"alfheim-window(?:-playable)?\.mp4"),
     re.compile(r"decoded-sampled-grayscale.*"),
     re.compile(r".*\.(?:tmp|lock)"),
+    re.compile(r".*\.(?:bak|before-reprocess-[^.]*)\.json"),
 )
 
 
