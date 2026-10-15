@@ -9578,7 +9578,7 @@ async function handleRequest(request, response, serverInstanceId) {
       });
       return;
     }
-    const body = await readBody(request);
+    const body = await readBody(request, 524_288);
     const segment = requestedSegment(url, body);
     const context = await reviewContext(segment);
     const seconds = Number(body.seconds);
