@@ -322,26 +322,22 @@ def _unanchored_static_clusters(
         cell_size=cell_size,
     )
     by_cell: dict[tuple[int, int], list[BallPoint]] = {}
+    eligible: list[BallPoint] = []
     for candidate in candidates:
         if (
             candidate.near_player_feet
             or _cell(candidate.point, cell_size) in anchored_cells
         ):
             continue
+        eligible.append(candidate.point)
         by_cell.setdefault(_cell(candidate.point, cell_size), []).append(
             candidate.point
         )
 
+    maximum_radius = cell_size * maximum_cluster_radius_fraction
     clusters: list[_UnanchoredStaticCluster] = []
     for points in by_cell.values():
         if len({point.source_frame for point in points}) < minimum_distinct_frames:
-            continue
-        ordered = sorted(points, key=lambda point: point.clip_seconds)
-        if all(
-            second.clip_seconds - first.clip_seconds
-            <= maximum_continuous_gap_seconds
-            for first, second in zip(ordered, ordered[1:])
-        ):
             continue
         center_x = sum(point.x for point in points) / len(points)
         center_y = sum(point.y for point in points) / len(points)
@@ -349,10 +345,24 @@ def _unanchored_static_clusters(
             hypot(point.x - center_x, point.y - center_y)
             for point in points
         )
-        if maximum_distance <= cell_size * maximum_cluster_radius_fraction:
-            clusters.append(
-                _UnanchoredStaticCluster(x=center_x, y=center_y)
-            )
+        if maximum_distance > maximum_radius:
+            continue
+        # An object resting on a cell edge splits its detections between
+        # neighbouring cells; continuity is judged on everything at its spot.
+        at_spot = {
+            point
+            for point in eligible
+            if hypot(point.x - center_x, point.y - center_y) <= maximum_radius
+        }
+        at_spot.update(points)
+        ordered = sorted(at_spot, key=lambda point: point.clip_seconds)
+        if all(
+            second.clip_seconds - first.clip_seconds
+            <= maximum_continuous_gap_seconds
+            for first, second in zip(ordered, ordered[1:])
+        ):
+            continue
+        clusters.append(_UnanchoredStaticCluster(x=center_x, y=center_y))
     return tuple(clusters)
 
 
