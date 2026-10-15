@@ -68,6 +68,35 @@ def _model_name(metadata: Mapping[str, Any]) -> str:
     return str(metadata.get("model") or "").replace("\\", "/").rsplit("/", 1)[-1].lower()
 
 
+BOX_KEYS = ("x1", "y1", "x2", "y2")
+
+
+def _coordinate_scale(metadata: Mapping[str, Any]) -> float:
+    value = metadata.get("coordinate_scale")
+    if value is None:
+        return 1.0
+    if isinstance(value, (list, tuple)):
+        if len(value) != 2 or float(value[0]) != float(value[1]):
+            raise ValueError("saved run has a non-uniform coordinate_scale")
+        value = value[0]
+    scale = float(value)
+    if scale <= 0:
+        raise ValueError("saved run has an invalid coordinate_scale")
+    return scale
+
+
+def _to_video_size(line: str, scale: float) -> str:
+    """Undo a saved run's uniform box scale so boxes are in video pixels."""
+    if scale == 1.0:
+        return line
+    row = json.loads(line)
+    for detection in row.get("detections") or []:
+        for key in BOX_KEYS:
+            if detection.get(key) is not None:
+                detection[key] = float(detection[key]) / scale
+    return json.dumps(row)
+
+
 def reusable_detection_reason(
     source_root: Path,
     target_video: Path,
@@ -89,6 +118,10 @@ def reusable_detection_reason(
         return f"saved run used {_model_name(metadata) or 'an unknown model'}"
     if metadata.get("detection_scope") != "person_and_ball":
         return "saved run did not detect both players and ball"
+    try:
+        _coordinate_scale(metadata)
+    except (TypeError, ValueError) as error:
+        return str(error) or "saved run has an invalid coordinate_scale"
     for key in PROFILE_KEYS:
         if float(metadata.get(key, -1)) != float(profile[key]):
             return f"saved run used a different {key}"
@@ -157,17 +190,27 @@ def reuse_saved_detections(
     # reproduces the same bytes and hash.
     target_manifest_path = target_root / "runtime-manifest.json"
     target_manifest_path.write_text(target_manifest_text, encoding="utf-8")
+    # Some saved runs were stored scaled to another image size; the tracker
+    # reads detections in video pixels, so the reused copy is unscaled.
+    scale = _coordinate_scale(metadata)
+    if scale != 1.0:
+        receipt["unscaled_coordinate_scale"] = scale
     stamped = {
-        **metadata,
-        "manifest_sha256": hashlib.sha256(
-            target_manifest_path.read_bytes()
-        ).hexdigest(),
-        "video": str(target_video),
-        "reused_from": receipt,
+        key: value for key, value in metadata.items() if key != "coordinate_scale"
     }
+    stamped.update(
+        {
+            "manifest_sha256": hashlib.sha256(
+                target_manifest_path.read_bytes()
+            ).hexdigest(),
+            "video": str(target_video),
+            "reused_from": receipt,
+        }
+    )
+    rows = [_to_video_size(line, scale) for line in lines[1:] if line.strip()]
     temporary = cache_dir / "detections.jsonl.tmp"
     temporary.write_text(
-        "\n".join([json.dumps(stamped), *lines[1:]]) + "\n", encoding="utf-8"
+        "\n".join([json.dumps(stamped), *rows]) + "\n", encoding="utf-8"
     )
     temporary.replace(cache_dir / "detections.jsonl")
     summary_path = source_root / "analytics-cache" / "detection-summary.json"
