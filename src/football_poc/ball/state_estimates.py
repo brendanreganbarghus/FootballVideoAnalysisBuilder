@@ -5,9 +5,11 @@ from bisect import bisect_left
 from .settings import *  # noqa: F401,F403
 
 # Modules whose confirmation rests on visual evidence in that frame. The time
-# machine only estimates, so its frames are never direct evidence.
+# machine only estimates, so its frames are never direct evidence. A locked
+# YOLO chain keeps the detector's own box in every frame it covers.
 DIRECT_EVIDENCE_MODULES = frozenset(
     {
+        "00_lock_yolo_chains",
         "01_confirm_yolo",
         "03_motion_and_optical_flow",
         "04_focused_multiscale",
