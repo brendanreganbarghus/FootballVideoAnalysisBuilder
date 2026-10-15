@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from .settings import *  # noqa: F401,F403
+from .dead_ball import departed_dead_ball
 
 
 CONFIRM_YOLO_MODULE = "01_confirm_yolo"
@@ -17,6 +18,10 @@ LOCK_CHAIN_MAX_SPEED_PIXELS_PER_SECOND = 300.0
 LOCK_CHAIN_MAX_MISSING_STEPS = 1
 LOCK_CHAIN_MINIMUM_BOXES = 8
 LOCK_CHAIN_MINIMUM_TRAVEL_PIXELS = 40.0
+# Two still objects (heads in a stand, cones) a short hop apart can link into
+# one chain whose ends are far apart. A ball travels over several steps, so a
+# chain whose travel is mostly one jump is not locked.
+LOCK_CHAIN_MAXIMUM_SINGLE_STEP_SHARE = 0.5
 
 
 def _lock_moving_yolo_chains(
@@ -80,6 +85,12 @@ def _lock_moving_yolo_chains(
         first, last = chain[0][1], chain[-1][1]
         travel = hypot(last["x"] - first["x"], last["y"] - first["y"])
         if travel < LOCK_CHAIN_MINIMUM_TRAVEL_PIXELS:
+            continue
+        steps = [
+            hypot(second["x"] - first_box["x"], second["y"] - first_box["y"])
+            for (_, first_box), (_, second) in zip(chain, chain[1:])
+        ]
+        if max(steps) > LOCK_CHAIN_MAXIMUM_SINGLE_STEP_SHARE * sum(steps):
             continue
         for frame, box in chain:
             qualifying[frame].append((box, chain_index))
@@ -508,6 +519,18 @@ def _same_position_static_reason(
     frames = [candidate.point.source_frame for candidate in nearby]
     duration = (max(frames) - min(frames)) / fps if fps > 0 else 0.0
     if duration >= minimum_duration_seconds:
+        all_points = [
+            candidate.point
+            for candidates in candidates_by_frame.values()
+            for candidate in candidates
+        ]
+        if departed_dead_ball(
+            (candidate.point for candidate in nearby),
+            all_points=all_points,
+            radius_pixels=radius_pixels,
+            clip_end_seconds=max(p.clip_seconds for p in all_points),
+        ):
+            return None
         return "static_object_without_player_or_motion_support"
     return None
 

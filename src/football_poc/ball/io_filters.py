@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from .settings import *  # noqa: F401,F403
+from .dead_ball import departed_dead_ball
 
 def _nearest_motion_distance(
     circle: _CircleCandidate,
@@ -425,7 +426,15 @@ def _is_unanchored_static_fragment(
         hypot(second.x - first.x, second.y - first.y)
         for first, second in zip(track.points, track.points[1:])
     )
-    return travel <= median(box_diameters) * maximum_travel_box_diameters
+    if travel > median(box_diameters) * maximum_travel_box_diameters:
+        return False
+    all_points = [*foot_support, *track.points]
+    return not departed_dead_ball(
+        track.points,
+        all_points=all_points,
+        radius_pixels=max(median(box_diameters), 6.0),
+        clip_end_seconds=max(point.clip_seconds for point in all_points),
+    )
 
 
 def _discard_temporal_upper_body_points(
