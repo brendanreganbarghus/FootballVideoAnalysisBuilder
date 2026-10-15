@@ -3057,6 +3057,26 @@ async function loadState(segment, segmentInfo, drafts) {
       };
       state.coordinateReview.batches ||= [];
       state.coordinateReview.activeBatchId ||= null;
+      // A freshly tracked segment that stopped for coordinate review opens
+      // round 1 with every frame that is not direct, so decisions can start.
+      if (
+        !state.coordinateReview.batches.length
+        && !state.coordinateReview.flaggedFrames?.length
+        && state.coordinateReview.status !== "finalized"
+        && ballCoordinateReviewRequired(segmentInfo)
+      ) {
+        const provenance = await readJson(
+          join(segmentRoot(segment), "analytics-data", "ball-provenance.json"),
+          null,
+        );
+        const estimated = (provenance?.estimated_frames || [])
+          .map(Number)
+          .filter(Number.isInteger);
+        if (estimated.length) {
+          state.coordinateReview.flaggedFrames = estimated;
+          changed = true;
+        }
+      }
       if (
         !state.coordinateReview.batches.length
         && state.coordinateReview.flaggedFrames?.length
