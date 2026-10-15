@@ -1124,7 +1124,7 @@ export function renderHtml({ adapter } = {}) {
     }
     .ball-frame-table-wrap {
       width: 100%;
-      max-height: 300px;
+      max-height: max(300px, 60dvh);
       overflow: auto;
       overscroll-behavior: contain;
       scrollbar-gutter: stable;
