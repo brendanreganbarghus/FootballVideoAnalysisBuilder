@@ -903,6 +903,17 @@ def _track_cached_balls_impl(
     _withdraw_off_path_weak_detector_runs(ledger, frame_step)
     _withdraw_stalled_flipbook_picks(ledger, frame_step)
     _withdraw_isolated_unbacked_islands(ledger, fps=manifest.fps, frame_step=frame_step)
+    # A one-sided flight starts from a confirmed end, so it runs once the
+    # scenery check and withdrawals have removed false points from the gap.
+    ledger = _timed_tracker_call(
+        AERIAL_ONE_SIDED_MODULE,
+        _confirm_one_sided_aerial_flights,
+        ledger,
+        records_by_frame=records_by_frame,
+        video=manifest.video,
+        fps=manifest.fps,
+        max_speed_pixels_per_second=max_speed_pixels_per_second,
+    )
     learned_colour_range = _learned_ball_colour_range(
         [point for record in records for point in _ball_points(record)],
         manifest.video,
@@ -1019,6 +1030,7 @@ def _track_cached_balls_impl(
                         "04_focused_multiscale",
                         "05_short_stationary",
                         "06_time_machine_region_search",
+                        AERIAL_ONE_SIDED_MODULE,
                         "02_time_machine",
                     ],
                     "summary": ledger.module_summary(),

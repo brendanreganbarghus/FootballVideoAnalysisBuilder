@@ -7801,7 +7801,8 @@ export function renderHtml({ adapter } = {}) {
         "02_aerial_flight": "Guess from flight path",
         "02_flipbook_time_machine": "Flip-book YOLO close-up",
         "03_motion_and_optical_flow": "Motion / optical flow",
-        "04_focused_multiscale": "YOLO close-up crop"
+        "04_focused_multiscale": "YOLO close-up crop",
+        "07_aerial_one_sided_flight": "Motion trail leaving a sighting"
       };
       const label = labels[module]
         || (point.engineInterpolated ? "Filled between sightings" : module)

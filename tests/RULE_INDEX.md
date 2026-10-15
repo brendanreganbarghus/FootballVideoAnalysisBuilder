@@ -269,3 +269,4 @@ baseline suites (`tests/test_possession.py`, `tests/test_match_state.py`,
 | 20261015T161133797Z | tracking | A brightly coloured boot can get a confident ball box. | `tests/tracking/test_confident_box_far_from_ball_colour_20261015T161133797Z.py::test_confident_box_far_from_ball_colour_20261015T161133797Z` |
 | 20261015T163003708Z | tracking | A track linked frame by frame from launch to landing is the ball. | `tests/tracking/test_aerial_end_to_end_tracklet_20261015T163003708Z.py::test_aerial_end_to_end_tracklet_20261015T163003708Z` |
 | 20261015T163003709Z | tracking | A fast ball in the air is a streak, not a dot. | `tests/tracking/test_aerial_keeps_blurred_ball_streak_20261015T163003709Z.py::test_aerial_keeps_blurred_ball_streak_20261015T163003709Z` |
+| 20261015T165226387Z | tracking | A kicked ball is followed from the sighting it leaves. | `tests/tracking/test_aerial_one_sided_flight_20261015T165226387Z.py::test_aerial_one_sided_flight_20261015T165226387Z` |
