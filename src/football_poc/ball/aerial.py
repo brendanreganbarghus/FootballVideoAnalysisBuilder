@@ -16,7 +16,9 @@ AERIAL_PROFILE = FrozenProfile({
     "maximum_gap_frames": 125,
     "difference_threshold": 12,
     "minimum_blob_area": 3,
-    "maximum_blob_area": 400,
+    # A fast ball is a blur streak up to the maximum side long; lying
+    # diagonally it fills about half of that square.
+    "maximum_blob_area": 800,
     "maximum_blob_side": 40,
     "link_distance_pixels": 40.0,
     "link_prediction_pixels": 12.0,
@@ -425,7 +427,38 @@ def _aerial_model(s, e, points, blobs, window=None, index=None):
     return (s2, e2, params), inliers
 
 
+def _aerial_end_to_end_tracklet(s, e, tracks):
+    """One unbroken motion track from beside one confirmed end to the other.
+
+    A high flight seen through the panorama lens does not follow a simple
+    curve, but the ball still moves in every frame. A track linked frame by
+    frame from launch to landing is then direct evidence of the flight, as
+    long as no other track also joins both ends.
+    """
+    reach = float(AERIAL_PROFILE["link_distance_pixels"])
+    joining = [
+        track
+        for track in tracks
+        if track[0][0] == s[0] + 1
+        and track[-1][0] == e[0] - 1
+        and hypot(track[0][1] - s[1], track[0][2] - s[2]) <= reach
+        and hypot(track[-1][1] - e[1], track[-1][2] - e[2]) <= reach
+    ]
+    if len(joining) != 1:
+        return None
+    track = joining[0]
+    inliers = {t: (x, y) for t, x, y in track}
+    return len(inliers), (s, e, (0.0, 0.0, 0.0, 0.0)), inliers
+
+
 def _aerial_best_path(s, e, blobs):
+    best = _aerial_curve_path(s, e, blobs)
+    if best is not None:
+        return best
+    return _aerial_end_to_end_tracklet(s, e, _aerial_tracklets(blobs))
+
+
+def _aerial_curve_path(s, e, blobs):
     profile = AERIAL_PROFILE
     models = []
     index = _aerial_blob_index(blobs)
