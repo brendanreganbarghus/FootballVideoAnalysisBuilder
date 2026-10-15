@@ -513,6 +513,49 @@ def _blip_on_unbroken_line(
     return True
 
 
+def _trapped_next(
+    track: list[tuple[int, float, float, float]],
+    index: int,
+    receiver: dict[str, Any],
+    next_boxes: Iterable[dict[str, Any]],
+    settings: ChronoSettings,
+    noise_px: float,
+) -> bool:
+    """The ball rolls up to the receiver and stops dead on the next sample.
+
+    Grass slows a rolling ball gently; a ball that stops or turns sharply
+    in one sample was stopped by a body. When it rolls into one player's
+    reach and no opponent is at the ball where it stops, he trapped it,
+    even if the camera loses his box at that moment.
+    """
+    if index > len(track) - 3:
+        return False
+    near = settings.touch_neighbour_gap_seconds
+    at, stop, after = (track[i][1:] for i in range(index, index + 3))
+    if not (0 < stop[0] - at[0] <= near and 0 < after[0] - stop[0] <= near):
+        return False
+    v1 = (stop[1] - at[1], stop[2] - at[2])
+    v2 = (after[1] - stop[1], after[2] - stop[2])
+    s1 = hypot(*v1) / (stop[0] - at[0])
+    s2 = hypot(*v2) / (after[0] - stop[0])
+    stopped = settings.stopped_speed_px_per_second
+    if s1 < stopped:
+        return False
+    change = _movement_change_px(at, stop, after)
+    if change is not None and hypot(*change) < (
+        settings.touch_noise_multiple * noise_px * sqrt(6)
+    ):
+        return False
+    if s2 >= stopped:
+        cos = (v1[0] * v2[0] + v1[1] * v2[1]) / (hypot(*v1) * hypot(*v2))
+        turn = degrees(acos(max(-1.0, min(1.0, cos))))
+        if turn < settings.touch_turn_degrees and s1 / s2 < settings.touch_speed_ratio:
+            return False
+    # A teammate drawn at the ball does not contest it; an opponent does.
+    other = _toucher((stop[1], stop[2]), next_boxes, settings)
+    return other is None or str(other["team"]) == str(receiver["team"])
+
+
 def _rolling_through(
     before: tuple[float, float, float],
     at: tuple[float, float, float],
@@ -986,11 +1029,18 @@ def run_chronological(
             candidate.last_seconds = t
             candidate.feet = _feet(box)
         else:
+            trapped = False
             if rolling and touch is None and (owner is None or owner.track_id != track_id):
-                # The ball rolls past this player unchanged: not received yet.
-                candidate = None
-                continue
+                trapped = index + 1 not in lofted and _trapped_next(
+                    track, index, box, players.get(track[index + 1][0], []), settings, noise_px
+                )
+                if not trapped:
+                    # The ball rolls past this player unchanged: not received yet.
+                    candidate = None
+                    continue
             candidate = _Control(track_id, team, t, t, _feet(box), height)
+            if trapped:
+                candidate.samples = settings.control_confirm_samples
             if index > 0 and touch is None and carried is None:
                 # Trajectory estimates between the previous seen frame and
                 # this one support (never start) control by the player who
