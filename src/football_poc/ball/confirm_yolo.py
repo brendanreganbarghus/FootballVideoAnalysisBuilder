@@ -174,6 +174,10 @@ BALL_COLOUR_CORE_DIAMETERS = 0.4
 BALL_COLOUR_MINIMUM_CHROMA_DISTANCE = 12.0
 BALL_COLOUR_RANGE_PERCENTILES = (5.0, 95.0)
 BALL_COLOUR_MINIMUM_HALF_RANGE = 5.0
+# A confident box can still be a brightly coloured boot. Its colour is then
+# far outside the ball's learned range, further than lighting and motion blur
+# move a real ball, so detector confidence does not excuse it.
+BALL_COLOUR_FAR_MARGIN = 20.0
 
 
 def _standout_chroma(
@@ -335,6 +339,16 @@ def _ball_colour_check(
             return True
         return bool(colour_low <= sample <= colour_high)
 
+    def far_from_ball(point: BallPoint) -> bool:
+        sample = chroma.get((point.source_frame, float(point.x), float(point.y)))
+        if sample is None:
+            return False
+        return bool(
+            sample < colour_low - BALL_COLOUR_FAR_MARGIN
+            or sample > colour_high + BALL_COLOUR_FAR_MARGIN
+        )
+
+    matches.far_from_ball = far_from_ball
     return matches
 
 
@@ -1118,6 +1132,13 @@ def _candidate_rejection_reason(
         candidate.point == point and candidate.near_player_feet
         for candidate in candidates_by_frame.get(point.source_frame, [])
     )
+    far_from_ball = getattr(ball_colour_matches, "far_from_ball", None)
+    if (
+        far_from_ball is not None
+        and point.source_attribution == "yolo26_observed"
+        and far_from_ball(point)
+    ):
+        return "colour_far_from_ball", near_feet
     # A weak box without ball colour is grass, a line or a sliver of kit,
     # whether or not it sits near a player's feet.
     if (
@@ -1242,7 +1263,16 @@ def _confirm_yolo_detections(
         ball_colour_matches=(
             _ball_colour_check(
                 detector_points,
-                _weak_feet_candidates(candidates_by_frame),
+                [
+                    *_weak_feet_candidates(candidates_by_frame),
+                    *(
+                        candidate.point
+                        for candidates in candidates_by_frame.values()
+                        for candidate in candidates
+                        if candidate.point.source_attribution == "yolo26_observed"
+                        and candidate.point.confidence >= BALL_COLOUR_WEAK_CONFIDENCE
+                    ),
+                ],
                 video,
             )
             if video is not None
