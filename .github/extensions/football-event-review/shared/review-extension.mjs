@@ -7193,6 +7193,59 @@ async function handleRequest(request, response, serverInstanceId) {
     }
     return;
   }
+  // Process AI on a passed segment: rebuild E# with the current engine from
+  // the cached detections and ball coordinates, and keep the new output.
+  // The previous output is copied aside first so it can be restored.
+  if (
+    request.method === "POST"
+    && url.pathname === "/api/review/reprocess-passed"
+  ) {
+    try {
+      const body = await readBody(request);
+      const segment = requestedSegment(url, body);
+      const segments = await loadPreparedSegments();
+      const selected = segments.find((candidate) => candidate.key === segment);
+      if (!selected?.validated) {
+        throw new CanvasError(
+          "segment_not_passed",
+          "Only a passed segment can be reprocessed from this button.",
+        );
+      }
+      if (activeSegmentRegressions.has(segment)) {
+        throw new CanvasError(
+          "regression_in_progress",
+          `A regression rerun is active for ${segment}.`,
+        );
+      }
+      const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+      await Promise.all(
+        ["predicted-events.json", "match-state-events.json"].map(
+          async (name) => {
+            const path = join(segmentRoot(segment), "analytics-data", name);
+            const bytes = await readFile(path).catch(() => null);
+            if (bytes !== null) {
+              await writeFile(
+                path.replace(/\.json$/, `.before-reprocess-${stamp}.json`),
+                bytes,
+              );
+            }
+          },
+        ),
+      );
+      await localJson(workflow.analyzePath, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({cache_key: segment, events_only: true}),
+      });
+      sendJson(response, 202, {accepted: true, segment, status: "running"});
+    } catch (error) {
+      sendJson(response, 400, {
+        error: error.message || String(error),
+        code: error.code || "reprocess_failed",
+      });
+    }
+    return;
+  }
   if (request.method === "GET" && url.pathname === "/api/ball-track") {
     const segment = requestedSegment(url);
     const audit = url.searchParams.get("audit") === "1";

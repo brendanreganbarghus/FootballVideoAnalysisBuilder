@@ -1190,6 +1190,8 @@ export function renderHtml({ adapter } = {}) {
     .coordinate-review-result {
       display: inline-flex;
       align-items: center;
+      justify-content: center;
+      text-align: center;
       border: 1px solid var(--border-color-default, #30363d);
       border-radius: 999px;
       padding: 3px 8px;
@@ -1258,6 +1260,9 @@ export function renderHtml({ adapter } = {}) {
     .shared-review-table .regression-action:hover {
       border-color: var(--true-color-blue, #79c0ff);
       background: rgb(31 111 235 / 34%);
+    }
+    .shared-review-table .reprocess-action {
+      margin-left: 6px;
     }
     .shared-review-table .segment-replay-action {
       min-height: 30px;
@@ -7217,13 +7222,36 @@ export function renderHtml({ adapter } = {}) {
                   ? "Regression running for " + segment.timeLabel
                   : "Run regression for " + segment.timeLabel
               );
-              if (regressionJob?.message) {
-                button.title = regressionJob.message;
-              }
+              button.title = (regressionJob?.message
+                ? regressionJob.message + "\n\n" : "")
+                + "Run regression: rebuilds E# with the newest engine from "
+                + "the saved YOLO detections and ball coordinates (no YOLO "
+                + "rerun), compares it with the published E#, reports what "
+                + "was added or missing, then puts the published E# back. "
+                + "Nothing shown in the Canvas changes.";
               button.addEventListener("click", () => {
                 runPublishedSegmentRegression(segment);
               });
               cell.append(button);
+              const reprocess = document.createElement("button");
+              reprocess.type = "button";
+              reprocess.className = "regression-action reprocess-action";
+              reprocess.textContent = "Process AI";
+              reprocess.disabled = regressionRunning || segmentRunActive();
+              reprocess.setAttribute(
+                "aria-label",
+                "Process AI again for " + segment.timeLabel
+              );
+              reprocess.title =
+                "Process AI: rebuilds E# with the newest engine from the "
+                + "saved YOLO detections and ball coordinates (no YOLO "
+                + "rerun) and KEEPS the new E#. The previous E# is copied "
+                + "aside first. The segment stays Passed only if the new "
+                + "E# still matches every M# one to one.";
+              reprocess.addEventListener("click", () => {
+                void reprocessPassedSegment(segment, reprocess);
+              });
+              cell.append(reprocess);
             }
             row.append(cell);
           });
@@ -7444,6 +7472,29 @@ export function renderHtml({ adapter } = {}) {
 
     async function runPublishedSegmentRegression(segment) {
       return runPublishedSegmentRegressions([segment]);
+    }
+
+    async function reprocessPassedSegment(segment, button) {
+      button.disabled = true;
+      button.textContent = "Starting…";
+      const status = document.getElementById("composer-status");
+      try {
+        const response = await fetch("/api/review/reprocess-passed", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({segment: segment.key})
+        });
+        const result = await response.json();
+        if (!response.ok) {
+          throw new Error(result.error || "Process AI could not start");
+        }
+        status.textContent = segment.timeLabel
+          + ": Process AI started with the newest engine.";
+      } catch (error) {
+        status.textContent = segment.timeLabel + ": " + error.message;
+      } finally {
+        await loadState();
+      }
     }
 
     async function runPublishedSegmentRegressions(segments) {
