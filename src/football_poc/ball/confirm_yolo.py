@@ -761,13 +761,22 @@ def _withdraw_one_frame_detours(
                 # Only detections weaker than a neighbour are the detour; when
                 # both neighbours are weaker, they are the doubtful points.
                 # A neighbour locked as a multi-frame detector chain is not
-                # doubtful: agreement across frames outweighs one score.
+                # doubtful: agreement across frames outweighs one score. The
+                # same holds for a neighbour that continues steady confirmed
+                # motion.
                 strongest_member = max(
                     float(member.confidence or 0.0) for member in members
                 )
                 if all(
                     neighbour.confirming_module != LOCK_YOLO_CHAIN_MODULE
                     and float(neighbour.confidence or 0.0) <= strongest_member
+                    and not _continues_confirmed_momentum(
+                        neighbour.source_frame,
+                        float(neighbour.x),
+                        float(neighbour.y),
+                        confirmed,
+                        frame_step=frame_step,
+                    )
                     for neighbour in (previous, following)
                 ):
                     continue
@@ -870,6 +879,65 @@ def _earlier_object_reason(
     return None
 
 
+# A rolling or flying ball keeps its velocity between touches. When three
+# confirmed samples in a row (on either side) show steady motion, a box on
+# the next predicted spot is backed by that motion: blur may wash out its
+# colour, but no static object or patch of grass follows the ball's path.
+MOMENTUM_CHAIN_SAMPLES = 3
+MOMENTUM_MINIMUM_STEP_PIXELS = 10.0
+MOMENTUM_TOLERANCE_FRACTION = 0.35
+MOMENTUM_MINIMUM_TOLERANCE_PIXELS = 8.0
+
+
+def _continues_confirmed_momentum(
+    source_frame: int,
+    x: float,
+    y: float,
+    confirmed: Mapping[int, Any],
+    *,
+    frame_step: int,
+) -> bool:
+    if frame_step < 1:
+        return False
+    for direction in (-1, 1):
+        chain = [
+            confirmed.get(source_frame + direction * offset * frame_step)
+            for offset in range(1, MOMENTUM_CHAIN_SAMPLES + 1)
+        ]
+        if any(
+            entry is None or entry.x is None or entry.y is None for entry in chain
+        ):
+            continue
+        steps = [
+            (float(a.x) - float(b.x), float(a.y) - float(b.y))
+            for a, b in zip(chain, chain[1:])
+        ]
+        length = hypot(*steps[0])
+        if length < MOMENTUM_MINIMUM_STEP_PIXELS:
+            continue
+        tolerance = max(
+            MOMENTUM_MINIMUM_TOLERANCE_PIXELS, length * MOMENTUM_TOLERANCE_FRACTION
+        )
+        if any(
+            hypot(step[0] - steps[0][0], step[1] - steps[0][1]) > tolerance
+            for step in steps[1:]
+        ):
+            continue
+        predicted_x = float(chain[0].x) + steps[0][0]
+        predicted_y = float(chain[0].y) + steps[0][1]
+        if hypot(x - predicted_x, y - predicted_y) <= tolerance:
+            return True
+    return False
+
+
+def _confirmed_by_frame(ledger: FrameLedger, *, exclude: int | None = None) -> dict[int, Any]:
+    return {
+        entry.source_frame: entry
+        for entry in ledger.entries.values()
+        if entry.status == "confirmed" and entry.source_frame != exclude
+    }
+
+
 EARLIER_OBJECT_RADIUS_PIXELS = 30.0
 EARLIER_OBJECT_BALL_SEPARATION = 3.0
 EARLIER_OBJECT_LOOKBACK_SAMPLES = 4
@@ -932,6 +1000,16 @@ def _candidate_rejection_reason(
         and point.source_attribution == "yolo26_observed"
         and point.confidence < BALL_COLOUR_WEAK_CONFIDENCE
         and not stands_out_from_grass(point)
+        and not (
+            ledger is not None
+            and _continues_confirmed_momentum(
+                point.source_frame,
+                float(point.x),
+                float(point.y),
+                _confirmed_by_frame(ledger, exclude=point.source_frame),
+                frame_step=frame_step,
+            )
+        )
     ):
         return "no_contrast_with_grass", False
     if _inside_player_upper_body(point, record) and not _strong_ball_behind_player(
@@ -1470,6 +1548,12 @@ def _extend_resting_ball_confirmations(
                     float(entry.y) - rest_y,
                 ) <= radius
                 if not at_rest:
+                    # A strong detection elsewhere shows the ball has left the
+                    # spot; whatever the disc shows after that is not the ball.
+                    if entry.status == "confirmed" and not _is_movable_detection(
+                        entry
+                    ):
+                        break
                     target_frame = grayscale.get(frame)
                     target = (
                         _resting_patch(target_frame, rest_x, rest_y, half)
