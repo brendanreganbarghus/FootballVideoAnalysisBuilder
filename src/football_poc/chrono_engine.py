@@ -85,6 +85,11 @@ class ChronoSettings:
     # between: a lone re-found sighting off that line is something else
     # (a boot, a sock), not the ball.
     off_line_max_gap_seconds: float = 0.8
+    # A pass played on first time: the ball arrives fast at a teammate of the
+    # player in control and is at his feet on one sighting only.
+    first_time_reception_speed_px_per_second: float = 200.0
+    # An unseen kick: the ball leaves a hidden gap much faster on its line.
+    hidden_kick: bool = True
 
 
 @dataclass
@@ -454,7 +459,7 @@ def _hidden_turn(
         return None
     cos = (u[0] * w[0] + u[1] * w[1]) / (s_in * s_out)
     if degrees(acos(max(-1.0, min(1.0, cos)))) < settings.touch_turn_degrees:
-        return None
+        return _hidden_kick(ta, (ax, ay), (bx, by), gap, u, w, settings, noise_px)
     # Where the ball would be if nothing touched it: clearly not where it is.
     miss = hypot(bx - (ax + u[0] * gap), by - (ay + u[1] * gap))
     if miss < settings.touch_noise_multiple * noise_px * sqrt(6):
@@ -474,6 +479,43 @@ def _hidden_turn(
         return None
     seconds = ta + min(arrive, gap)
     return seconds, ax + a * ux, ay + a * uy
+
+
+def _hidden_kick(
+    ta: float,
+    a_point: tuple[float, float],
+    b_point: tuple[float, float],
+    gap: float,
+    u: tuple[float, float],
+    w: tuple[float, float],
+    settings: ChronoSettings,
+    noise_px: float,
+) -> tuple[float, float, float] | None:
+    """Where and when an unseen kick sped the ball up along its own line.
+
+    A ball rolling on its own only slows down. When it leaves the unseen
+    samples at least ``touch_speed_ratio`` times faster than it arrived, and
+    clearly further on than its arriving speed could carry it, a player
+    kicked it on the way. The kick point splits the distance so that the
+    arriving and leaving speeds fill the unseen time.
+    """
+    if not settings.hidden_kick:
+        return None
+    s_in, s_out = hypot(*u), hypot(*w)
+    if s_out < settings.touch_speed_ratio * s_in:
+        return None
+    (ax, ay), (bx, by) = a_point, b_point
+    if hypot(bx - (ax + u[0] * gap), by - (ay + u[1] * gap)) < (
+        settings.touch_noise_multiple * noise_px * sqrt(6)
+    ):
+        return None
+    distance = hypot(bx - ax, by - ay)
+    # a / s_in + (distance - a) / s_out = gap
+    a = (gap - distance / s_out) / (1 / s_in - 1 / s_out)
+    if not 0 <= a <= distance:
+        return None
+    share = a / distance if distance > 0 else 0.0
+    return ta + a / s_in, ax + (bx - ax) * share, ay + (by - ay) * share
 
 
 def _blip_on_unbroken_line(
@@ -1040,6 +1082,24 @@ def run_chronological(
                     continue
             candidate = _Control(track_id, team, t, t, _feet(box), height)
             if trapped:
+                candidate.samples = settings.control_confirm_samples
+            elif (
+                settings.first_time_reception_speed_px_per_second > 0
+                and index > 1
+                and touch is None
+                and carried is None
+                and owner is not None
+                and owner.team == team
+                and owner.track_id != track_id
+                and reach <= settings.touch_radius_heights
+                and all(
+                    0 < track[k][1] - track[k - 1][1] <= settings.touch_neighbour_gap_seconds
+                    and hypot(track[k][2] - track[k - 1][2], track[k][3] - track[k - 1][3])
+                    / (track[k][1] - track[k - 1][1])
+                    >= settings.first_time_reception_speed_px_per_second
+                    for k in (index - 1, index)
+                )
+            ):
                 candidate.samples = settings.control_confirm_samples
             if index > 0 and touch is None and carried is None:
                 # Trajectory estimates between the previous seen frame and
