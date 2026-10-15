@@ -5386,6 +5386,12 @@ export function renderHtml({ adapter } = {}) {
 
     function syncReviewAnalysisModal(segment) {
       if (!reviewWorkflow.manualReferenceEnabled) return;
+      // A regression rebuild passes through the same processing states; the
+      // regression dashboard owns the overlay until its batch is closed.
+      if (regressionDashboardOpen) {
+        analysisModalMode = null;
+        return;
+      }
       if (
         segment.stage === "events"
         || (segment.state === "ready" && analysisModalMode === "evidence")
@@ -7560,10 +7566,25 @@ export function renderHtml({ adapter } = {}) {
             throw new Error(message || "Process AI failed");
           }
           if (current.state === "ready" && newRun) {
-            status.textContent = "Done. " + (current.validated
-              ? "The new E# matches every M#: the segment is still Passed."
-              : "The new E# no longer matches every M#: the segment is "
-                + "no longer Passed. Open it to see which events differ.");
+            status.textContent = "Saving the new output as the published baseline…";
+            let baseline = null;
+            for (;;) {
+              const reply = await fetch(
+                "/api/review/reprocess-passed?segment="
+                  + encodeURIComponent(segment.key)
+              );
+              baseline = (await reply.json()).baseline;
+              if (baseline !== "waiting" && baseline !== "running") break;
+              await new Promise(resolve => setTimeout(resolve, 2000));
+            }
+            status.textContent = baseline === "done"
+              ? "Done. The new E# matches every M#: the segment is still "
+                + "Passed and this output is now the regression baseline."
+              : baseline === "failed"
+                ? "The new E# was built, but saving it as the baseline "
+                  + "failed. Run regression will report a mismatch."
+                : "Done. The new E# no longer matches every M# one-to-one. "
+                  + "Open the segment to see which events differ.";
             break;
           }
           status.textContent = "Running: " + (message || current.state);

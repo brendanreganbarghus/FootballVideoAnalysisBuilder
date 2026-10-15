@@ -2210,6 +2210,8 @@ async function writeJsonAtomically(path, payload) {
   await writeTextAtomically(path, `${JSON.stringify(payload, null, 2)}\n`);
 }
 
+const reprocessRebaselines = new Map();
+
 async function registerWorkflowRegression(segment, reference, current) {
   const registry = await readJson(regressionRegistryPath, {
     schema_version: 1,
@@ -2256,6 +2258,127 @@ function publishPreparedSegmentBundle(segment, selected) {
       windowsHide: true,
     },
   ).trim();
+}
+
+// Process AI on a passed segment keeps its new E# output. When every golden
+// M# still maps one-to-one to E# with no extra E#, that output becomes the
+// published regression baseline; otherwise the baseline is left unchanged and
+// the segment shows the M#/E# differences.
+export async function rebaselineReprocessedSegment(segment) {
+  const review = await reviewContext(segment);
+  const published = review.state.publishedReference;
+  const approved = review.state.manualReference?.approved;
+  if (!published || !approved) {
+    return {segment, rebaselined: false, reason: "not_published"};
+  }
+  const current = await captureEngineSnapshot(segment, null, {
+    fromFiles: true,
+  });
+  const manualEvents = approved.events
+    .filter((event) => event.active && !event.deleted);
+  const engineEvents = snapshotEvents(current)
+    .filter((event) => workflow.analyticsEventTypes.includes(event.type))
+    .map((event, index) => ({...event, key: `E${index + 1}`}));
+  const mappingCount = Object.keys(
+    suggestManualMappings(manualEvents, engineEvents),
+  ).length;
+  if (
+    mappingCount !== manualEvents.length
+    || engineEvents.length !== manualEvents.length
+  ) {
+    return {
+      segment,
+      rebaselined: false,
+      reason: "golden_mismatch",
+      goldenMatched: `${mappingCount}/${manualEvents.length}`,
+      engineEventCount: engineEvents.length,
+    };
+  }
+  const reference = await readJson(
+    join(segmentRoot(segment), "manual-reference.json"),
+    null,
+  );
+  if (!reference?.events?.length) {
+    return {segment, rebaselined: false, reason: "reference_missing"};
+  }
+  const registry = await readJson(regressionRegistryPath, {segments: []});
+  const previousOutputHash = (registry.segments || []).find(
+    (entry) => entry.segment === segment,
+  )?.output_hash || published.outputHash;
+  publishPreparedSegmentBundle(segment, review.selected);
+  const rebaselinedAt = new Date().toISOString();
+  review.state.publishedReference = {
+    ...published,
+    engineContentHash: current.fingerprint.contentHash,
+    outputHash: current.outputHash,
+    analysisScope: publishedAnalysisScope(current),
+    rebaselinedAt,
+    baselineHistory: [
+      ...(published.baselineHistory || []),
+      {
+        engineContentHash: published.engineContentHash,
+        outputHash: previousOutputHash,
+        replacedAt: rebaselinedAt,
+      },
+    ],
+  };
+  review.state.engineAfter = current;
+  // The previous regression result compared an older baseline.
+  review.state.regression = null;
+  refreshEngineReferenceValidation(
+    review.state,
+    current,
+    "rebaseline_after_process_ai",
+  );
+  review.state.conversation.push({
+    role: "system",
+    content: (
+      "Process AI output is the new published baseline: "
+      + `${mappingCount}/${manualEvents.length} golden M# matched, `
+      + `${engineEvents.length} E#.`
+    ),
+    eventIndex: null,
+    timestamp: rebaselinedAt,
+  });
+  await registerWorkflowRegression(
+    segment,
+    {...reference, exported_at: rebaselinedAt},
+    current,
+  );
+  await saveState(segment, review.state);
+  return {
+    segment,
+    rebaselined: true,
+    previousOutputHash,
+    outputHash: current.outputHash,
+    goldenMatched: `${mappingCount}/${manualEvents.length}`,
+  };
+}
+
+async function rebaselineWhenReprocessFinishes(segment, previousRunId) {
+  const deadline = Date.now() + 60 * 60 * 1000;
+  while (Date.now() < deadline) {
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 3000));
+    const segments = await loadPreparedSegments().catch(() => null);
+    const selected = segments?.find((candidate) => candidate.key === segment);
+    if (!selected) continue;
+    if ((selected.runProvenance?.run_id || "") === previousRunId) continue;
+    if (selected.state === "failed") {
+      reprocessRebaselines.set(segment, "process_failed");
+      return;
+    }
+    if (selected.state !== "ready") continue;
+    reprocessRebaselines.set(segment, "running");
+    try {
+      const result = await rebaselineReprocessedSegment(segment);
+      reprocessRebaselines.set(segment, result.rebaselined ? "done" : "skipped");
+    } catch (error) {
+      reprocessRebaselines.set(segment, "failed");
+      console.error(`Re-baseline after Process AI failed for ${segment}:`, error);
+    }
+    return;
+  }
+  reprocessRebaselines.set(segment, "timeout");
 }
 
 // Directory entries (ending in /) expand to their sorted .py files so the
@@ -7244,11 +7367,14 @@ async function handleRequest(request, response, serverInstanceId) {
           },
         ),
       );
+      const previousRunId = selected.runProvenance?.run_id || "";
       await localJson(workflow.analyzePath, {
         method: "POST",
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify({cache_key: segment, events_only: true}),
       });
+      reprocessRebaselines.set(segment, "waiting");
+      rebaselineWhenReprocessFinishes(segment, previousRunId);
       sendJson(response, 202, {accepted: true, segment, status: "running"});
     } catch (error) {
       sendJson(response, 400, {
@@ -7256,6 +7382,17 @@ async function handleRequest(request, response, serverInstanceId) {
         code: error.code || "reprocess_failed",
       });
     }
+    return;
+  }
+  if (
+    request.method === "GET"
+    && url.pathname === "/api/review/reprocess-passed"
+  ) {
+    const segment = requestedSegment(url);
+    sendJson(response, 200, {
+      segment,
+      baseline: reprocessRebaselines.get(segment) || null,
+    });
     return;
   }
   if (request.method === "GET" && url.pathname === "/api/ball-track") {
