@@ -1737,7 +1737,7 @@ def _load_player_cache(
     metadata = json.loads(lines[0])
     if metadata.get("manifest_sha256") != manifest_sha256 and not (
         manifest_path is not None
-        and cache_matches_manifest(metadata, manifest_path)
+        and cache_matches_manifest(metadata, manifest_path, cache_path)
     ):
         raise ValueError("Player cache was created for a different manifest")
     records = [

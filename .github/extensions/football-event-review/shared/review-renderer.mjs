@@ -3803,6 +3803,31 @@ export function renderHtml({ adapter } = {}) {
     </form>
   </dialog>
   ` : ""}
+  <dialog class="engine-verification-modal" id="reprocess-passed-modal"
+    aria-labelledby="reprocess-passed-title">
+    <form method="dialog">
+      <header>
+        <h2 id="reprocess-passed-title">Process AI on a passed segment</h2>
+        <p class="muted" id="reprocess-passed-target"></p>
+      </header>
+      <p>
+        Rebuilds E# with the newest engine from the saved YOLO detections
+        and ball coordinates. YOLO is not run again. The new E# is kept;
+        the previous E# files are copied aside first.
+      </p>
+      <p class="muted">
+        The segment stays Passed only if the new E# still matches every M#
+        one to one. Use Run regression instead to only compare.
+      </p>
+      <p id="reprocess-passed-status" aria-live="polite"></p>
+      <div class="engine-verification-actions">
+        <button id="cancel-reprocess-passed" type="button">Cancel</button>
+        <button id="confirm-reprocess-passed" type="button">
+          Process AI
+        </button>
+      </div>
+    </form>
+  </dialog>
   <dialog class="engine-verification-modal" id="ball-source-switch-modal"
     aria-labelledby="ball-source-switch-title">
     <form method="dialog">
@@ -6563,6 +6588,7 @@ export function renderHtml({ adapter } = {}) {
         ".ball-frame-flag",
         ".shared-review-table button",
         ".segment-replay-modal button",
+        "#reprocess-passed-modal button",
         "#ball-frame-filter",
         "#show-engine-ball-marker",
         "#show-engine-compare-marker",
@@ -7223,7 +7249,7 @@ export function renderHtml({ adapter } = {}) {
                   : "Run regression for " + segment.timeLabel
               );
               button.title = (regressionJob?.message
-                ? regressionJob.message + "\n\n" : "")
+                ? regressionJob.message + " · " : "")
                 + "Run regression: rebuilds E# with the newest engine from "
                 + "the saved YOLO detections and ball coordinates (no YOLO "
                 + "rerun), compares it with the published E#, reports what "
@@ -7249,7 +7275,7 @@ export function renderHtml({ adapter } = {}) {
                 + "aside first. The segment stays Passed only if the new "
                 + "E# still matches every M# one to one.";
               reprocess.addEventListener("click", () => {
-                void reprocessPassedSegment(segment, reprocess);
+                void reprocessPassedSegment(segment);
               });
               cell.append(reprocess);
             }
@@ -7474,11 +7500,44 @@ export function renderHtml({ adapter } = {}) {
       return runPublishedSegmentRegressions([segment]);
     }
 
-    async function reprocessPassedSegment(segment, button) {
-      button.disabled = true;
-      button.textContent = "Starting…";
-      const status = document.getElementById("composer-status");
+    async function reprocessPassedSegment(segment) {
+      const modal = document.getElementById("reprocess-passed-modal");
+      const status = document.getElementById("reprocess-passed-status");
+      const confirm = document.getElementById("confirm-reprocess-passed");
+      const cancel = document.getElementById("cancel-reprocess-passed");
+      document.getElementById("reprocess-passed-target").textContent =
+        segment.timeLabel + " · " + segment.key;
+      status.textContent = "";
+      confirm.hidden = false;
+      confirm.disabled = false;
+      cancel.textContent = "Cancel";
+      modal.showModal();
+      const started = await new Promise(resolve => {
+        const finish = value => {
+          confirm.onclick = null;
+          cancel.onclick = null;
+          resolve(value);
+        };
+        confirm.onclick = () => finish(true);
+        cancel.onclick = () => finish(false);
+      });
+      if (!started) {
+        modal.close();
+        return;
+      }
+      confirm.disabled = true;
+      cancel.textContent = "Close";
+      cancel.onclick = () => modal.close();
+      const readSegment = async () => {
+        const response = await fetch(
+          "/api/state?segment=" + encodeURIComponent(segment.key)
+        );
+        return (await response.json()).segment || {};
+      };
       try {
+        const before = await readSegment();
+        const beforeRun = before.runProvenance?.run_id || "";
+        status.textContent = "Starting…";
         const response = await fetch("/api/review/reprocess-passed", {
           method: "POST",
           headers: {"Content-Type": "application/json"},
@@ -7488,11 +7547,28 @@ export function renderHtml({ adapter } = {}) {
         if (!response.ok) {
           throw new Error(result.error || "Process AI could not start");
         }
-        status.textContent = segment.timeLabel
-          + ": Process AI started with the newest engine.";
+        for (;;) {
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          const current = await readSegment();
+          const newRun = (current.runProvenance?.run_id || "") !== beforeRun;
+          const message = current.statusMessage
+            || current.runProvenance?.message || current.stage || "";
+          if (current.state === "failed" && newRun) {
+            throw new Error(message || "Process AI failed");
+          }
+          if (current.state === "ready" && newRun) {
+            status.textContent = "Done. " + (current.validated
+              ? "The new E# matches every M#: the segment is still Passed."
+              : "The new E# no longer matches every M#: the segment is "
+                + "no longer Passed. Open it to see which events differ.");
+            break;
+          }
+          status.textContent = "Running: " + (message || current.state);
+        }
       } catch (error) {
-        status.textContent = segment.timeLabel + ": " + error.message;
+        status.textContent = "Process AI failed: " + error.message;
       } finally {
+        confirm.hidden = true;
         await loadState();
       }
     }
