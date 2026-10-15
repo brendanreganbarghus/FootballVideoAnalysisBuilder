@@ -1,4 +1,5 @@
 import json
+import shutil
 from pathlib import Path
 
 import pytest
@@ -144,6 +145,22 @@ def test_publication_skips_reprocess_backups(tmp_path: Path) -> None:
 
     names = {path.name for path in (published.root / "analytics-data").iterdir()}
     assert names == {"predicted-events.json"}
+
+
+def test_discovery_skips_leftover_publication_folders(tmp_path: Path) -> None:
+    source = tmp_path / "generated" / "segment-0120-020"
+    _write_publishable_segment(source)
+    artifact_root = tmp_path / "artifacts"
+    published = publish_prepared_segment(
+        source,
+        artifact_root=artifact_root,
+        source_metadata={"camera_id": "camera-1", "recording_id": "recording-1"},
+    )
+    shutil.copytree(
+        published.root, published.root.with_name(".segment-0120-020.previous")
+    )
+
+    assert discover_prepared_segments(artifact_root) == (published,)
 
 def test_publishing_flat_segment_replaces_previous_bundle(
     tmp_path: Path,

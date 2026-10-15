@@ -2739,7 +2739,18 @@ async function executePublishedReviewRegression(segment, progress) {
           : writeFile(path, originalOutputBytes[index])
       ));
     }
-    publishPreparedSegmentBundle(segment, review.selected);
+    try {
+      publishPreparedSegmentBundle(segment, review.selected);
+    } catch (publishError) {
+      // Never let a publication error hide the engine failure that led here.
+      const detail = "Publishing failed: "
+        + (publishError.message || String(publishError));
+      if (progress.status === "failed") {
+        progress.message = `${progress.message}\n${detail}`;
+      } else {
+        throw publishError;
+      }
+    }
     updateSegmentRegressionProgress(progress, "restore", "completed");
     progress.completedAt = new Date().toISOString();
     if (completedResult) {

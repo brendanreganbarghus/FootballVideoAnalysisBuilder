@@ -6187,7 +6187,10 @@ export function renderHtml({ adapter } = {}) {
       clearInterval(segmentLoadingTimer);
       segmentLoadingTimer = null;
       segmentLoadingStartedAt = null;
-      if (regressionDashboardCloseTimer === null) {
+      // Keep a failed or mismatched result on screen until it is closed.
+      const allPassed = batchJobs.every(({job}) => job?.status === "passed");
+      document.getElementById("segment-loading-close").hidden = false;
+      if (allPassed && regressionDashboardCloseTimer === null) {
         regressionDashboardCloseTimer = setTimeout(() => {
           regressionDashboardOpen = false;
           regressionDashboardCloseTimer = null;

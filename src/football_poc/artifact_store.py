@@ -99,7 +99,15 @@ def _remove_tree(path: Path) -> None:
         os.chmod(item, stat.S_IWRITE)
         operation(item)
 
-    shutil.rmtree(path, onexc=remove_readonly)
+    # The extended-length prefix lets Windows delete paths past 260 chars.
+    target = str(Path(path).resolve())
+    if os.name == "nt" and not target.startswith("\\\\?\\"):
+        target = (
+            "\\\\?\\UNC\\" + target[2:]
+            if target.startswith("\\\\")
+            else "\\\\?\\" + target
+        )
+    shutil.rmtree(target, onexc=remove_readonly)
 
 
 def _load_shared_segment(path: Path) -> SharedPreparedSegment:
@@ -144,6 +152,9 @@ def discover_prepared_segments(
         return ()
     segments: dict[str, SharedPreparedSegment] = {}
     for manifest in sorted(catalog.glob("*/*/*/segment.json")):
+        # Dot folders are publication staging/backups, never live segments.
+        if manifest.parent.name.startswith("."):
+            continue
         segment = _load_shared_segment(manifest)
         if segment.segment_id in segments:
             raise ValueError(

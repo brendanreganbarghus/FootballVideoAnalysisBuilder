@@ -435,7 +435,16 @@ def main() -> None:
             + "\n",
             encoding="utf-8",
         )
-        temporary.replace(status_path)
+        # OneDrive sync and Canvas status polling can hold the file for a
+        # moment; retry the atomic swap instead of failing the whole run.
+        for attempt in range(40):
+            try:
+                temporary.replace(status_path)
+                break
+            except PermissionError:
+                if attempt == 39:
+                    raise
+                time.sleep(0.25)
 
     stage_seconds: dict[str, float] = {}
 
