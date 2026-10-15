@@ -20,6 +20,10 @@ AERIAL_PROFILE = FrozenProfile({
     # diagonally it fills about half of that square.
     "maximum_blob_area": 800,
     "maximum_blob_side": 40,
+    # A longer blob is still the ball when it is a thin streak no longer than
+    # one frame of the fastest ball travel plus the ball itself.
+    "streak_length_allowance_pixels": 20.0,
+    "streak_maximum_thickness_pixels": 16.0,
     "link_distance_pixels": 40.0,
     "link_prediction_pixels": 12.0,
     "minimum_tracklet_frames": 5,
@@ -207,6 +211,20 @@ def _aerial_streamed_blobs(video, start, end, people_by_frame, s, e, max_step):
     return blobs
 
 
+def _aerial_fast_streak(area, width, height, max_step):
+    """A thin smear no longer than one frame of the fastest ball travel.
+
+    A ball kicked hard moves further in one frame than the compact blob size
+    allows, so its motion difference is a long thin streak. A moving player or
+    crowd patch of that length is far thicker.
+    """
+    profile = AERIAL_PROFILE
+    length = hypot(width, height)
+    if length > max_step + float(profile["streak_length_allowance_pixels"]):
+        return False
+    return area / max(length, 1.0) <= float(profile["streak_maximum_thickness_pixels"])
+
+
 def _aerial_frame_blobs(previous, current, following, t, people_by_frame, s, e, max_step):
     profile = AERIAL_PROFILE
     difference = cv2.min(
@@ -221,15 +239,15 @@ def _aerial_frame_blobs(previous, current, following, t, people_by_frame, s, e, 
     found = []
     for index in range(1, count):
         area = int(stats[index, cv2.CC_STAT_AREA])
-        if not (
-            int(profile["minimum_blob_area"])
-            <= area
-            <= int(profile["maximum_blob_area"])
-        ):
+        width = int(stats[index, cv2.CC_STAT_WIDTH])
+        height = int(stats[index, cv2.CC_STAT_HEIGHT])
+        if area < int(profile["minimum_blob_area"]):
             continue
-        if max(stats[index, cv2.CC_STAT_WIDTH], stats[index, cv2.CC_STAT_HEIGHT]) > int(
-            profile["maximum_blob_side"]
-        ):
+        compact = (
+            area <= int(profile["maximum_blob_area"])
+            and max(width, height) <= int(profile["maximum_blob_side"])
+        )
+        if not compact and not _aerial_fast_streak(area, width, height, max_step):
             continue
         x, y = float(centres[index][0]), float(centres[index][1])
         if hypot(x - s[1], y - s[2]) > max_step * (t - s[0]) + 20:
@@ -672,10 +690,11 @@ AERIAL_ONE_SIDED_MODULE = "07_aerial_one_sided_flight"
 # a near straight line, which a player's feet or body never do for long. That
 # straight seed is followed with a curve fitted over its recent points, so a
 # single stray blob beside a player cannot pull the track off the ball. A
-# followed track lasting at least a second is the flight; only the frames it
+# followed track lasting at least 0.8 seconds is the flight (a lofted ball is
+# often hidden behind players for the rest of its fall); only the frames it
 # covers are filled and the rest of the gap stays open.
 AERIAL_ONE_SIDED_PROFILE = FrozenProfile({
-    "minimum_track_seconds": 1.0,
+    "minimum_track_seconds": 0.8,
     # A ball can vanish for a frame or two against the stand or a line.
     "maximum_dropout_frames": 2,
     "search_frames": 125,
