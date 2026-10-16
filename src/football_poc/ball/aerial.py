@@ -31,6 +31,7 @@ AERIAL_PROFILE = FrozenProfile({
     "minimum_inlier_frames": 8,
     "minimum_inlier_fraction": 0.4,
     "rival_separation_pixels": 30.0,
+    "rival_minimum_apart_frames": 3,
     "rival_inlier_ratio": 0.7,
     "fill_reach_frames": 5,
     # A real flight leaves a continuous motion trail from launch to landing.
@@ -449,35 +450,68 @@ def _aerial_model(s, e, points, blobs, window=None, index=None):
     return (s2, e2, params), inliers
 
 
-def _aerial_end_to_end_tracklet(s, e, tracks):
-    """One unbroken motion track from beside one confirmed end to the other.
-
-    A high flight seen through the panorama lens does not follow a simple
-    curve, but the ball still moves in every frame. A track linked frame by
-    frame from launch to landing is then direct evidence of the flight, as
-    long as no other track also joins both ends.
-    """
-    reach = float(AERIAL_PROFILE["link_distance_pixels"])
-    joining = [
-        track
-        for track in tracks
-        if track[0][0] == s[0] + 1
-        and track[-1][0] == e[0] - 1
-        and hypot(track[0][1] - s[1], track[0][2] - s[2]) <= reach
-        and hypot(track[-1][1] - e[1], track[-1][2] - e[2]) <= reach
-    ]
-    if len(joining) != 1:
-        return None
-    track = joining[0]
-    inliers = {t: (x, y) for t, x, y in track}
-    return len(inliers), (s, e, (0.0, 0.0, 0.0, 0.0)), inliers
-
-
 def _aerial_best_path(s, e, blobs):
     best = _aerial_curve_path(s, e, blobs)
     if best is not None:
         return best
-    return _aerial_end_to_end_tracklet(s, e, _aerial_tracklets(blobs))
+    return _aerial_followed_path(s, e, blobs)
+
+
+def _aerial_followed_path(s, e, blobs):
+    """The flight followed from the left end that arrives at the right end.
+
+    This is the same trail follower used when only one end is known. With
+    both ends known the followed trail must also reach the other end, and no
+    other followed trail or motion track joining both ends may run apart
+    from it.
+    """
+    reach = float(AERIAL_PROFILE["link_distance_pixels"])
+    dropout = int(AERIAL_ONE_SIDED_PROFILE["maximum_dropout_frames"])
+    separation = float(AERIAL_PROFILE["rival_separation_pixels"])
+    inside = {t: c for t, c in blobs.items() if s[0] < t < e[0]}
+    flights = _aerial_trail_flights(s, inside)
+    arriving = [
+        flight for flight in flights
+        if flight[-1][0] >= e[0] - 1 - dropout
+        and hypot(flight[-1][1] - e[1], flight[-1][2] - e[2]) <= reach
+    ]
+    if not arriving:
+        return None
+    arriving.sort(key=lambda flight: -len(flight))
+    best = arriving[0]
+    best_at = {t: (x, y) for t, x, y in best}
+    joining = [
+        track for track in _aerial_tracklets(inside)
+        if track[0][0] <= s[0] + 1 + dropout
+        and track[-1][0] >= e[0] - 1 - dropout
+        and hypot(track[0][1] - s[1], track[0][2] - s[2]) <= reach
+        and hypot(track[-1][1] - e[1], track[-1][2] - e[2]) <= reach
+    ]
+    # A second complete trail between the ends is a second ball candidate,
+    # however close it runs.
+    tolerance = float(AERIAL_PROFILE["inlier_pixels"])
+    rivals = [(flight, separation) for flight in arriving[1:]]
+    rivals += [(track, tolerance) for track in joining]
+    for rival, allowed in rivals:
+        if _aerial_runs_apart(best_at, rival, allowed):
+            return None
+    return len(best_at), (s, e, (0.0, 0.0, 0.0, 0.0)), best_at
+
+
+def _aerial_runs_apart(best_at, rival, allowed):
+    """Whether ``rival`` keeps more than ``allowed`` pixels from the best path.
+
+    A trail that leaves from launch clutter for a frame and then joins the
+    best path is the same ball; only a rival apart for several frames is a
+    second candidate.
+    """
+    apart = sum(
+        1
+        for t, x, y in rival
+        if t in best_at
+        and hypot(x - best_at[t][0], y - best_at[t][1]) > allowed
+    )
+    return apart >= int(AERIAL_PROFILE["rival_minimum_apart_frames"])
 
 
 def _aerial_curve_path(s, e, blobs):
@@ -718,7 +752,12 @@ AERIAL_ONE_SIDED_MODULE = "07_aerial_one_sided_flight"
 # it leaves (or arrives at) a confirmed position. A kicked ball first moves in
 # a near straight line, which a player's feet or body never do for long. That
 # straight seed is followed with a curve fitted over its recent points, so a
-# single stray blob beside a player cannot pull the track off the ball. A
+# single stray blob beside a player cannot pull the track off the ball. The
+# kick itself is often hidden in clutter at the player's feet, and the ball
+# can rest there for a few frames before it is struck, so a flight may also
+# start from two fast blobs whose line points straight back to the anchor.
+# A fast ball's motion streak wobbles more than a slow one, so the catch
+# radius grows with the ball's speed and the curve bends from four points. A
 # followed track lasting at least 0.8 seconds is the flight (a lofted ball is
 # often hidden behind players for the rest of its fall); only the frames it
 # covers are filled and the rest of the gap stays open.
@@ -730,9 +769,19 @@ AERIAL_ONE_SIDED_PROFILE = FrozenProfile({
     "seed_points": 8,
     "seed_straightness_pixels": 2.0,
     "seed_minimum_pixels_per_frame": 3.0,
-    "follow_window_points": 12,
+    # The long window smooths a wobbling streak; the short one follows the
+    # sharp bend at the top of a high flight seen through the lens.
+    "follow_window_points": 8,
+    "follow_short_window_points": 5,
+    "follow_curve_minimum_points": 4,
     "follow_radius_pixels": 6.0,
+    "follow_radius_speed_fraction": 0.25,
+    "kick_line_search_frames": 10,
+    "kick_line_distance_pixels": 8.0,
     "follow_radius_growth_pixels": 2.0,
+    "still_blob_frames": 3,
+    "still_blob_pixels": 3.0,
+    "still_blob_minimum_frames": 2,
     "follow_maximum_misses": 5,
 })
 
@@ -803,11 +852,56 @@ def _aerial_straight_seed(track):
     return list(track[:count])
 
 
+def _aerial_moving_blobs(blobs):
+    """``blobs`` without those that stay put, as scenery or a player does.
+
+    A ball in flight moves several pixels each frame, so it cannot be found
+    at the same spot in two other frames close in time.
+    """
+    profile = AERIAL_ONE_SIDED_PROFILE
+    frames = int(profile["still_blob_frames"])
+    radius = float(profile["still_blob_pixels"])
+    needed = int(profile["still_blob_minimum_frames"])
+    cells = {
+        t: {
+            (int(x // radius), int(y // radius))
+            for x, y in points
+        }
+        for t, points in blobs.items()
+    }
+    near = [(dx, dy) for dx in (-1, 0, 1) for dy in (-1, 0, 1)]
+    moving = {}
+    for t, points in blobs.items():
+        kept = []
+        for x, y in points:
+            cx, cy = int(x // radius), int(y // radius)
+            hits = 0
+            for other in range(t - frames, t + frames + 1):
+                if other == t or other not in cells:
+                    continue
+                if not any((cx + dx, cy + dy) in cells[other] for dx, dy in near):
+                    continue
+                if any(
+                    hypot(ox - x, oy - y) <= radius
+                    for ox, oy in blobs[other]
+                ):
+                    hits += 1
+            if hits < needed:
+                kept.append((x, y))
+        moving[t] = kept
+    return moving
+
+
 def _aerial_follow_flight(seed, blobs, last_frame):
     """Follow a seed through ``blobs`` with a curve fitted to its recent points."""
     profile = AERIAL_ONE_SIDED_PROFILE
-    window = int(profile["follow_window_points"])
+    windows = (
+        int(profile["follow_window_points"]),
+        int(profile["follow_short_window_points"]),
+    )
     radius = float(profile["follow_radius_pixels"])
+    fraction = float(profile["follow_radius_speed_fraction"])
+    curve_points = int(profile["follow_curve_minimum_points"])
     growth = float(profile["follow_radius_growth_pixels"])
     allowed = int(profile["follow_maximum_misses"])
     track = list(seed)
@@ -815,15 +909,35 @@ def _aerial_follow_flight(seed, blobs, last_frame):
     misses = 0
     while t < last_frame:
         t += 1
-        recent = np.array(track[-window:], dtype=float)
-        degree = 2 if len(recent) >= 6 else 1
-        px = float(np.polyval(np.polyfit(recent[:, 0], recent[:, 1], degree), t))
-        py = float(np.polyval(np.polyfit(recent[:, 0], recent[:, 2], degree), t))
-        reach = radius + growth * (t - track[-1][0] - 1)
-        best = min(
-            ((hypot(x - px, y - py), x, y) for x, y in blobs.get(t, [])),
-            default=None,
-        )
+        predictions = []
+        for window in windows:
+            recent = np.array(track[-window:], dtype=float)
+            degree = 2 if len(recent) >= curve_points else 1
+            predictions.append((
+                float(np.polyval(np.polyfit(recent[:, 0], recent[:, 1], degree), t)),
+                float(np.polyval(np.polyfit(recent[:, 0], recent[:, 2], degree), t)),
+            ))
+        # A curve bent by one noisy point overshoots across a dropout, so a
+        # straight line through the long window is the last fallback.
+        recent = np.array(track[-windows[0]:], dtype=float)
+        predictions.append((
+            float(np.polyval(np.polyfit(recent[:, 0], recent[:, 1], 1), t)),
+            float(np.polyval(np.polyfit(recent[:, 0], recent[:, 2], 1), t)),
+        ))
+        before, last = track[-2], track[-1]
+        speed = hypot(last[1] - before[1], last[2] - before[2]) / (last[0] - before[0])
+        reach = max(radius, fraction * speed) + growth * (t - last[0] - 1)
+        # Shorter or straighter predictions are asked only when the long curve
+        # finds nothing, so clutter beside a smooth flight cannot pull it away.
+        best = None
+        moving = blobs.get(t, [])
+        for px, py in predictions:
+            best = min(
+                ((hypot(x - px, y - py), x, y) for x, y in moving),
+                default=None,
+            )
+            if best is not None and best[0] <= reach:
+                break
         if best is not None and best[0] <= reach:
             track.append((t, best[1], best[2]))
             misses = 0
@@ -834,12 +948,48 @@ def _aerial_follow_flight(seed, blobs, last_frame):
     return track
 
 
-def _aerial_one_sided_track(anchor, blobs, fps):
-    """The unique flight track leaving ``anchor`` (time, x, y) forwards in time."""
+def _aerial_kick_line_seeds(anchor, blobs):
+    """Pairs of fast blobs whose line of flight points back to ``anchor``.
+
+    The ball may rest at the anchor before it is struck, so the pair's line
+    must pass the anchor at a kick time no earlier than the anchor frame.
+    """
+    profile = AERIAL_ONE_SIDED_PROFILE
+    frames = int(profile["kick_line_search_frames"])
+    offset = float(profile["kick_line_distance_pixels"])
+    minimum_speed = float(profile["seed_minimum_pixels_per_frame"])
+    t0, x0, y0 = anchor
+    seeds = []
+    for t1 in range(t0 + 1, t0 + frames + 1):
+        for x1, y1 in blobs.get(t1, []):
+            for t2 in (t1 + 1, t1 + 2):
+                for x2, y2 in blobs.get(t2, []):
+                    vx = (x2 - x1) / (t2 - t1)
+                    vy = (y2 - y1) / (t2 - t1)
+                    speed = hypot(vx, vy)
+                    if speed < minimum_speed:
+                        continue
+                    bx, by = x1 - x0, y1 - y0
+                    along = (bx * vx + by * vy) / speed
+                    if along <= 0 or abs(bx * vy - by * vx) / speed > offset:
+                        continue
+                    if t1 - along / speed < t0 - 1:
+                        continue
+                    seeds.append([(t1, x1, y1), (t2, x2, y2)])
+    return seeds
+
+
+def _aerial_trail_flights(anchor, blobs):
+    """Every flight followed from a fast straight trail leaving ``anchor``.
+
+    This one trail follower serves every aerial ball: a seed is a fast near
+    straight trail starting beside the anchor, or two fast blobs whose line
+    points back to it, and each seed is followed with a curve fitted to its
+    recent points.
+    """
     profile = AERIAL_ONE_SIDED_PROFILE
     dropout = int(profile["maximum_dropout_frames"])
     reach = float(AERIAL_PROFILE["link_distance_pixels"])
-    minimum_frames = float(profile["minimum_track_seconds"]) * fps
     seeds = []
     for track in _aerial_bridged_tracklets(blobs, dropout):
         if track[0][0] > anchor[0] + 1 + dropout:
@@ -849,10 +999,16 @@ def _aerial_one_sided_track(anchor, blobs, fps):
         seed = _aerial_straight_seed(track)
         if seed is not None:
             seeds.append(seed)
-    if not seeds:
-        return None
+    seeds.extend(_aerial_kick_line_seeds(anchor, blobs))
     last_frame = max(blobs, default=anchor[0])
-    flights = [_aerial_follow_flight(seed, blobs, last_frame) for seed in seeds]
+    moving = _aerial_moving_blobs(blobs)
+    return [_aerial_follow_flight(seed, moving, last_frame) for seed in seeds]
+
+
+def _aerial_one_sided_track(anchor, blobs, fps):
+    """The unique flight track leaving ``anchor`` (time, x, y) forwards in time."""
+    minimum_frames = float(AERIAL_ONE_SIDED_PROFILE["minimum_track_seconds"]) * fps
+    flights = _aerial_trail_flights(anchor, blobs)
     flights = [
         flight for flight in flights
         if flight[-1][0] - flight[0][0] + 1 >= minimum_frames
@@ -864,12 +1020,13 @@ def _aerial_one_sided_track(anchor, blobs, fps):
     best_at = {t: (x, y) for t, x, y in best}
     separation = float(AERIAL_PROFILE["rival_separation_pixels"])
     for rival in flights[1:]:
-        shared = [
-            hypot(x - best_at[t][0], y - best_at[t][1])
-            for t, x, y in rival
-            if t in best_at
-        ]
-        if not shared or max(shared) > separation:
+        # A trail lost while the best one is followed for at least another
+        # whole flight was clutter that could not be followed.
+        if best[-1][0] - rival[-1][0] >= minimum_frames:
+            continue
+        if not any(t in best_at for t, _, _ in rival):
+            return None
+        if _aerial_runs_apart(best_at, rival, separation):
             return None
     return best
 
