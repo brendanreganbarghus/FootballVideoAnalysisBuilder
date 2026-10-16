@@ -72,6 +72,10 @@ class ChronoSettings:
     rolling_turn_degrees: float = 20.0
     rolling_min_speed_ratio: float = 0.7
     rolling_max_speed_ratio: float = 1.15
+    # A ball may pass a player over several samples, where one noisy sample
+    # breaks the single-step check; the steps going in and coming out are
+    # compared instead, for a short pass-by only.
+    rolled_past_max_seconds: float = 0.6
     stretched_box_ratio: float = 1.3
     stretched_box_window_seconds: float = 0.5
     stretched_box_min_points: int = 5
@@ -647,6 +651,60 @@ def _rolling_through(
     )
 
 
+def _rolled_past(
+    track: list[tuple[int, float, float, float]],
+    index: int,
+    track_id: int,
+    players: dict[int, list[dict[str, Any]]],
+    settings: ChronoSettings,
+    unusable: set[int],
+) -> float | None:
+    """The ball passes this player and leaves on the line and pace it came in on.
+
+    The samples while the ball is at the player may wobble; the step into
+    his reach and the step out of it show whether anything changed. A ball
+    that leaves as it came was not received. Returns the time of the last
+    sample at the player, or ``None``.
+    """
+    near = settings.touch_neighbour_gap_seconds
+    last = index
+    while (
+        last + 1 < len(track)
+        and 0 < track[last + 1][1] - track[last][1] <= near
+        and track[last + 1][1] - track[index][1] <= settings.rolled_past_max_seconds
+        and (
+            box := _closest_controller(
+                track[last + 1][2:],
+                players.get(track[last + 1][0], []),
+                settings.control_radius_heights,
+                settings.duel_margin_heights,
+            )
+        )
+        is not None
+        and int(box["track_id"]) == track_id
+    ):
+        last += 1
+    if index < 1 or last + 1 >= len(track) or unusable.intersection(range(index - 1, last + 2)):
+        return None
+    (_, ta, xa, ya), (_, tb, xb, yb) = track[index - 1], track[index]
+    (_, tc, xc, yc), (_, td, xd, yd) = track[last], track[last + 1]
+    if not (0 < tb - ta <= near and 0 < td - tc <= near):
+        return None
+    v1 = ((xb - xa) / (tb - ta), (yb - ya) / (tb - ta))
+    v2 = ((xd - xc) / (td - tc), (yd - yc) / (td - tc))
+    s1, s2 = hypot(*v1), hypot(*v2)
+    if s1 < settings.stopped_speed_px_per_second or s2 < settings.stopped_speed_px_per_second:
+        return None
+    cos = (v1[0] * v2[0] + v1[1] * v2[1]) / (s1 * s2)
+    turn = degrees(acos(max(-1.0, min(1.0, cos))))
+    if (
+        turn < settings.rolling_turn_degrees
+        and settings.rolling_min_speed_ratio <= s2 / s1 <= settings.rolling_max_speed_ratio
+    ):
+        return tc
+    return None
+
+
 def _toucher(
     ball: tuple[float, float],
     boxes: Iterable[dict[str, Any]],
@@ -864,6 +922,7 @@ def run_chronological(
     owner: _Control | None = None
     candidate: _Control | None = None
     arriving: tuple[_Control, float] | None = None
+    passed_by: tuple[int, float] | None = None
     exit_path: list[tuple[float, float, float]] | None = None
     previous: tuple[float, float, float] | None = None
     previous_frame: int | None = None
@@ -1093,6 +1152,21 @@ def run_chronological(
             candidate.feet = _feet(box)
         else:
             trapped = False
+            if (
+                touch is None
+                and carried is None
+                and (owner is None or owner.track_id != track_id)
+                and not rolling
+            ):
+                if passed_by is None or passed_by[0] != track_id or t > passed_by[1]:
+                    until = _rolled_past(
+                        track, index, track_id, players, settings, estimated | lofted
+                    )
+                    passed_by = None if until is None else (track_id, until)
+                if passed_by is not None:
+                    # The ball rolls past this player unchanged: not received.
+                    candidate = None
+                    continue
             if rolling and touch is None and (owner is None or owner.track_id != track_id):
                 trapped = index + 1 not in lofted and _trapped_next(
                     track, index, box, players.get(track[index + 1][0], []), settings, noise_px
