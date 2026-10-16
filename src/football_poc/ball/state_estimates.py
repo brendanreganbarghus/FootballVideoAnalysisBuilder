@@ -7,6 +7,11 @@ from .settings import *  # noqa: F401,F403
 # Modules whose confirmation rests on visual evidence in that frame. The time
 # machine only estimates, so its frames are never direct evidence. A locked
 # YOLO chain keeps the detector's own box in every frame it covers.
+# A flight module fills frames between the trail points it saw with points on
+# the fitted path; the ball was not seen there, so those are estimates too.
+FLIGHT_PATH_EVIDENCE = "aerial_flight_path"
+FLIGHT_PATH_STATE = "trajectory_estimated_flight_path"
+
 DIRECT_EVIDENCE_MODULES = frozenset(
     {
         "00_lock_yolo_chains",
@@ -45,6 +50,7 @@ def _sampled_ball_state_estimates(
         point = observed_by_frame.get(source_frame)
         if point is not None:
             estimated = point.confirming_module == "02_time_machine"
+            on_flight_path = point.evidence == FLIGHT_PATH_EVIDENCE
             is_direct = (
                 True
                 if ledger is None
@@ -64,6 +70,8 @@ def _sampled_ball_state_estimates(
                     "state": (
                         point.evidence
                         if estimated
+                        else FLIGHT_PATH_STATE
+                        if on_flight_path
                         else "observed"
                         if point.source_attribution == "yolo26_observed"
                         else "visually_reacquired"
@@ -254,6 +262,7 @@ def _ball_state_was_found(state: dict[str, Any]) -> bool:
         state.get("x") is not None
         and state.get("state") != "out_of_play"
         and not str(state.get("evidence") or "").startswith("trajectory_estimated")
+        and not str(state.get("state") or "").startswith("trajectory_estimated")
         and state.get("confirming_module") != "02_time_machine"
     )
 
