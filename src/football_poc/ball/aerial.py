@@ -803,6 +803,12 @@ AERIAL_ONE_SIDED_PROFILE = FrozenProfile({
     "still_blob_pixels": 3.0,
     "still_blob_minimum_frames": 2,
     "follow_maximum_misses": 5,
+    # A kicked ball leaves faster than a player can run. Measured in the
+    # height of a player standing at the launch spot, so the near and far
+    # side of the pitch are judged alike, a slower trail is a player's legs
+    # or kit, not the ball.
+    "minimum_launch_player_heights_per_second": 3.0,
+    "launch_points": 8,
 })
 
 def _aerial_bridged_tracklets(blobs, maximum_dropout):
@@ -1025,7 +1031,45 @@ def _aerial_trail_flights(anchor, blobs):
     return [_aerial_follow_flight(seed, moving, last_frame) for seed in seeds]
 
 
-def _aerial_one_sided_track(anchor, blobs, fps, minimum_seconds=None):
+def _aerial_player_height_at(records_by_frame):
+    """Player height in pixels as a straight function of the feet's image row.
+
+    Returns None when the detections cannot give a scale.
+    """
+    minimum = float(AERIAL_PROFILE["person_minimum_confidence"])
+    feet, heights = [], []
+    for record in records_by_frame.values():
+        for d in record.get("detections", []):
+            if d.get("class_name") != "person" or float(d["confidence"]) < minimum:
+                continue
+            feet.append(float(d["y2"]))
+            heights.append(float(d["y2"]) - float(d["y1"]))
+    if len(feet) < 2 or max(feet) - min(feet) <= 0:
+        return None
+    slope, offset = np.polyfit(feet, heights, 1)
+    floor = float(np.median(heights)) * 0.25
+
+    def height_at(y):
+        return max(floor, float(slope * y + offset))
+
+    return height_at
+
+
+def _aerial_launch_fast_enough(flight, anchor, fps, height_at):
+    if height_at is None:
+        return True
+    profile = AERIAL_ONE_SIDED_PROFILE
+    launch = flight[: int(profile["launch_points"])]
+    if len(launch) < 2 or launch[-1][0] == launch[0][0]:
+        return False
+    speed = hypot(
+        launch[-1][1] - launch[0][1], launch[-1][2] - launch[0][2]
+    ) / (launch[-1][0] - launch[0][0]) * fps
+    needed = float(profile["minimum_launch_player_heights_per_second"])
+    return speed >= needed * height_at(anchor[2])
+
+
+def _aerial_one_sided_track(anchor, blobs, fps, minimum_seconds=None, height_at=None):
     """The unique flight track leaving ``anchor`` (time, x, y) forwards in time."""
     if minimum_seconds is None:
         minimum_seconds = float(AERIAL_ONE_SIDED_PROFILE["minimum_track_seconds"])
@@ -1034,6 +1078,7 @@ def _aerial_one_sided_track(anchor, blobs, fps, minimum_seconds=None):
     flights = [
         flight for flight in flights
         if flight[-1][0] - flight[0][0] + 1 >= minimum_frames
+        and _aerial_launch_fast_enough(flight, anchor, fps, height_at)
     ]
     if not flights:
         return None
@@ -1055,7 +1100,7 @@ def _aerial_one_sided_track(anchor, blobs, fps, minimum_seconds=None):
     return best
 
 
-def _aerial_joined_tracks(s, e, forward, backward, fps):
+def _aerial_joined_tracks(s, e, forward, backward, fps, height_at=None):
     """Short flights from either end of a gap that a followed trail joins.
 
     ``forward`` holds the blobs searched from ``s`` and ``backward`` those
@@ -1066,7 +1111,7 @@ def _aerial_joined_tracks(s, e, forward, backward, fps):
     shortest = float(AERIAL_ONE_SIDED_PROFILE["joined_minimum_track_seconds"])
     right = e[0]
     found = []
-    track = _aerial_one_sided_track(s, forward, fps, shortest)
+    track = _aerial_one_sided_track(s, forward, fps, shortest, height_at)
     if track is not None:
         open_end = track[-1]
         inside = {t: c for t, c in backward.items() if open_end[0] < t < right}
@@ -1074,7 +1119,7 @@ def _aerial_joined_tracks(s, e, forward, backward, fps):
         if joined is not None:
             found.append(track + sorted((t, x, y) for t, (x, y) in joined[2].items()))
     mirrored = {right - t: c for t, c in backward.items()}
-    track = _aerial_one_sided_track((0, e[1], e[2]), mirrored, fps, shortest)
+    track = _aerial_one_sided_track((0, e[1], e[2]), mirrored, fps, shortest, height_at)
     if track is not None:
         track = [(right - t, x, y) for t, x, y in reversed(track)]
         open_end = track[0]
@@ -1123,6 +1168,7 @@ def _confirm_one_sided_aerial_flights(
             >= float(AERIAL_PROFILE["person_minimum_confidence"])
         ]
 
+    height_at = _aerial_player_height_at(records_by_frame)
     confirmed = [
         frame for frame in frames
         if entries[frame].status == "confirmed" and entries[frame].x is not None
@@ -1148,7 +1194,7 @@ def _confirm_one_sided_aerial_flights(
             video, left, end, people_by_frame, s,
             (left + 2 * (end - left), s[1], s[2]), max_step,
         )
-        track = _aerial_one_sided_track(s, forward, fps)
+        track = _aerial_one_sided_track(s, forward, fps, height_at=height_at)
         if track is not None:
             found.append(track)
         start = max(left, right - search)
@@ -1157,11 +1203,11 @@ def _confirm_one_sided_aerial_flights(
             (right - 2 * (right - start), e[1], e[2]), e, max_step,
         )
         mirrored = {right - t: blobs for t, blobs in backward.items()}
-        track = _aerial_one_sided_track((0, e[1], e[2]), mirrored, fps)
+        track = _aerial_one_sided_track((0, e[1], e[2]), mirrored, fps, height_at=height_at)
         if track is not None:
             found.append([(right - t, x, y) for t, x, y in reversed(track)])
         if not found:
-            found = _aerial_joined_tracks(s, e, forward, backward, fps)
+            found = _aerial_joined_tracks(s, e, forward, backward, fps, height_at)
         return found
 
     results = _ordered_parallel_map(search_gap, plans)
