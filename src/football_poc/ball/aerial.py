@@ -501,17 +501,34 @@ def _aerial_followed_path(s, e, blobs):
 def _aerial_runs_apart(best_at, rival, allowed):
     """Whether ``rival`` keeps more than ``allowed`` pixels from the best path.
 
-    A trail that leaves from launch clutter for a frame and then joins the
-    best path is the same ball; only a rival apart for several frames is a
-    second candidate.
+    Distance is measured to the line of the best path, not to its point at
+    the same frame: a fast ball's blurred streak breaks into pieces, and a
+    trail along the front or back of the streak runs the same line a frame
+    or two ahead or behind. A trail that leaves from launch clutter for a
+    frame and then joins the best path is the same ball; only a rival apart
+    for several frames is a second candidate.
     """
+    times = sorted(best_at)
+    line = [best_at[t] for t in times]
     apart = sum(
         1
         for t, x, y in rival
-        if t in best_at
-        and hypot(x - best_at[t][0], y - best_at[t][1]) > allowed
+        if times[0] <= t <= times[-1]
+        and _aerial_distance_to_line(x, y, line) > allowed
     )
     return apart >= int(AERIAL_PROFILE["rival_minimum_apart_frames"])
+
+
+def _aerial_distance_to_line(x, y, line):
+    if len(line) == 1:
+        return hypot(x - line[0][0], y - line[0][1])
+    nearest = float("inf")
+    for (ax, ay), (bx, by) in zip(line, line[1:]):
+        dx, dy = bx - ax, by - ay
+        length = dx * dx + dy * dy
+        u = 0.0 if length == 0 else max(0.0, min(1.0, ((x - ax) * dx + (y - ay) * dy) / length))
+        nearest = min(nearest, hypot(x - ax - u * dx, y - ay - u * dy))
+    return nearest
 
 
 def _aerial_curve_path(s, e, blobs):
@@ -763,6 +780,9 @@ AERIAL_ONE_SIDED_MODULE = "07_aerial_one_sided_flight"
 # covers are filled and the rest of the gap stays open.
 AERIAL_ONE_SIDED_PROFILE = FrozenProfile({
     "minimum_track_seconds": 0.8,
+    # A shorter flight counts only when a followed trail joins its open end
+    # to the confirmed point at the other end of the gap.
+    "joined_minimum_track_seconds": 0.4,
     # A ball can vanish for a frame or two against the stand or a line.
     "maximum_dropout_frames": 2,
     "search_frames": 125,
@@ -1005,9 +1025,11 @@ def _aerial_trail_flights(anchor, blobs):
     return [_aerial_follow_flight(seed, moving, last_frame) for seed in seeds]
 
 
-def _aerial_one_sided_track(anchor, blobs, fps):
+def _aerial_one_sided_track(anchor, blobs, fps, minimum_seconds=None):
     """The unique flight track leaving ``anchor`` (time, x, y) forwards in time."""
-    minimum_frames = float(AERIAL_ONE_SIDED_PROFILE["minimum_track_seconds"]) * fps
+    if minimum_seconds is None:
+        minimum_seconds = float(AERIAL_ONE_SIDED_PROFILE["minimum_track_seconds"])
+    minimum_frames = float(minimum_seconds) * fps
     flights = _aerial_trail_flights(anchor, blobs)
     flights = [
         flight for flight in flights
@@ -1015,7 +1037,9 @@ def _aerial_one_sided_track(anchor, blobs, fps):
     ]
     if not flights:
         return None
-    flights.sort(key=lambda flight: -(flight[-1][0] - flight[0][0]))
+    # The trail that finds the ball in the most frames is the ball; a trail
+    # skipping along the edges of a blurred streak covers fewer frames.
+    flights.sort(key=lambda flight: (-len(flight), -(flight[-1][0] - flight[0][0])))
     best = flights[0]
     best_at = {t: (x, y) for t, x, y in best}
     separation = float(AERIAL_PROFILE["rival_separation_pixels"])
@@ -1029,6 +1053,37 @@ def _aerial_one_sided_track(anchor, blobs, fps):
         if _aerial_runs_apart(best_at, rival, separation):
             return None
     return best
+
+
+def _aerial_joined_tracks(s, e, forward, backward, fps):
+    """Short flights from either end of a gap that a followed trail joins.
+
+    ``forward`` holds the blobs searched from ``s`` and ``backward`` those
+    searched from ``e``, in video time. A flight too short to stand alone is
+    kept only when the trail follower links its open end to the confirmed
+    point at the other end, so the ball is followed between both ends.
+    """
+    shortest = float(AERIAL_ONE_SIDED_PROFILE["joined_minimum_track_seconds"])
+    right = e[0]
+    found = []
+    track = _aerial_one_sided_track(s, forward, fps, shortest)
+    if track is not None:
+        open_end = track[-1]
+        inside = {t: c for t, c in backward.items() if open_end[0] < t < right}
+        joined = _aerial_followed_path(open_end, e, inside)
+        if joined is not None:
+            found.append(track + sorted((t, x, y) for t, (x, y) in joined[2].items()))
+    mirrored = {right - t: c for t, c in backward.items()}
+    track = _aerial_one_sided_track((0, e[1], e[2]), mirrored, fps, shortest)
+    if track is not None:
+        track = [(right - t, x, y) for t, x, y in reversed(track)]
+        open_end = track[0]
+        inside = {t: c for t, c in forward.items() if s[0] < t < open_end[0]}
+        joined = _aerial_followed_path(s, open_end, inside)
+        if joined is not None:
+            found.append(sorted((t, x, y) for t, (x, y) in joined[2].items()) + track)
+    return found
+
 
 def _aerial_track_position(track, frame):
     points = {t: (x, y) for t, x, y in track}
@@ -1105,6 +1160,8 @@ def _confirm_one_sided_aerial_flights(
         track = _aerial_one_sided_track((0, e[1], e[2]), mirrored, fps)
         if track is not None:
             found.append([(right - t, x, y) for t, x, y in reversed(track)])
+        if not found:
+            found = _aerial_joined_tracks(s, e, forward, backward, fps)
         return found
 
     results = _ordered_parallel_map(search_gap, plans)
