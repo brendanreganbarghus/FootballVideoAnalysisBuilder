@@ -4079,8 +4079,13 @@ export function renderHtml({ adapter } = {}) {
                 <option value="right_goal_line">Right narrow side</option>
                 <option value="left_goal_mouth">Left goal posts</option>
                 <option value="right_goal_mouth">Right goal posts</option>
-                <option value="left_goal_area">Left goal area (4 corners)</option>
-                <option value="right_goal_area">Right goal area (4 corners)</option>
+                <option value="left_goal_area">Left goal box (points along its lines)</option>
+                <option value="right_goal_area">Right goal box (points along its lines)</option>
+                <option value="left_penalty_area">Left big box (points along its lines)</option>
+                <option value="right_penalty_area">Right big box (points along its lines)</option>
+                <option value="halfway_line">Halfway line</option>
+                <option value="centre_circle">Centre circle (points around it)</option>
+                <option value="centre_spot">Centre spot (kick-off point, 1 click)</option>
               </select>
             </label>
             <button id="edit-geometry" type="button">Redraw</button>
@@ -4096,7 +4101,9 @@ export function renderHtml({ adapter } = {}) {
           <p class="muted calibration-rule">
             <strong>Line rule:</strong> trace the outer edge of each painted
             white line—the edge furthest from the playing area. For a goal,
-            click all four visible goal-frame corners clockwise.
+            click all four visible goal-frame corners clockwise. For a goal
+            box or big box, click along its painted lines, starting and
+            ending on the goal line.
           </p>
         </div>
       </details>
@@ -5901,6 +5908,18 @@ export function renderHtml({ adapter } = {}) {
         drawLine(geometry.features.far_touchline, touchlineColor, 2, true);
         drawLine(geometry.features.left_goal_line, goalLineColor, 2, true);
         drawLine(geometry.features.right_goal_line, goalLineColor, 2, true);
+        drawLine(geometry.features.halfway_line, touchlineColor, 2, true);
+        drawLine(geometry.features.centre_circle, touchlineColor, 2, true, true);
+        drawLine(geometry.features.left_penalty_area, goalLineColor, 2);
+        drawLine(geometry.features.right_penalty_area, goalLineColor, 2);
+        const spot = geometry.features.centre_spot?.[0];
+        if (spot) {
+          const [x, y] = project(spot);
+          geometryContext.fillStyle = touchlineColor;
+          geometryContext.beginPath();
+          geometryContext.arc(x, y, 4, 0, Math.PI * 2);
+          geometryContext.fill();
+        }
       }
       if (document.getElementById("show-goals").checked) {
         drawLine(
@@ -5917,8 +5936,8 @@ export function renderHtml({ adapter } = {}) {
           false,
           true,
         );
-        drawLine(geometry.features.left_goal_area, goalLineColor, 2, false, true);
-        drawLine(geometry.features.right_goal_area, goalLineColor, 2, false, true);
+        drawLine(geometry.features.left_goal_area, goalLineColor, 2);
+        drawLine(geometry.features.right_goal_area, goalLineColor, 2);
       }
     }
 
@@ -16490,7 +16509,10 @@ export function renderHtml({ adapter } = {}) {
     });
     document.getElementById("finish-geometry").addEventListener("click", () => {
       if (!editingFeature) return;
-      const minimumPoints = /goal_(mouth|area)$/.test(editingFeature) ? 4 : 2;
+      const minimumPoints = editingFeature === "centre_circle"
+        ? 8
+        : editingFeature === "centre_spot" ? 1
+        : /goal_mouth$/.test(editingFeature) ? 4 : 2;
       if (geometry.features[editingFeature].length < minimumPoints) {
         geometryStatus.textContent =
           "Add at least " + minimumPoints + " points before finishing.";
@@ -16544,6 +16566,7 @@ export function renderHtml({ adapter } = {}) {
       const x = displayX - layout.x;
       const y = displayY - layout.y;
       if (x < 0 || y < 0 || x > layout.width || y > layout.height) return;
+      if (editingFeature === "centre_spot") geometry.features.centre_spot = [];
       geometry.features[editingFeature].push([
         Math.round(x * geometry.image_width / layout.width),
         Math.round(y * geometry.image_height / layout.height),
