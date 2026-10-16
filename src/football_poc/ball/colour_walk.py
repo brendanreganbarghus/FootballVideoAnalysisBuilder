@@ -21,6 +21,9 @@ COLOUR_WALK_PROFILE = {
     # Blob limits in ball diagonals (median strong-detection box diagonal).
     "maximum_blob_side_diagonals": 3.0,
     "meeting_distance_diagonals": 2.0,
+    # A piece split off a larger ball-coloured region must cover at least
+    # this share of a ball's area.
+    "minimum_split_piece_ball_areas": 0.25,
     # Search window around the predicted point: grows with time, capped.
     "window_base_pixels": 32.0,
     "window_growth_pixels_per_second": 150.0,
@@ -101,25 +104,48 @@ def _colour_walk_blobs(
         COLOUR_WALK_PROFILE["minimum_chroma_distance"]
     )
     ball_colour = (lab[..., 1] >= colour_range[0]) & (lab[..., 1] <= colour_range[1])
-    count, _, stats, centroids = cv2.connectedComponentsWithStats(
+    count, labels, stats, centroids = cv2.connectedComponentsWithStats(
         (stands_out & ball_colour).astype(np.uint8), connectivity=8
     )
     maximum_area = np.pi / 4.0 * (2.0 * ball_diagonal) ** 2
     maximum_side = ball_diagonal * float(
         COLOUR_WALK_PROFILE["maximum_blob_side_diagonals"]
     )
-    blobs: list[tuple[float, float]] = []
+    minimum_area = int(COLOUR_WALK_PROFILE["minimum_blob_pixels"])
+    minimum_piece = (
+        float(COLOUR_WALK_PROFILE["minimum_split_piece_ball_areas"])
+        * np.pi / 4.0 * ball_diagonal ** 2 / 2.0
+    )
+
+    def fits(stat) -> bool:
+        side = max(int(stat[cv2.CC_STAT_WIDTH]), int(stat[cv2.CC_STAT_HEIGHT]))
+        area = int(stat[cv2.CC_STAT_AREA])
+        return minimum_area <= area <= maximum_area and side <= maximum_side
+
+    found: list[tuple[float, float]] = []
     for label in range(1, count):
-        area = int(stats[label, cv2.CC_STAT_AREA])
-        side = max(
-            int(stats[label, cv2.CC_STAT_WIDTH]), int(stats[label, cv2.CC_STAT_HEIGHT])
+        if fits(stats[label]):
+            found.append(tuple(centroids[label]))
+            continue
+        if int(stats[label, cv2.CC_STAT_AREA]) < minimum_area:
+            continue
+        # A ball touching a ball-coloured shirt or board joins it through a
+        # thin edge; one erosion separates the ball-sized piece.
+        part = cv2.erode(
+            (labels == label).astype(np.uint8), np.ones((3, 3), np.uint8)
         )
-        if area < int(COLOUR_WALK_PROFILE["minimum_blob_pixels"]):
-            continue
-        if area > maximum_area or side > maximum_side:
-            continue
-        x = x0 + float(centroids[label][0])
-        y = y0 + float(centroids[label][1])
+        pieces, _, piece_stats, piece_centroids = cv2.connectedComponentsWithStats(
+            part, connectivity=8
+        )
+        for piece in range(1, pieces):
+            if int(piece_stats[piece, cv2.CC_STAT_AREA]) < minimum_piece:
+                continue
+            if fits(piece_stats[piece]):
+                found.append(tuple(piece_centroids[piece]))
+    blobs: list[tuple[float, float]] = []
+    for cx, cy in found:
+        x = x0 + float(cx)
+        y = y0 + float(cy)
         if _on_person_upper_body(x, y, record):
             continue
         blobs.append((x, y))
