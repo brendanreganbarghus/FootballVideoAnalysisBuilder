@@ -7194,6 +7194,43 @@ async function handleRequest(request, response, serverInstanceId) {
     const segment = String(body.segment || "");
     const segments = await loadPreparedSegments();
     const selected = segments.find((candidate) => candidate.key === segment);
+    if (selected?.datasetId === "alfheim" && body.spots) {
+      // Alfheim pitch lines are fixed; only restart spots may be added.
+      const calibrationPath = await alfheimConfigPath("pitch-calibration.json");
+      const current = calibrationPath ? await readJson(calibrationPath, null) : null;
+      if (!current) {
+        sendJson(response, 404, {error: "Pitch calibration is unavailable"});
+        return;
+      }
+      const width = Number(current.image_width);
+      const height = Number(current.image_height);
+      const spotNames = ["centre_spot", "left_penalty_mark", "right_penalty_mark"];
+      const features = {...(current.features || {})};
+      for (const [name, points] of Object.entries(body.spots || {})) {
+        const point = Array.isArray(points) ? points[0] : null;
+        if (
+          !spotNames.includes(name)
+          || !Array.isArray(points)
+          || points.length !== 1
+          || !Array.isArray(point)
+          || !point.slice(0, 2).every(Number.isFinite)
+          || point[0] < 0 || point[0] > width
+          || point[1] < 0 || point[1] > height
+        ) {
+          sendJson(response, 400, {error: `Invalid restart spot ${name}`});
+          return;
+        }
+        features[name] = [[Number(point[0]), Number(point[1])]];
+      }
+      const saved = {...current, features};
+      await writeJsonAtomically(calibrationPath, saved);
+      await updateSharedChecksum(
+        calibrationPath,
+        `${JSON.stringify(saved, null, 2)}\n`,
+      );
+      sendJson(response, 200, saved);
+      return;
+    }
     if (
       selected?.datasetId !== "soccertrack-v2"
       && !selected?.datasetId?.startsWith("custom-")

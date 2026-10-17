@@ -4090,6 +4090,8 @@ export function renderHtml({ adapter } = {}) {
                 <option value="halfway_line">Halfway line</option>
                 <option value="centre_circle">Centre circle (points around it)</option>
                 <option value="centre_spot">Centre spot (kick-off point, 1 click)</option>
+                <option value="left_penalty_mark">Left penalty spot (1 click)</option>
+                <option value="right_penalty_mark">Right penalty spot (1 click)</option>
               </select>
             </label>
             <button id="edit-geometry" type="button">Redraw</button>
@@ -5136,6 +5138,11 @@ export function renderHtml({ adapter } = {}) {
       features: {},
     };
     let editingFeature = null;
+    const GEOMETRY_SPOT_FEATURES = [
+      "centre_spot",
+      "left_penalty_mark",
+      "right_penalty_mark",
+    ];
     const video = document.getElementById("video");
     const timeline = document.getElementById("timeline");
     const videoShell = document.getElementById("video-shell");
@@ -5944,14 +5951,17 @@ export function renderHtml({ adapter } = {}) {
         drawLine(geometry.features.centre_circle, touchlineColor, 2, true, true);
         drawLine(geometry.features.left_penalty_area, goalLineColor, 2);
         drawLine(geometry.features.right_penalty_area, goalLineColor, 2);
-        const spot = geometry.features.centre_spot?.[0];
-        if (spot) {
+        GEOMETRY_SPOT_FEATURES.forEach((feature) => {
+          const spot = geometry.features[feature]?.[0];
+          if (!spot) return;
           const [x, y] = project(spot);
-          geometryContext.fillStyle = touchlineColor;
+          geometryContext.fillStyle = feature === "centre_spot"
+            ? touchlineColor
+            : goalLineColor;
           geometryContext.beginPath();
           geometryContext.arc(x, y, 4, 0, Math.PI * 2);
           geometryContext.fill();
-        }
+        });
       }
       if (document.getElementById("show-goals").checked) {
         drawLine(
@@ -6040,17 +6050,29 @@ export function renderHtml({ adapter } = {}) {
     }
 
     async function persistGeometry() {
+      const alfheim = state.segment.datasetId === "alfheim";
       if (
-        state.segment.datasetId !== "soccertrack-v2"
+        !alfheim
+        && state.segment.datasetId !== "soccertrack-v2"
         && !state.segment.datasetId.startsWith("custom-")
       ) return;
+      // The Alfheim camera's pitch lines are fixed; only its restart spots
+      // (centre spot and penalty marks) can be added from here.
+      const spots = {};
+      GEOMETRY_SPOT_FEATURES.forEach((feature) => {
+        if (geometry.features[feature]?.length === 1) {
+          spots[feature] = geometry.features[feature];
+        }
+      });
+      if (alfheim && !Object.keys(spots).length) return;
       const response = await fetch("/api/calibration", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({
-          segment: state.segment.key,
-          calibration: geometry
-        })
+        body: JSON.stringify(
+          alfheim
+            ? {segment: state.segment.key, spots}
+            : {segment: state.segment.key, calibration: geometry}
+        )
       });
       const payload = await response.json();
       if (!response.ok) {
@@ -16564,7 +16586,7 @@ export function renderHtml({ adapter } = {}) {
       if (!editingFeature) return;
       const minimumPoints = editingFeature === "centre_circle"
         ? 8
-        : editingFeature === "centre_spot" ? 1
+        : GEOMETRY_SPOT_FEATURES.includes(editingFeature) ? 1
         : /goal_mouth$/.test(editingFeature) ? 4 : 2;
       if (geometry.features[editingFeature].length < minimumPoints) {
         geometryStatus.textContent =
@@ -16619,7 +16641,9 @@ export function renderHtml({ adapter } = {}) {
       const x = displayX - layout.x;
       const y = displayY - layout.y;
       if (x < 0 || y < 0 || x > layout.width || y > layout.height) return;
-      if (editingFeature === "centre_spot") geometry.features.centre_spot = [];
+      if (GEOMETRY_SPOT_FEATURES.includes(editingFeature)) {
+        geometry.features[editingFeature] = [];
+      }
       geometry.features[editingFeature].push([
         Math.round(x * geometry.image_width / layout.width),
         Math.round(y * geometry.image_height / layout.height),

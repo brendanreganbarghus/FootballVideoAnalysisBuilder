@@ -211,6 +211,15 @@ turns or is kicked on. When the clip ends first, the player is credited with
 the ball only if it closed in on his feet over at least
 `control_confirm_samples` samples and ended within `touch_radius_heights`.
 
+The chronological engine names a restart from where the still ball was placed
+(match-state label only; it creates no event): goal area → `goal_kick_taken`,
+a goal-line end point → `corner_kick_taken`, the centre spot →
+`kick_off_taken`, a penalty mark → `penalty_kick_taken`, within
+`restart_spot_tolerance_heights` (1.0) of the taker's height. Any other placed
+ball further than that inside the pitch is `free_kick_taken`, but only when the
+centre spot and both penalty marks are calibrated (one click each in the
+Canvas calibration tool); otherwise it stays `restart_taken_type_unknown`.
+
 New segments are prepared as Live only. Earlier BAC copies are archived under
 `<recording>\_bac-reference\<segment>\` (hidden from the segment list) and
 serve only as the evaluation-only green reference in the Live ball-coordinate

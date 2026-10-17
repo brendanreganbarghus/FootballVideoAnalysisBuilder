@@ -527,3 +527,17 @@ def test_process_ai_unlocks_at_a_configurable_ready_percent() -> None:
     assert "100 * (check.correct + (check.accepted || 0)) / check.scored" in extension
     assert "&& achievedPercent < readyPercent" in extension
     assert "Process AI unlocks at ${readyPercent}%" in extension
+
+def test_alfheim_calibration_accepts_restart_spots_only() -> None:
+    """The fixed Alfheim camera may add its centre spot and penalty marks,
+    one click each, which name free kicks and other restarts in chrono.
+    """
+    renderer = read(SHARED_RENDERER)
+    extension = read(SHARED_EXTENSION)
+
+    assert '<option value="left_penalty_mark">' in renderer
+    assert '<option value="right_penalty_mark">' in renderer
+    assert "GEOMETRY_SPOT_FEATURES.includes(editingFeature) ? 1" in renderer
+    assert "? {segment: state.segment.key, spots}" in renderer
+    assert 'selected?.datasetId === "alfheim" && body.spots' in extension
+    assert 'const spotNames = ["centre_spot", "left_penalty_mark", "right_penalty_mark"];' in extension

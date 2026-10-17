@@ -39,6 +39,9 @@ class ChronoSettings:
     control_confirm_gap_seconds: float = 0.5
     stopped_speed_px_per_second: float = 60.0
     restart_speed_px_per_second: float = 200.0
+    # A still ball this many of the taker's heights from a calibrated restart
+    # spot (corner, centre spot, penalty mark) is placed on that spot.
+    restart_spot_tolerance_heights: float = 1.0
     dead_ball_start_seconds: float = 1.0
     identity_swap_radius_heights: float = 0.75
     identity_swap_gap_seconds: float = 0.5
@@ -913,6 +916,52 @@ def _ball_out_turnover(result: ChronoResult, owner: "_Control | None", out_secon
     )
 
 
+RESTART_SPOTS = ("centre_spot", "left_penalty_mark", "right_penalty_mark")
+
+
+def _restart_type(
+    ball: tuple[float, float],
+    taker: dict[str, Any] | None,
+    boundary: tuple[tuple[float, float], ...],
+    goal_areas: tuple[tuple[tuple[float, float], ...], ...],
+    restart_spots: dict[str, tuple[tuple[float, float], ...]],
+    settings: ChronoSettings,
+) -> str:
+    """Name a restart from where the still ball was placed (Laws 8, 13-17).
+
+    A goal kick is placed in the goal area, a corner at a corner, a kick-off
+    on the centre spot and a penalty on a penalty mark. Any other placed ball
+    well inside the pitch is a free kick, but only once the centre spot and
+    both penalty marks are calibrated: otherwise a kick-off or a penalty
+    could be misnamed. A ball near the touchline may be a throw-in.
+    """
+    if any(signed_pitch_distance(ball, area) >= 0 for area in goal_areas):
+        return "goal_kick_taken"
+    if taker is None:
+        return "restart_taken_type_unknown"
+    reach = settings.restart_spot_tolerance_heights * (
+        float(taker["y2"]) - float(taker["y1"])
+    )
+
+    def near(name: str) -> bool:
+        return any(
+            hypot(ball[0] - x, ball[1] - y) <= reach
+            for x, y in restart_spots.get(name, ())
+        )
+
+    if near("corner"):
+        return "corner_kick_taken"
+    if near("centre_spot"):
+        return "kick_off_taken"
+    if near("left_penalty_mark") or near("right_penalty_mark"):
+        return "penalty_kick_taken"
+    if all(restart_spots.get(name) for name in RESTART_SPOTS) and (
+        signed_pitch_distance(ball, boundary) > reach
+    ):
+        return "free_kick_taken"
+    return "restart_taken_type_unknown"
+
+
 def run_chronological(
     players: dict[int, list[dict[str, Any]]],
     balls: dict[int, list[dict[str, Any]]],
@@ -921,8 +970,13 @@ def run_chronological(
     goal_areas: tuple[tuple[tuple[float, float], ...], ...] = (),
     out_of_play_seconds: Iterable[float] = (),
     toucher: Callable[..., dict[str, Any] | None] | None = None,
+    restart_spots: dict[str, tuple[tuple[float, float], ...]] | None = None,
 ) -> ChronoResult:
     """Walk the ball samples in time order.
+
+    ``restart_spots`` are calibrated restart points in the ball image space:
+    ``corner``, ``centre_spot``, ``left_penalty_mark`` and
+    ``right_penalty_mark``; they name the restart type only.
 
     ``out_of_play_seconds`` are the times the ball tracker saw the ball out of
     play (Law 9). Those frames have no live ball position, so they arrive here
@@ -1045,17 +1099,6 @@ def run_chronological(
             speed = hypot(x - previous[1], y - previous[2]) / (t - previous[0])
             if speed >= settings.restart_speed_px_per_second:
                 state = "in_play"
-                in_goal_area = any(
-                    signed_pitch_distance((previous[1], previous[2]), area) >= 0
-                    for area in goal_areas
-                )
-                result.match_state.append(
-                    MatchStateChange(
-                        previous[0],
-                        state,
-                        "goal_kick_taken" if in_goal_area else "restart_taken_type_unknown",
-                    )
-                )
                 # Law 8/16/17: the player standing at the still ball takes the
                 # restart, so the restart's team owns the ball as it is kicked.
                 taker = _closest_controller(
@@ -1063,6 +1106,20 @@ def run_chronological(
                     players.get(previous_frame, []),
                     settings.control_radius_heights,
                     settings.duel_margin_heights,
+                )
+                result.match_state.append(
+                    MatchStateChange(
+                        previous[0],
+                        state,
+                        _restart_type(
+                            (previous[1], previous[2]),
+                            taker,
+                            boundary,
+                            goal_areas,
+                            restart_spots or {},
+                            settings,
+                        ),
+                    )
                 )
                 if taker is not None:
                     owner = _Control(
@@ -1330,6 +1387,50 @@ def _control_change(
     )
 
 
+def _scaled_restart_spots(
+    calibration_path: Path, ball_tracks_path: Path, video: Path
+) -> dict[str, tuple[tuple[float, float], ...]]:
+    """Calibrated restart spots, in the ball image space."""
+    from football_poc.image_space import ball_coordinate_size, scale_factors, video_size
+
+    calibration = json.loads(calibration_path.read_text(encoding="utf-8"))
+    sx, sy = scale_factors(
+        calibration,
+        ball_coordinate_size(
+            json.loads(ball_tracks_path.read_text(encoding="utf-8")), video_size(video)
+        ),
+    )
+    return {
+        name: tuple((x * sx, y * sy) for x, y in points)
+        for name, points in restart_spots_from_calibration(calibration).items()
+    }
+
+
+def restart_spots_from_calibration(
+    calibration: dict[str, Any],
+) -> dict[str, tuple[tuple[float, float], ...]]:
+    """Marked restart spots (Law 1), in calibration image space.
+
+    Corners are the end points of each marked goal line. The centre spot and
+    the penalty marks are used only when marked with one point; a missing
+    spot is not guessed.
+    """
+    features = calibration.get("features", {})
+    spots: dict[str, tuple[tuple[float, float], ...]] = {}
+    corners = []
+    for side in ("left", "right"):
+        line = features.get(f"{side}_goal_line", [])
+        if len(line) >= 2:
+            corners += [line[0], line[-1]]
+    if corners:
+        spots["corner"] = tuple((float(x), float(y)) for x, y, *_ in corners)
+    for name in RESTART_SPOTS:
+        points = features.get(name, [])
+        if len(points) == 1:
+            spots[name] = ((float(points[0][0]), float(points[0][1])),)
+    return spots
+
+
 def _scaled_goal_areas(
     calibration_path: Path, ball_tracks_path: Path, video: Path
 ) -> tuple[tuple[tuple[float, float], ...], ...]:
@@ -1407,6 +1508,7 @@ def main(
         goal_areas=goal_areas,
         out_of_play_seconds=out_of_play_seconds,
         toucher=toucher,
+        restart_spots=_scaled_restart_spots(args.pitch_calibration, ball_path, args.video),
     )
     (data / "predicted-events-chrono.json").write_text(
         json.dumps(result.events, indent=2), encoding="utf-8"
