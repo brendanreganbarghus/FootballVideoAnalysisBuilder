@@ -11758,7 +11758,25 @@ export function renderHtml({ adapter } = {}) {
 
     function canonicalComparisonLabel(event) {
       if (event.type === "foul_encountered") return "Foul / stoppage";
-      return teamLabel(event.team) + " " + typeLabel(event.type).toLowerCase();
+      return teamLabel(event.team) + " " + typeLabel(event.type).toLowerCase()
+        + (event.restartType
+          ? " from " + restartLabel(event.restartType).toLowerCase()
+          : "");
+    }
+
+    const RESTART_OPTIONS = [
+      ["", "Open play"],
+      ["free_kick", "Free kick"],
+      ["goal_kick", "Goal kick"],
+      ["corner_kick", "Corner kick"],
+      ["kick_off", "Kick-off"],
+      ["penalty_kick", "Penalty kick"],
+      ["throw_in", "Throw-in"],
+    ];
+
+    function restartLabel(restartType) {
+      return (RESTART_OPTIONS.find(([value]) => value === restartType)
+        || [restartType, String(restartType).replaceAll("_", " ")])[1];
     }
 
     function isManualReviewEvent(event) {
@@ -12145,6 +12163,17 @@ export function renderHtml({ adapter } = {}) {
         .forEach(([value, label]) => {
           type.add(new Option(label, value, false, row.review.type === value));
         });
+      const restart = document.createElement("select");
+      restart.setAttribute("aria-label", displayKey + " played from");
+      restart.title = "Was this played straight from a restart?";
+      RESTART_OPTIONS.forEach(([value, label]) => {
+        restart.add(new Option(
+          label,
+          value,
+          false,
+          (row.review.restartType || "") === value,
+        ));
+      });
       const saveImmediately = () => {
         const seconds = Number(time.value);
         if (
@@ -12166,7 +12195,8 @@ export function renderHtml({ adapter } = {}) {
           manualKey: row.review.key,
           timestampMs: Math.round(seconds * 1000),
           team: team.value,
-          eventType: type.value
+          eventType: type.value,
+          restartType: restart.value
         }).then(result => {
           manualTimeDrafts.delete(row.review.key);
           forceFullscreenEventsRender = true;
@@ -12188,6 +12218,7 @@ export function renderHtml({ adapter } = {}) {
       });
       team.addEventListener("change", saveImmediately);
       type.addEventListener("change", saveImmediately);
+      restart.addEventListener("change", saveImmediately);
       const remove = document.createElement("button");
       remove.type = "button";
       remove.textContent = "Delete " + displayKey;
@@ -12210,7 +12241,7 @@ export function renderHtml({ adapter } = {}) {
           ) * 1000)
           + " ms apart"
         : "No engine match within one second";
-      editor.append(time, team, type, remove);
+      editor.append(time, team, type, restart, remove);
       details.append(summary, editor);
       controls.append(mappingLabel, details);
       if (!row.engine) {

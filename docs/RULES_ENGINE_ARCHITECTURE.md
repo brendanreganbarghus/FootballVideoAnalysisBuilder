@@ -219,6 +219,12 @@ a goal-line end point → `corner_kick_taken`, the centre spot →
 ball further than that inside the pitch is `free_kick_taken`, but only when the
 centre spot and both penalty marks are calibrated (one click each in the
 Canvas calibration tool); otherwise it stays `restart_taken_type_unknown`.
+The taker may not touch the ball again until another player has (Laws 13–17),
+so the one event the taker plays (pass or turnover) carries `restart_type`
+(`free_kick`, `goal_kick`, `corner_kick`, `kick_off`, `penalty_kick`) and the
+Canvas shows it as e.g. "completed pass from free kick". No separate restart
+event is written, so nothing is counted twice. Each M# may record the restart
+it was "played from"; that is evaluation-only and never reaches the engine.
 
 New segments are prepared as Live only. Earlier BAC copies are archived under
 `<recording>\_bac-reference\<segment>\` (hidden from the segment list) and

@@ -302,3 +302,5 @@ baseline suites (`tests/test_possession.py`, `tests/test_match_state.py`,
 | 20261017T204131302Z | rules | ball near touchline is not named free kick | `tests/rules/test_chrono_restart_type_from_calibrated_spot_20261017T204131299Z.py::test_ball_near_touchline_is_not_named_free_kick_20261017T204131302Z` |
 | 20261017T204131303Z | rules | spot tolerance scales with taker height | `tests/rules/test_chrono_restart_type_from_calibrated_spot_20261017T204131299Z.py::test_spot_tolerance_scales_with_taker_height_20261017T204131303Z` |
 | 20261017T204131304Z | rules | spots read from calibration | `tests/rules/test_chrono_restart_type_from_calibrated_spot_20261017T204131299Z.py::test_spots_read_from_calibration_20261017T204131304Z` |
+| 20261017T210108686Z | rules | pass from free kick is tagged once | `tests/rules/test_chrono_event_tagged_from_restart_20261017T210108686Z.py::test_pass_from_free_kick_is_tagged_once_20261017T210108686Z` |
+| 20261017T210108687Z | rules | unnamed restart tags nothing | `tests/rules/test_chrono_event_tagged_from_restart_20261017T210108686Z.py::test_unnamed_restart_tags_nothing_20261017T210108687Z` |

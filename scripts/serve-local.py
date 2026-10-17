@@ -90,6 +90,10 @@ from football_poc.engine_fingerprint import engine_fingerprint
 
 
 WORKFLOW_IDS = frozenset({REVIEW_WORKFLOW_ID})
+# A reviewer may say an M# was played straight from a restart (Laws 8, 13-17).
+MANUAL_RESTART_TYPES = frozenset(
+    {"free_kick", "goal_kick", "corner_kick", "kick_off", "penalty_kick", "throw_in"}
+)
 ENGINE_OUTPUT_FILES = (
     "analytics-data/predicted-events.json",
     "analytics-data/match-state-events.json",
@@ -493,6 +497,9 @@ class CoordinationService:
                 raise ValueError("Unknown manual event team")
             if event_type not in {"completed_pass", "turnover", "shot_on_target"}:
                 raise ValueError("Unknown manual event type")
+            restart_type = item.get("restartType")
+            if restart_type is not None and restart_type not in MANUAL_RESTART_TYPES:
+                raise ValueError("Unknown manual restart type")
             seen_keys.add(key)
             prepared_events.append(
                 (
@@ -511,6 +518,7 @@ class CoordinationService:
                         "type": event_type,
                         "active": True,
                         "deleted": False,
+                        **({"restartType": restart_type} if restart_type else {}),
                     },
                 )
             )

@@ -541,3 +541,17 @@ def test_alfheim_calibration_accepts_restart_spots_only() -> None:
     assert "? {segment: state.segment.key, spots}" in renderer
     assert 'selected?.datasetId === "alfheim" && body.spots' in extension
     assert 'const spotNames = ["centre_spot", "left_penalty_mark", "right_penalty_mark"];' in extension
+
+def test_m_and_e_show_the_restart_they_were_played_from() -> None:
+    """An E# from a named restart and an M# marked "played from" show it,
+    e.g. "Red/white completed pass from free kick".
+    """
+    renderer = read(SHARED_RENDERER)
+    extension = read(SHARED_EXTENSION)
+
+    assert "restartType: event.restart_type || null," in extension
+    assert "...(restartType ? {restartType} : {})," in extension
+    assert '["free_kick", "Free kick"],' in renderer
+    assert "editor.append(time, team, type, restart, remove);" in renderer
+    assert 'restartType: restart.value' in renderer
+    assert '" from " + restartLabel(event.restartType).toLowerCase()' in renderer

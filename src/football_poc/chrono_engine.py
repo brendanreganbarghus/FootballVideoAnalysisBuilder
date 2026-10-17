@@ -121,6 +121,9 @@ class _Control:
     feet: tuple[float, float]
     height: float
     samples: int = 1
+    # Laws 13-17: the restart taker may not touch the ball again until
+    # another player has, so his next event is played from the restart.
+    restart: str | None = None
 
 
 @dataclass
@@ -904,19 +907,36 @@ def _ball_out_turnover(result: ChronoResult, owner: "_Control | None", out_secon
     if owner is None:
         return
     result.events.append(
-        {
-            "event_type": "turnover_candidate",
-            "clip_seconds": round(owner.last_seconds, 3),
-            "completion_seconds": round(out_seconds, 3),
-            "team": owner.team,
-            "from_player_track_id": owner.track_id,
-            "to_player_track_id": None,
-            "details": "ball out of play; restart to the opponents",
-        }
+        _with_restart(
+            {
+                "event_type": "turnover_candidate",
+                "clip_seconds": round(owner.last_seconds, 3),
+                "completion_seconds": round(out_seconds, 3),
+                "team": owner.team,
+                "from_player_track_id": owner.track_id,
+                "to_player_track_id": None,
+                "details": "ball out of play; restart to the opponents",
+            },
+            owner,
+        )
     )
 
 
+def _with_restart(event: dict[str, Any], owner: "_Control") -> dict[str, Any]:
+    """Tag an event played straight from a named restart (no extra event)."""
+    if owner.restart:
+        event["restart_type"] = owner.restart
+    return event
+
+
 RESTART_SPOTS = ("centre_spot", "left_penalty_mark", "right_penalty_mark")
+RESTART_TAGS = {
+    "goal_kick_taken": "goal_kick",
+    "corner_kick_taken": "corner_kick",
+    "kick_off_taken": "kick_off",
+    "penalty_kick_taken": "penalty_kick",
+    "free_kick_taken": "free_kick",
+}
 
 
 def _restart_type(
@@ -1107,20 +1127,15 @@ def run_chronological(
                     settings.control_radius_heights,
                     settings.duel_margin_heights,
                 )
-                result.match_state.append(
-                    MatchStateChange(
-                        previous[0],
-                        state,
-                        _restart_type(
-                            (previous[1], previous[2]),
-                            taker,
-                            boundary,
-                            goal_areas,
-                            restart_spots or {},
-                            settings,
-                        ),
-                    )
+                reason = _restart_type(
+                    (previous[1], previous[2]),
+                    taker,
+                    boundary,
+                    goal_areas,
+                    restart_spots or {},
+                    settings,
                 )
+                result.match_state.append(MatchStateChange(previous[0], state, reason))
                 if taker is not None:
                     owner = _Control(
                         int(taker["track_id"]),
@@ -1130,6 +1145,7 @@ def run_chronological(
                         _feet(taker),
                         float(taker["y2"]) - float(taker["y1"]),
                         settings.control_confirm_samples,
+                        RESTART_TAGS.get(reason),
                     )
                     candidate = None
         previous = (t, x, y)
@@ -1335,8 +1351,18 @@ def run_chronological(
 
         # 3. Control changed: write the event.
         new = candidate
-        _control_change(result, owner, new, settings)
-        owner = _Control(new.track_id, new.team, new.first_seconds, t, new.feet, new.height, new.samples)
+        wrote = _control_change(result, owner, new, settings)
+        owner = _Control(
+            new.track_id,
+            new.team,
+            new.first_seconds,
+            t,
+            new.feet,
+            new.height,
+            new.samples,
+            # An identity swap is the same player: he still owes the restart.
+            None if wrote or owner is None else owner.restart,
+        )
         arriving = None
 
     # The clip ends while the ball is still rolling into a player's feet:
@@ -1361,10 +1387,10 @@ def _control_change(
     owner: "_Control | None",
     new: "_Control",
     settings: ChronoSettings,
-) -> None:
+) -> bool:
     """Write the pass or turnover from the owner to the new controller."""
     if owner is None:
-        return
+        return False
     swap = (
         new.team == owner.team
         and new.first_seconds - owner.last_seconds <= settings.identity_swap_gap_seconds
@@ -1372,19 +1398,23 @@ def _control_change(
         <= settings.identity_swap_radius_heights * max(new.height, 1.0)
     )
     if swap:
-        return
+        return False
     same_team = new.team == owner.team
     result.events.append(
-        {
-            "event_type": "pass_candidate" if same_team else "turnover_candidate",
-            "clip_seconds": round(owner.last_seconds, 3),
-            "completion_seconds": round(new.first_seconds, 3),
-            "team": owner.team,
-            "from_player_track_id": owner.track_id,
-            "to_player_track_id": new.track_id,
-            "details": "chronological control change",
-        }
+        _with_restart(
+            {
+                "event_type": "pass_candidate" if same_team else "turnover_candidate",
+                "clip_seconds": round(owner.last_seconds, 3),
+                "completion_seconds": round(new.first_seconds, 3),
+                "team": owner.team,
+                "from_player_track_id": owner.track_id,
+                "to_player_track_id": new.track_id,
+                "details": "chronological control change",
+            },
+            owner,
+        )
     )
+    return True
 
 
 def _scaled_restart_spots(

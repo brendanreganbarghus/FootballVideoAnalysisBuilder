@@ -347,6 +347,9 @@ function manualEvent(input, key, revision = 1) {
   const reviewStatus = input.reviewStatus === "rejected"
     ? "rejected"
     : "active";
+  const restartType = MANUAL_RESTART_TYPES.includes(input.restartType)
+    ? input.restartType
+    : null;
   return {
     key,
     timestampMs,
@@ -360,8 +363,19 @@ function manualEvent(input, key, revision = 1) {
     reviewStatus,
     rejectedAt: reviewStatus === "rejected" ? input.rejectedAt || null : null,
     source: "manual_review",
+    ...(restartType ? {restartType} : {}),
   };
 }
+
+// An M# or E# played straight from a restart (Laws 8, 13-17).
+export const MANUAL_RESTART_TYPES = [
+  "free_kick",
+  "goal_kick",
+  "corner_kick",
+  "kick_off",
+  "penalty_kick",
+  "throw_in",
+];
 
 function manualComparisonValidationIsCurrent(
   reference,
@@ -1418,6 +1432,7 @@ async function loadEngineEvents(segment) {
       ? Number(event.confidence)
       : null,
     details: event.details || null,
+    restartType: event.restart_type || null,
     ballEvidence: event.ball_evidence || null,
     attemptId: event.attempt_id || null,
   })).filter((event) => Number.isFinite(event.seconds));
@@ -3931,6 +3946,7 @@ function snapshotEvents(snapshot) {
       type,
       title: eventTitle({...event, event_type: type}),
       details: event.details || "The rules engine produced this event.",
+      restartType: event.restart_type || null,
       confidence: Number.isFinite(Number(event.confidence))
         ? Number(event.confidence)
         : null,
@@ -10045,6 +10061,14 @@ async function handleRequest(request, response, serverInstanceId) {
           sendJson(response, 400, {error: "Choose a supported event type"});
           return;
         }
+        if (
+          body.restartType !== undefined
+          && body.restartType !== ""
+          && !MANUAL_RESTART_TYPES.includes(String(body.restartType))
+        ) {
+          sendJson(response, 400, {error: "Choose a supported restart"});
+          return;
+        }
       }
       if (action === "map") {
         const engineCount = (await loadEngineEvents(segment)).length;
@@ -10065,6 +10089,9 @@ async function handleRequest(request, response, serverInstanceId) {
           timestampMs,
           team: String(body.team || ""),
           eventType: String(body.eventType || ""),
+          ...(body.restartType !== undefined
+            ? {restartType: String(body.restartType)}
+            : {}),
           durationSeconds: review.selected.durationSeconds,
         });
         await persistNormalizedManualReference(

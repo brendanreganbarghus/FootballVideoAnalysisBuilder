@@ -221,6 +221,41 @@ def test_manual_reference_endpoints_populate_normalized_coordination_state() -> 
     assert loaded["approved"]["mappings"] == {"M1": "E9"}
 
 
+def test_manual_reference_stores_the_restart_an_m_was_played_from() -> None:
+    service, _ = coordination_service()
+    _, acquired = invoke_coordination(
+        service,
+        "POST",
+        "/api/coordination/acquire",
+        {"workflow": "football_review", "segment": "segment-0080-020"},
+    )
+    body = {
+        "workflow": "football_review",
+        "segment": "segment-0080-020",
+        "leaseToken": acquired["lease"]["leaseToken"],
+        "events": [
+            {"key": "M1", "timestampMs": 3030, "team": "red",
+             "type": "completed_pass", "restartType": "free_kick"},
+            {"key": "M2", "timestampMs": 5000, "team": "red",
+             "type": "completed_pass"},
+        ],
+        "mappings": {},
+        "approve": False,
+    }
+    status, saved = invoke_coordination(
+        service, "POST", "/api/coordination/manual-reference", body
+    )
+    assert status == 200
+    events = saved["reference"]["events"]
+    assert events[0]["restartType"] == "free_kick"
+    assert "restartType" not in events[1]
+    body["events"][0]["restartType"] = "header"
+    status, _ = invoke_coordination(
+        service, "POST", "/api/coordination/manual-reference", body
+    )
+    assert status == 400
+
+
 def test_manual_reference_endpoint_requires_lease_and_one_to_one_mapping() -> None:
     service, _ = coordination_service()
     _, acquired = invoke_coordination(
