@@ -435,6 +435,38 @@ def _ball_deflected(
     return turn >= settings.touch_turn_degrees or ratio >= settings.touch_speed_ratio
 
 
+def _pushed_up_in_flight(
+    before: tuple[float, float, float],
+    at: tuple[float, float, float],
+    after: tuple[float, float, float],
+    settings: ChronoSettings,
+    noise_px: float,
+) -> bool:
+    """Law 12 header evidence: a ball in flight is clearly pushed up the picture.
+
+    Gravity only bends a flying ball's path down the picture. A fast long
+    ball can be headed on with little change of direction or speed, yet its
+    path is still pushed upward; an upward change larger than a touch-sized
+    change of the track's own wobble needs a body touch.
+    """
+    if noise_px <= 0:
+        return False
+    change = _movement_change_px(before, at, after)
+    return change is not None and -change[1] >= (
+        settings.touch_noise_multiple * noise_px * sqrt(6)
+    )
+
+
+def _ball_in_head_zone(
+    ball: tuple[float, float], box: dict[str, Any], settings: ChronoSettings
+) -> bool:
+    """The ball is at the top of the player's body (head and shoulders)."""
+    height = float(box["y2"]) - float(box["y1"])
+    if height <= 0:
+        return False
+    return 0.0 <= (ball[1] - float(box["y1"])) / height <= settings.head_zone_share
+
+
 def _hidden_turn(
     track: list[tuple[int, float, float, float]],
     index: int,
@@ -1060,14 +1092,20 @@ def run_chronological(
                 t - before[0] <= settings.touch_neighbour_gap_seconds
                 and after[0] - t <= settings.touch_neighbour_gap_seconds
             ):
-                if _ball_deflected(
+                deflected = _ball_deflected(
                     before,
                     (t, x, y),
                     after,
                     settings,
                     aerial=index in lofted,
                     noise_px=noise_px,
-                ) and not (
+                )
+                headed_only = (
+                    not deflected
+                    and index in lofted
+                    and _pushed_up_in_flight(before, (t, x, y), after, settings, noise_px)
+                )
+                if (deflected or headed_only) and not (
                     index not in lofted and _blip_on_unbroken_line(track, index, settings)
                 ):
                     if toucher is None:
@@ -1082,6 +1120,12 @@ def run_chronological(
                             aerial=index in lofted,
                             noise_px=noise_px,
                         )
+                    if (
+                        headed_only
+                        and touch is not None
+                        and not _ball_in_head_zone((x, y), touch, settings)
+                    ):
+                        touch = None
                 rolling = not estimated.intersection(
                     (index - 1, index, index + 1)
                 ) and _rolling_through(before, (t, x, y), after, settings)
