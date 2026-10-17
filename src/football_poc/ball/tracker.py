@@ -200,6 +200,20 @@ def _confirm_track_points_from_module(
     return ledger
 
 
+# A ball between two confirmed points does not first move farther from each of
+# them than they are from each other: that is an out-and-back detour. Such an
+# attention point is judged across a wider gap than a plain off-path point.
+ATTENTION_DETOUR_BRACKET_MULTIPLE = 3
+
+
+def _attention_detour(point: BallPoint, previous: BallPoint, following: BallPoint) -> bool:
+    direct = hypot(following.x - previous.x, following.y - previous.y)
+    return (
+        hypot(point.x - previous.x, point.y - previous.y) > direct
+        and hypot(point.x - following.x, point.y - following.y) > direct
+    )
+
+
 def _withdraw_off_path_attention_fallbacks(ledger: FrameLedger, module: str) -> None:
     # Attention convergence points at the players, not the ball. When both
     # confirmed neighbours are close in time and the point sits far off the
@@ -214,6 +228,9 @@ def _withdraw_off_path_attention_fallbacks(ledger: FrameLedger, module: str) -> 
         SOCCERTRACK_TRAJECTORY_OUTLIER_PROFILE[
             "global_fallback_outlier_minimum_path_error_ball_diameters"
         ]
+    )
+    maximum_detour_bracket_frames = (
+        maximum_bracket_frames * ATTENTION_DETOUR_BRACKET_MULTIPLE
     )
     points = sorted(
         ledger.confirmed_points(), key=lambda point: point.source_frame
@@ -230,7 +247,12 @@ def _withdraw_off_path_attention_fallbacks(ledger: FrameLedger, module: str) -> 
         previous = points[index - 1]
         following = points[index + 1]
         span = following.source_frame - previous.source_frame
-        if span <= 0 or span > maximum_bracket_frames:
+        if span <= 0:
+            continue
+        if span > maximum_bracket_frames and not (
+            span <= maximum_detour_bracket_frames
+            and _attention_detour(point, previous, following)
+        ):
             continue
         alpha = (point.source_frame - previous.source_frame) / span
         expected_x = previous.x + (following.x - previous.x) * alpha

@@ -116,6 +116,66 @@ def _inside_player_upper_body(
     return False
 
 
+# Above the shoulders a person fills only the middle of the box: the head. A
+# ball beyond the player, further from the camera, shows in the empty top
+# corners beside the head, so those corners are not the player's body.
+PERSON_SHOULDER_HEIGHT_FRACTION = 0.15
+PERSON_HEAD_HALF_WIDTH_FRACTION = 0.25
+
+
+def _beside_head(
+    point: BallPoint,
+    x1: float,
+    y1: float,
+    x2: float,
+    y2: float,
+) -> bool:
+    return point.y <= y1 + (y2 - y1) * PERSON_SHOULDER_HEIGHT_FRACTION and abs(
+        point.x - (x1 + x2) / 2
+    ) > (x2 - x1) * PERSON_HEAD_HALF_WIDTH_FRACTION
+
+
+# A person box encloses the whole body, hands included. A ball box that
+# reaches clearly past the side of the person box is beside the player, not on
+# the body.
+BALL_PAST_PERSON_SIDE_FRACTION = 0.25
+
+
+def _reaches_past_side(point: BallPoint, x1: float, x2: float) -> bool:
+    ball_width = float(point.box_diagonal or 0.0) / 2.0 ** 0.5
+    if ball_width <= 0.0:
+        return False
+    inside = min(point.x - x1, x2 - point.x)
+    return inside < ball_width * (0.5 - BALL_PAST_PERSON_SIDE_FRACTION)
+
+
+def _on_player_upper_body(
+    point: BallPoint,
+    record: dict[str, Any],
+    *,
+    minimum_person_confidence: float = 0.25,
+    upper_body_fraction: float = 0.75,
+) -> bool:
+    for detection in record.get("detections", []):
+        if (
+            detection.get("class_name") != "person"
+            or float(detection["confidence"]) < minimum_person_confidence
+        ):
+            continue
+        x1 = float(detection["x1"])
+        y1 = float(detection["y1"])
+        x2 = float(detection["x2"])
+        y2 = float(detection["y2"])
+        if (
+            x1 <= point.x <= x2
+            and y1 <= point.y <= y1 + (y2 - y1) * upper_body_fraction
+            and not _beside_head(point, x1, y1, x2, y2)
+            and not _reaches_past_side(point, x1, x2)
+        ):
+            return True
+    return False
+
+
 def _near_player_feet(
     point: BallPoint,
     record: dict[str, Any],
@@ -198,7 +258,7 @@ def _player_context_allows_ball(
     point: BallPoint,
     record: dict[str, Any],
 ) -> bool:
-    if not _inside_player_upper_body(point, record):
+    if not _on_player_upper_body(point, record):
         return True
     if not _near_player_feet(point, record):
         return _strong_ball_behind_player(point)

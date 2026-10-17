@@ -1093,7 +1093,7 @@ def _candidate_rejection_reason(
         )
     ):
         return "no_contrast_with_grass", False
-    if _inside_player_upper_body(point, record) and not _strong_ball_behind_player(
+    if _on_player_upper_body(point, record) and not _strong_ball_behind_player(
         point
     ):
         return "inside_player_upper_body", False
