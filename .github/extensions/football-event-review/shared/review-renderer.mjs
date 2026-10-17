@@ -4005,6 +4005,10 @@ export function renderHtml({ adapter } = {}) {
               </select>
             </label>
             <button id="process-segment" type="button">Run segment</button>
+            <label for="process-ai-ready-percent">Process AI unlocks at (%)
+              <input id="process-ai-ready-percent" name="process-ai-ready-percent"
+                type="number" min="50" max="100" step="1" value="90" required>
+            </label>
             <button id="process-ai" type="button" hidden disabled>Process AI</button>
           </div>
           <progress class="segment-progress" id="segment-progress"
@@ -5156,6 +5160,34 @@ export function renderHtml({ adapter } = {}) {
     const prepareButton = document.getElementById("prepare-segment");
     const processButton = document.getElementById("process-segment");
     const processAiButton = document.getElementById("process-ai");
+    // The share of decided ball-coordinate frames that must agree with the
+    // reviewer before Process AI unlocks. Required; 90% by default.
+    const readyPercentInput = document.getElementById("process-ai-ready-percent");
+    const readyPercentStorageKey = "football-review-process-ai-ready-percent";
+    readyPercentInput.value = localStorage.getItem(readyPercentStorageKey) || "90";
+    function processAiReadyPercent() {
+      const value = Number(readyPercentInput.value);
+      return readyPercentInput.value !== ""
+        && Number.isFinite(value) && value >= 50 && value <= 100
+        ? value
+        : null;
+    }
+    function ballCheckPercent(check) {
+      return check?.scored
+        ? 100 * (check.correct + (check.accepted || 0)) / check.scored
+        : 100;
+    }
+    // Frames still differing that keep Process AI locked at the chosen %.
+    function ballCheckBlocking(check) {
+      const left = check?.left?.length || 0;
+      if (!left) return 0;
+      const needed = processAiReadyPercent();
+      return needed !== null && ballCheckPercent(check) >= needed ? 0 : left;
+    }
+    function readyPercentText(check) {
+      return ballCheckPercent(check).toFixed(1) + "% ready (unlocks at "
+        + (processAiReadyPercent() ?? "?") + "%)";
+    }
     const ballSourceSelect = document.getElementById("ball-source-select");
     const changeBallSourceButton = document.getElementById("change-ball-source");
     const ballSourceSwitchModal = document.getElementById("ball-source-switch-modal");
@@ -6776,13 +6808,14 @@ export function renderHtml({ adapter } = {}) {
         && (segment.ballSource || "bac") === "detected";
       const ballCheckLeft = detectedCopy
         && !["verified", "finalized"].includes(state.coordinateReview?.status)
-        ? state.ballCheck?.left?.length || 0
+        ? ballCheckBlocking(state.ballCheck)
         : 0;
       processAiButton.hidden = !detectedCopy || !selectedVideoPrepared;
       processAiButton.disabled =
         running
         || referenceLocked()
         || !segment.ballTrackAvailable
+        || processAiReadyPercent() === null
         || ballCheckLeft > 0;
       processAiButton.textContent =
         state.coordinateReview?.status === "finalized"
@@ -6790,10 +6823,14 @@ export function renderHtml({ adapter } = {}) {
           : "Process AI";
       processAiButton.title = !segment.ballTrackAvailable
         ? "Run ball coordinates first"
-        : ballCheckLeft
-          ? "Ball coordinates are not 100% yet: the engine still differs "
-            + "from your decision on " + ballCheckLeft + " frames"
-          : "Run the rules engine on our ball coordinates";
+        : processAiReadyPercent() === null
+          ? "Enter the % at which Process AI unlocks (50–100)"
+          : ballCheckLeft
+            ? "Ball coordinates are " + readyPercentText(state.ballCheck)
+              + ": the engine still differs from your decision on "
+              + ballCheckLeft + " frames"
+            : "Run the rules engine on our ball coordinates"
+              + (state.ballCheck ? " · " + readyPercentText(state.ballCheck) : "");
       if (ballSourceSelect && segment.ballSource && !ballSourceSelect.dataset.userChanged) {
         ballSourceSelect.value = segment.ballSource;
       }
@@ -10213,16 +10250,21 @@ export function renderHtml({ adapter } = {}) {
                 + batch.ballCheck.left.length
                 + (batch.ballCheck.left.length
                   ? " still differ and moved to Round "
-                    + (Number(batch.number) + 1) + "."
+                    + (Number(batch.number) + 1) + ". "
+                    + (ballCheckBlocking(state.ballCheck || batch.ballCheck)
+                      ? readyPercentText(state.ballCheck || batch.ballCheck)
+                        + ": Process AI stays locked."
+                      : readyPercentText(state.ballCheck || batch.ballCheck)
+                        + ": the segment is ready, Process AI is unlocked.")
                   : " still differ. 100%: Process AI is unlocked.")
             : "Round " + batch.number + " result · "
               + supportedFixedCount + " resolved · "
               + unresolvedCount + " unresolved · "
               + regressionCount + " regressed. "
               + "You can review more frames or click Process AI."
-              + (state.ballCheck?.left?.length
-                ? " Process AI unlocks at 100%: "
-                  + state.ballCheck.left.length + " frames still differ."
+              + (ballCheckBlocking(state.ballCheck)
+                ? " Process AI unlocks at " + processAiReadyPercent() + "%: "
+                  + readyPercentText(state.ballCheck) + "."
                 : "")
           : "";
       const finalize = document.getElementById(
@@ -10231,12 +10273,13 @@ export function renderHtml({ adapter } = {}) {
       const coordinatesLeft = (state?.segment?.ballSource || "bac")
         === "detected"
         && state.coordinateReview?.status !== "verified"
-        ? state.ballCheck?.left?.length || 0 : 0;
-      finalize.disabled = segmentRunActive() || coordinatesLeft > 0;
+        ? ballCheckBlocking(state.ballCheck) : 0;
+      finalize.disabled = segmentRunActive() || coordinatesLeft > 0
+        || processAiReadyPercent() === null;
       finalize.hidden = state.coordinateReview?.status === "finalized";
       finalize.textContent = coordinatesLeft
-        ? "Continue to rules engine (at 100%; " + coordinatesLeft
-          + " frames still differ)"
+        ? "Continue to rules engine (" + readyPercentText(state.ballCheck)
+          + "; " + coordinatesLeft + " frames still differ)"
         : "Continue to rules engine";
       const applyReviewerLayer = document.getElementById(
         "apply-reviewer-coordinate-layer"
@@ -10490,7 +10533,10 @@ export function renderHtml({ adapter } = {}) {
           {
             method: "POST",
             headers: {"Content-Type": "application/json"},
-            body: JSON.stringify({segment: selectedSegmentKey()})
+            body: JSON.stringify({
+              segment: selectedSegmentKey(),
+              readyPercent: processAiReadyPercent(),
+            })
           }
         );
         const result = await response.json();
@@ -16105,6 +16151,13 @@ export function renderHtml({ adapter } = {}) {
     processAiButton.addEventListener("click", () => {
       processAiButton.disabled = true;
       void finalizeBallCoordinateReview();
+    });
+    readyPercentInput.addEventListener("input", () => {
+      if (processAiReadyPercent() !== null) {
+        localStorage.setItem(readyPercentStorageKey, readyPercentInput.value);
+      }
+      renderRunControls();
+      renderBallCoordinateReviewMessages();
     });
     document.getElementById("next-event").addEventListener(
       "click", () => selectEvent(selectedIndex + 1)

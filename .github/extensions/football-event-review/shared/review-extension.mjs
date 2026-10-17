@@ -3557,6 +3557,15 @@ async function goldenMatchCount(segment, approved) {
 // frozen BAC coordinate where the reviewer made none. Neither reference ever
 // feeds the tracker.
 const BALL_CHECK_MATCH_PX = 25;
+// Process AI unlocks once this share of the decided ball-coordinate frames
+// agrees with the reviewer; the Canvas sends the reviewer's chosen value.
+const PROCESS_AI_DEFAULT_READY_PERCENT = 90;
+
+function ballCheckReadyPercent(check) {
+  return check?.scored
+    ? 100 * (check.correct + (check.accepted || 0)) / check.scored
+    : 100;
+}
 
 async function ballCheckScore(selected, track, observations) {
   if (
@@ -8990,6 +8999,40 @@ async function handleRequest(request, response, serverInstanceId) {
       });
       return;
     }
+    const readyPercent = body.readyPercent === undefined
+      || body.readyPercent === null
+      ? PROCESS_AI_DEFAULT_READY_PERCENT
+      : Number(body.readyPercent);
+    if (!(readyPercent >= 50 && readyPercent <= 100)) {
+      sendJson(response, 400, {
+        error: "Process AI unlock % must be between 50 and 100",
+      });
+      return;
+    }
+    const readiness = await ballCheckScore(
+      context.selected,
+      await loadDetectedBallTrack(context.selected),
+      {
+        ...(context.state.trajectoryAudit?.observations || {}),
+        ...Object.assign(
+          {},
+          ...(context.state.coordinateReview?.batches || [])
+            .map((batch) => batch.observations || {}),
+        ),
+      },
+    ).catch(() => null);
+    const achievedPercent = ballCheckReadyPercent(readiness);
+    if (
+      context.state.coordinateReview?.status !== "verified"
+      && readiness?.left?.length
+      && achievedPercent < readyPercent
+    ) {
+      sendJson(response, 409, {
+        error: `Ball coordinates are ${achievedPercent.toFixed(1)}% ready; `
+          + `Process AI unlocks at ${readyPercent}%`,
+      });
+      return;
+    }
     const snapshot = await ballCoordinateReviewSnapshot(segment);
     const run = await localJson(
       workflow.analyzePath,
@@ -9010,6 +9053,8 @@ async function handleRequest(request, response, serverInstanceId) {
       provenanceHash: snapshot.provenanceHash,
       finalizedDirectFrameCount: snapshot.directFrameCount,
       finalizedSampledFrameCount: snapshot.sampledFrameCount,
+      readyPercent,
+      achievedReadyPercent: readiness ? achievedPercent : null,
     };
     context.state.conversation.push({
       role: "system",
@@ -9017,6 +9062,11 @@ async function handleRequest(request, response, serverInstanceId) {
         + "Continue to rules engine with "
         + `${snapshot.directFrameCount}/${snapshot.sampledFrameCount} direct `
         + `frames (${(snapshot.directProvenance * 100).toFixed(1)}%). `
+        + (readiness
+          ? `Ball coordinates were ${achievedPercent.toFixed(1)}% ready `
+            + `(${readiness.correct + readiness.accepted}/${readiness.scored} `
+            + `decided frames; unlock at ${readyPercent}%). `
+          : "")
         + "Estimated and possible-region frames reach the rules engine but "
         + "never count as direct evidence.",
       eventIndex: null,

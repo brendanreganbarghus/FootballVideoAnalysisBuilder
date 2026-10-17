@@ -509,3 +509,21 @@ def test_accepted_tracker_points_show_their_band_for_scoring_only() -> None:
     assert "+ acceptedBandSummary()" in renderer
     # The status column must not fall through to "Needs more checking".
     assert 'decisionCheck === "accepted"\n                ? "Accepted tracker point"' in renderer.replace("\r\n", "\n")
+
+def test_process_ai_unlocks_at_a_configurable_ready_percent() -> None:
+    """Process AI unlocks once the chosen share of decided ball-coordinate
+    frames agrees with the reviewer (default 90%), in the page and the server.
+    """
+    renderer = read(SHARED_RENDERER)
+    extension = read(SHARED_EXTENSION)
+
+    assert 'id="process-ai-ready-percent"' in renderer
+    assert 'min="50" max="100" step="1" value="90" required' in renderer
+    assert "|| ballCheckLeft > 0;" in renderer
+    assert "? ballCheckBlocking(state.ballCheck)" in renderer
+    assert "readyPercent: processAiReadyPercent()," in renderer
+    assert "100 * (check.correct + (check.accepted || 0)) / check.scored" in renderer
+    assert "const PROCESS_AI_DEFAULT_READY_PERCENT = 90;" in extension
+    assert "100 * (check.correct + (check.accepted || 0)) / check.scored" in extension
+    assert "&& achievedPercent < readyPercent" in extension
+    assert "Process AI unlocks at ${readyPercent}%" in extension
