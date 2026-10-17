@@ -131,6 +131,52 @@ def _is_weak_feet_proposal(point: BallPoint, record: dict[str, Any]) -> bool:
     )
 
 
+def _smooth_paths_without_ball_colour(
+    ledger: FrameLedger,
+    proposed_by_frame: dict[int, BallPoint],
+    records_by_frame: dict[int, dict[str, Any]],
+    ball_colour_matches: Any,
+) -> set[int]:
+    """Frames on a smooth gap path that is no longer a path of ball points.
+
+    A smooth path excuses one blurred colour only while at least as many of
+    its points as make a path are not far from the ball's colour. When most
+    of them are boots, the few left over are not a ball path.
+    """
+    far_from_ball = getattr(ball_colour_matches, "far_from_ball", None)
+    if far_from_ball is None:
+        return set()
+    from .focused_multiscale import SMOOTH_GAP_PATH_MINIMUM_POINTS
+
+    confirmed = [
+        frame for frame, entry in ledger.entries.items()
+        if entry.status == "confirmed"
+    ]
+    paths: dict[tuple[int | None, int | None], list[int]] = {}
+    for frame, point in proposed_by_frame.items():
+        if not point.smooth_gap_path:
+            continue
+        before = max((f for f in confirmed if f < frame), default=None)
+        after = min((f for f in confirmed if f > frame), default=None)
+        paths.setdefault((before, after), []).append(frame)
+    broken: set[int] = set()
+    for frames in paths.values():
+        ball_like = sum(
+            1
+            for frame in frames
+            if not (
+                _is_weak_feet_proposal(
+                    proposed_by_frame[frame], records_by_frame.get(frame, {})
+                )
+                and not ball_colour_matches(proposed_by_frame[frame])
+                and far_from_ball(proposed_by_frame[frame])
+            )
+        )
+        if ball_like < SMOOTH_GAP_PATH_MINIMUM_POINTS:
+            broken.update(frames)
+    return broken
+
+
 def _confirm_track_points_from_module(
     ledger: FrameLedger,
     module: str,
@@ -149,6 +195,9 @@ def _confirm_track_points_from_module(
             current = proposed_by_frame.get(point.source_frame)
             if current is None or point.confidence > current.confidence:
                 proposed_by_frame[point.source_frame] = point
+    broken_paths = _smooth_paths_without_ball_colour(
+        ledger, proposed_by_frame, records_by_frame, ball_colour_matches
+    )
     for frame in ledger.unresolved_frames():
         point = proposed_by_frame.get(frame)
         if point is None:
@@ -173,6 +222,14 @@ def _confirm_track_points_from_module(
             if far_from_ball is not None and far_from_ball(point):
                 ledger.reject(frame, module, "colour_far_from_ball")
                 continue
+            if frame in broken_paths:
+                ledger.reject(frame, module, "colour_differs_from_ball")
+                continue
+        if frame in broken_paths:
+            # A point that only fits a path made mostly of boots is not
+            # evidence of the ball, even when it is not itself near a boot.
+            ledger.reject(frame, module, "smooth_path_mostly_boots")
+            continue
         if not _proposal_allowed_by_confirmed_neighbours(
             ledger,
             point,
@@ -630,11 +687,18 @@ def _track_cached_balls_impl(
         minimum_track_points=minimum_track_points,
     )
     width, height = _video_dimensions(manifest.video)
+    pitch_boundary = _calibrated_pitch_boundary(
+        pitch_calibration_path, (float(width), float(height))
+    )
     pitch_candidates = [
         (point, record)
         for record in records
         for point in _ball_points(record)
-        if _inside_soccertrack_pitch(point, width, height)
+        if (
+            _inside_calibrated_pitch(point, pitch_boundary, height)
+            if pitch_boundary is not None
+            else _inside_soccertrack_pitch(point, width, height)
+        )
     ]
     behind_player = _balls_continuing_behind_player(
         pitch_candidates,

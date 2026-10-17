@@ -798,6 +798,10 @@ AERIAL_ONE_SIDED_PROFILE = FrozenProfile({
     "follow_radius_speed_fraction": 0.25,
     "kick_line_search_frames": 10,
     "kick_line_distance_pixels": 8.0,
+    # A player may dribble the ball, rolling slower than any kick, for up to
+    # a second before striking it. Tried only when no flight is found from
+    # the anchor itself.
+    "roll_before_kick_frames": 25,
     "follow_radius_growth_pixels": 2.0,
     "still_blob_frames": 3,
     "still_blob_pixels": 3.0,
@@ -1005,7 +1009,40 @@ def _aerial_kick_line_seeds(anchor, blobs):
     return seeds
 
 
-def _aerial_trail_flights(anchor, blobs):
+def _aerial_rolled_kick_seeds(anchor, blobs):
+    """Pairs of fast blobs whose line starts where a rolled ball can be.
+
+    Before the kick the ball rolls from ``anchor`` no faster than a kicked
+    ball's slowest speed, so at some kick time between the anchor and the
+    pair the pair's line must be within that rolled distance of the anchor.
+    As for a kick at the anchor, the ball is seen within the kick-line
+    search frames of the kick.
+    """
+    profile = AERIAL_ONE_SIDED_PROFILE
+    frames = int(profile["roll_before_kick_frames"])
+    unseen = int(profile["kick_line_search_frames"])
+    offset = float(profile["kick_line_distance_pixels"])
+    roll = float(profile["seed_minimum_pixels_per_frame"])
+    t0, x0, y0 = anchor
+    seeds = []
+    for t1 in range(t0 + 1, t0 + frames + 1):
+        for x1, y1 in blobs.get(t1, []):
+            for t2 in (t1 + 1, t1 + 2):
+                for x2, y2 in blobs.get(t2, []):
+                    vx = (x2 - x1) / (t2 - t1)
+                    vy = (y2 - y1) / (t2 - t1)
+                    if hypot(vx, vy) < roll:
+                        continue
+                    if any(
+                        hypot(x1 + vx * (tk - t1) - x0, y1 + vy * (tk - t1) - y0)
+                        <= offset + roll * (tk - t0)
+                        for tk in range(max(t0, t1 - unseen), t1)
+                    ):
+                        seeds.append([(t1, x1, y1), (t2, x2, y2)])
+    return seeds
+
+
+def _aerial_trail_flights(anchor, blobs, rolled=False):
     """Every flight followed from a fast straight trail leaving ``anchor``.
 
     This one trail follower serves every aerial ball: a seed is a fast near
@@ -1026,6 +1063,8 @@ def _aerial_trail_flights(anchor, blobs):
         if seed is not None:
             seeds.append(seed)
     seeds.extend(_aerial_kick_line_seeds(anchor, blobs))
+    if rolled:
+        seeds.extend(_aerial_rolled_kick_seeds(anchor, blobs))
     last_frame = max(blobs, default=anchor[0])
     moving = _aerial_moving_blobs(blobs)
     return [_aerial_follow_flight(seed, moving, last_frame) for seed in seeds]
@@ -1069,16 +1108,42 @@ def _aerial_launch_fast_enough(flight, anchor, fps, height_at):
     return speed >= needed * height_at(anchor[2])
 
 
+def _aerial_leaves_faster_than_roll(flight):
+    """A rolled kick's flight must travel away faster than the ball rolled.
+
+    Feet jittering beside the anchor can pass for a rolled ball and a kick,
+    but over the launch they go nowhere.
+    """
+    profile = AERIAL_ONE_SIDED_PROFILE
+    launch = flight[: int(profile["launch_points"])]
+    if len(launch) < 2 or launch[-1][0] == launch[0][0]:
+        return False
+    speed = hypot(
+        launch[-1][1] - launch[0][1], launch[-1][2] - launch[0][2]
+    ) / (launch[-1][0] - launch[0][0])
+    return speed >= float(profile["seed_minimum_pixels_per_frame"])
+
+
 def _aerial_one_sided_track(anchor, blobs, fps, minimum_seconds=None, height_at=None):
     """The unique flight track leaving ``anchor`` (time, x, y) forwards in time."""
     if minimum_seconds is None:
         minimum_seconds = float(AERIAL_ONE_SIDED_PROFILE["minimum_track_seconds"])
+    best = _aerial_unique_flight(anchor, blobs, fps, minimum_seconds, height_at)
+    if best is None:
+        best = _aerial_unique_flight(
+            anchor, blobs, fps, minimum_seconds, height_at, rolled=True
+        )
+    return best
+
+
+def _aerial_unique_flight(anchor, blobs, fps, minimum_seconds, height_at, rolled=False):
     minimum_frames = float(minimum_seconds) * fps
-    flights = _aerial_trail_flights(anchor, blobs)
+    flights = _aerial_trail_flights(anchor, blobs, rolled)
     flights = [
         flight for flight in flights
         if flight[-1][0] - flight[0][0] + 1 >= minimum_frames
         and _aerial_launch_fast_enough(flight, anchor, fps, height_at)
+        and (not rolled or _aerial_leaves_faster_than_roll(flight))
     ]
     if not flights:
         return None

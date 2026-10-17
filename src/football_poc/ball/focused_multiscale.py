@@ -22,6 +22,11 @@ MISSING_POINT_RETRY_DIAMETER_SCALES = (1.15, 1.3)
 SMOOTH_GAP_PATH_MINIMUM_POINTS = 3
 SMOOTH_GAP_PATH_MAXIMUM_STEP_BALL_DIAMETERS = 7.0
 SMOOTH_GAP_PATH_MAXIMUM_TURN_BALL_DIAMETERS = 3.0
+# One smooth path joins the gap ends only when a single ball movement can
+# span the gap: the same five seconds that bound one flight. Over a longer
+# gap the ball is passed, kicked or lofted, and weak boxes on kit or scenery
+# that line up with the ends only by chance would form the "path".
+SMOOTH_GAP_PATH_MAXIMUM_SECONDS = 5.0
 GAP_WALK_MAXIMUM_STEP_BALL_DIAMETERS = 2.5
 GAP_WALK_MINIMUM_POINTS = 3
 # A first-pass point is replaced only when it has clearly jumped to another
@@ -99,6 +104,15 @@ def _merge_walked_points(
             continue
         candidates[source_frame] = (point, 0.0, diameter)
         accepted_frames.add(source_frame)
+
+
+def _gap_fits_one_movement(
+    previous: BallPoint, following: BallPoint, fps: float
+) -> bool:
+    return (
+        following.source_frame - previous.source_frame
+        <= SMOOTH_GAP_PATH_MAXIMUM_SECONDS * fps
+    )
 
 
 def _smooth_gap_path_frames(
@@ -306,6 +320,8 @@ def _add_focused_multiscale_missing_points(
         ).append(source_frame)
     for gap_frames in gaps.values():
         previous, following = gap_ends[gap_frames[0]]
+        if not _gap_fits_one_movement(previous, following, fps):
+            continue
         smooth_frames = _smooth_gap_path_frames(
             previous,
             following,

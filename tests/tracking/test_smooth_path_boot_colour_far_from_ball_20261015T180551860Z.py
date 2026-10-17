@@ -27,8 +27,8 @@ def _colour_check(far: bool):
 
 
 def _run(*, smooth: bool, far: bool) -> ball_tracking.FrameLedgerEntry:
-    ledger = ball_tracking.FrameLedger([(0, 0.0), (5, 0.2), (10, 0.4)])
-    for frame, x in ((0, 98.0), (10, 102.0)):
+    ledger = ball_tracking.FrameLedger([(f, f / 25.0) for f in range(0, 25, 5)])
+    for frame, x in ((0, 98.0), (20, 102.0)):
         ledger.confirm(
             frame,
             x=x,
@@ -38,19 +38,24 @@ def _run(*, smooth: bool, far: bool) -> ball_tracking.FrameLedgerEntry:
             confidence=0.8,
             box_diagonal=12,
         )
-    proposal = ball_tracking.BallPoint(
-        5, 0.2, 0.05, 100.0, 100.0, box_diagonal=12, smooth_gap_path=smooth
-    )
+    # Smooth gap paths always hold at least three points.
+    proposals = [
+        ball_tracking.BallPoint(
+            f, f / 25.0, 0.05, 98.0 + f / 5.0, 100.0, box_diagonal=12,
+            smooth_gap_path=smooth,
+        )
+        for f in (5, 10, 15)
+    ]
     ball_tracking._confirm_track_points_from_module(
         ledger,
         "04_focused_multiscale",
-        [ball_tracking.BallTrack(1, [proposal])],
-        records_by_frame={5: PLAYER},
+        [ball_tracking.BallTrack(1, proposals)],
+        records_by_frame={f: PLAYER for f in (5, 10, 15)},
         fps=25.0,
         max_speed_pixels_per_second=1600.0,
         ball_colour_matches=_colour_check(far),
     )
-    return ledger.entries[5]
+    return ledger.entries[10]
 
 
 def test_smooth_path_boot_colour_far_from_ball_20261015T180551860Z() -> None:

@@ -312,6 +312,22 @@ def _inside_soccertrack_pitch(
     return top <= point.y <= bottom
 
 
+# With a calibrated pitch outline, a ball candidate must lie on the pitch or
+# just beyond a line: a ball on the line is still in play, and one that has
+# just crossed it is needed to see it go out.
+PITCH_BOUNDARY_MARGIN_HEIGHT_FRACTION = 0.02
+
+
+def _inside_calibrated_pitch(
+    point: BallPoint, boundary: np.ndarray, height: int
+) -> bool:
+    margin = PITCH_BOUNDARY_MARGIN_HEIGHT_FRACTION * float(height)
+    return (
+        cv2.pointPolygonTest(boundary, (float(point.x), float(point.y)), True)
+        >= -margin
+    )
+
+
 def _static_cells(
     points: Iterable[BallPoint],
     *,
