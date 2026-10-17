@@ -103,6 +103,10 @@ class ChronoSettings:
     # flight keeps a smooth line, so its lines may span one missing sample.
     aerial_hidden_touch_sideways_ratio: float = 1.5
     aerial_hidden_line_gap_seconds: float = 0.4
+    # A ball that comes down at one player and is unseen until it is seen
+    # again at his feet stayed with him: he received it where it landed.
+    # Provisional bound, validated on one segment so far.
+    landed_hidden_max_seconds: float = 1.5
 
 
 @dataclass
@@ -300,6 +304,45 @@ def _moved_with_hidden_ball(
         if change / height <= settings.hidden_max_offset_change_heights:
             found.append(box)
     return found[0] if len(found) == 1 else None
+
+
+def _landed_and_hidden(
+    since: float,
+    ball: tuple[float, float, float],
+    flight_ends: list[tuple[int, float, float, float]],
+    players: dict[int, list[dict[str, Any]]],
+    boxes: Iterable[dict[str, Any]],
+    settings: ChronoSettings,
+) -> tuple[dict[str, Any], float] | None:
+    """The player a flight came down at, when the ball was unseen until now.
+
+    The tracker's flight path ends at one clear player (nobody else contests
+    it); the ball is not seen again until this sighting, which is still
+    within his control reach. Returns his box now and the landing time.
+    """
+    t, x, y = ball
+    ends = [end for end in flight_ends if since < end[1] < t]
+    if not ends:
+        return None
+    frame, seconds, ex, ey = ends[-1]
+    if t - seconds > settings.landed_hidden_max_seconds:
+        return None
+    landed = _closest_controller(
+        (ex, ey),
+        players.get(frame, []),
+        settings.control_radius_heights,
+        settings.duel_margin_heights,
+    )
+    if landed is None:
+        return None
+    for box in boxes:
+        if int(box.get("track_id", -1)) != int(landed["track_id"]) or box.get("team") != landed["team"]:
+            continue
+        fx, fy = _feet(box)
+        height = float(box["y2"]) - float(box["y1"])
+        if height > 0 and hypot(x - fx, y - fy) / height <= settings.control_radius_heights:
+            return box, seconds
+    return None
 
 
 def _box_distance(ball: tuple[float, float], box: dict[str, Any]) -> float:
@@ -1069,6 +1112,11 @@ def run_chronological(
         for frame in sorted(balls)
         if (b := _estimate_ball(balls[frame])) is not None
     ]
+    flight_ends = [
+        (frame, seconds, x, y)
+        for frame, seconds, x, y in estimates
+        if (_estimate_ball(balls[frame]) or {}).get("state") == "trajectory_estimated_flight_path"
+    ]
     for index, (frame, t, x, y) in enumerate(track):
         last_seconds = t
         inside = signed_pitch_distance((x, y), boundary) >= -settings.outside_margin_px
@@ -1233,6 +1281,13 @@ def run_chronological(
                 carried = _moved_with_hidden_ball(
                     (bx, by), players.get(before_frame, []), (x, y), players.get(frame, []), settings
                 )
+        landed_at = None
+        if touch is None and carried is None and index > 0:
+            landed = _landed_and_hidden(
+                track[index - 1][1], (t, x, y), flight_ends, players, players.get(frame, []), settings
+            )
+            if landed is not None and (owner is None or owner.track_id != int(landed[0]["track_id"])):
+                carried, landed_at = landed
         box = touch or carried or _closest_controller(
             (x, y),
             players.get(frame, []),
@@ -1342,7 +1397,11 @@ def run_chronological(
         if carried is not None:
             # He had the ball from the moment it went out of sight.
             candidate.samples = max(candidate.samples, settings.control_confirm_samples)
-            candidate.first_seconds = min(candidate.first_seconds, track[index - 1][1])
+            candidate.first_seconds = (
+                landed_at
+                if landed_at is not None
+                else min(candidate.first_seconds, track[index - 1][1])
+            )
         if candidate.samples < settings.control_confirm_samples:
             continue
         if owner is not None and owner.track_id == candidate.track_id:

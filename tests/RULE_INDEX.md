@@ -304,3 +304,5 @@ baseline suites (`tests/test_possession.py`, `tests/test_match_state.py`,
 | 20261017T204131304Z | rules | spots read from calibration | `tests/rules/test_chrono_restart_type_from_calibrated_spot_20261017T204131299Z.py::test_spots_read_from_calibration_20261017T204131304Z` |
 | 20261017T210108686Z | rules | pass from free kick is tagged once | `tests/rules/test_chrono_event_tagged_from_restart_20261017T210108686Z.py::test_pass_from_free_kick_is_tagged_once_20261017T210108686Z` |
 | 20261017T210108687Z | rules | unnamed restart tags nothing | `tests/rules/test_chrono_event_tagged_from_restart_20261017T210108686Z.py::test_unnamed_restart_tags_nothing_20261017T210108687Z` |
+| 20261017T213412518Z | rules | ball landing at one player then hidden is received there | `tests/rules/test_chrono_landed_ball_hidden_at_receiver_20261017T213412518Z.py::test_ball_landing_at_one_player_then_hidden_is_received_there_20261017T213412518Z` |
+| 20261017T213412519Z | rules | contested landing waits for control at the feet | `tests/rules/test_chrono_landed_ball_hidden_at_receiver_20261017T213412518Z.py::test_contested_landing_waits_for_control_at_the_feet_20261017T213412519Z` |

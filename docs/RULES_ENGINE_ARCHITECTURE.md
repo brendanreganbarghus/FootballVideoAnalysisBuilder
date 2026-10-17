@@ -219,6 +219,11 @@ a goal-line end point → `corner_kick_taken`, the centre spot →
 ball further than that inside the pitch is `free_kick_taken`, but only when the
 centre spot and both penalty marks are calibrated (one click each in the
 Canvas calibration tool); otherwise it stays `restart_taken_type_unknown`.
+A ball whose tracker flight path comes down at one clear player (no opponent
+contesting it), then stays out of sight until it is seen again within that
+player's control reach, was received where it landed
+(`landed_hidden_max_seconds`, provisional 1.5 s, validated on one segment so
+far).
 The taker may not touch the ball again until another player has (Laws 13–17),
 so the one event the taker plays (pass or turnover) carries `restart_type`
 (`free_kick`, `goal_kick`, `corner_kick`, `kick_off`, `penalty_kick`) and the
