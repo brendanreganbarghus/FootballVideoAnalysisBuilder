@@ -107,6 +107,13 @@ class ChronoSettings:
     # again at his feet stayed with him: he received it where it landed.
     # Provisional bound, validated on one segment so far.
     landed_hidden_max_seconds: float = 1.5
+    # A turnover needs the opponent to keep the ball. When the team that
+    # lost it has it straight back, within this time and from his feet, the
+    # opponent only challenged for it (or the camera put him nearest for a
+    # moment): no possession changed. Provisional bounds, validated on one
+    # segment so far.
+    duel_regain_seconds: float = 1.5
+    duel_regain_reach_heights: float = 1.5
 
 
 @dataclass
@@ -1441,6 +1448,32 @@ def run_chronological(
     return result
 
 
+def _duel_regain(
+    result: ChronoResult,
+    owner: "_Control",
+    new: "_Control",
+    settings: ChronoSettings,
+) -> bool:
+    """The opponent only challenged: the team that lost the ball has it back
+    at once, from his feet. Project turnover definition: a team loses the ball
+    when an opponent gains control; he never kept it, so no possession
+    changed and the turnover just written is withdrawn."""
+    last = result.events[-1] if result.events else None
+    return (
+        last is not None
+        and new.team != owner.team
+        and last["event_type"] == "turnover_candidate"
+        and last["to_player_track_id"] == owner.track_id
+        and last["team"] == new.team
+        and not last.get("restart_type")
+        and not owner.restart
+        and new.first_seconds - float(last["completion_seconds"])
+        <= settings.duel_regain_seconds
+        and hypot(new.feet[0] - owner.feet[0], new.feet[1] - owner.feet[1])
+        <= settings.duel_regain_reach_heights * max(new.height, 1.0)
+    )
+
+
 def _control_change(
     result: ChronoResult,
     owner: "_Control | None",
@@ -1458,6 +1491,9 @@ def _control_change(
     )
     if swap:
         return False
+    if _duel_regain(result, owner, new, settings):
+        result.events.pop()
+        return True
     same_team = new.team == owner.team
     result.events.append(
         _with_restart(

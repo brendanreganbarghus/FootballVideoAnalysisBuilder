@@ -224,6 +224,12 @@ contesting it), then stays out of sight until it is seen again within that
 player's control reach, was received where it landed
 (`landed_hidden_max_seconds`, provisional 1.5 s, validated on one segment so
 far).
+A turnover needs the opponent to keep the ball. When the team that lost it has
+it straight back within `duel_regain_seconds` (provisional 1.5 s) from a player
+within `duel_regain_reach_heights` (1.5) of the opponent's feet, the opponent
+only challenged for it (or one camera put him nearest while the player on the
+ball was hidden): neither turnover is written. An opponent who plays the ball
+on to a player further away, or keeps it longer, did win it.
 The taker may not touch the ball again until another player has (Laws 13–17),
 so the one event the taker plays (pass or turnover) carries `restart_type`
 (`free_kick`, `goal_kick`, `corner_kick`, `kick_off`, `penalty_kick`) and the
