@@ -1368,6 +1368,37 @@ def _confirm_yolo_detections(
     return ledger
 
 
+def _feet_pick_outranked_by_free_ball(
+    selected: BallPoint,
+    *,
+    candidates_by_frame: dict[int, list[_BallCandidate]],
+    fps: float,
+) -> bool:
+    """A boot can look like a ball; a stronger box away from every player's
+    feet in the same frame is the better ball, so the pick at the feet loses
+    its lighter checks and the free box is tried first. A dribbled ball at the
+    feet keeps its pick when no stronger free box exists."""
+    candidates = candidates_by_frame.get(selected.source_frame, [])
+    if not any(
+        candidate.point == selected and candidate.near_player_feet
+        for candidate in candidates
+    ):
+        return False
+    return any(
+        candidate.point != selected
+        and not candidate.near_player_feet
+        and candidate.point.source_attribution == "yolo26_observed"
+        and candidate.point.confidence > selected.confidence
+        and _same_position_static_reason(
+            candidate.point,
+            candidates_by_frame=candidates_by_frame,
+            fps=fps,
+        )
+        is None
+        for candidate in candidates
+    )
+
+
 def _confirm_unresolved_frames(
     ledger: FrameLedger,
     frames: Iterable[int],
@@ -1408,15 +1439,21 @@ def _confirm_unresolved_frames(
             ),
             default=0.0,
         )
-        selected_outranked = (
-            selected is not None
-            and strongest_other > selected.confidence
-            and not _moving_chain_supports(
+        selected_outranked = selected is not None and (
+            (
+                strongest_other > selected.confidence
+                and not _moving_chain_supports(
+                    selected,
+                    candidates_by_frame=candidates_by_frame,
+                    fps=fps,
+                    frame_step=frame_step,
+                    max_speed_pixels_per_second=max_speed_pixels_per_second,
+                )
+            )
+            or _feet_pick_outranked_by_free_ball(
                 selected,
                 candidates_by_frame=candidates_by_frame,
                 fps=fps,
-                frame_step=frame_step,
-                max_speed_pixels_per_second=max_speed_pixels_per_second,
             )
         )
         if selected is not None and not selected_outranked:
