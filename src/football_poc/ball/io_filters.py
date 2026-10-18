@@ -202,6 +202,34 @@ def _near_player_feet(
     return False
 
 
+def _feet_player_height(
+    point: BallPoint,
+    record: dict[str, Any],
+    *,
+    minimum_person_confidence: float = 0.25,
+) -> float:
+    """Height of the tallest player whose feet zone holds the point, 0 if none."""
+    tallest = 0.0
+    for detection in record.get("detections", []):
+        if (
+            detection.get("class_name") != "person"
+            or float(detection["confidence"]) < minimum_person_confidence
+        ):
+            continue
+        x1 = float(detection["x1"])
+        y1 = float(detection["y1"])
+        x2 = float(detection["x2"])
+        y2 = float(detection["y2"])
+        width = x2 - x1
+        height = y2 - y1
+        if (
+            x1 - width * 0.5 <= point.x <= x2 + width * 0.5
+            and y1 + height * 0.55 <= point.y <= y2 + height * 0.35
+        ):
+            tallest = max(tallest, height)
+    return tallest
+
+
 # In the camera's perspective a ball on the far side of a player overlaps the
 # player's upper body. Heads and shirts produce only weak ball boxes, so a
 # strong detector box there is kept as a ball passing behind the player.

@@ -892,6 +892,18 @@ def _track_cached_balls_impl(
         frame_step=frame_step,
         max_speed_pixels_per_second=max_speed_pixels_per_second,
     )
+    _withdraw_boots_off_free_ball_course(
+        ledger,
+        records_by_frame=records_by_frame,
+        frame_step=frame_step,
+    )
+    _withdraw_weak_long_unseen_jumps(
+        ledger,
+        candidates_by_frame=candidates_by_frame,
+        fps=manifest.fps,
+        frame_step=frame_step,
+        max_speed_pixels_per_second=max_speed_pixels_per_second,
+    )
     ledger = _timed_tracker_call(
         FLIPBOOK_MODULE,
         _confirm_flipbook_time_machine,

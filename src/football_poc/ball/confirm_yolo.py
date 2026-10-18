@@ -22,6 +22,12 @@ LOCK_CHAIN_MINIMUM_TRAVEL_PIXELS = 40.0
 # one chain whose ends are far apart. A ball travels over several steps, so a
 # chain whose travel is mostly one jump is not locked.
 LOCK_CHAIN_MAXIMUM_SINGLE_STEP_SHARE = 0.5
+# A box on the chain's constant-velocity course may link from up to this
+# share of the plain link limit away from the chain's last box.
+LOCK_CHAIN_PREDICTED_REACH_SHARE = 1.5
+# A chain's last box below this detector confidence is not locked when it has
+# left the chain's constant-velocity course by more than the link limit.
+LOCK_CHAIN_TAIL_MINIMUM_CONFIDENCE = 0.5
 # A boot moves with a running player and so also leaves a long moving chain of
 # YOLO boxes. Its colour, unlike the ball's, stays outside the ball colour
 # learned from this video's confident detections. A chain whose typical colour
@@ -66,6 +72,44 @@ def _off_colour_chains(
     return off_colour
 
 
+def _lock_chain_predicted_distance(
+    box: dict[str, Any], previous: dict[str, Any]
+) -> float | None:
+    """Distance from a box to where the chain ending at ``previous`` would be
+    at the box's frame if it kept its last velocity. A rolling ball keeps its
+    course, so a box on that course is the same ball even when one sample's
+    travel is a little above the plain link limit."""
+    before = previous.get("previous")
+    if before is None:
+        return None
+    span = previous["frame"] - before["frame"]
+    ahead = box["frame"] - previous["frame"]
+    if span <= 0 or ahead <= 0:
+        return None
+    scale = ahead / span
+    return hypot(
+        box["x"] - (previous["x"] + (previous["x"] - before["x"]) * scale),
+        box["y"] - (previous["y"] + (previous["y"] - before["y"]) * scale),
+    )
+
+
+def _lock_chain_weak_tail_off_course(
+    chain: list[tuple[int, dict[str, Any]]], step_seconds: float, frame_step: int
+) -> bool:
+    """A chain's last box is unsafe to lock when it is a weak detection that
+    has left the course the chain was on. The ball may have been played, but
+    the weak box may as well be a boot beside it; later steps decide it."""
+    frame, box = chain[-1]
+    if box["confidence"] >= LOCK_CHAIN_TAIL_MINIMUM_CONFIDENCE:
+        return False
+    predicted = _lock_chain_predicted_distance(box, chain[-2][1])
+    if predicted is None:
+        return False
+    steps = max(1, round((frame - chain[-2][0]) / frame_step))
+    limit = LOCK_CHAIN_MAX_SPEED_PIXELS_PER_SECOND * step_seconds * steps
+    return predicted > limit
+
+
 def _lock_moving_yolo_chains(
     ledger: FrameLedger,
     *,
@@ -95,6 +139,8 @@ def _lock_moving_yolo_chains(
                     "confidence": confidence,
                     "chain": None,
                     "linked": False,
+                    "frame": frame,
+                    "previous": None,
                 }
             )
         boxes.sort(key=lambda box: -box["confidence"])
@@ -112,10 +158,16 @@ def _lock_moving_yolo_chains(
                     distance = hypot(
                         box["x"] - previous["x"], box["y"] - previous["y"]
                     )
+                    predicted = _lock_chain_predicted_distance(box, previous)
+                    if predicted is not None and distance <= (
+                        LOCK_CHAIN_PREDICTED_REACH_SHARE * limit
+                    ):
+                        distance = min(distance, predicted)
                     if distance <= limit and (best is None or distance < best[0]):
                         best = (distance, previous)
             if best is not None:
                 best[1]["linked"] = True
+                box["previous"] = best[1]
                 box["chain"] = best[1]["chain"]
             else:
                 box["chain"] = len(chains)
@@ -124,6 +176,10 @@ def _lock_moving_yolo_chains(
 
     moving_chains: dict[int, list[tuple[int, dict[str, Any]]]] = {}
     for chain_index, chain in enumerate(chains):
+        while len(chain) >= 3 and _lock_chain_weak_tail_off_course(
+            chain, step_seconds, frame_step
+        ):
+            chain.pop()
         if len(chain) < LOCK_CHAIN_MINIMUM_BOXES:
             continue
         first, last = chain[0][1], chain[-1][1]
@@ -1005,6 +1061,166 @@ def _continues_confirmed_momentum(
 
 MOMENTUM_REVERSAL_LOOKAHEAD_SAMPLES = 3
 
+# A free ball keeps its course until something touches it. A weak box at a
+# player's feet that lies further from the confirmed ball's course than that
+# player is tall is a boot, not the ball: the ball cannot have reached those
+# feet without passing near them.
+FREE_COURSE_MAXIMUM_CONFIDENCE = 0.5
+FREE_COURSE_ANCHOR_SAMPLES = 2
+
+
+def _point_segment_distance(
+    px: float, py: float, ax: float, ay: float, bx: float, by: float
+) -> float:
+    dx = bx - ax
+    dy = by - ay
+    length_squared = dx * dx + dy * dy
+    if length_squared <= 0.0:
+        return hypot(px - ax, py - ay)
+    t = max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / length_squared))
+    return hypot(px - (ax + t * dx), py - (ay + t * dy))
+
+
+def _boot_off_free_ball_course(
+    point: BallPoint,
+    *,
+    record: dict[str, Any],
+    confirmed: Mapping[int, Any],
+    frame_step: int,
+) -> bool:
+    if (
+        frame_step < 1
+        or point.source_attribution != "yolo26_observed"
+        or point.confidence >= FREE_COURSE_MAXIMUM_CONFIDENCE
+    ):
+        return False
+    player_height = _feet_player_height(point, record)
+    if player_height <= 0.0:
+        return False
+    frame = point.source_frame
+    checked = False
+    for direction in (-1, 1):
+        anchor = next(
+            (
+                (frame + direction * offset * frame_step, entry)
+                for offset in range(1, FREE_COURSE_ANCHOR_SAMPLES + 1)
+                if (entry := confirmed.get(frame + direction * offset * frame_step))
+                is not None
+                and entry.x is not None
+                and entry.y is not None
+            ),
+            None,
+        )
+        if anchor is None:
+            continue
+        anchor_frame, anchor_entry = anchor
+        previous = next(
+            (
+                (anchor_frame + direction * offset * frame_step, entry)
+                for offset in range(1, FREE_COURSE_ANCHOR_SAMPLES + 1)
+                if (
+                    entry := confirmed.get(
+                        anchor_frame + direction * offset * frame_step
+                    )
+                )
+                is not None
+                and entry.x is not None
+                and entry.y is not None
+            ),
+            None,
+        )
+        if previous is None:
+            continue
+        previous_frame, previous_entry = previous
+        ax, ay = float(anchor_entry.x), float(anchor_entry.y)
+        span = anchor_frame - previous_frame
+        vx = (ax - float(previous_entry.x)) / span
+        vy = (ay - float(previous_entry.y)) / span
+        ahead = frame - anchor_frame
+        predicted_x = ax + vx * ahead
+        predicted_y = ay + vy * ahead
+        checked = True
+        if (
+            _point_segment_distance(
+                float(point.x), float(point.y), ax, ay, predicted_x, predicted_y
+            )
+            <= player_height
+        ):
+            return False
+    return checked
+
+
+def _withdraw_boots_off_free_ball_course(
+    ledger: FrameLedger,
+    *,
+    records_by_frame: Mapping[int, dict[str, Any]],
+    frame_step: int,
+) -> list[int]:
+    """01 judges its candidates on its own ledger; recheck its picks at a
+    player's feet once the locked chains around them are visible."""
+    withdrawn: list[int] = []
+    for frame, entry in ledger.entries.items():
+        if (
+            entry.status != "confirmed"
+            or entry.confirming_module != CONFIRM_YOLO_MODULE
+            or not (entry.evidence or {}).get("near_player_feet")
+            or entry.x is None
+            or entry.y is None
+        ):
+            continue
+        if _boot_off_free_ball_course(
+            entry.to_point(),
+            record=records_by_frame.get(frame, {}),
+            confirmed=_confirmed_by_frame(ledger, exclude=frame),
+            frame_step=frame_step,
+        ):
+            ledger.withdraw(frame, CONFIRM_YOLO_MODULE, "boot_off_free_ball_course")
+            withdrawn.append(frame)
+    return withdrawn
+
+
+def _withdraw_weak_long_unseen_jumps(
+    ledger: FrameLedger,
+    *,
+    candidates_by_frame: dict[int, list[_BallCandidate]],
+    fps: float,
+    frame_step: int,
+    max_speed_pixels_per_second: float,
+) -> list[int]:
+    """A weak 01 pick farther from the nearest locked or confirmed ball than
+    one top-speed sample, with no moving chain of detections to carry the
+    ball there, is not the ball. 01 judged its own picks without the locks."""
+    withdrawn: list[int] = []
+    for frame, entry in ledger.entries.items():
+        if (
+            entry.status != "confirmed"
+            or entry.confirming_module != CONFIRM_YOLO_MODULE
+            or entry.point_source_attribution != "yolo26_observed"
+            or float(entry.confidence or 0.0) >= BALL_COLOUR_WEAK_CONFIDENCE
+            or entry.x is None
+            or entry.y is None
+        ):
+            continue
+        point = entry.to_point()
+        if _long_unseen_jump(
+            point,
+            ledger,
+            fps=fps,
+            frame_step=frame_step,
+            max_speed_pixels_per_second=max_speed_pixels_per_second,
+        ) and not _moving_chain_supports(
+            point,
+            candidates_by_frame=candidates_by_frame,
+            fps=fps,
+            frame_step=frame_step,
+            max_speed_pixels_per_second=max_speed_pixels_per_second,
+        ):
+            ledger.withdraw(
+                frame, CONFIRM_YOLO_MODULE, "weak_long_unseen_jump_from_locked_ball"
+            )
+            withdrawn.append(frame)
+    return withdrawn
+
 
 def _reverses_confirmed_momentum_unsupported(
     point: BallPoint,
@@ -1191,6 +1407,17 @@ def _candidate_rejection_reason(
         candidate.point == point and candidate.near_player_feet
         for candidate in candidates_by_frame.get(point.source_frame, [])
     )
+    if (
+        near_feet
+        and ledger is not None
+        and _boot_off_free_ball_course(
+            point,
+            record=record,
+            confirmed=_confirmed_by_frame(ledger, exclude=point.source_frame),
+            frame_step=frame_step,
+        )
+    ):
+        return "boot_off_free_ball_course", near_feet
     far_from_ball = getattr(ball_colour_matches, "far_from_ball", None)
     if (
         far_from_ball is not None

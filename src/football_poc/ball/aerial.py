@@ -539,11 +539,17 @@ def _aerial_curve_path(s, e, blobs):
     windows = [_aerial_flight_window(s, e, track) for track in tracks]
     launches = sorted({s[0], *(w[0] for w in windows)})
     landings = sorted({e[0], *(w[1] for w in windows)})
-    for track in tracks:
+    for track, (own_launch, own_landing) in zip(tracks, windows):
         options = []
         for launch in launches:
             for landing in landings:
                 if not (launch < track[0][0] and track[-1][0] < landing):
+                    continue
+                # Where the track's own flight meets the rest spot, the ball
+                # is still resting before take-off and after landing.
+                if own_launch != s[0] and launch < own_launch:
+                    continue
+                if own_landing != e[0] and landing > own_landing:
                     continue
                 fitted = _aerial_model(s, e, track, blobs, (launch, landing), index)
                 if fitted is not None:
