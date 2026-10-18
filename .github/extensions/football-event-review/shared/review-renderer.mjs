@@ -9795,7 +9795,9 @@ export function renderHtml({ adapter } = {}) {
       filter.options[4].textContent = "All frames (" + points.length + ")";
       filter.options[5].textContent = "Direct only (" + direct + ")";
       const triage = comparisonTriage();
-      filter.options[6].hidden = !triage;
+      // The ball check lists below are the single source of counts; the old
+      // triage list used a different rule and showed conflicting numbers.
+      filter.options[6].hidden = !triage || Boolean(state.ballCheck);
       if (triage) {
         const differs = points.filter(
           point => engineDecisionCheck(point.frame) === "differs"
@@ -13988,7 +13990,7 @@ export function renderHtml({ adapter } = {}) {
               activeCoordinateBatch?.status === "ready"
                 ? "flagged"
               : engineComparisonActive()
-                ? "needs-review"
+                ? state.ballCheck ? "ball-check-left" : "needs-review"
               : state.ballRecoveryDiagnostic?.status === "focused_unpersisted"
                 ? "diagnostic"
                 : state.segment.state === "failed" ? "estimated" : "all";

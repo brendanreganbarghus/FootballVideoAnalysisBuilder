@@ -474,6 +474,8 @@ def test_our_rules_copy_shows_saved_decisions_and_ball_check_score() -> None:
     assert '"Matched to engine "' in renderer
     assert '" · you still need to decide "' in renderer
     assert '" · not fixed yet by Copilot "' in renderer
+    # Only one set of counts: the old triage list is hidden with a ball check.
+    assert "filter.options[6].hidden = !triage || Boolean(state.ballCheck);" in renderer
 
 
 def test_ball_check_splits_frames_to_decide_from_frames_to_fix() -> None:
