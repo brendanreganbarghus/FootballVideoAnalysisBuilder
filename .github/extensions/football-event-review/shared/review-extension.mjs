@@ -3638,6 +3638,11 @@ async function ballCheckScore(selected, track, observations) {
   const left = [];
   const correctFrames = [];
   const acceptedFrames = [];
+  // Every frame that does not match falls in exactly one list: the reviewer
+  // still has to decide it, or the reviewer decided it and the tracker is
+  // still wrong (code work, never asked again).
+  const toDecide = [];
+  const toFix = [];
   let correct = 0;
   let fromDecisions = 0;
   for (const frame of track.states.map((state) => state.frame)) {
@@ -3651,7 +3656,10 @@ async function ballCheckScore(selected, track, observations) {
     if (decision?.decision === "accept_tracker") {
       fromDecisions += 1;
       if (near(point, decision)) acceptedFrames.push(frame);
-      else left.push(frame);
+      else {
+        left.push(frame);
+        toDecide.push(frame);
+      }
       continue;
     }
     if (decision?.decision === "out_of_play") {
@@ -3668,13 +3676,19 @@ async function ballCheckScore(selected, track, observations) {
     if (hit) {
       correct += 1;
       correctFrames.push(frame);
-    } else left.push(frame);
+    } else {
+      left.push(frame);
+      (decision ? toFix : toDecide).push(frame);
+    }
   }
   const scored = correct + acceptedFrames.length + left.length;
   return {
     correct,
     scored,
+    matched: correct + acceptedFrames.length,
     left,
+    toDecide,
+    toFix,
     correctFrames,
     accepted: acceptedFrames.length,
     acceptedFrames,
@@ -5103,7 +5117,9 @@ function engineDiffersSourceFrames(batches, batch) {
   const previous = batches.find(
     (candidate) => Number(candidate.number) === Number(batch.number) - 1,
   );
-  return Array.isArray(previous?.ballCheck?.left) ? previous.ballCheck.left : null;
+  const check = previous?.ballCheck;
+  if (Array.isArray(check?.toDecide)) return check.toDecide;
+  return Array.isArray(check?.left) ? check.left : null;
 }
 
 // A ready round must only hold frames that still need a decision plus the
@@ -5170,37 +5186,31 @@ async function repairReadyCoordinateRound(segment) {
           .map((candidate) => candidate.observations || {}),
       ),
     };
-    const frames = new Set((batch.frames || []).map(Number));
-    batch.observations = {...(batch.observations || {})};
-    for (const frame of sourceFrames.map(Number)) {
-      if (frames.has(frame)) continue;
-      frames.add(frame);
-      restored += 1;
-      const decision = decisions[String(frame)];
-      if (decision && !batch.observations[String(frame)]) {
-        batch.observations[String(frame)] = {...decision, frame, approved: true};
-      }
-    }
-    batch.frames = [...frames].sort((left, right) => left - right);
-    // When the engine output changed after the round was opened, drop the
-    // frames where it now matches the carried earlier decision. Frames
-    // re-decided in this round stay. Decisions remain evaluation-only.
+    // Keep only decisions made in this round; carried copies of earlier
+    // decisions are not questions for the reviewer.
+    const madeHere = Object.fromEntries(
+      Object.entries(batch.observations || {}).filter(
+        ([frame, observation]) =>
+          !sameCoordinateDecision(observation, decisions[frame]),
+      ),
+    );
+    const before = new Set((batch.frames || []).map(Number));
     const check = await ballCheckScore(
       context.selected,
       await loadDetectedBallTrack(context.selected),
-      {...decisions, ...batch.observations},
+      {...decisions, ...madeHere},
     ).catch(() => null);
     if (check) {
-      const nowMatching = new Set(check.correctFrames);
-      batch.frames = batch.frames.filter((frame) => {
-        const key = String(frame);
-        const carried = !batch.observations[key]
-          || sameCoordinateDecision(batch.observations[key], decisions[key]);
-        if (!(carried && nowMatching.has(frame))) return true;
-        delete batch.observations[key];
-        pruned.push(frame);
-        return false;
-      });
+      // The round holds the frames still to decide plus the frames decided
+      // here. Frames decided earlier that still differ are tracker work.
+      const frames = new Set([
+        ...check.toDecide,
+        ...Object.keys(madeHere).map(Number),
+      ]);
+      for (const frame of before) if (!frames.has(frame)) pruned.push(frame);
+      for (const frame of frames) if (!before.has(frame)) restored += 1;
+      batch.frames = [...frames].sort((left, right) => left - right);
+      batch.observations = madeHere;
       batch.engineDiffers = true;
       batch.engineDiffersFrames = [...batch.frames];
     }
@@ -5212,7 +5222,7 @@ async function repairReadyCoordinateRound(segment) {
     batchId: batch.id,
     removedDuplicates: removed,
     restoredFrames: restored,
-    nowMatchingRemoved: pruned,
+    notFixedYetMoved: pruned,
     frameCount: batch.frames.length,
     decisions: Object.keys(batch.observations).length,
   };
@@ -5437,17 +5447,25 @@ async function reconcileCoordinateReviewBatch(context) {
       const worse = check.left.filter((frame) => before.has(frame));
       batch.ballCheck = {
         correct: check.correct,
+        matched: check.matched,
         scored: check.scored,
         left: check.left,
+        toDecide: check.toDecide,
+        toFix: check.toFix,
         before: batch.ballCheckBefore
           ? {
             correct: batch.ballCheckBefore.correct,
+            matched: batch.ballCheckBefore.matched
+              ?? batch.ballCheckBefore.correct
+                + Number(batch.ballCheckBefore.accepted || 0),
             scored: batch.ballCheckBefore.scored,
           }
           : null,
         worse,
       };
-      checkFrames = {frames: check.left, decisions};
+      // The reviewer is only asked about frames without a decision; frames
+      // they decided that still differ are tracker work, not a new question.
+      checkFrames = {frames: check.toDecide, decisions};
     }
   }
   const roundFrames = checkFrames ? checkFrames.frames : nextFrames;
@@ -5469,16 +5487,8 @@ async function reconcileCoordinateReviewBatch(context) {
       ...(checkFrames
         ? {engineDiffers: true, engineDiffersFrames: [...roundFrames]}
         : {}),
-      // The reviewer's latest decision is carried in as a starting point;
-      // they confirm or change it before the next round can be sent.
-      observations: checkFrames
-        ? Object.fromEntries(roundFrames
-          .filter((frame) => checkFrames.decisions[String(frame)])
-          .map((frame) => [
-            String(frame),
-            {...checkFrames.decisions[String(frame)], frame, approved: true},
-          ]))
-        : {},
+      // Only undecided frames are in the round, so nothing is carried in.
+      observations: {},
       createdAt: batch.rerunCompletedAt,
       before: after,
       frameResults: {},
@@ -9893,6 +9903,7 @@ async function handleRequest(request, response, serverInstanceId) {
         batch.ballCheckBefore = baseline
           ? {
             correct: baseline.correct,
+            matched: baseline.matched,
             scored: baseline.scored,
             correctFrames: baseline.correctFrames,
           }

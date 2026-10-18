@@ -469,8 +469,22 @@ def test_our_rules_copy_shows_saved_decisions_and_ball_check_score() -> None:
     assert ".filter((ballState) => ballState.direct).length" in extension
     assert "...(selectedBatch ? {} : state.trajectoryAudit?.observations || {})," in renderer
     assert "|| state.trajectoryAudit?.observations?.[String(point.frame)];" in renderer
-    assert '<option value="ball-check-left" hidden>Not matching yet</option>' in renderer
-    assert '"Live correct "' in renderer
+    assert '<option value="ball-check-left" hidden>You still need to decide</option>' in renderer
+    assert '<option value="ball-check-to-fix" hidden>Not fixed yet by Copilot</option>' in renderer
+    assert '"Matched to engine "' in renderer
+    assert '" · you still need to decide "' in renderer
+    assert '" · not fixed yet by Copilot "' in renderer
+
+
+def test_ball_check_splits_frames_to_decide_from_frames_to_fix() -> None:
+    extension = read(SHARED_EXTENSION)
+
+    # Matched = confirmed + matching; never-decided frames that differ are the
+    # reviewer's; decided frames the tracker still misses are Copilot's.
+    assert "matched: correct + acceptedFrames.length," in extension
+    assert "toDecide," in extension
+    assert "toFix," in extension
+    assert "notFixedYetMoved: pruned," in extension
 
 
 def test_reviewer_can_accept_the_tracker_point_as_a_known_limit() -> None:
@@ -484,7 +498,7 @@ def test_reviewer_can_accept_the_tracker_point_as_a_known_limit() -> None:
     assert 'id="accept-tracker-point"' in renderer
     assert '{decision: "accept_tracker", x: point.engineX, y: point.engineY}' in renderer
     assert 'return "accepted";' in renderer
-    assert '" · accepted tracker point "' in renderer
+    assert '"Matched to engine "' in renderer
 
 
 def test_reviewer_can_mark_the_ball_out_of_play() -> None:
@@ -506,7 +520,6 @@ def test_accepted_tracker_points_show_their_band_for_scoring_only() -> None:
     assert "function acceptedBand(point) {" in renderer
     assert '{kind: "accepted_tracker", band: acceptedBand(point)}' in renderer
     assert '"Accepted tracker point · " + result.band.label' in renderer
-    assert "+ acceptedBandSummary()" in renderer
     # The status column must not fall through to "Needs more checking".
     assert 'decisionCheck === "accepted"\n                ? "Accepted tracker point"' in renderer.replace("\r\n", "\n")
 

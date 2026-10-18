@@ -4264,8 +4264,9 @@ export function renderHtml({ adapter } = {}) {
                 <option value="all">All frames</option>
                 <option value="direct">Direct only</option>
                 <option value="needs-review" hidden>Needs my review</option>
-                <option value="ball-check-left" hidden>Not matching yet</option>
+                <option value="ball-check-left" hidden>You still need to decide</option>
                 <option value="unclear" hidden>Needs more checking</option>
+                <option value="ball-check-to-fix" hidden>Not fixed yet by Copilot</option>
               </select>
             </label>
             <div class="ball-coordinate-review-actions">
@@ -8404,8 +8405,12 @@ export function renderHtml({ adapter } = {}) {
         );
       }
       if (filter === "ball-check-left" && state.ballCheck) {
-        const left = new Set(state.ballCheck.left || []);
+        const left = new Set(state.ballCheck.toDecide || state.ballCheck.left || []);
         return points.filter(point => left.has(point.frame));
+      }
+      if (filter === "ball-check-to-fix" && state.ballCheck) {
+        const toFix = new Set(state.ballCheck.toFix || []);
+        return points.filter(point => toFix.has(point.frame));
       }
       return filter === "estimated"
         ? points.filter(point => !point.direct)
@@ -8597,19 +8602,6 @@ export function renderHtml({ adapter } = {}) {
         return {key: "known_miss", label: "known miss" + px};
       }
       return {key: "beyond", label: "beyond 100 px ·" + px};
-    }
-
-    function acceptedBandSummary() {
-      const counts = new Map();
-      for (const result of comparisonTriage()?.results.values() || []) {
-        if (result.kind !== "accepted_tracker") continue;
-        const name = result.band.label.replace(/\s*·?\s*\d+ px$/, "");
-        counts.set(name, (counts.get(name) || 0) + 1);
-      }
-      return counts.size
-        ? " (" + [...counts].map(([name, count]) => name + " " + count)
-            .join(", ") + ")"
-        : "";
     }
 
     function acceptedMiss(frame, result) {
@@ -9826,10 +9818,19 @@ export function renderHtml({ adapter } = {}) {
         filter.options[index].hidden = simpleFilter;
       }
       filter.options[2].hidden = simpleFilter && !latestReviewSelected;
-      filter.options[7].hidden = !ballCheck || simpleFilter;
+      filter.options[7].hidden = !ballCheck;
+      filter.options[9].hidden = !ballCheck;
+      const toDecideFrames = ballCheck
+        ? ballCheck.toDecide || ballCheck.left : [];
+      const toFixFrames = ballCheck?.toFix || [];
+      const matchedCount = ballCheck
+        ? ballCheck.matched ?? ballCheck.correct + (ballCheck.accepted || 0)
+        : 0;
       if (ballCheck) {
-        filter.options[7].textContent = "Not matching yet ("
-          + ballCheck.left.length + ")";
+        filter.options[7].textContent = "You still need to decide ("
+          + toDecideFrames.length + ")";
+        filter.options[9].textContent = "Not fixed yet by Copilot ("
+          + toFixFrames.length + ")";
       }
       const unclearCount = points.filter(
         point => engineDecisionCheck(point.frame) === "unclear"
@@ -9837,26 +9838,13 @@ export function renderHtml({ adapter } = {}) {
       filter.options[8].hidden = !simpleFilter;
       filter.options[8].textContent =
         "Needs more checking (" + unclearCount + ")";
-      const decidedCount = points.filter(
-        point => latestBallDecision(point.frame)?.decision
-      ).length;
-      const ballCheckText = ballCheck && simpleFilter
-        ? "Your decisions " + decidedCount + "/" + points.length
-          + " · engine matches " + ballCheck.correct
-          + (ballCheck.accepted
-            ? " · accepted tracker point " + ballCheck.accepted
-              + acceptedBandSummary()
-            : "")
-          + " · differs " + ballCheck.left.length
-          + " · needs more checking " + unclearCount + " · "
-        : ballCheck
-        ? "Live correct " + ballCheck.correct + "/" + ballCheck.scored
-          + " (" + Math.round(100 * ballCheck.correct / ballCheck.scored)
-          + "%)"
-          + (ballCheck.accepted
-            ? " · accepted tracker point " + ballCheck.accepted : "")
-          + " · not matching yet: "
-          + (ballCheck.left.length ? ballCheck.left.join(", ") : "none")
+      // Three numbers only: matched to the engine (confirmed or matching),
+      // still to decide, and decided but not fixed yet.
+      const ballCheckText = ballCheck
+        ? "Matched to engine " + matchedCount + "/" + ballCheck.scored
+          + " · you still need to decide " + toDecideFrames.length
+          + " · not fixed yet by Copilot " + toFixFrames.length
+          + (unclearCount ? " · needs more checking " + unclearCount : "")
           + " · "
         : "";
       const visible = visibleBallStates();
@@ -10367,26 +10355,31 @@ export function renderHtml({ adapter } = {}) {
               + (afterCoverage * 100).toFixed(1)
               + "%) was not validated as coordinate-correct."
             : batch.ballCheck
-              ? "Round " + batch.number + " result · engine matches you on "
-                + (batch.ballCheck.before
-                  ? batch.ballCheck.before.correct + " → "
-                  : "")
-                + batch.ballCheck.correct + "/" + batch.ballCheck.scored
-                + " frames · "
-                + (batch.ballCheck.worse?.length
-                  ? batch.ballCheck.worse.length + " got WORSE (frames "
-                    + batch.ballCheck.worse.join(", ") + ") · "
-                  : "none got worse · ")
-                + batch.ballCheck.left.length
-                + (batch.ballCheck.left.length
-                  ? " still differ and moved to Round "
-                    + (Number(batch.number) + 1) + ". "
-                    + (ballCheckBlocking(state.ballCheck || batch.ballCheck)
-                      ? readyPercentText(state.ballCheck || batch.ballCheck)
-                        + ": Process AI stays locked."
-                      : readyPercentText(state.ballCheck || batch.ballCheck)
-                        + ": the segment is ready, Process AI is unlocked.")
-                  : " still differ. 100%: Process AI is unlocked.")
+              ? (() => {
+                const check = batch.ballCheck;
+                const live = state.ballCheck || check;
+                const matchedNow = check.matched
+                  ?? check.correct + (live.accepted || 0);
+                const matchedBefore = check.before
+                  ? check.before.matched
+                    ?? check.before.correct + (live.accepted || 0)
+                  : null;
+                const toDecide = (live.toDecide || check.left || []).length;
+                const toFix = (live.toFix || []).length;
+                return "Round " + batch.number + " result · matched to engine "
+                  + (matchedBefore !== null ? matchedBefore + " → " : "")
+                  + matchedNow + "/" + check.scored + " · "
+                  + (check.worse?.length
+                    ? check.worse.length + " got WORSE (frames "
+                      + check.worse.join(", ") + ") · "
+                    : "none got worse · ")
+                  + "you still need to decide " + toDecide
+                  + " · not fixed yet by Copilot " + toFix + ". "
+                  + (ballCheckBlocking(live)
+                    ? readyPercentText(live) + ": Process AI stays locked."
+                    : readyPercentText(live)
+                      + ": the segment is ready, Process AI is unlocked.");
+              })()
             : "Round " + batch.number + " result · "
               + supportedFixedCount + " resolved · "
               + unresolvedCount + " unresolved · "
