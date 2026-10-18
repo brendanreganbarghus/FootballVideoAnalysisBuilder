@@ -92,6 +92,7 @@ def _merge_walked_points(
     accepted_frames: set[int],
     walked: dict[int, BallPoint],
     diameter: float,
+    ball_colour_distance: Any = None,
 ) -> None:
     for source_frame, point in walked.items():
         existing = candidates.get(source_frame)
@@ -102,6 +103,17 @@ def _merge_walked_points(
             <= GAP_WALK_OVERRIDE_MINIMUM_BALL_DIAMETERS * diameter
         ):
             continue
+        # A slow walk can drift onto a boot or line; it does not replace a
+        # sighting whose colour is closer to the ball's than its own.
+        if existing is not None and ball_colour_distance is not None:
+            existing_distance = ball_colour_distance(existing[0])
+            walked_distance = ball_colour_distance(point)
+            if existing_distance is not None and (
+                existing_distance < walked_distance
+                if walked_distance is not None
+                else existing_distance == 0.0
+            ):
+                continue
         candidates[source_frame] = (point, 0.0, diameter)
         accepted_frames.add(source_frame)
 
@@ -192,6 +204,7 @@ def _add_focused_multiscale_missing_points(
     model: Any,
     fps: float,
     frame_step: int,
+    ball_colour_range: tuple[float, float] | None = None,
 ) -> tuple[BallTrack, ...]:
     tracks = tuple(tracks)
     if not tracks:
@@ -255,6 +268,7 @@ def _add_focused_multiscale_missing_points(
             (previous, following, [], reference_diameter),
         )[2].append(source_frame)
         candidate = _focused_multiscale_ball_reacquisition(
+            ball_colour_range=ball_colour_range,
             model=model,
             frame=color_frames.get(source_frame),
             source_frame=source_frame,
@@ -274,6 +288,7 @@ def _add_focused_multiscale_missing_points(
             for scale in MISSING_POINT_RETRY_DIAMETER_SCALES:
                 for anchor in (previous, following):
                     candidate = _focused_multiscale_ball_reacquisition(
+                        ball_colour_range=ball_colour_range,
                         model=model,
                         frame=color_frames.get(source_frame),
                         source_frame=source_frame,
@@ -339,12 +354,28 @@ def _add_focused_multiscale_missing_points(
                 diameter,
             )
         accepted_frames |= smooth_frames
+    ball_colour_distance = None
+    if ball_colour_range is not None:
+        colour_low, colour_high = ball_colour_range
+
+        def ball_colour_distance(point: BallPoint) -> float | None:
+            frame = color_frames.get(point.source_frame)
+            if frame is None:
+                return None
+            chroma = _standout_chroma(
+                frame, point.x, point.y, float(point.box_diagonal or 0.0)
+            )
+            if chroma is None:
+                return None
+            return max(colour_low - chroma, chroma - colour_high, 0.0)
+
     for previous, following, gap_frames, diameter in walk_gaps.values():
         if len(gap_frames) < GAP_WALK_MINIMUM_POINTS:
             continue
 
         def find(source_frame: int, x: float, y: float) -> BallPoint | None:
             return _focused_multiscale_ball_reacquisition(
+                ball_colour_range=ball_colour_range,
                 model=model,
                 frame=color_frames.get(source_frame),
                 source_frame=source_frame,
@@ -367,7 +398,13 @@ def _add_focused_multiscale_missing_points(
             frame_step=frame_step,
             ball_diameter=diameter,
         )
-        _merge_walked_points(candidates, accepted_frames, walked, diameter)
+        _merge_walked_points(
+            candidates,
+            accepted_frames,
+            walked,
+            diameter,
+            ball_colour_distance=ball_colour_distance,
+        )
     maximum_pair_separation = float(
         FOCUSED_MULTISCALE_REDETECTION_PROFILE[
             "missing_pair_maximum_separation_ball_diameters"
@@ -413,6 +450,7 @@ def _add_focused_multiscale_terminal_points(
     video: Path,
     model: Any,
     fps: float,
+    ball_colour_range: tuple[float, float] | None = None,
 ) -> tuple[BallTrack, ...]:
     tracks = tuple(tracks)
     if not tracks:
@@ -457,6 +495,7 @@ def _add_focused_multiscale_terminal_points(
             if point.box_diagonal > 0
         )
         candidate = _focused_multiscale_ball_reacquisition(
+            ball_colour_range=ball_colour_range,
             model=model,
             frame=color_frames.get(source_frame),
             source_frame=source_frame,
@@ -509,6 +548,7 @@ def _focused_multiscale_ball_reacquisition(
     expected_x: float,
     expected_y: float,
     reference_diameter: float,
+    ball_colour_range: tuple[float, float] | None = None,
 ) -> BallPoint | None:
     profile = FOCUSED_MULTISCALE_REDETECTION_PROFILE
     if frame is None or reference_diameter <= 0:
@@ -577,11 +617,20 @@ def _focused_multiscale_ball_reacquisition(
                         height=y2 - y1,
                     )
                 )
+    matches_ball_colour = None
+    if ball_colour_range is not None:
+        colour_low, colour_high = ball_colour_range
+
+        def matches_ball_colour(x: float, y: float) -> bool:
+            chroma = _standout_chroma(frame, x, y, reference_diameter)
+            return chroma is not None and colour_low <= chroma <= colour_high
+
     consensus = _multiscale_detection_consensus(
         detections,
         expected_x=expected_x,
         expected_y=expected_y,
         reference_diameter=reference_diameter,
+        matches_ball_colour=matches_ball_colour,
     )
     if not consensus:
         return None
@@ -618,6 +667,7 @@ def _multiscale_detection_consensus(
     expected_x: float,
     expected_y: float,
     reference_diameter: float,
+    matches_ball_colour: Any = None,
 ) -> tuple[_FocusedBallDetection, ...]:
     if reference_diameter <= 0:
         return ()
@@ -668,10 +718,25 @@ def _multiscale_detection_consensus(
     ]
     if not valid_groups:
         return ()
+    # A boot or a white line near the ball's path can look like a ball to the
+    # detector too. When rival spots agree across crop sizes, the one with the
+    # ball's learned colour is the ball, whichever is nearer the guessed path.
+    has_ball_colour = {
+        id(group): (
+            matches_ball_colour is not None
+            and len(valid_groups) > 1
+            and matches_ball_colour(
+                sum(candidate.x for candidate in group) / len(group),
+                sum(candidate.y for candidate in group) / len(group),
+            )
+        )
+        for group in valid_groups
+    }
     return tuple(
         max(
             valid_groups,
             key=lambda group: (
+                has_ball_colour[id(group)],
                 -hypot(
                     sum(candidate.x for candidate in group) / len(group)
                     - expected_x,

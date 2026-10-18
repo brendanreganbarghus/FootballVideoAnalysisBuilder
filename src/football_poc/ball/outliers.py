@@ -312,6 +312,7 @@ def _replace_low_confidence_global_fallback_outliers(
     video: Path,
     model_path: Path | None = None,
     model: Any | None = None,
+    ball_colour_range: tuple[float, float] | None = None,
 ) -> tuple[BallTrack, ...]:
     maximum_confidence = float(
         SOCCERTRACK_TRAJECTORY_OUTLIER_PROFILE[
@@ -431,6 +432,7 @@ def _replace_low_confidence_global_fallback_outliers(
                 and abs(candidate.source_frame - point.source_frame) <= 25
             ]
             replacement = _focused_multiscale_ball_reacquisition(
+                ball_colour_range=ball_colour_range,
                 model=model,
                 frame=color_frames.get(point.source_frame),
                 source_frame=point.source_frame,
@@ -485,6 +487,7 @@ def _recover_focused_multiscale_points(
     model_path: Path,
     fps: float,
     frame_step: int,
+    ball_colour_range: tuple[float, float] | None = None,
 ) -> tuple[BallTrack, ...]:
     from football_poc.ball.predict_cache import load_ball_crop_model
 
@@ -501,6 +504,7 @@ def _recover_focused_multiscale_points(
             recovered,
             video=video,
             model=model,
+            ball_colour_range=ball_colour_range,
         )
         if _track_point_signatures(updated) == _track_point_signatures(recovered):
             break
@@ -512,6 +516,7 @@ def _recover_focused_multiscale_points(
         model=model,
         fps=fps,
         frame_step=frame_step,
+        ball_colour_range=ball_colour_range,
     )
     return _add_focused_multiscale_terminal_points(
         recovered,
@@ -519,4 +524,5 @@ def _recover_focused_multiscale_points(
         video=video,
         model=model,
         fps=fps,
+        ball_colour_range=ball_colour_range,
     )

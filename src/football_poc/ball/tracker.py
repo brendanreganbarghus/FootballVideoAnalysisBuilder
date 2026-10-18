@@ -131,6 +131,10 @@ def _is_weak_feet_proposal(point: BallPoint, record: dict[str, Any]) -> bool:
     )
 
 
+def _is_weak_proposal(point: BallPoint) -> bool:
+    return point.confidence < BALL_COLOUR_WEAK_CONFIDENCE
+
+
 def _smooth_paths_without_ball_colour(
     ledger: FrameLedger,
     proposed_by_frame: dict[int, BallPoint],
@@ -209,7 +213,7 @@ def _confirm_track_points_from_module(
             continue
         if (
             ball_colour_matches is not None
-            and _is_weak_feet_proposal(point, record)
+            and _is_weak_proposal(point)
             and not ball_colour_matches(point)
         ):
             # A smooth path between the gap ends excuses a blurred colour, but
@@ -222,7 +226,7 @@ def _confirm_track_points_from_module(
             if far_from_ball is not None and far_from_ball(point):
                 ledger.reject(frame, module, "colour_far_from_ball")
                 continue
-            if frame in broken_paths:
+            if frame in broken_paths and _is_weak_feet_proposal(point, record):
                 ledger.reject(frame, module, "colour_differs_from_ball")
                 continue
         if frame in broken_paths:
@@ -922,15 +926,16 @@ def _track_cached_balls_impl(
         model_path=Path(str(metadata["model"])),
         fps=manifest.fps,
         frame_step=frame_step,
+        ball_colour_range=_learned_ball_colour_range(
+            selected_detector_points, manifest.video
+        ),
     )
     focused_proposals = [
         point
         for track in focused_tracks
         for point in track.points
         if ledger.confirmed(point.source_frame) is None
-        and _is_weak_feet_proposal(
-            point, records_by_frame.get(point.source_frame, {})
-        )
+        and _is_weak_proposal(point)
     ]
     ledger = _timed_tracker_call(
         "04_focused_multiscale",

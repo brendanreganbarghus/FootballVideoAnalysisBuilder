@@ -33,6 +33,9 @@ COLOUR_WALK_PROFILE = {
     # A ball-coloured spot on a person's upper body is shirt or skin colour.
     "person_confidence": 0.5,
     "upper_body_fraction": 0.7,
+    # A step that lands this many ball diagonals from where the ball's last
+    # movement predicts it is a jump to another object, so the walk stops.
+    "maximum_jump_diagonals": 2.5,
     # Following the ball by colour alone for longer is not trusted.
     "maximum_gap_seconds": 4.0,
     "confidence": 0.25,
@@ -76,7 +79,11 @@ def _on_person_upper_body(
             continue
         x1, y1 = float(detection["x1"]), float(detection["y1"])
         x2, y2 = float(detection["x2"]), float(detection["y2"])
-        if x1 <= x <= x2 and y1 <= y <= y1 + fraction * (y2 - y1):
+        if (
+            x1 <= x <= x2
+            and y1 <= y <= y1 + fraction * (y2 - y1)
+            and not _beside_head(BallPoint(0, 0.0, 0.0, x, y), x1, y1, x2, y2)
+        ):
             return True
     return False
 
@@ -160,6 +167,7 @@ def _colour_walk(
     velocity: tuple[float, float],
     fps: float,
     max_speed_pixels_per_second: float,
+    ball_diagonal: float | None = None,
 ) -> dict[int, tuple[float, float]]:
     """Follow the ball through ``frames`` in order until no spot is found."""
     last_frame, last_x, last_y = start
@@ -185,6 +193,10 @@ def _colour_walk(
         x, y = min(
             reachable, key=lambda blob: hypot(blob[0] - predicted[0], blob[1] - predicted[1])
         )
+        if ball_diagonal and hypot(x - predicted[0], y - predicted[1]) > float(
+            COLOUR_WALK_PROFILE["maximum_jump_diagonals"]
+        ) * ball_diagonal:
+            break
         walked[frame] = (x, y)
         velocity = ((x - last_x) / signed, (y - last_y) / signed)
         last_frame, last_x, last_y = frame, x, y
@@ -302,6 +314,7 @@ def _confirm_colour_walk(
                 velocity=_colour_walk_velocity(ledger, sampled, left, 1),
                 fps=fps,
                 max_speed_pixels_per_second=max_speed_pixels_per_second,
+                ball_diagonal=ball_diagonal,
             )
             backward = _colour_walk(
                 (right, float(ends[right].x), float(ends[right].y)),
@@ -310,6 +323,7 @@ def _confirm_colour_walk(
                 velocity=_colour_walk_velocity(ledger, sampled, right, -1),
                 fps=fps,
                 max_speed_pixels_per_second=max_speed_pixels_per_second,
+                ball_diagonal=ball_diagonal,
             )
             for frame, (x, y) in _colour_walk_meeting(
                 gap, forward, backward, ball_diagonal
