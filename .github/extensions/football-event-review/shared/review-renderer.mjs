@@ -2326,6 +2326,70 @@ export function renderHtml({ adapter } = {}) {
       font-weight: 700;
     }
     .replay-note { margin: 9px 0 0; }
+    /* Full screen: video on top, statistics on a tilted stadium screen. */
+    .replay-layout:fullscreen {
+      grid-template-columns: 1fr;
+      grid-template-rows: minmax(0, 1fr) auto;
+      gap: 0;
+      padding: 0 0 28px;
+      background:
+        radial-gradient(ellipse at 50% 100%, rgb(120 191 255 / 16%), transparent 55%),
+        #000;
+      overflow: hidden;
+    }
+    .replay-layout:fullscreen .replay-player {
+      display: grid;
+      grid-template-rows: minmax(0, 1fr) auto;
+      min-height: 0;
+      border: 0;
+      border-radius: 0;
+    }
+    .replay-layout:fullscreen .replay-player video {
+      width: 100%;
+      height: 100%;
+      min-height: 0;
+      aspect-ratio: auto;
+      object-fit: contain;
+    }
+    .replay-layout:fullscreen .replay-controls { background: #000; }
+    .replay-layout:fullscreen .match-board {
+      position: relative;
+      justify-self: center;
+      width: min(1100px, 78vw);
+      grid-template-columns: minmax(0, .8fr) minmax(0, 1.2fr);
+      grid-template-areas: "clock table" "score table";
+      align-items: center;
+      column-gap: 28px;
+      padding: 18px 26px;
+      border: 3px solid #1b2a3a;
+      border-radius: 6px;
+      background:
+        radial-gradient(circle, rgb(255 255 255 / 7%) 1px, transparent 1.4px) 0 0 / 4px 4px,
+        linear-gradient(180deg, #071422, #0b2238 60%, #123657);
+      transform: perspective(1100px) rotateX(16deg);
+      transform-origin: 50% 100%;
+      box-shadow:
+        0 0 0 6px #0a0f15,
+        0 0 42px rgb(120 191 255 / 38%),
+        inset 0 0 30px rgb(0 0 0 / 55%);
+      text-shadow: 0 0 8px rgb(120 191 255 / 70%);
+    }
+    .replay-layout:fullscreen .match-board::after {
+      content: "";
+      position: absolute;
+      left: 50%;
+      bottom: -34px;
+      width: 38%;
+      height: 28px;
+      transform: translateX(-50%);
+      background:
+        linear-gradient(90deg, #11181f 0 6%, transparent 6% 94%, #11181f 94%);
+    }
+    .replay-layout:fullscreen .match-clock { grid-area: clock; font-size: 26px; }
+    .replay-layout:fullscreen .scoreline { grid-area: score; font-size: 18px; }
+    .replay-layout:fullscreen .score { font-size: 48px; }
+    .replay-layout:fullscreen .stats-table { grid-area: table; font-size: 18px; }
+    .replay-layout:fullscreen .stats-table th { font-size: 15px; }
     .segment-replay-modal {
       width: calc(100vw - 20px);
       max-width: none;
@@ -5010,10 +5074,12 @@ export function renderHtml({ adapter } = {}) {
         <div class="replay-layout">
           <div class="replay-player">
             <video id="replay-video" controls preload="metadata"
+              controlslist="nofullscreen"
               aria-label="Presentation match replay"></video>
             <div class="replay-controls">
               <button id="replay-play" type="button">Play sequence</button>
               <button id="replay-restart" type="button">Restart</button>
+              <button id="replay-fullscreen" type="button">Full screen</button>
               <span class="muted" id="replay-position">No run selected</span>
             </div>
           </div>
@@ -6545,6 +6611,7 @@ export function renderHtml({ adapter } = {}) {
         "#replay-run",
         "#replay-play",
         "#replay-restart",
+        "#replay-fullscreen",
         "#segment-loading-close",
         "#segment-loading-cancel",
         "[data-view-mode]",
@@ -6708,6 +6775,7 @@ export function renderHtml({ adapter } = {}) {
         "#replay-run",
         "#replay-play",
         "#replay-restart",
+        "#replay-fullscreen",
         "#segment-loading-close",
         "#segment-loading-cancel",
         "[data-view-mode]",
@@ -16854,6 +16922,28 @@ export function renderHtml({ adapter } = {}) {
     document.getElementById("replay-restart").addEventListener("click", () => {
       replayVideo.pause();
       loadReplaySegment(0);
+    });
+    const replayLayout = document.querySelector(".replay-layout");
+    const toggleReplayFullscreen = async () => {
+      if (document.fullscreenElement === replayLayout) {
+        await document.exitFullscreen();
+      } else {
+        await replayLayout.requestFullscreen();
+      }
+    };
+    document.getElementById("replay-fullscreen").addEventListener(
+      "click",
+      () => void toggleReplayFullscreen(),
+    );
+    replayVideo.addEventListener("dblclick", (event) => {
+      event.preventDefault();
+      void toggleReplayFullscreen();
+    });
+    document.addEventListener("fullscreenchange", () => {
+      document.getElementById("replay-fullscreen").textContent =
+        document.fullscreenElement === replayLayout
+          ? "Exit full screen"
+          : "Full screen";
     });
     replayVideo.addEventListener("timeupdate", updateReplayStatistics);
     replayVideo.addEventListener("play", () => {

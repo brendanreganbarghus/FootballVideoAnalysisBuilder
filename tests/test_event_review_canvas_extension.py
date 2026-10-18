@@ -528,6 +528,19 @@ def test_process_ai_unlocks_at_a_configurable_ready_percent() -> None:
     assert "&& achievedPercent < readyPercent" in extension
     assert "Process AI unlocks at ${readyPercent}%" in extension
 
+def test_match_replay_full_screen_keeps_the_stadium_statistics_screen() -> None:
+    """Full screen enlarges the whole replay panel, so the statistics stay
+    visible below the video on a tilted stadium screen.
+    """
+    renderer = read(SHARED_RENDERER)
+
+    assert 'controlslist="nofullscreen"' in renderer
+    assert '<button id="replay-fullscreen" type="button">Full screen</button>' in renderer
+    assert "await replayLayout.requestFullscreen();" in renderer
+    assert ".replay-layout:fullscreen .match-board {" in renderer
+    assert "transform: perspective(1100px) rotateX(16deg);" in renderer
+
+
 def test_alfheim_calibration_saves_spots_and_markings_to_the_camera_file() -> None:
     """The fixed Alfheim camera may add its centre spot and penalty marks,
     one click each, which name free kicks and other restarts in chrono, and
