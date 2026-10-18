@@ -5384,6 +5384,21 @@ export function renderHtml({ adapter } = {}) {
           const trackingStatus = done
             ? "Complete"
             : !detectionsDone ? "Waiting" : failed ? "Failed" : "In progress";
+          if (segment.runProvenance?.mode === "cached_event_rebuild") {
+            const eventsRunning = segment.stage === "events";
+            return [
+              "Target: " + timeLabel,
+              "Raw-video detection: Complete (cached)",
+              "Ball coordinates: Complete (cached, not rerun)",
+              "Player tracks + kit teams: " + (done || eventsRunning
+                ? "Complete"
+                : failed ? "Failed" : "In progress"),
+              "rules engine: " + (done
+                ? "Complete"
+                : failed ? "Failed" : eventsRunning ? "In progress" : "Waiting"),
+              segment.statusMessage || "Building football events."
+            ].join("\\n");
+          }
           return [
             "Target: " + timeLabel,
             "Playable segment: Complete",
@@ -5460,6 +5475,7 @@ export function renderHtml({ adapter } = {}) {
             ? (segment.stage === "detecting"
               ? "Running YOLO detection (once per segment)"
               : segment.stage === "events"
+                  || segment.runProvenance?.mode === "cached_event_rebuild"
                 ? "Processing rules engine"
                 : "Running ball coordinates on cached detections")
             : analysisModalMode === "rules"
