@@ -7210,8 +7210,9 @@ async function handleRequest(request, response, serverInstanceId) {
     const segment = String(body.segment || "");
     const segments = await loadPreparedSegments();
     const selected = segments.find((candidate) => candidate.key === segment);
-    if (selected?.datasetId === "alfheim" && body.spots) {
-      // Alfheim pitch lines are fixed; only restart spots may be added.
+    if (selected?.datasetId === "alfheim" && (body.spots || body.lines)) {
+      // Alfheim boundary and goal lines are fixed; restart spots and
+      // display-only markings may be added.
       const calibrationPath = await alfheimConfigPath("pitch-calibration.json");
       const current = calibrationPath ? await readJson(calibrationPath, null) : null;
       if (!current) {
@@ -7237,6 +7238,32 @@ async function handleRequest(request, response, serverInstanceId) {
           return;
         }
         features[name] = [[Number(point[0]), Number(point[1])]];
+      }
+      const lineNames = [
+        "halfway_line",
+        "centre_circle",
+        "left_penalty_area",
+        "right_penalty_area",
+      ];
+      for (const [name, points] of Object.entries(body.lines || {})) {
+        if (
+          !lineNames.includes(name)
+          || !Array.isArray(points)
+          || points.length < (name === "centre_circle" ? 8 : 2)
+          || points.some((point) => (
+            !Array.isArray(point)
+            || !point.slice(0, 2).every(Number.isFinite)
+            || point[0] < 0 || point[0] > width
+            || point[1] < 0 || point[1] > height
+          ))
+        ) {
+          sendJson(response, 400, {error: `Invalid pitch marking ${name}`});
+          return;
+        }
+        features[name] = points.map((point) => [
+          Number(point[0]),
+          Number(point[1]),
+        ]);
       }
       const saved = {...current, features};
       await writeJsonAtomically(calibrationPath, saved);

@@ -528,9 +528,11 @@ def test_process_ai_unlocks_at_a_configurable_ready_percent() -> None:
     assert "&& achievedPercent < readyPercent" in extension
     assert "Process AI unlocks at ${readyPercent}%" in extension
 
-def test_alfheim_calibration_accepts_restart_spots_only() -> None:
+def test_alfheim_calibration_saves_spots_and_markings_to_the_camera_file() -> None:
     """The fixed Alfheim camera may add its centre spot and penalty marks,
-    one click each, which name free kicks and other restarts in chrono.
+    one click each, which name free kicks and other restarts in chrono, and
+    its display-only markings (halfway line, centre circle, big boxes). Both
+    are saved to the camera calibration file, not only the browser.
     """
     renderer = read(SHARED_RENDERER)
     extension = read(SHARED_EXTENSION)
@@ -538,9 +540,11 @@ def test_alfheim_calibration_accepts_restart_spots_only() -> None:
     assert '<option value="left_penalty_mark">' in renderer
     assert '<option value="right_penalty_mark">' in renderer
     assert "GEOMETRY_SPOT_FEATURES.includes(editingFeature) ? 1" in renderer
-    assert "? {segment: state.segment.key, spots}" in renderer
-    assert 'selected?.datasetId === "alfheim" && body.spots' in extension
+    assert "? {segment: state.segment.key, spots, lines}" in renderer
+    assert 'selected?.datasetId === "alfheim" && (body.spots || body.lines)' in extension
     assert 'const spotNames = ["centre_spot", "left_penalty_mark", "right_penalty_mark"];' in extension
+    assert "Invalid pitch marking ${name}" in extension
+    assert "if (missing.length) await persistGeometry();" in renderer
 
 def test_m_and_e_show_the_restart_they_were_played_from() -> None:
     """An E# from a named restart and an M# marked "played from" show it,

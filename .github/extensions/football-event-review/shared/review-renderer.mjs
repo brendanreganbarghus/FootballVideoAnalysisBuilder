@@ -5143,6 +5143,12 @@ export function renderHtml({ adapter } = {}) {
       "left_penalty_mark",
       "right_penalty_mark",
     ];
+    const GEOMETRY_DISPLAY_LINE_FEATURES = [
+      "halfway_line",
+      "centre_circle",
+      "left_penalty_area",
+      "right_penalty_area",
+    ];
     const video = document.getElementById("video");
     const timeline = document.getElementById("timeline");
     const videoShell = document.getElementById("video-shell");
@@ -6072,21 +6078,31 @@ export function renderHtml({ adapter } = {}) {
         && state.segment.datasetId !== "soccertrack-v2"
         && !state.segment.datasetId.startsWith("custom-")
       ) return;
-      // The Alfheim camera's pitch lines are fixed; only its restart spots
-      // (centre spot and penalty marks) can be added from here.
+      // The Alfheim camera's boundary and goal lines are fixed; its restart
+      // spots and display-only markings are saved to the camera file.
       const spots = {};
       GEOMETRY_SPOT_FEATURES.forEach((feature) => {
         if (geometry.features[feature]?.length === 1) {
           spots[feature] = geometry.features[feature];
         }
       });
-      if (alfheim && !Object.keys(spots).length) return;
+      const lines = {};
+      GEOMETRY_DISPLAY_LINE_FEATURES.forEach((feature) => {
+        if (geometry.features[feature]?.length >= 2) {
+          lines[feature] = geometry.features[feature];
+        }
+      });
+      if (
+        alfheim
+        && !Object.keys(spots).length
+        && !Object.keys(lines).length
+      ) return;
       const response = await fetch("/api/calibration", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify(
           alfheim
-            ? {segment: state.segment.key, spots}
+            ? {segment: state.segment.key, spots, lines}
             : {segment: state.segment.key, calibration: geometry}
         )
       });
@@ -6132,6 +6148,24 @@ export function renderHtml({ adapter } = {}) {
         const saved = localStorage.getItem(storageKey);
         geometry = saved ? JSON.parse(saved) : cloneGeometry(repositoryGeometry);
         geometry.features ||= {};
+        if (saved && state.segment.datasetId === "alfheim") {
+          // Older Canvas versions kept Alfheim markings only in this
+          // browser; the camera file is authoritative, so copy missing ones.
+          const local = geometry.features;
+          geometry = cloneGeometry(repositoryGeometry);
+          geometry.features ||= {};
+          const missing = [
+            ...GEOMETRY_DISPLAY_LINE_FEATURES,
+            ...GEOMETRY_SPOT_FEATURES,
+          ].filter((feature) => (
+            local[feature]?.length && !geometry.features[feature]?.length
+          ));
+          missing.forEach((feature) => {
+            geometry.features[feature] = local[feature];
+          });
+          if (missing.length) await persistGeometry();
+          localStorage.removeItem(storageKey);
+        }
         if (
           saved
           && (
@@ -16646,7 +16680,7 @@ export function renderHtml({ adapter } = {}) {
       saveGeometry();
       geometryStatus.textContent =
         completed.replaceAll("_", " ") +
-        " saved locally for this camera.";
+        " saved for this camera.";
     });
     document.getElementById("restore-geometry").addEventListener(
       "click",
