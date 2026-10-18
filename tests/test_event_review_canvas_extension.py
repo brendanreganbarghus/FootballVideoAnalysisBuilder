@@ -487,6 +487,16 @@ def test_ball_check_splits_frames_to_decide_from_frames_to_fix() -> None:
     assert "notFixedYetMoved: pruned," in extension
 
 
+def test_first_coordinate_round_holds_every_frame_that_does_not_match_yet() -> None:
+    extension = read(SHARED_EXTENSION)
+
+    # Round 1 must not stop at the tracker's estimated frames: direct frames
+    # that differ from the reference are asked about too.
+    assert "...(firstCheck?.toDecide || [])," in extension
+    assert "state.coordinateReview.flaggedFrames = roundOne;" in extension
+    assert "...(diagnostic?.original_review_frames || [])," in extension
+
+
 def test_reviewer_can_accept_the_tracker_point_as_a_known_limit() -> None:
     extension = read(SHARED_EXTENSION)
     renderer = read(SHARED_RENDERER)

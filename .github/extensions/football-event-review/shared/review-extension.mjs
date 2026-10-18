@@ -3110,8 +3110,21 @@ async function loadState(segment, segmentInfo, drafts) {
         const estimated = (provenance?.estimated_frames || [])
           .map(Number)
           .filter(Number.isInteger);
-        if (estimated.length) {
-          state.coordinateReview.flaggedFrames = estimated;
+        // Also ask about every frame the tracker calls direct that still
+        // differs from the reference, so round 1 holds every frame that
+        // does not match yet.
+        const firstCheck = await ballCheckScore(
+          segmentInfo,
+          await loadDetectedBallTrack(segmentInfo).catch(() => null),
+          {},
+        ).catch(() => null);
+        const roundOne = [...new Set([
+          ...estimated,
+          ...(firstCheck?.toDecide || []),
+        ])].sort((left, right) => left - right);
+        if (roundOne.length) {
+          state.coordinateReview.flaggedFrames = roundOne;
+          state.coordinateReview.estimatedFrames = estimated;
           changed = true;
         }
       }
@@ -3127,9 +3140,15 @@ async function loadState(segment, segmentInfo, drafts) {
           ),
           null,
         );
-        const originalFrames = diagnostic?.original_review_frames
-          || state.coordinateReview.flaggedFrames;
-        const previousEstimated = new Set(originalFrames);
+        const originalFrames = [...new Set([
+          ...(diagnostic?.original_review_frames || []),
+          ...state.coordinateReview.flaggedFrames,
+        ])].map(Number).sort((left, right) => left - right);
+        const previousEstimated = new Set(
+          diagnostic?.original_review_frames
+            || state.coordinateReview.estimatedFrames
+            || originalFrames,
+        );
         const sampledFrames = Array.from(
           {length: Number(diagnostic?.sampled_frame_count || 300)},
           (_, index) => index * 5,
