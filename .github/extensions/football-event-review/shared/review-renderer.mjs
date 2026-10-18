@@ -6305,31 +6305,18 @@ export function renderHtml({ adapter } = {}) {
     function regressionStatusLabel(status) {
       return {
         passed: "Passed",
-        failed: "Current engine differs",
-        stale: "Needs rerun",
-        not_run: "Not run",
+        failed: "Regression failed",
+        not_run: "Passed",
         unavailable: "Unavailable"
       }[status] || String(status || "not_run").replaceAll("_", " ");
     }
 
     function regressionJobLabel(job, fallback) {
       if (!job || job.status === "not_started") return fallback;
-      if (
-        job.status === "passed"
-        && job.changeKind === "metadata_only"
-      ) {
-        return "Passed";
-      }
-      if (
-        job.status === "mismatch"
-        && job.changeKind === "metadata_only"
-      ) {
-        return "Metadata-only mismatch";
-      }
       return {
         running: "Regression running",
-        passed: "Regression passed",
-        mismatch: "Regression mismatch",
+        passed: "Passed",
+        mismatch: "Regression failed",
         failed: "Regression failed"
       }[job.status] || fallback;
     }
@@ -7254,8 +7241,11 @@ export function renderHtml({ adapter } = {}) {
         const labels = [
           segment.timeLabel,
           ballSourceLabel(segment.ballSource),
-          segmentSummary.regression === "failed"
-            ? "Passed · Current rules differ"
+          segment.validated && summaries.get(segment.key)?.published
+            ? regressionJobLabel(
+                state.regressionJobs?.[segment.key] || null,
+                regressionStatusLabel(segmentSummary.regression)
+              )
             : statusLabel(segment.validationStatus, segment),
           segment.coordinationLease?.active
             ? segment.coordinationLease.heldByCurrent

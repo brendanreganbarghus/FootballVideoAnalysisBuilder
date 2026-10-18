@@ -2710,7 +2710,7 @@ async function executePublishedReviewRegression(segment, progress) {
       "Per-segment cached regression is available only in Football Review.",
     );
   }
-  const review = await reviewContext(segment);
+  let review = await reviewContext(segment);
   if (!review.selected.validated) {
     throw new CanvasError(
       "regression_requires_published_segment",
@@ -2809,18 +2809,38 @@ async function executePublishedReviewRegression(segment, progress) {
     const matchStateMetadataOnly = (
       matchStateChanged && !matchStateBehaviorChanged
     );
-    const passed = exactOutputMatch || matchStateMetadataOnly;
+    // A changed output still passes while every golden M# maps one-to-one
+    // to E# with no extra E#: it then becomes the published baseline, so
+    // the segment stays Passed everywhere it is shown.
+    let rebaseline = null;
+    if (!exactOutputMatch && !matchStateMetadataOnly) {
+      rebaseline = await rebaselineReprocessedSegment(segment);
+      if (rebaseline.rebaselined) {
+        keepRebuiltOutput = true;
+        review = await reviewContext(segment);
+      }
+    }
+    const goldenRebaselined = Boolean(rebaseline?.rebaselined);
+    const passed = (
+      exactOutputMatch || matchStateMetadataOnly || goldenRebaselined
+    );
     updateSegmentRegressionProgress(progress, "compare", "completed");
     updateSegmentRegressionProgress(progress, "persist", "running");
     const recordedAt = new Date().toISOString();
     const changeKind = matchStateMetadataOnly
       ? "metadata_only"
-      : passed ? "none" : "behavioral";
+      : goldenRebaselined
+        ? "rebaselined"
+        : passed ? "none" : "behavioral";
     review.state.engineAfter = current;
     review.state.regression = {
       passed,
       summary: exactOutputMatch
         ? "Current rules engine output exactly matches the published output."
+        : goldenRebaselined
+          ? `Passed: every golden M# still matches E# one-to-one `
+            + `(${rebaseline.goldenMatched}); the new output is now the `
+            + "published baseline."
         : matchStateMetadataOnly
           ? "Passed: events and match-state behavior are unchanged; only "
             + "schema and football-law provenance metadata changed."
@@ -2838,7 +2858,9 @@ async function executePublishedReviewRegression(segment, progress) {
             eventDifferences.missingEvents,
           ),
       fingerprint: current.fingerprint,
-      outputHash: baselineSnapshotForRestore.outputHash,
+      outputHash: goldenRebaselined
+        ? current.outputHash
+        : baselineSnapshotForRestore.outputHash,
       candidateOutputHash: current.outputHash,
       baselineOutputHash,
       recordedAt,
@@ -2848,6 +2870,7 @@ async function executePublishedReviewRegression(segment, progress) {
     };
     review.state.updatedAt = recordedAt;
     await saveState(segment, review.state);
+    segmentReviewSummaries.delete(segment);
     updateSegmentRegressionProgress(progress, "persist", "completed");
     completedResult = {
       segment,
@@ -5958,13 +5981,13 @@ export async function publicState(
       matched: manualCounts
         ? manualMatchedCount
         : null,
+      // Only the segment's own last regression run sets this; an engine
+      // change elsewhere does not mark other segments for a rerun.
       regression: !stored.regression
         ? "not_run"
-        : isRegressionCurrent(stored.regression, current)
-          ? stored.regression.passed || storedMetadataOnly
-            ? "passed"
-            : "failed"
-          : "stale",
+        : stored.regression.passed || storedMetadataOnly
+          ? "passed"
+          : "failed",
       regressionSummary: storedMetadataOnly
         ? "Passed: events and match-state behavior are unchanged; the current "
           + "output adds schema v2 football-law provenance metadata."

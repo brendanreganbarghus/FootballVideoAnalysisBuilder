@@ -77,6 +77,72 @@ def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+PLAYER_TRACKS_INPUTS_FILE_NAME = "player-tracks-inputs.json"
+
+
+def local_module_closure(entry_module: str) -> list[Path]:
+    """Return the football_poc source files ``entry_module`` imports."""
+    import ast
+
+    package = LOCAL_SOURCE / "football_poc"
+
+    def module_path(name: str) -> Path | None:
+        candidate = package / (name.replace(".", "/") + ".py")
+        if candidate.is_file():
+            return candidate
+        candidate = package / name.replace(".", "/") / "__init__.py"
+        return candidate if candidate.is_file() else None
+
+    seen: dict[str, Path] = {}
+    pending = [entry_module]
+    while pending:
+        name = pending.pop()
+        if name in seen:
+            continue
+        path = module_path(name)
+        if path is None:
+            continue
+        seen[name] = path
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.Import):
+                pending.extend(
+                    alias.name.removeprefix("football_poc.")
+                    for alias in node.names
+                    if alias.name.startswith("football_poc.")
+                )
+            elif isinstance(node, ast.ImportFrom):
+                if node.module and node.module.startswith("football_poc"):
+                    base = node.module.removeprefix("football_poc").lstrip(".")
+                elif node.level and node.module:
+                    base = node.module
+                elif node.level:
+                    base = ""
+                else:
+                    continue
+                if base:
+                    pending.append(base)
+                pending.extend(
+                    f"{base}.{alias.name}" if base else alias.name
+                    for alias in node.names
+                )
+    return sorted(seen.values())
+
+
+def player_tracks_input_fingerprint(
+    inputs: list[Path], arguments: list[str]
+) -> dict[str, object]:
+    """Identify everything player tracking reads, so an unchanged rebuild
+    can reuse its output instead of recomputing it."""
+    return {
+        "code": {
+            path.relative_to(LOCAL_SOURCE).as_posix(): sha256(path)
+            for path in local_module_closure("player_tracking_cli")
+        },
+        "inputs": {path.name: sha256(path) for path in inputs},
+        "arguments": arguments,
+    }
+
+
 def alfheim_config_path(name: str) -> Path:
     local_path = PROJECT_ROOT / "benchmarks" / "alfheim" / "window-555" / name
     if local_path.is_file():
@@ -471,9 +537,10 @@ def main() -> None:
             ) from error
         stage_seconds[stage] = round(time.perf_counter() - started, 3)
 
-    def track_players(active_ball_tracks: Path) -> None:
-        run(
-            "player_tracking",
+    def track_players(
+        active_ball_tracks: Path, *, reuse_unchanged: bool = False
+    ) -> None:
+        arguments = [
             "-m",
             "football_poc.player_tracking_cli",
             str(runtime_manifest),
@@ -498,6 +565,32 @@ def main() -> None:
             "--pitch-calibration",
             str(alfheim_config_path("pitch-calibration.json")),
             "--no-video",
+        ]
+        stamp_path = results / PLAYER_TRACKS_INPUTS_FILE_NAME
+        fingerprint = player_tracks_input_fingerprint(
+            [
+                cache / "detections.jsonl",
+                active_ball_tracks,
+                alfheim_config_path("goalkeeper-affiliations.json"),
+                alfheim_config_path("pitch-calibration.json"),
+            ],
+            [
+                Path(value).name if Path(value).is_absolute() else value
+                for value in arguments
+            ],
+        )
+        if reuse_unchanged and player_tracks.is_file() and stamp_path.is_file():
+            try:
+                stored = json.loads(stamp_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                stored = None
+            if stored == fingerprint:
+                stage_seconds["player_tracking_reused"] = 0.0
+                return
+        stamp_path.unlink(missing_ok=True)
+        run("player_tracking", *arguments)
+        stamp_path.write_text(
+            json.dumps(fingerprint, indent=2) + "\n", encoding="utf-8"
         )
 
     def ensure_aerial_labels() -> None:
@@ -564,6 +657,7 @@ def main() -> None:
 
     downstream = (
         player_tracks,
+        results / PLAYER_TRACKS_INPUTS_FILE_NAME,
         results / "match-initialization.json",
         results / "ball-provenance.json",
         results / "possession.json",
@@ -618,9 +712,10 @@ def main() -> None:
                 status(
                     "player_tracking",
                     "Rebuilding player tracks and kit teams from cached YOLO "
-                    "detections with the current tracking rules.",
+                    "detections with the current tracking rules (reused "
+                    "when the tracking code and inputs are unchanged).",
                 )
-                track_players(active_ball_tracks)
+                track_players(active_ball_tracks, reuse_unchanged=True)
             if args.coordinates_updated:
                 reviewer_payload = json.loads(
                     reviewer_ball_tracks.read_text(encoding="utf-8")

@@ -314,3 +314,5 @@ baseline suites (`tests/test_possession.py`, `tests/test_match_state.py`,
 | 20261018T092725034Z | rules | turnover straight back is a challenge | `tests/rules/test_chrono_turnover_straight_back_is_a_challenge_20261018T092725034Z.py::test_turnover_straight_back_is_a_challenge_20261018T092725034Z` |
 | 20261018T092725035Z | rules | opponent who plays it away won it | `tests/rules/test_chrono_turnover_straight_back_is_a_challenge_20261018T092725034Z.py::test_opponent_who_plays_it_away_won_it_20261018T092725035Z` |
 | 20261018T092725036Z | rules | opponent who keeps it won it | `tests/rules/test_chrono_turnover_straight_back_is_a_challenge_20261018T092725034Z.py::test_opponent_who_keeps_it_won_it_20261018T092725036Z` |
+| 20261018T103034156Z | rules | regression status follows golden matches | `tests/rules/test_regression_status_follows_golden_matches_20261018T103034156Z.py::test_regression_status_follows_golden_matches_20261018T103034156Z` |
+| 20261018T103034157Z | tracking | player tracks reuse fingerprint | `tests/tracking/test_player_tracks_reuse_20261018T103034157Z.py::test_player_tracks_reuse_fingerprint_20261018T103034157Z` |
