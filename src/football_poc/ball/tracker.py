@@ -856,6 +856,9 @@ def _track_cached_balls_impl(
         for point in track.points
         if point.source_attribution == "yolo26_observed"
     ]
+    learned_ball_colour_range = _learned_ball_colour_range(
+        selected_detector_points, manifest.video
+    )
     ledger = _timed_tracker_call(
         LOCK_YOLO_CHAIN_MODULE,
         _lock_moving_yolo_chains,
@@ -863,6 +866,8 @@ def _track_cached_balls_impl(
         records_by_frame=records_by_frame,
         fps=manifest.fps,
         frame_step=frame_step,
+        video=manifest.video,
+        ball_colour_range=learned_ball_colour_range,
     )
     # 01 decides on its own fresh ledger; its results fill only frames the
     # permanent locks left unresolved.
@@ -926,9 +931,7 @@ def _track_cached_balls_impl(
         model_path=Path(str(metadata["model"])),
         fps=manifest.fps,
         frame_step=frame_step,
-        ball_colour_range=_learned_ball_colour_range(
-            selected_detector_points, manifest.video
-        ),
+        ball_colour_range=learned_ball_colour_range,
     )
     focused_proposals = [
         point

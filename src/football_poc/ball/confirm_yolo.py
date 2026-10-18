@@ -22,6 +22,48 @@ LOCK_CHAIN_MINIMUM_TRAVEL_PIXELS = 40.0
 # one chain whose ends are far apart. A ball travels over several steps, so a
 # chain whose travel is mostly one jump is not locked.
 LOCK_CHAIN_MAXIMUM_SINGLE_STEP_SHARE = 0.5
+# A boot moves with a running player and so also leaves a long moving chain of
+# YOLO boxes. Its colour, unlike the ball's, stays outside the ball colour
+# learned from this video's confident detections. A chain whose typical colour
+# is clearly outside that range is not locked; the ball's own chains vary
+# around the range edge by lighting and motion blur only.
+LOCK_CHAIN_COLOUR_MARGIN = 10.0
+
+
+def _off_colour_chains(
+    chains: dict[int, list[tuple[int, dict[str, Any]]]],
+    video: Path,
+    colour_range: tuple[float, float],
+) -> set[int]:
+    points = {
+        (frame, box["x"], box["y"]): BallPoint(
+            frame, 0.0, box["confidence"], box["x"], box["y"],
+            box_diagonal=box["diagonal"],
+        )
+        for chain in chains.values()
+        for frame, box in chain
+    }
+    by_frame: dict[int, list[BallPoint]] = defaultdict(list)
+    for point in points.values():
+        by_frame[point.source_frame].append(point)
+    chroma = _read_standout_chroma(video, by_frame)
+    colour_low, colour_high = colour_range
+    off_colour = set()
+    for chain_index, chain in chains.items():
+        samples = [
+            chroma.get((frame, float(box["x"]), float(box["y"])))
+            for frame, box in chain
+        ]
+        samples = [sample for sample in samples if sample is not None]
+        if len(samples) * 2 < len(chain):
+            continue
+        typical = float(np.median(samples))
+        if (
+            typical < colour_low - LOCK_CHAIN_COLOUR_MARGIN
+            or typical > colour_high + LOCK_CHAIN_COLOUR_MARGIN
+        ):
+            off_colour.add(chain_index)
+    return off_colour
 
 
 def _lock_moving_yolo_chains(
@@ -30,6 +72,8 @@ def _lock_moving_yolo_chains(
     records_by_frame: dict[int, dict[str, Any]],
     fps: float,
     frame_step: int,
+    video: Path | None = None,
+    ball_colour_range: tuple[float, float] | None = None,
 ) -> FrameLedger:
     step_seconds = frame_step / fps
     boxes_by_frame: dict[int, list[dict[str, Any]]] = {}
@@ -78,7 +122,7 @@ def _lock_moving_yolo_chains(
                 chains.append([])
             chains[box["chain"]].append((frame, box))
 
-    qualifying: dict[int, list[tuple[dict[str, Any], int]]] = defaultdict(list)
+    moving_chains: dict[int, list[tuple[int, dict[str, Any]]]] = {}
     for chain_index, chain in enumerate(chains):
         if len(chain) < LOCK_CHAIN_MINIMUM_BOXES:
             continue
@@ -91,6 +135,21 @@ def _lock_moving_yolo_chains(
             for (_, first_box), (_, second) in zip(chain, chain[1:])
         ]
         if max(steps) > LOCK_CHAIN_MAXIMUM_SINGLE_STEP_SHARE * sum(steps):
+            continue
+        moving_chains[chain_index] = chain
+    off_colour = (
+        _off_colour_chains(moving_chains, video, ball_colour_range)
+        if video is not None and ball_colour_range is not None and moving_chains
+        else set()
+    )
+    qualifying: dict[int, list[tuple[dict[str, Any], int]]] = defaultdict(list)
+    for chain_index, chain in moving_chains.items():
+        if chain_index in off_colour:
+            for frame, _ in chain:
+                if frame in ledger.entries and ledger.confirmed(frame) is None:
+                    ledger.reject(
+                        frame, LOCK_YOLO_CHAIN_MODULE, "chain_colour_differs_from_ball"
+                    )
             continue
         for frame, box in chain:
             qualifying[frame].append((box, chain_index))

@@ -316,3 +316,5 @@ baseline suites (`tests/test_possession.py`, `tests/test_match_state.py`,
 | 20261018T092725036Z | rules | opponent who keeps it won it | `tests/rules/test_chrono_turnover_straight_back_is_a_challenge_20261018T092725034Z.py::test_opponent_who_keeps_it_won_it_20261018T092725036Z` |
 | 20261018T103034156Z | rules | regression status follows golden matches | `tests/rules/test_regression_status_follows_golden_matches_20261018T103034156Z.py::test_regression_status_follows_golden_matches_20261018T103034156Z` |
 | 20261018T103034157Z | tracking | player tracks reuse fingerprint | `tests/tracking/test_player_tracks_reuse_20261018T103034157Z.py::test_player_tracks_reuse_fingerprint_20261018T103034157Z` |
+| 20261018T133958525Z | tracking | off colour moving chain is not locked | `tests/tracking/test_lock_chain_skips_off_colour_chain_20261018T133958525Z.py::test_off_colour_moving_chain_is_not_locked_20261018T133958525Z` |
+| 20261018T133958553Z | tracking | ball coloured moving chain is still locked | `tests/tracking/test_lock_chain_skips_off_colour_chain_20261018T133958525Z.py::test_ball_coloured_moving_chain_is_still_locked_20261018T133958553Z` |
