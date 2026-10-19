@@ -10359,21 +10359,35 @@ export function renderHtml({ adapter } = {}) {
             : batch.ballCheck
               ? (() => {
                 const check = batch.ballCheck;
+                // The saved round snapshot goes stale after any later ball
+                // run, so every "now" number comes from the live check.
                 const live = state.ballCheck || check;
-                const matchedNow = check.matched
-                  ?? check.correct + (live.accepted || 0);
+                const matchedNow = live.matched
+                  ?? live.correct + (live.accepted || 0);
                 const matchedBefore = check.before
                   ? check.before.matched
                     ?? check.before.correct + (live.accepted || 0)
                   : null;
-                const toDecide = (live.toDecide || check.left || []).length;
+                const beforeCorrect = batch.ballCheckBefore?.correctFrames;
+                const worse = state.ballCheck && Array.isArray(beforeCorrect)
+                  ? (live.left || []).filter(
+                    (frame) => beforeCorrect.includes(frame),
+                  )
+                  : check.worse || [];
+                const laterRun = Boolean(state.ballCheck)
+                  && matchedNow !== (check.matched
+                    ?? check.correct + (live.accepted || 0));
+                const toDecide = (live.toDecide || live.left || []).length;
                 const toFix = (live.toFix || []).length;
-                return "Round " + batch.number + " result · matched to engine "
+                return (laterRun
+                  ? "Latest ball run (since Round " + batch.number + ")"
+                  : "Round " + batch.number + " result")
+                  + " · matched to engine "
                   + (matchedBefore !== null ? matchedBefore + " → " : "")
-                  + matchedNow + "/" + check.scored + " · "
-                  + (check.worse?.length
-                    ? check.worse.length + " got WORSE (frames "
-                      + check.worse.join(", ") + ") · "
+                  + matchedNow + "/" + (live.scored ?? check.scored) + " · "
+                  + (worse.length
+                    ? worse.length + " got WORSE (frames "
+                      + worse.join(", ") + ") · "
                     : "none got worse · ")
                   + "you still need to decide " + toDecide
                   + " · not fixed yet by Copilot " + toFix + ". "
