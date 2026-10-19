@@ -1081,6 +1081,17 @@ def _track_cached_balls_impl(
         fps=manifest.fps,
         max_speed_pixels_per_second=max_speed_pixels_per_second,
     )
+    # Steady-course chains fill only gaps no other step could fill, so they
+    # run once every visual step has had its turn.
+    ledger = _timed_tracker_call(
+        "01_steady_course_chains",
+        _confirm_steady_course_chains,
+        ledger,
+        records_by_frame=records_by_frame,
+        fps=manifest.fps,
+        frame_step=frame_step,
+        max_speed_pixels_per_second=max_speed_pixels_per_second,
+    )
     ledger = _timed_tracker_call(
         OUT_OF_PLAY_MODULE,
         _mark_out_of_play,

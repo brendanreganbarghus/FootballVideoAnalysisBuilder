@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from .settings import *  # noqa: F401,F403
+from math import atan2, degrees
+
 from .dead_ball import departed_dead_ball
 
 
@@ -234,6 +236,210 @@ def _lock_moving_yolo_chains(
             confidence=box["confidence"],
             box_diagonal=box["diagonal"],
         )
+    return ledger
+
+
+# A fast ball blurs: YOLO then sees it only now and then, weakly, and its
+# blurred colour no longer looks like the ball, so single-frame checks drop
+# every box. Together the boxes still betray it: a ball keeps its course, so
+# its boxes line up in one direction at a steady speed. Inside a gap where no
+# ball is confirmed at all, such a chain is the ball when both confirmed ends
+# of the gap can reach it. Three boxes line up by chance in clutter; four on
+# one steady course do not. Fixed spots and a second competing chain in the
+# same gap leave the gap to later steps.
+STEADY_CHAIN_MINIMUM_BOXES = 4
+STEADY_CHAIN_MAXIMUM_SKIPPED_SAMPLES = 2
+STEADY_CHAIN_MINIMUM_SPEED_PIXELS_PER_SECOND = 150.0
+STEADY_CHAIN_MAXIMUM_TURN_DEGREES = 20.0
+STEADY_CHAIN_MAXIMUM_SPEED_RATIO = 2.0
+STEADY_CHAIN_STATIC_RADIUS_PIXELS = 12.0
+STEADY_CHAIN_STATIC_WINDOW_FRAMES = 250
+STEADY_CHAIN_STATIC_MINIMUM_SAMPLES = 12
+
+
+def _steady_course_chains(
+    boxes_by_frame: Mapping[int, list[dict[str, Any]]],
+    *,
+    fps: float,
+    frame_step: int,
+    max_speed_pixels_per_second: float,
+) -> list[list[dict[str, Any]]]:
+    minimum = STEADY_CHAIN_MINIMUM_SPEED_PIXELS_PER_SECOND / fps
+    maximum = max_speed_pixels_per_second / fps
+    reach = STEADY_CHAIN_MAXIMUM_SKIPPED_SAMPLES + 1
+    found: list[list[dict[str, Any]]] = []
+    for frame in sorted(boxes_by_frame):
+        for first in boxes_by_frame[frame]:
+            for samples in range(1, reach + 1):
+                for second in boxes_by_frame.get(frame + samples * frame_step, []):
+                    elapsed = second["frame"] - first["frame"]
+                    speed = hypot(second["x"] - first["x"], second["y"] - first["y"]) / elapsed
+                    if not minimum <= speed <= maximum:
+                        continue
+                    chain = [first, second]
+                    while True:
+                        before, last = chain[-2], chain[-1]
+                        span = last["frame"] - before["frame"]
+                        vx = (last["x"] - before["x"]) / span
+                        vy = (last["y"] - before["y"]) / span
+                        last_speed = hypot(vx, vy)
+                        best: tuple[float, dict[str, Any]] | None = None
+                        for ahead in range(1, reach + 1):
+                            for box in boxes_by_frame.get(last["frame"] + ahead * frame_step, []):
+                                elapsed = box["frame"] - last["frame"]
+                                nx = (box["x"] - last["x"]) / elapsed
+                                ny = (box["y"] - last["y"]) / elapsed
+                                next_speed = hypot(nx, ny)
+                                if not minimum <= next_speed <= maximum:
+                                    continue
+                                ratio = next_speed / last_speed
+                                if not (
+                                    1 / STEADY_CHAIN_MAXIMUM_SPEED_RATIO
+                                    <= ratio
+                                    <= STEADY_CHAIN_MAXIMUM_SPEED_RATIO
+                                ):
+                                    continue
+                                turn = abs(
+                                    degrees(atan2(vx * ny - vy * nx, vx * nx + vy * ny))
+                                )
+                                if turn > STEADY_CHAIN_MAXIMUM_TURN_DEGREES:
+                                    continue
+                                error = hypot(
+                                    box["x"] - (last["x"] + vx * elapsed),
+                                    box["y"] - (last["y"] + vy * elapsed),
+                                )
+                                if best is None or error < best[0]:
+                                    best = (error, box)
+                            if best is not None:
+                                break
+                        if best is None:
+                            break
+                        chain.append(best[1])
+                    if len(chain) >= STEADY_CHAIN_MINIMUM_BOXES:
+                        found.append(chain)
+    return found
+
+
+def _confirm_steady_course_chains(
+    ledger: FrameLedger,
+    *,
+    records_by_frame: Mapping[int, dict[str, Any]],
+    fps: float,
+    frame_step: int,
+    max_speed_pixels_per_second: float,
+) -> FrameLedger:
+    if fps <= 0 or frame_step < 1:
+        return ledger
+    boxes_by_frame: dict[int, list[dict[str, Any]]] = {}
+    for frame, record in records_by_frame.items():
+        if frame % frame_step:
+            continue
+        boxes = []
+        for detection in record.get("detections", []):
+            if detection.get("class_name") != "sports ball":
+                continue
+            confidence = float(detection.get("confidence", 0.0))
+            if confidence < LOCK_CHAIN_MINIMUM_CONFIDENCE:
+                continue
+            x1, y1 = float(detection["x1"]), float(detection["y1"])
+            x2, y2 = float(detection["x2"]), float(detection["y2"])
+            boxes.append(
+                {
+                    "frame": frame,
+                    "x": (x1 + x2) / 2,
+                    "y": (y1 + y2) / 2,
+                    "diagonal": hypot(x2 - x1, y2 - y1),
+                    "confidence": confidence,
+                }
+            )
+        boxes_by_frame[frame] = boxes
+
+    def fixed_spot(box: dict[str, Any]) -> bool:
+        seen = sum(
+            1
+            for frame, boxes in boxes_by_frame.items()
+            if abs(frame - box["frame"]) <= STEADY_CHAIN_STATIC_WINDOW_FRAMES
+            and any(
+                hypot(other["x"] - box["x"], other["y"] - box["y"])
+                < STEADY_CHAIN_STATIC_RADIUS_PIXELS
+                for other in boxes
+            )
+        )
+        return seen >= STEADY_CHAIN_STATIC_MINIMUM_SAMPLES
+
+    confirmed = sorted(
+        frame
+        for frame, entry in ledger.entries.items()
+        if entry.status == "confirmed" and entry.x is not None and entry.y is not None
+    )
+
+    def gap_ends(chain: list[dict[str, Any]]) -> tuple[int, int] | None:
+        first, last = chain[0]["frame"], chain[-1]["frame"]
+        before = [frame for frame in confirmed if frame < first]
+        after = [frame for frame in confirmed if frame > last]
+        if not before or not after:
+            return None
+        if any(first <= frame <= last for frame in confirmed):
+            return None
+        return before[-1], after[0]
+
+    qualifying: list[tuple[list[dict[str, Any]], tuple[int, int]]] = []
+    for chain in _steady_course_chains(
+        boxes_by_frame,
+        fps=fps,
+        frame_step=frame_step,
+        max_speed_pixels_per_second=max_speed_pixels_per_second,
+    ):
+        ends = gap_ends(chain)
+        if ends is None or any(box["frame"] not in ledger.entries for box in chain):
+            continue
+        reachable = all(
+            hypot(
+                box["x"] - float(ledger.entries[end].x),
+                box["y"] - float(ledger.entries[end].y),
+            )
+            <= max_speed_pixels_per_second * abs(box["frame"] - end) / fps
+            for box, end in ((chain[0], ends[0]), (chain[-1], ends[1]))
+        )
+        if not reachable or any(fixed_spot(box) for box in chain):
+            continue
+        qualifying.append((chain, ends))
+
+    # A chain found from a later start is part of a longer one; keep the
+    # longest. Two different chains in one gap leave the gap undecided.
+    members = [{id(box) for box in chain} for chain, _ in qualifying]
+    kept = [
+        (chain, ends)
+        for index, (chain, ends) in enumerate(qualifying)
+        if not any(
+            other != index and members[index] < members[other]
+            for other in range(len(qualifying))
+        )
+    ]
+    by_gap: dict[tuple[int, int], list[list[dict[str, Any]]]] = defaultdict(list)
+    for chain, ends in kept:
+        if chain not in by_gap[ends]:
+            by_gap[ends].append(chain)
+    for chains in by_gap.values():
+        if len(chains) != 1:
+            continue
+        chain = chains[0]
+        for box in chain:
+            ledger.confirm(
+                box["frame"],
+                x=box["x"],
+                y=box["y"],
+                confirming_module=CONFIRM_YOLO_MODULE,
+                evidence={
+                    "detector_confidence": box["confidence"],
+                    "steady_course_chain": True,
+                    "chain_boxes": len(chain),
+                    "chain_first_frame": chain[0]["frame"],
+                    "chain_last_frame": chain[-1]["frame"],
+                },
+                confidence=box["confidence"],
+                box_diagonal=box["diagonal"],
+            )
     return ledger
 
 
