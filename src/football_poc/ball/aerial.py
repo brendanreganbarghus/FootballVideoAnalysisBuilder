@@ -47,6 +47,13 @@ AERIAL_PROFILE = FrozenProfile({
     # two ends. A path further than this outside their sideways span or below
     # their line is a player's foot or shadow, not the ball.
     "flat_path_tolerance_pixels": 20.0,
+    # Gravity limits how high a ball can rise in its time in the air: a
+    # flight of T seconds peaks at most g*T*T/8 metres above its ends. The
+    # ball's own size at the ends converts metres to pixels; the allowance
+    # covers perspective and box-size noise.
+    "gravity_metres_per_second_squared": 9.81,
+    "ball_diameter_metres": 0.22,
+    "gravity_lift_allowance": 2.0,
     "person_minimum_confidence": 0.25,
     # Empty-pitch spots: a rolling background (median of nearby frames) is
     # subtracted so a ball that is standing still also leaves a spot. Only
@@ -624,6 +631,34 @@ def _aerial_rises_above_ground_line(s, e, inliers):
     return True
 
 
+def _aerial_lift_within_gravity(s, e, model, inliers, ball_pixels, fps):
+    """Whether the path's rise above the ends' line fits its time in the air."""
+    if ball_pixels <= 0.0 or fps <= 0.0:
+        return True
+    profile = AERIAL_PROFILE
+    (launch, *_), (landing, *_), _ = model
+    seconds = max(0, landing - launch) / fps
+    limit = (
+        float(profile["gravity_lift_allowance"])
+        * float(profile["gravity_metres_per_second_squared"])
+        * seconds
+        * seconds
+        / 8.0
+        * ball_pixels
+        / float(profile["ball_diameter_metres"])
+    )
+    tolerance = float(profile["flat_path_tolerance_pixels"])
+    (_, sx, sy), (_, ex, ey) = s, e
+    for x, y in inliers.values():
+        if abs(ex - sx) > tolerance:
+            line_y = sy + (ey - sy) * (x - sx) / (ex - sx)
+        else:
+            line_y = max(sy, ey)
+        if line_y - y > limit:
+            return False
+    return True
+
+
 def _read_gray_range(video: Path, start: int, end: int) -> dict[int, np.ndarray]:
     capture = cv2.VideoCapture(str(video))
     frames: dict[int, np.ndarray] = {}
@@ -668,7 +703,7 @@ def _confirm_aerial_flights(
         frame for frame in frames
         if entries[frame].status == "confirmed" and entries[frame].x is not None
     ]
-    plans: list[tuple[list[int], tuple, tuple, bool]] = []
+    plans: list[tuple[list[int], tuple, tuple, bool, float]] = []
     for left, right in zip(confirmed, confirmed[1:]):
         gap = [f for f in frames if left < f < right]
         if not gap or right - left < int(profile["minimum_gap_frames"]):
@@ -682,10 +717,18 @@ def _confirm_aerial_flights(
         travelled = hypot(e[1] - s[1], e[2] - s[2]) >= float(
             profile["minimum_end_to_end_pixels_per_frame"]
         ) * (right - left)
-        plans.append((gap, s, e, travelled))
+        diagonals = [
+            float(entries[end].box_diagonal)
+            for end in (left, right)
+            if float(entries[end].box_diagonal or 0.0) > 0.0
+        ]
+        ball_pixels = (
+            sum(diagonals) / len(diagonals) / hypot(1.0, 1.0) if diagonals else 0.0
+        )
+        plans.append((gap, s, e, travelled, ball_pixels))
 
     def search(plan):
-        _, s, e, travelled = plan
+        _, s, e, travelled, _ = plan
         if not travelled:
             return None
         left, right = s[0], e[0]
@@ -716,7 +759,7 @@ def _confirm_aerial_flights(
         if not profile["empty_pitch_spots"]
         else [search(plan) for plan in plans]
     )
-    for (gap, s, e, travelled), best in zip(plans, searches):
+    for (gap, s, e, travelled, ball_pixels), best in zip(plans, searches):
         left, right = s[0], e[0]
         if not travelled:
             for frame in gap:
@@ -730,6 +773,10 @@ def _confirm_aerial_flights(
         if not _aerial_rises_above_ground_line(s, e, inliers):
             for frame in gap:
                 ledger.reject(frame, AERIAL_MODULE, "aerial_path_not_above_ground_line")
+            continue
+        if not _aerial_lift_within_gravity(s, e, model, inliers, ball_pixels, fps):
+            for frame in gap:
+                ledger.reject(frame, AERIAL_MODULE, "aerial_lift_beyond_gravity")
             continue
         (launch, *_), (landing, *_), _ = model
         reach = int(profile["fill_reach_frames"])
@@ -1214,6 +1261,11 @@ def _aerial_track_position(track, frame):
     ), "aerial_flight_path"
 
 
+def _aerial_track_density(track):
+    """Share of the frames a flight spans on which its ball blob was seen."""
+    return min(1.0, len(track) / max(1, track[-1][0] - track[0][0] + 1))
+
+
 def _confirm_one_sided_aerial_flights(
     ledger: FrameLedger,
     *,
@@ -1290,10 +1342,12 @@ def _confirm_one_sided_aerial_flights(
         for frame in gap:
             if ledger.confirmed(frame) is not None:
                 continue
-            track = next(
-                (track for track in tracks if track[0][0] <= frame <= track[-1][0]),
-                None,
-            )
+            # When the forward and backward searches both cover a frame, the
+            # track seen on more of its frames is the better evidence.
+            covering = [
+                track for track in tracks if track[0][0] <= frame <= track[-1][0]
+            ]
+            track = max(covering, key=_aerial_track_density) if covering else None
             if track is None:
                 ledger.reject(frame, AERIAL_ONE_SIDED_MODULE, "aerial_frame_not_covered")
                 continue
@@ -1309,7 +1363,7 @@ def _confirm_one_sided_aerial_flights(
                     "gap": [left, right],
                     "kind": evidence,
                 },
-                confidence=min(1.0, len(track) / max(1, track[-1][0] - track[0][0] + 1)),
+                confidence=_aerial_track_density(track),
                 clip_seconds=float(record.get("clip_seconds", frame / fps)),
                 point_evidence=evidence,
                 point_source_attribution="motion_flight_path",

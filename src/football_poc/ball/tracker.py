@@ -329,9 +329,10 @@ def _withdraw_off_path_attention_fallbacks(ledger: FrameLedger, module: str) -> 
 # detector runs bracket it on both sides and it sits far off the straight path
 # between them, the boot moved and the ball did not, so the module takes it
 # back. The time machine then fills the frame from the detector sightings
-# instead of anchoring the gap on the boot.
+# instead of anchoring the gap on the boot. Other motion points beside it are
+# moving blobs too, so they cannot vouch for it: it is judged against its
+# nearest neighbours from other modules.
 MOTION_OFF_PATH_BRACKET_STEPS = 16
-MOTION_OFF_PATH_NEAR_TRUSTED_STEPS = 2
 
 
 def _off_path_error(point: BallPoint, previous: BallPoint, following: BallPoint) -> float:
@@ -362,8 +363,24 @@ def _withdraw_off_path_motion_points(
         point = points[index]
         if point.confirming_module != module:
             continue
-        previous = points[index - 1]
-        following = points[index + 1]
+        previous = next(
+            (
+                candidate
+                for candidate in reversed(points[:index])
+                if candidate.confirming_module != module
+            ),
+            None,
+        )
+        following = next(
+            (
+                candidate
+                for candidate in points[index + 1:]
+                if candidate.confirming_module != module
+            ),
+            None,
+        )
+        if previous is None or following is None:
+            continue
         span = following.source_frame - previous.source_frame
         if span <= 0 or span > maximum_span:
             continue
@@ -379,9 +396,9 @@ def _withdraw_off_path_motion_points(
             )
         ):
             # Another module's point next to the motion point does not hide
-            # the trusted path when a detector run sits within a few steps on
-            # each side; the point must then be off both paths.
-            near = MOTION_OFF_PATH_NEAR_TRUSTED_STEPS * frame_step
+            # the trusted path when a detector run sits within the bracket
+            # reach on each side; the point must then be off both paths.
+            near = maximum_span
             trusted_before = next(
                 (
                     candidate

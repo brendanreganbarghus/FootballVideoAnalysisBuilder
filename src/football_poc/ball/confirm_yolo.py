@@ -1067,6 +1067,11 @@ MOMENTUM_REVERSAL_LOOKAHEAD_SAMPLES = 3
 # feet without passing near them.
 FREE_COURSE_MAXIMUM_CONFIDENCE = 0.5
 FREE_COURSE_ANCHOR_SAMPLES = 2
+# A weak far pick needs a detection before and after it, each at most this many
+# samples away, with the pick within this share of one top-speed sample of the
+# straight course between them.
+COURSE_CHAIN_MAXIMUM_SAMPLES = 4
+COURSE_CHAIN_TOLERANCE_SAMPLE_SHARE = 0.25
 
 
 def _point_segment_distance(
@@ -1208,7 +1213,7 @@ def _withdraw_weak_long_unseen_jumps(
             fps=fps,
             frame_step=frame_step,
             max_speed_pixels_per_second=max_speed_pixels_per_second,
-        ) and not _moving_chain_supports(
+        ) and not _course_chain_supports(
             point,
             candidates_by_frame=candidates_by_frame,
             fps=fps,
@@ -1220,6 +1225,54 @@ def _withdraw_weak_long_unseen_jumps(
             )
             withdrawn.append(frame)
     return withdrawn
+
+
+def _course_chain_supports(
+    point: BallPoint,
+    *,
+    candidates_by_frame: dict[int, list[_BallCandidate]],
+    fps: float,
+    frame_step: int,
+    max_speed_pixels_per_second: float,
+) -> bool:
+    """Whether the detection lies on a steady course between a detection
+    before it and one after it. A ball travelling through unseen frames keeps
+    its course between sightings; clutter boxes that merely lie within top
+    speed of each other wander about instead."""
+    if fps <= 0 or frame_step < 1:
+        return False
+
+    def reachable(direction: int) -> list[tuple[int, BallPoint]]:
+        found = []
+        for samples in range(1, COURSE_CHAIN_MAXIMUM_SAMPLES + 1):
+            frame = point.source_frame + direction * samples * frame_step
+            reach = max_speed_pixels_per_second * samples * frame_step / fps
+            for candidate in candidates_by_frame.get(frame, []):
+                other = candidate.point
+                if (
+                    hypot(other.x - point.x, other.y - point.y) <= reach
+                    and _same_position_static_reason(
+                        other, candidates_by_frame=candidates_by_frame, fps=fps
+                    )
+                    is None
+                ):
+                    found.append((samples, other))
+        return found
+
+    tolerance = (
+        COURSE_CHAIN_TOLERANCE_SAMPLE_SHARE
+        * max_speed_pixels_per_second
+        * frame_step
+        / fps
+    )
+    for before_samples, before in reachable(-1):
+        for after_samples, after in reachable(1):
+            share = before_samples / (before_samples + after_samples)
+            expected_x = before.x + (after.x - before.x) * share
+            expected_y = before.y + (after.y - before.y) * share
+            if hypot(point.x - expected_x, point.y - expected_y) <= tolerance:
+                return True
+    return False
 
 
 def _reverses_confirmed_momentum_unsupported(

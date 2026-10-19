@@ -1416,7 +1416,8 @@ def test_motion_point_off_trusted_path_withdrawn_past_other_module_neighbour_202
     ball_tracking._withdraw_off_path_motion_points(ledger, "03_motion_and_optical_flow", 5)
     assert ledger.confirmed(20) is not None
 
-    # A trusted run more than two steps away is too loose a path: it stays.
+    # A trusted run further away within the bracket reach still shows the
+    # ball's path: off both paths, the boot is taken back.
     ledger = build(motion_y=300.0, flipbook_y=100.0, flipbook_frames=(25, 30))
     ball_tracking._withdraw_off_path_motion_points(ledger, "03_motion_and_optical_flow", 5)
-    assert ledger.confirmed(20) is not None
+    assert ledger.confirmed(20) is None
