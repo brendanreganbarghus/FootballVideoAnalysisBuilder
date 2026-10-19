@@ -57,10 +57,36 @@ const soccertrackReviewRoot = join(
   "benchmarks",
   "soccertrack-117093-preview",
 );
+// The host process keeps the environment it started with; when the share is
+// moved, read the current Windows user setting instead of a stale path.
+function currentUserEnvironment(name) {
+  if (process.platform !== "win32") return "";
+  try {
+    const output = execFileSync(
+      "reg",
+      ["query", "HKCU\\Environment", "/v", name],
+      {encoding: "utf8", windowsHide: true},
+    );
+    const match = output.match(/REG_(?:EXPAND_)?SZ\s+(.+)$/m);
+    return match ? match[1].trim() : "";
+  } catch {
+    return "";
+  }
+}
+
 const sharedArtifactRoot = (() => {
-  const configured = String(
+  let configured = String(
     process.env.FOOTBALL_ARTIFACT_ROOT || "",
   ).trim();
+  if (configured && !existsSync(configured)) {
+    const current = currentUserEnvironment("FOOTBALL_ARTIFACT_ROOT");
+    if (current && existsSync(current)) {
+      configured = current;
+      process.env.FOOTBALL_ARTIFACT_ROOT = current;
+      const pano = currentUserEnvironment("FOOTBALL_ALFHEIM_PANO");
+      if (pano) process.env.FOOTBALL_ALFHEIM_PANO = pano;
+    }
+  }
   if (configured) return resolve(configured);
   const oneDrive = String(
     process.env.ONEDRIVECOMMERCIAL || process.env.ONEDRIVE || "",
