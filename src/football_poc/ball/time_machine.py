@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from .settings import *  # noqa: F401,F403
 
+from math import atan2, degrees
+
 
 TIME_MACHINE_MODULE = "02_time_machine"
 
@@ -152,6 +154,91 @@ def _nearest_confirmed_entries(
     return previous, following
 
 
+# A gap too long for a straight-line fill may still follow a ball in flight:
+# when a gap end is moving fast and points along the line to the other end,
+# a curve that keeps each end's speed and direction follows the real flight.
+# An end that is moving fast in another direction means the ball changed
+# course inside the gap, so the gap stays unfilled.
+SPEED_CURVE_MAX_GAP_SECONDS = 3.5
+SPEED_CURVE_NEIGHBOUR_STEPS = 3
+SPEED_CURVE_MIN_END_SPEED = 300.0
+SPEED_CURVE_MAX_TURN_DEGREES = 30.0
+
+
+def _speed_curve_path(
+    anchors_by_frame: Mapping[int, Any],
+    previous: Any,
+    following: Any,
+    *,
+    fps: float,
+    frame_step: int,
+    max_speed_pixels_per_second: float,
+) -> dict[int, tuple[float, float]] | None:
+    if frame_step < 1 or fps <= 0:
+        return None
+    start, end = previous.source_frame, following.source_frame
+    duration = (end - start) / fps
+    if duration <= 0 or duration > SPEED_CURVE_MAX_GAP_SECONDS:
+        return None
+
+    def end_velocity(entry: Any, direction: int) -> tuple[float, float] | None:
+        for step in range(1, SPEED_CURVE_NEIGHBOUR_STEPS + 1):
+            other = anchors_by_frame.get(entry.source_frame + direction * step * frame_step)
+            if other is not None:
+                seconds = step * frame_step / fps
+                sign = 1.0 if direction < 0 else -1.0
+                return (
+                    sign * (float(entry.x) - float(other.x)) / seconds,
+                    sign * (float(entry.y) - float(other.y)) / seconds,
+                )
+        return None
+
+    start_velocity = end_velocity(previous, -1)
+    end_velocity_ = end_velocity(following, 1)
+    if start_velocity is None or end_velocity_ is None:
+        return None
+    chord = (
+        (float(following.x) - float(previous.x)) / duration,
+        (float(following.y) - float(previous.y)) / duration,
+    )
+    if hypot(*chord) < 1.0:
+        return None
+    fast = [
+        velocity
+        for velocity in (start_velocity, end_velocity_)
+        if hypot(*velocity) >= SPEED_CURVE_MIN_END_SPEED
+    ]
+    if not fast:
+        return None
+    chord_angle = atan2(chord[1], chord[0])
+    for velocity in fast:
+        turn = abs(degrees(atan2(velocity[1], velocity[0]) - chord_angle)) % 360
+        if min(turn, 360 - turn) > SPEED_CURVE_MAX_TURN_DEGREES:
+            return None
+    path: dict[int, tuple[float, float]] = {}
+    for frame in range(start, end + 1, frame_step):
+        t = (frame - start) / (end - start)
+        h00 = 2 * t**3 - 3 * t**2 + 1
+        h10 = t**3 - 2 * t**2 + t
+        h01 = -2 * t**3 + 3 * t**2
+        h11 = t**3 - t**2
+        path[frame] = (
+            h00 * float(previous.x) + h10 * duration * start_velocity[0]
+            + h01 * float(following.x) + h11 * duration * end_velocity_[0],
+            h00 * float(previous.y) + h10 * duration * start_velocity[1]
+            + h01 * float(following.y) + h11 * duration * end_velocity_[1],
+        )
+    frames = sorted(path)
+    step_seconds = frame_step / fps
+    for first, second in zip(frames, frames[1:]):
+        speed = hypot(
+            path[second][0] - path[first][0], path[second][1] - path[first][1]
+        ) / step_seconds
+        if speed > max_speed_pixels_per_second:
+            return None
+    return path
+
+
 def _uncertainty_radius(
     *,
     bounded: bool,
@@ -233,6 +320,22 @@ def _confirm_time_machine_estimates(
         if previous is not None and following is not None:
             gap_seconds = (following.source_frame - previous.source_frame) / fps
             bounded = bounded_gap(previous, following)
+            curve = (
+                None
+                if bounded
+                else _speed_curve_path(
+                    anchors_by_frame,
+                    previous,
+                    following,
+                    fps=fps,
+                    frame_step=frame_step,
+                    max_speed_pixels_per_second=max_speed_pixels_per_second,
+                )
+            )
+            if curve is not None and frame in curve:
+                bounded = True
+            else:
+                curve = None
             if not bounded and not place_possible_regions:
                 ledger.reject(frame, TIME_MACHINE_MODULE, "gap_too_long_to_estimate")
                 continue
@@ -242,6 +345,8 @@ def _confirm_time_machine_estimates(
             )
             x = float(previous.x) + (float(following.x) - float(previous.x)) * alpha
             y = float(previous.y) + (float(following.y) - float(previous.y)) * alpha
+            if curve is not None:
+                x, y = curve[frame]
             elapsed = min(
                 frame - previous.source_frame,
                 following.source_frame - frame,
@@ -276,7 +381,9 @@ def _confirm_time_machine_estimates(
                 confirming_module=TIME_MACHINE_MODULE,
                 evidence={
                     "mode": (
-                        "bounded_interpolation"
+                        "speed_curve_interpolation"
+                        if curve is not None
+                        else "bounded_interpolation"
                         if bounded
                         else "possible_region_interpolation"
                     ),

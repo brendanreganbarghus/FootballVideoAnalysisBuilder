@@ -340,3 +340,10 @@ baseline suites (`tests/test_possession.py`, `tests/test_match_state.py`,
 | 20261019T090138040Z | tracking | steady course of weak boxes fills gap | `tests/tracking/test_steady_course_chain_fills_empty_gap_20261019T090138040Z.py::test_steady_course_of_weak_boxes_fills_gap_20261019T090138040Z` |
 | 20261019T090138041Z | tracking | three boxes are not enough | `tests/tracking/test_steady_course_chain_fills_empty_gap_20261019T090138040Z.py::test_three_boxes_are_not_enough_20261019T090138041Z` |
 | 20261019T090138042Z | tracking | sharp turn breaks the course | `tests/tracking/test_steady_course_chain_fills_empty_gap_20261019T090138040Z.py::test_sharp_turn_breaks_the_course_20261019T090138042Z` |
+| 20261019T123500000Z | tracking | fast straight gap follows speed curve | `tests/tracking/test_fast_straight_gap_follows_speed_curve_20261019T123500000Z.py::test_fast_straight_gap_follows_speed_curve_20261019T123500000Z` |
+| 20261019T123500001Z | tracking | turned ball is not curve filled | `tests/tracking/test_fast_straight_gap_follows_speed_curve_20261019T123500000Z.py::test_turned_ball_is_not_curve_filled_20261019T123500001Z` |
+| 20261019T123500002Z | tracking | slow ball is not curve filled | `tests/tracking/test_fast_straight_gap_follows_speed_curve_20261019T123500000Z.py::test_slow_ball_is_not_curve_filled_20261019T123500002Z` |
+| 20261019T123500003Z | tracking | unchanged step is reused | `tests/tracking/test_step_replay_reuses_only_unchanged_steps_20261019T123500003Z.py::test_unchanged_step_is_reused_20261019T123500003Z` |
+| 20261019T123500004Z | tracking | changed input reruns step | `tests/tracking/test_step_replay_reuses_only_unchanged_steps_20261019T123500003Z.py::test_changed_input_reruns_step_20261019T123500004Z` |
+| 20261019T123500005Z | tracking | changed code reruns step | `tests/tracking/test_step_replay_reuses_only_unchanged_steps_20261019T123500003Z.py::test_changed_code_reruns_step_20261019T123500005Z` |
+| 20261019T123500006Z | tracking | scratch folder follows setting | `tests/tracking/test_step_replay_reuses_only_unchanged_steps_20261019T123500003Z.py::test_scratch_folder_follows_setting_20261019T123500006Z` |

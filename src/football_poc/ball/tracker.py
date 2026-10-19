@@ -16,6 +16,7 @@ def track_cached_balls(
     analysis_end_seconds: float | None = None,
     reuse_decoded_frame_cache: bool = False,
     pitch_calibration_path: Path | None = None,
+    step_replay: bool = False,
 ) -> Path:
     manifest = BenchmarkManifest.load(manifest_path)
     metadata, records = _load_cache(cache_path, manifest.sha256)
@@ -36,13 +37,21 @@ def track_cached_balls(
         ),
         output=output,
         reuse=reuse_decoded_frame_cache,
+        scratch=_ball_scratch_directory(output),
     )
-    global _ACTIVE_GRAYSCALE_FRAME_STORE
+    global _ACTIVE_GRAYSCALE_FRAME_STORE, _ACTIVE_STEP_REPLAY
     previous_store = _ACTIVE_GRAYSCALE_FRAME_STORE
+    previous_replay = _ACTIVE_STEP_REPLAY
+    replay = (
+        _StepReplay(_ball_scratch_directory(output) / "ball-step-replay")
+        if step_replay
+        else None
+    )
     succeeded = False
     try:
         frame_store.open()
         _ACTIVE_GRAYSCALE_FRAME_STORE = frame_store
+        _ACTIVE_STEP_REPLAY = replay
         result = _track_cached_balls_impl(
             manifest_path=manifest_path,
             cache_path=cache_path,
@@ -60,6 +69,9 @@ def track_cached_balls(
         return result
     finally:
         _ACTIVE_GRAYSCALE_FRAME_STORE = previous_store
+        _ACTIVE_STEP_REPLAY = previous_replay
+        if replay is not None:
+            frame_store.metrics["step_replay"] = replay.report()
         frame_store.close(delete_cache=succeeded)
 
 
@@ -815,14 +827,18 @@ def _track_cached_balls_impl(
         foot_supported_points=foot_supported_points,
     )
     frame_step = int(metadata["stride"])
-    motion_supported_tracks = _add_motion_supported_points(
+    motion_supported_tracks = _timed_tracker_call(
+        "prep_motion_supported_points",
+        _add_motion_supported_points,
         supported_tracks,
         video=manifest.video,
         fps=manifest.fps,
         frame_step=frame_step,
         maximum_gap_seconds=max_gap_seconds,
     )
-    temporally_supported_tracks = _add_template_supported_points(
+    temporally_supported_tracks = _timed_tracker_call(
+        "prep_template_supported_points",
+        _add_template_supported_points,
         motion_supported_tracks,
         video=manifest.video,
         fps=manifest.fps,
@@ -844,7 +860,9 @@ def _track_cached_balls_impl(
             for candidate in candidates
         )
     )
-    selected_tracks = _resolve_detector_conflicts_by_attention(
+    selected_tracks = _timed_tracker_call(
+        "prep_attention_conflicts",
+        _resolve_detector_conflicts_by_attention,
         selected_tracks,
         detector_candidates=filtered_candidate_objects,
         supported_foot_points=supported_foot_points,
@@ -873,8 +891,11 @@ def _track_cached_balls_impl(
         for point in track.points
         if point.source_attribution == "yolo26_observed"
     ]
-    learned_ball_colour_range = _learned_ball_colour_range(
-        selected_detector_points, manifest.video
+    learned_ball_colour_range = _timed_tracker_call(
+        "prep_selected_colour_range",
+        _learned_ball_colour_range,
+        selected_detector_points,
+        manifest.video,
     )
     ledger = _timed_tracker_call(
         LOCK_YOLO_CHAIN_MODULE,
@@ -953,7 +974,9 @@ def _track_cached_balls_impl(
         max_speed_pixels_per_second=max_speed_pixels_per_second,
         detector_candidates=filtered,
     )
-    focused_tracks = _recover_focused_multiscale_points(
+    focused_tracks = _timed_tracker_call(
+        "prep_focused_multiscale_points",
+        _recover_focused_multiscale_points,
         _single_track_from_ledger(ledger),
         records=records,
         video=manifest.video,
@@ -988,7 +1011,9 @@ def _track_cached_balls_impl(
             else None
         ),
     )
-    stationary_tracks = _add_short_stationary_template_recoveries(
+    stationary_tracks = _timed_tracker_call(
+        "prep_short_stationary_recoveries",
+        _add_short_stationary_template_recoveries,
         _single_track_from_ledger(ledger),
         video=manifest.video,
         fps=manifest.fps,
@@ -1044,7 +1069,9 @@ def _track_cached_balls_impl(
         fps=manifest.fps,
         max_speed_pixels_per_second=max_speed_pixels_per_second,
     )
-    learned_colour_range = _learned_ball_colour_range(
+    learned_colour_range = _timed_tracker_call(
+        "prep_all_colour_range",
+        _learned_ball_colour_range,
         [point for record in records for point in _ball_points(record)],
         manifest.video,
     )

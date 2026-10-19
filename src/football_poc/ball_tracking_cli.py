@@ -53,6 +53,14 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--step-replay",
+        action="store_true",
+        help=(
+            "Reuse saved tracker step results whose code and inputs are "
+            "unchanged (cached-rerun diagnostic, not a benchmark)."
+        ),
+    )
+    parser.add_argument(
         "--pitch-calibration",
         type=Path,
         default=None,
@@ -77,6 +85,7 @@ def main() -> None:
         analysis_end_seconds=args.analysis_end_seconds,
         reuse_decoded_frame_cache=args.reuse_decoded_frame_cache,
         pitch_calibration_path=args.pitch_calibration,
+        step_replay=args.step_replay,
     )
 
 

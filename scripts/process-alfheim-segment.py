@@ -868,7 +868,7 @@ def main() -> None:
                     "--pitch-calibration",
                     str(alfheim_config_path("pitch-calibration.json")),
                     *(
-                        ["--reuse-decoded-frame-cache"]
+                        ["--reuse-decoded-frame-cache", "--step-replay"]
                         if args.resume_after_detection
                         else []
                     ),

@@ -2,8 +2,11 @@ from __future__ import annotations
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import pickle
+import sys
 import threading
 import time
 from collections import Counter, defaultdict
@@ -60,9 +63,194 @@ def _ordered_parallel_map(function: Any, items: Iterable[Any]) -> list[Any]:
         return list(executor.map(function, items))
 
 
+def _ball_scratch_directory(output: Path) -> Path:
+    """Local folder for large temporary ball-tracking files.
+
+    FOOTBALL_LOCAL_SCRATCH keeps decoded frames and step-replay saves off a
+    synced share (for example OneDrive); without it they stay in ``output``.
+    """
+    root = os.environ.get("FOOTBALL_LOCAL_SCRATCH")
+    if not root:
+        return output
+    resolved = str(Path(output).resolve())
+    digest = hashlib.sha256(resolved.encode("utf-8")).hexdigest()[:16]
+    return Path(root) / "ball" / f"{Path(resolved).name}-{digest}"
+
+
+# Step replay is an explicit opt-in diagnostic for cached reruns. Each tracker
+# step's result is saved with a fingerprint of its code (every function it can
+# reach plus upper-case constants) and of its inputs. A later run reuses a
+# saved result only when both fingerprints are identical, so any code or
+# upstream change makes that step, and every step whose input then changes,
+# run again. A replayed run is never a raw-video processing benchmark.
+STEP_REPLAY_SCHEMA = 1
+_ACTIVE_STEP_REPLAY: "_StepReplay | None" = None
+
+
+def _replay_bytes(value: Any, seen: set[int] | None = None) -> bytes:
+    if seen is None:
+        seen = set()
+    if value is None or isinstance(value, (bool, int, str)):
+        return repr((type(value).__name__, value)).encode("utf-8")
+    if isinstance(value, float):
+        return b"f" + value.hex().encode("ascii")
+    if isinstance(value, bytes):
+        return b"b" + hashlib.sha256(value).digest()
+    if isinstance(value, Path):
+        try:
+            stat = value.stat()
+            identity = f"{value}|{stat.st_size}|{stat.st_mtime_ns}" if value.is_file() else str(value)
+        except OSError:
+            identity = str(value)
+        return b"p" + identity.encode("utf-8")
+    if isinstance(value, np.ndarray):
+        return (
+            b"a" + repr((value.shape, str(value.dtype))).encode("ascii")
+            + hashlib.sha256(np.ascontiguousarray(value).tobytes()).digest()
+        )
+    if isinstance(value, np.generic):
+        return _replay_bytes(value.item(), seen)
+    if id(value) in seen:
+        return b"cycle"
+    seen = seen | {id(value)}
+    if isinstance(value, Mapping):
+        items = sorted(
+            _replay_bytes(key, seen) + b"=" + _replay_bytes(item, seen)
+            for key, item in value.items()
+        )
+        return b"{" + b",".join(items) + b"}"
+    if isinstance(value, (set, frozenset)):
+        return b"s{" + b",".join(sorted(_replay_bytes(item, seen) for item in value)) + b"}"
+    if isinstance(value, (list, tuple)):
+        return b"[" + b",".join(_replay_bytes(item, seen) for item in value) + b"]"
+    if hasattr(value, "__dataclass_fields__"):
+        return type(value).__qualname__.encode("utf-8") + _replay_bytes(
+            {name: getattr(value, name) for name in value.__dataclass_fields__},
+            seen,
+        )
+    if hasattr(value, "__dict__") and not callable(value):
+        return type(value).__qualname__.encode("utf-8") + _replay_bytes(
+            vars(value), seen
+        )
+    return b"r" + type(value).__qualname__.encode("utf-8")
+
+
+def _replay_code_bytes(code: Any) -> bytes:
+    parts = [code.co_code, repr(code.co_names).encode("utf-8")]
+    for constant in code.co_consts:
+        if hasattr(constant, "co_code"):
+            parts.append(_replay_code_bytes(constant))
+        else:
+            parts.append(_replay_bytes(constant))
+    return b"|".join(parts)
+
+
+def _replay_code_names(code: Any) -> set[str]:
+    names = set(code.co_names)
+    for constant in code.co_consts:
+        if hasattr(constant, "co_code"):
+            names |= _replay_code_names(constant)
+    return names
+
+
+def _step_code_fingerprint(function: Any) -> str:
+    """Fingerprint a step's code and every function and constant it reaches."""
+    digest = hashlib.sha256()
+    pending = [function]
+    visited: set[int] = set()
+    constants: dict[str, bytes] = {}
+    while pending:
+        current = pending.pop()
+        if id(current) in visited:
+            continue
+        visited.add(id(current))
+        if isinstance(current, type):
+            for member in vars(current).values():
+                member = getattr(member, "__func__", member)
+                if hasattr(member, "__code__"):
+                    pending.append(member)
+            continue
+        code = getattr(current, "__code__", None)
+        if code is None:
+            continue
+        digest.update(getattr(current, "__qualname__", "").encode("utf-8"))
+        digest.update(_replay_code_bytes(code))
+        digest.update(_replay_bytes(getattr(current, "__defaults__", None)))
+        digest.update(_replay_bytes(getattr(current, "__kwdefaults__", None)))
+        namespace = getattr(current, "__globals__", {})
+        for name in _replay_code_names(code):
+            if name not in namespace:
+                continue
+            value = namespace[name]
+            if hasattr(value, "__code__") or (
+                isinstance(value, type)
+                and str(getattr(value, "__module__", "")).startswith("football_poc")
+            ):
+                pending.append(value)
+            elif name.isupper() and name not in constants:
+                constants[name] = _replay_bytes(value)
+    for name in sorted(constants):
+        digest.update(name.encode("utf-8") + b"=" + constants[name])
+    return digest.hexdigest()
+
+
+class _StepReplay:
+    def __init__(self, directory: Path) -> None:
+        self.directory = directory
+        self.counts: Counter[str] = Counter()
+        self.reused: list[str] = []
+        self.rerun: list[str] = []
+        self.environment = repr(
+            (STEP_REPLAY_SCHEMA, sys.version, np.__version__, cv2.__version__)
+        ).encode("utf-8")
+
+    def call(self, name: str, function: Any, args: tuple, kwargs: dict) -> Any:
+        self.counts[name] += 1
+        label = name if self.counts[name] == 1 else f"{name}#{self.counts[name]}"
+        safe = "".join(ch if ch.isalnum() or ch in "-_#" else "_" for ch in label)
+        path = self.directory / f"{safe}.pkl"
+        digest = hashlib.sha256(self.environment)
+        digest.update(_step_code_fingerprint(function).encode("ascii"))
+        digest.update(_replay_bytes((args, kwargs)))
+        key = digest.hexdigest()
+        if path.is_file():
+            try:
+                saved = pickle.loads(path.read_bytes())
+            except Exception:
+                saved = None
+            if isinstance(saved, dict) and saved.get("key") == key:
+                self.reused.append(label)
+                return saved["result"]
+        result = function(*args, **kwargs)
+        self.directory.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_suffix(".tmp")
+        temporary.write_bytes(
+            pickle.dumps({"key": key, "result": result}, protocol=pickle.HIGHEST_PROTOCOL)
+        )
+        temporary.replace(path)
+        self.rerun.append(label)
+        return result
+
+    def report(self) -> dict[str, Any]:
+        return {
+            "schema_version": STEP_REPLAY_SCHEMA,
+            "directory": str(self.directory),
+            "reused_steps": list(self.reused),
+            "rerun_steps": list(self.rerun),
+            "note": (
+                "Cached-rerun diagnostic: saved step results were reused only "
+                "where code and inputs were identical. Not a raw-video "
+                "processing benchmark."
+            ),
+        }
+
+
 def _timed_tracker_call(name: str, function: Any, /, *args: Any, **kwargs: Any):
     started = time.perf_counter()
-    result = function(*args, **kwargs)
+    if _ACTIVE_STEP_REPLAY is not None:
+        result = _ACTIVE_STEP_REPLAY.call(name, function, args, kwargs)
+    else:
+        result = function(*args, **kwargs)
     if _ACTIVE_GRAYSCALE_FRAME_STORE is not None:
         timings = _ACTIVE_GRAYSCALE_FRAME_STORE.metrics.setdefault(
             "substage_seconds",

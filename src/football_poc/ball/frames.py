@@ -596,14 +596,18 @@ class _SampledGrayscaleFrameStore:
         source_frames: list[int],
         output: Path,
         reuse: bool,
+        scratch: Path | None = None,
     ) -> None:
         self.video = video.resolve()
         self.source_frames = source_frames
         self.source_frame_set = frozenset(source_frames)
         self.output = output
         self.reuse = reuse
-        self.data_path = output / "decoded-sampled-grayscale-u8.dat"
-        self.metadata_path = output / "decoded-sampled-grayscale.json"
+        # Decoded frames are large temporary files, so they may live in a
+        # local scratch folder instead of a synced share.
+        self.scratch = scratch if scratch is not None else output
+        self.data_path = self.scratch / "decoded-sampled-grayscale-u8.dat"
+        self.metadata_path = self.scratch / "decoded-sampled-grayscale.json"
         self.metrics_path = output / "decode-cache-metrics.json"
         self.frame_indexes = {
             source_frame: index
@@ -639,6 +643,7 @@ class _SampledGrayscaleFrameStore:
         if not self.source_frames:
             return
         self.output.mkdir(parents=True, exist_ok=True)
+        self.scratch.mkdir(parents=True, exist_ok=True)
         capture = cv2.VideoCapture(str(self.video))
         self.metrics["video_opens"] += 1
         try:
