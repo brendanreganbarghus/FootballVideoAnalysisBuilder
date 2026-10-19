@@ -178,7 +178,9 @@ def _step_code_fingerprint(function: Any) -> str:
         digest.update(_replay_bytes(getattr(current, "__defaults__", None)))
         digest.update(_replay_bytes(getattr(current, "__kwdefaults__", None)))
         namespace = getattr(current, "__globals__", {})
-        for name in _replay_code_names(code):
+        # Sorted: set order changes per process (hash seed), which would
+        # change the visit order and so the fingerprint of identical code.
+        for name in sorted(_replay_code_names(code)):
             if name not in namespace:
                 continue
             value = namespace[name]
